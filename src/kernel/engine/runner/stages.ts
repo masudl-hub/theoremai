@@ -8,6 +8,8 @@ import {
   type StageCallBag,
   type StageContext,
   type StageHandler,
+  sanitizeInjects,
+  stageAllowsAffordance,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import type {
@@ -30,8 +32,6 @@ export interface ApplyTurnStageArgs extends StageCallBag {
   /** Another provider step would exceed maxSteps — reject inject. */
   injectWouldExceedMaxSteps?: boolean;
   host?: unknown;
-  /** `before_end`: the answer the model just wrote, which goes into turn history ahead of an inject. */
-  reply?: readonly TurnHistoryMessage[];
   /** Where that answer's text begins in the attempt's reply. */
   replyAt?: number;
 }
@@ -133,6 +133,34 @@ export function* applyStageInjects(
   return inject.length;
 }
 
+/**
+ * The steers waiting for this turn, sanitized, when `stage` takes an inject the turn can read.
+ * `waiting` is what the queue gave, to mark joined once `units` land.
+ */
+export function* steersToLand(
+  state: StepExecutionState,
+  profile: Profile,
+  stage: TurnStage,
+  injectWouldExceedMaxSteps: boolean | undefined,
+): Generator<TurnEvent, { waiting: readonly InjectUnit[]; units: InjectUnit[] } | undefined> {
+  const waiting = state.steers?.waiting() ?? [];
+  if (waiting.length === 0) return undefined;
+  if (!stageAllowsAffordance(stage, 'inject') || !profileAllowsInject(profile)) return undefined;
+  if (injectWouldExceedMaxSteps) return undefined;
+  const guarded = sanitizeInjects(waiting, profile.guardrails, state.trace.root);
+  let next = guarded.next();
+  while (!next.done) {
+    state.allEmittedEvents.push(next.value);
+    yield next.value;
+    next = guarded.next();
+  }
+  return { waiting, units: next.value };
+}
+
+/**
+ * Runs a turn stage: the host's handler, then the steers waiting for the turn. Both land together,
+ * the host's first; an abort lands neither.
+ */
 export async function* applyTurnStage(
   args: ApplyTurnStageArgs,
 ): AsyncGenerator<TurnEvent, ApplyTurnStageResult> {
@@ -140,6 +168,7 @@ export async function* applyTurnStage(
   throwIfAborted(call.signal);
   const run = runStage({
     ...call,
+    ...(reply ? { reply } : {}),
     history: state.currentHistory,
     handlers: onStage ? [onStage] : [],
     guardrails: profile.guardrails,
@@ -154,11 +183,13 @@ export async function* applyTurnStage(
     next = await run.next();
   }
   const out = next.value;
+  const steers = out.abort
+    ? undefined
+    : yield* steersToLand(state, profile, call.stage, call.injectWouldExceedMaxSteps);
+  const units = [...out.inject, ...(steers?.units ?? [])];
   // why: The model goes on after the inject, so it reads the answer it wrote before it.
-  if (reply && injectMessages(out.inject).length > 0) recordReply(state, reply, replyAt);
-  return {
-    abort: out.abort,
-    injectCount: yield* applyStageInjects(state, call.stage, out.inject),
-    warnings: out.warnings,
-  };
+  if (reply && injectMessages(units).length > 0) recordReply(state, reply, replyAt);
+  const injectCount = yield* applyStageInjects(state, call.stage, units);
+  if (steers) state.steers?.joined(steers.waiting);
+  return { abort: out.abort, injectCount, warnings: out.warnings };
 }

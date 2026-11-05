@@ -1,6 +1,6 @@
 import { assertEquals } from '@std/assert';
 import { ATTACHMENT_ACCEPT_MIMES, MEDIA_INPUT_KINDS } from '../../src/kernel/schema.ts';
-import { acceptSections, expandAccept, nextAccept } from '../../studio/mod.ts';
+import { acceptSections, canSize, expandAccept, keptLimits, nextAccept } from '../../studio/mod.ts';
 
 const sections = acceptSections(ATTACHMENT_ACCEPT_MIMES);
 const kinds = Object.fromEntries(sections.map((section) => [section.kind, section]));
@@ -68,4 +68,20 @@ Deno.test('a kind without a wildcard and an unknown type pass through', () => {
     pick(stored, (shown) => shown),
     stored,
   );
+});
+
+Deno.test('a family takes a size while any type in it is taken, a type only while it is', () => {
+  assertEquals(canSize('image/*', [png ?? ''], sections), true);
+  assertEquals(canSize('image/*', ['video/*'], sections), false);
+  assertEquals(canSize(png ?? '', ['image/*'], sections), true);
+  assertEquals(canSize(png ?? '', otherImages, sections), false);
+  assertEquals(canSize('text/x-unlisted', [], sections), true);
+});
+
+Deno.test('a size goes when its type or its whole family is no longer taken', () => {
+  const limits = { 'image/*': 500, [png ?? '']: 100, 'video/*': 900, 'text/x-unlisted': 7 };
+  const accept = pick(['image/*', 'video/*'], (shown) =>
+    shown.filter((mime) => mime !== png && !mime.startsWith('video/')),
+  );
+  assertEquals(keptLimits(limits, accept, sections), { 'image/*': 500, 'text/x-unlisted': 7 });
 });

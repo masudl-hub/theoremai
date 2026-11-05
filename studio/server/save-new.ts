@@ -409,16 +409,16 @@ class NewPlan {
   }
 
   private nowhere(registration: ToolRegistration) {
-    this.refuse('tool', registration.name, 'setup', this.ground.project.entry);
+    this.refuse('tool', registration.name, 'setup', this.ground.source.fileName);
   }
 
   /** Nothing can be placed: the setup does not show where it registers. */
   unplaced(): SavePlan {
-    const { entry } = this.ground.project;
-    for (const id of this.added.profiles) this.refuse('profile', id, 'setup', entry);
-    for (const tool of this.added.tools) this.refuse('tool', tool.name, 'setup', entry);
+    const { fileName } = this.ground.source;
+    for (const id of this.added.profiles) this.refuse('profile', id, 'setup', fileName);
+    for (const tool of this.added.tools) this.refuse('tool', tool.name, 'setup', fileName);
     for (const provider of this.added.providers)
-      this.refuse('provider', provider.id, 'setup', entry);
+      this.refuse('provider', provider.id, 'setup', fileName);
     return this.plan;
   }
 

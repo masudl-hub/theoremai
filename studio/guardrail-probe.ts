@@ -10,6 +10,7 @@
 import {
   type Profile,
   type ProfileDefinition,
+  type RegisteredProvider,
   TheoremError,
   type TraceRecord,
   type TurnEvent,
@@ -27,7 +28,12 @@ import {
   sanitizeTurnRequestWithEvents,
   TOOL_RULES,
 } from '@theoremjs/agents/guardrails';
-import { keySlotsOf, type ModelEvent, type ModelRequest } from '@theoremjs/agents/kernel';
+import {
+  ANSWER_TOOL,
+  keySlotsOf,
+  type ModelEvent,
+  type ModelRequest,
+} from '@theoremjs/agents/kernel';
 import { firstServed } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
@@ -36,6 +42,7 @@ import {
   type StudioDependency,
   writtenScope,
 } from './runtime-scope.ts';
+import { type JsonSchema, sampleFromJsonSchema } from './tool-schema.ts';
 
 /** Where a probe's text enters the turn. */
 export const PROBE_BOUNDARIES = [
@@ -44,6 +51,7 @@ export const PROBE_BOUNDARIES = [
   'system',
   'tool_result_local',
   'tool_result_remote',
+  'tool_failure',
   'tool_arguments',
   'reply',
   'thought',
@@ -52,12 +60,13 @@ export const PROBE_BOUNDARIES = [
 export type ProbeBoundary = (typeof PROBE_BOUNDARIES)[number];
 
 /** The kernel boundary a probe's text crosses. */
-const PROBE_READS: Record<ProbeBoundary, Boundary> = {
+export const PROBE_READS: Record<ProbeBoundary, Boundary> = {
   user: 'user',
   history: 'history',
   system: 'system',
   tool_result_local: 'tool_output_function',
   tool_result_remote: 'tool_output_agent',
+  tool_failure: 'tool_failure_function',
   tool_arguments: 'tool_arguments_function',
   reply: 'reply',
   thought: 'thought',
@@ -100,14 +109,21 @@ export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, ProbeBoundaryNote> = {
     label: 'Local tool result',
     note: 'What one of the host’s own functions returns.',
     when: 'When the tool returns, before the model reads the result.',
-    checks: 'Injection phrasing and sensitive data are replaced in the result the model reads.',
+    checks:
+      'Injection phrasing, orders to the agent and sensitive data are replaced in the result the model reads.',
   },
   tool_result_remote: {
     label: 'Remote tool result',
     note: 'What a tool returns from outside the host: a web page, an MCP server, another agent. It runs here as another agent’s reply, and the model then makes a destructive call.',
     when: 'When the tool returns, and again at each call the model makes after it.',
     checks:
-      'Replaced as a local result is, fenced as tool data, and read for instructions to the agent (a claim of authority, an order, a callable tool’s name), which tool_instructions reports by default. Every later call is reported, and refused where taint.afterRemoteRead says.',
+      'Replaced as a local result is, fenced as tool data, and read for orders to the agent (a claim of authority, an order, a callable tool’s name), which injection reports by default and which raise taint. Every later call is reported, and refused where taint.afterRemoteRead says.',
+  },
+  tool_failure: {
+    label: 'Tool error',
+    note: 'The message one of the host’s own functions fails with.',
+    when: 'When the tool fails, before the model reads the error.',
+    checks: 'Injection phrasing and sensitive data are replaced in the error the model reads.',
   },
   tool_arguments: {
     label: 'Tool arguments',
@@ -174,6 +190,7 @@ const LOCAL_TOOL = 'guardrail_probe_read';
 const REMOTE_TOOL = 'guardrail_probe_fetch';
 const SEND_TOOL = 'guardrail_probe_send';
 const ACT_TOOL = 'guardrail_probe_delete';
+const FAIL_TOOL = 'guardrail_probe_lookup';
 const REMOTE_AGENT = 'guardrail-probe.remote';
 /** The reply's deltas, in characters: short enough that a pattern spans several. */
 const REPLY_CHUNK = 7;
@@ -316,6 +333,7 @@ function probedDraft(
     probeTool(LOCAL_TOOL, 'read-only', { text }),
     probeTool(SEND_TOOL, 'read-write'),
     probeTool(ACT_TOOL, 'destructive'),
+    probeTool(FAIL_TOOL, 'read-only'),
     ...(live ? [] : [remoteTool()]),
   ];
   return {
@@ -333,6 +351,11 @@ function probedDraft(
     } as ProfileDefinition,
     customTools: [...customTools, ...tools],
     structured,
+    toolHandlers: {
+      [FAIL_TOOL]: () => {
+        throw new Error(text);
+      },
+    },
   };
 }
 
@@ -370,6 +393,8 @@ function script({ boundary, text }: GuardrailProbe): ModelEvent[][] {
   switch (boundary) {
     case 'tool_result_local':
       return [[call(LOCAL_TOOL, {})]];
+    case 'tool_failure':
+      return [[call(FAIL_TOOL, {})]];
     // The call after the read is the one `taint.afterRemoteRead` decides.
     case 'tool_result_remote':
       return [[call(REMOTE_TOOL, { text: 'read' })], [call(ACT_TOOL, {})]];
@@ -389,10 +414,16 @@ function scripted(steps: ModelEvent[][], seen: ModelRequest[]): TurnModel {
   return {
     async *complete(req) {
       seen.push(req);
-      const events = steps[step] ?? [{ type: 'text', text: 'ok' }];
+      const answer = req.wireTools?.find(({ name }) => name === ANSWER_TOOL);
+      const events = steps[step] ?? (answer ? [] : [{ type: 'text', text: 'ok' }]);
       step += 1;
       await Promise.resolve();
       yield* events;
+      // why: A structured turn with tools ends only on this call; a step that ends without one
+      // would fail the probe before its guardrails answer.
+      if (answer && !events.some(({ type }) => type === 'tool')) {
+        yield call(ANSWER_TOOL, sampleFromJsonSchema(answer.parameters as JsonSchema));
+      }
     },
   };
 }
@@ -418,6 +449,8 @@ function hostCall({ boundary, text }: GuardrailProbe): { name: string; input: un
       return { name: REMOTE_TOOL, input: { text: 'read' } };
     case 'tool_arguments':
       return { name: SEND_TOOL, input: { text } };
+    case 'tool_failure':
+      return { name: FAIL_TOOL, input: {} };
     default:
       return { name: LOCAL_TOOL, input: {} };
   }
@@ -641,6 +674,8 @@ function passed(
       return readBack(events, LOCAL_TOOL);
     case 'tool_result_remote':
       return readBack(events, REMOTE_TOOL);
+    case 'tool_failure':
+      return readBack(events, FAIL_TOOL);
     case 'tool_arguments':
       return readBack(events, SEND_TOOL) === undefined ? undefined : seenArguments(events);
     case 'reply':
@@ -723,7 +758,7 @@ const TYPE_BOUNDARIES: Partial<Record<ProfileDefinition['type'], readonly ProbeB
   // calls no tool and writes no reply.
   speech: ['user', 'history'],
   // A host runs tools and no model: only what crosses a tool is read.
-  host: ['tool_result_local', 'tool_result_remote', 'tool_arguments'],
+  host: ['tool_result_local', 'tool_result_remote', 'tool_failure', 'tool_arguments'],
   // A Live session reads what is typed into it, what it is seeded with, what its tools take and
   // return, and what it says. A remote tool's reply and a thought are not probed.
   live: ['user', 'history', 'system', 'tool_result_local', 'tool_arguments', 'reply'],
@@ -761,9 +796,17 @@ function probeStatus(guardrails: readonly GuardrailEvent[], refused: boolean): P
 function assertProbeable(
   profile: ProfileDefinition,
   probe: GuardrailProbe,
-): asserts profile is Exclude<ProfileDefinition, { type: 'decision' | 'embedding' }> {
+): asserts profile is Exclude<
+  ProfileDefinition,
+  { type: 'decision' | 'embedding' | 'transcription' }
+> {
   const refusal = probeRefusal(profile);
-  if (refusal || profile.type === 'decision' || profile.type === 'embedding') {
+  if (
+    refusal ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding' ||
+    profile.type === 'transcription'
+  ) {
     throw new TheoremError('request', refusal ?? ''); // labels-exempt: builder diagnostic
   }
   if (!probeBoundariesOf(profile).includes(probe.boundary)) {
@@ -782,7 +825,7 @@ function assertProbeable(
 function probeStream(run: {
   scope: Awaited<ReturnType<typeof writtenScope>>['scope'];
   profile: Profile;
-  type: ProfileDefinition['type'];
+  definition: ProfileDefinition;
   probe: GuardrailProbe;
   signal?: AbortSignal;
   onAgentCall: ReturnType<typeof agentCallHook>;
@@ -790,7 +833,7 @@ function probeStream(run: {
   sink: { write(record: TraceRecord): Promise<void> };
 }): AsyncGenerator<TurnEvent> {
   const { scope, profile, probe, signal, onAgentCall, sink } = run;
-  if (run.type === 'host' || run.type === 'live') {
+  if (run.definition.type === 'host' || run.definition.type === 'live') {
     return scope.invokeTool({ profile: profile.id, ...hostCall(probe), signal, onAgentCall }, sink);
   }
   return scope.runTurn(
@@ -829,17 +872,22 @@ export async function runGuardrailProbe(args: {
   customTools: readonly ToolRegistration[];
   structured?: StructuredRegistration;
   dependencies?: readonly StudioDependency[];
+  /** The project's own providers, which the draft's models may name. */
+  projectProviders?: readonly RegisteredProvider[];
   probe: GuardrailProbe;
   signal?: AbortSignal;
 }): Promise<GuardrailProbeResult> {
   const { probe } = args;
   const asked = args.profile;
   assertProbeable(asked, probe);
-  const { scope, profile } = await writtenScope([
-    ...(args.dependencies ?? []),
-    ...(asked.type === 'speech' || asked.type === 'live' ? [] : [remoteAgent(asked)]),
-    probedDraft(asked, args.customTools, args.structured, probe.text),
-  ]);
+  const { scope, profile } = await writtenScope(
+    [
+      ...(args.dependencies ?? []),
+      ...(asked.type === 'speech' || asked.type === 'live' ? [] : [remoteAgent(asked)]),
+      probedDraft(asked, args.customTools, args.structured, probe.text),
+    ],
+    args.projectProviders,
+  );
   if (!profile) throw new TheoremError('request', 'No agent to probe.'); // labels-exempt: builder diagnostic
 
   const seen: ModelRequest[] = [];
@@ -871,7 +919,7 @@ export async function runGuardrailProbe(args: {
       : probeStream({
           scope,
           profile,
-          type: asked.type,
+          definition: asked,
           probe,
           signal: args.signal,
           onAgentCall,

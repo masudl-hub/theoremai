@@ -15,6 +15,7 @@ import type { FunctionToolDef, ToolContext } from '../../src/kernel/tools/types.
 import type { Profile, TurnEvent } from '../../src/kernel/types.ts';
 import { readAt } from '../fixtures/detect.ts';
 import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 const KEY = TEST_OPENAI_KEY;
 const PLACEHOLDER = readAt(KEY, 'tool_shown_function', { credentials: 'redact' }).text ?? '';
@@ -40,12 +41,12 @@ function tool(handler: FunctionToolDef['handler'], labels?: Record<string, strin
   } as unknown as FunctionToolDef;
 }
 
-async function run(def: FunctionToolDef, detect?: DetectSpec) {
+async function run(def: FunctionToolDef, detect: DetectSpec = TAKE_OUT_INBOUND) {
   const profile = {
     id: 'tool-shown',
     type: 'text',
     tools: { allow: ['lookup'] },
-    ...(detect ? { guardrails: { detect } } : {}),
+    guardrails: { detect },
   } as unknown as Profile;
   const ctx = { profile, callId: base.callId } as ToolContext;
   const gen = executeFunction(defaultKernelScope.tools, def, {}, ctx, base);
@@ -63,7 +64,17 @@ function shownReports(events: readonly TurnEvent[]): string[] {
     .map(({ guardrail }) => guardrail.action);
 }
 
-Deno.test('a key a tool returns is redacted from what the person is shown, by default', async () => {
+Deno.test('a key a tool returns is flagged in what the person is shown, by default', async () => {
+  const { events } = await run(
+    tool(() => ({ body: `found ${KEY}` })),
+    {},
+  );
+  const [complete] = toolEventsOf(events, 'complete');
+  assertEquals(complete?.output, { body: `found ${KEY}` });
+  assertEquals(shownReports(events), ['flag']);
+});
+
+Deno.test('a key a tool returns is redacted from what the person is shown, when the profile takes it out', async () => {
   const { events, settlement } = await run(
     tool(() => ({ body: `found ${KEY}` }), { activityPast: 'Read {output.body}' }),
   );
@@ -79,7 +90,7 @@ Deno.test('what the model reads back is not changed by what the person is shown'
   const { events } = await run(
     tool(() => ({ body: `found ${KEY}` })),
     {
-      credentials: { at: { tool_output_function: 'ignore' } },
+      credentials: { at: { ...TAKE_OUT_INBOUND.credentials.at, tool_output_function: 'ignore' } },
     },
   );
   const [complete] = toolEventsOf(events, 'complete');

@@ -23,4 +23,20 @@ function toolSnapshotFromEvents(events: readonly TurnEvent[]): TurnToolSnapshot 
   return done?.type === 'done' ? done.tools : undefined;
 }
 
-export { promotedToolIdsFromEvents, toolSnapshotFromEvents };
+/** What a reply that goes on after a pause carries into its next run. */
+export type ReplyCarried = { promoted: ToolId[]; stepsTaken: number };
+
+/**
+ * What a paused reply holds: the tools on the list it paused with, those a call has loaded since,
+ * and the steps its last run counted.
+ */
+function replyCarriedFromEvents(events: readonly TurnEvent[]): ReplyCarried {
+  const visible = toolSnapshotFromEvents(events)?.visible ?? [];
+  const done = findLast(events, (event) => event.type === 'done' && event.steps !== undefined);
+  return {
+    promoted: [...new Set([...visible, ...promotedToolIdsFromEvents(events)])],
+    stepsTaken: done?.type === 'done' ? (done.steps ?? 0) : 0,
+  };
+}
+
+export { promotedToolIdsFromEvents, replyCarriedFromEvents, toolSnapshotFromEvents };

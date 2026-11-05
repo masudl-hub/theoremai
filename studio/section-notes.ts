@@ -1,3 +1,19 @@
+/** What a section's title says on hover, where no one catalog field describes the section. */
+const SECTION_HINTS = {
+  profile: 'What this profile is called, and what kind it is.',
+  system: 'What the model is told, and the options that decide which lines go out.',
+  modelPolicy: 'Which model runs by default, and whether it can be switched.',
+  generation: 'How this model writes its reply.',
+  limits: 'What a message may carry.',
+  patterns: 'Where this detector gets its patterns.',
+  allow: 'What this detector lets pass.',
+  detector: 'The detector you define: what it is called and its key.',
+  contract: 'What this tool takes and returns.',
+  agent: 'The agent this tool runs.',
+  toolPolicy: 'Who can call this tool, and whether it asks first.',
+  connection: 'How the studio reaches this provider.',
+} as const;
+
 /**
  * What a section of the studio's profile editor says that the catalog doc
  * of the field it edits does not: how the editor works, and what the
@@ -7,7 +23,6 @@ const SECTION_NOTES = {
   models: 'Add a model here, then select its binding in the tree to configure it.',
   'models.decision': 'A decision uses one model. Select its binding in the tree to configure it.',
   decisionModel: 'This binding answers the questions configured under Decision.',
-  slots: "Each slot's picker sets what the preview sends. It is not saved in the profile.",
   context: 'Preview is what the studio sends as the page. It is not saved in the profile.',
   compaction: "The studio's chat compacts only before a turn.",
   quota: 'Studio runs are not counted.',
@@ -40,4 +55,4 @@ function sectionNote(
   return note;
 }
 
-export { sectionNote };
+export { SECTION_HINTS, sectionNote };

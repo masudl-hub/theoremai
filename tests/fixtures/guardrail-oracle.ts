@@ -9,6 +9,7 @@ import {
   scanTextForCanaryLeak,
   sensitiveSpans,
 } from '../../src/guardrails/mod.ts';
+import { WORKING_GROUPS } from '../../src/guardrails/sensitive-groups.ts';
 import type { LiveAttack } from '../../src/guardrails/testing.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../../src/kernel/types.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
@@ -73,8 +74,12 @@ export function leaksIn(
       (canary) => wire.includes(canary) || scanTextForCanaryLeak(shown, canary),
     ),
     // Thoughts are not checked for sensitive spans, only for what they would load or mark.
+    // An email, phone, or account number is flagged, never taken out, so showing one is no miss.
     sensitive:
-      sensitiveSpans(shownText(events, ['text', 'transcript']), { network: false }).length > 0,
+      sensitiveSpans(shownText(events, ['text', 'transcript']), {
+        network: false,
+        ...Object.fromEntries(WORKING_GROUPS.map((group) => [group, false])),
+      }).length > 0,
     forbidden: forbidden.some((re) => re.test(shown) || re.test(wire)),
   };
 }
@@ -83,7 +88,7 @@ function serializedInbound(req: TurnRequest, profile: Profile): string {
   const safe = sanitizeTurnRequest(req, profile);
   const parts: string[] = [];
   if (safe.input?.text) parts.push(safe.input.text);
-  if (safe.input?.slots) parts.push(JSON.stringify(safe.input.slots));
+  if (safe.input?.options) parts.push(JSON.stringify(safe.input.options));
   if (safe.input?.history) parts.push(JSON.stringify(safe.input.history));
   return parts.join('\n');
 }
@@ -93,7 +98,7 @@ export function inboundMisses(attack: LiveAttack, profile: Profile): string[] {
   const input = attack.request.input;
   const raw = [
     input?.text ?? '',
-    JSON.stringify(input?.slots ?? {}),
+    JSON.stringify(input?.options ?? {}),
     JSON.stringify(input?.history ?? []),
   ].join('\n');
   const sanitized = serializedInbound(attack.request, profile);

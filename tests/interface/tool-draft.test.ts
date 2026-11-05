@@ -90,3 +90,27 @@ Deno.test('parallel drafts keep their order once whole', () => {
     ['tool-o1', 'tool-o2'],
   );
 });
+
+Deno.test('the media a tool returns stands where the call ran, before what comes next', () => {
+  const tool = { name: 'draw', callId: 'call_1', arguments: {}, at: 1 };
+  const parts = [
+    { type: 'text' as const, text: 'Not shown.' },
+    { type: 'image' as const, mimeType: 'image/png', data: 'AAAA' },
+    { type: 'image' as const, mimeType: 'image/png', uri: 'gs://bucket/two.png' },
+  ];
+  const blocks = foldTurnEvents([
+    { type: 'text', text: 'Drawing.' },
+    { type: 'tool', tool },
+    { type: 'tool', tool: { ...tool, phase: 'complete', output: {}, parts } },
+    { type: 'text', text: 'There it is.' },
+  ] as TurnEvent[]);
+  assertEquals(
+    blocks.map((block) => block.kind),
+    ['text', 'tool', 'media', 'media', 'text'],
+  );
+  const media = blocks.filter((block) => block.kind === 'media');
+  assertEquals(
+    media.map((block) => block.data ?? block.url),
+    ['AAAA', 'gs://bucket/two.png'],
+  );
+});

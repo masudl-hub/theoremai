@@ -26,6 +26,8 @@ export function fieldStart(
   };
 }
 
+const clamp = (value: number, most: number) => Math.min(Math.max(value, 0), Math.max(most, 0));
+
 /**
  * Scroll the box around `field` to `at`, once it can: a field that is still opening has no box that
  * scrolls yet, so it tries again each frame until the scroll lands. Returns what stops the tries.
@@ -40,7 +42,10 @@ export function scrollOnce(
     tries -= 1;
     const scroller = scrollerOf(field);
     if (scroller && scroller.scrollWidth > scroller.clientWidth) {
-      const { left, top } = at(scroller);
+      const wanted = at(scroller);
+      // A place past either end lands at that end.
+      const left = clamp(wanted.left, scroller.scrollWidth - scroller.clientWidth);
+      const top = clamp(wanted.top, scroller.scrollHeight - scroller.clientHeight);
       scroller.scrollTo({ left, top, behavior: 'instant' });
       if (Math.abs(scroller.scrollLeft - left) < 1 && Math.abs(scroller.scrollTop - top) < 1)
         return;

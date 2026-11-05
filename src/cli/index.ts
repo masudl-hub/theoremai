@@ -6,7 +6,8 @@
  * @module
  */
 
-import { argv, exit } from 'node:process';
+import { argv, cwd, exit } from 'node:process';
+import type { TurnWiring } from '../kernel/types.ts';
 import { benchCommand } from './commands/bench.ts';
 import { detectCompileCommand } from './commands/detect-compile.ts';
 import { evalCommand } from './commands/eval.ts';
@@ -14,7 +15,11 @@ import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
 import { listProfilesCommand, showProfileCommand } from './commands/profile.ts';
 import { runCommand } from './commands/run.ts';
+import { studioCommand } from './commands/studio.ts';
 import { testProfileCommand } from './commands/test.ts';
+import { loadSetup } from './setup.ts';
+
+export { type LoadedSetup, loadSetup } from './setup.ts';
 
 function printHelp(): void {
   console.log(`
@@ -46,6 +51,7 @@ COMMANDS:
   fuzz-canary          Adversarial canary egress fuzzer (stream + Live gates)
 
   run                  Execute a turn with real-time streaming output
+    --setup <file>     Register, run on and prepare turns with the wiring your setup file names
     --profile, -p <id> Target profile ID
     --prompt <text>    User prompt string
     --mode <fast|smart> Reasoning mode
@@ -55,7 +61,12 @@ COMMANDS:
     --trace            Capture a TraceRecord and print it after the turn
     --trace-dir <path> Also append trace JSONL under this directory
 
+  studio [args]        Run the studio this project installed (@theoremjs/studio), with its arguments
+    status [setup]     What the open studio loaded, what its keys said, what to look at
+    errors [setup]     What the open studio told the terminal; --follow keeps printing
+
   test                 Run stress matrix or custom profile tests
+    --setup <file>     Register, run on and prepare turns with the wiring your setup file names
     --profile, -p <id> Target profile ID registered by your host app
     --all, -a          Test all registered profiles
     --lite             Minimal fast-path connectivity ping
@@ -68,6 +79,7 @@ COMMANDS:
     --trace-dir <path> Also append trace JSONL under this directory
 
   profile              Inspect registered profile blueprints
+    --setup <file>     Register the profiles your setup file's wiring registers first
     list               List all registered profiles
     show <id>          Show detailed JSON profile specification
 
@@ -154,10 +166,30 @@ function extractProfileId(flags: ParsedFlags): string | undefined {
   return undefined;
 }
 
+/** The `--setup` file's wiring, registered; nothing without the flag; exits 1 when it fails. */
+async function setupWiring(flags: ParsedFlags): Promise<TurnWiring> {
+  if (flags.setup === undefined) return {};
+  if (typeof flags.setup !== 'string') {
+    console.error('Error: --setup needs a path (e.g. `--setup studio.setup.ts`)');
+    exit(1);
+  }
+  try {
+    const { theorem } = await loadSetup(flags.setup);
+    await theorem.register?.();
+    return theorem;
+  } catch (err) {
+    console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    exit(1);
+  }
+}
+
 async function handleTest(flags: ParsedFlags): Promise<void> {
   const profile = extractProfileId(flags);
   const diagnostics = cliDiagnostics(flags);
+  const wiring = await setupWiring(flags);
   const success = await testProfileCommand(profile, {
+    provider: wiring.provider,
+    prepare: wiring.prepare,
     all: Boolean(flags.all || flags.a),
     lite: Boolean(flags.lite),
     matrix: Boolean(flags.matrix),
@@ -181,9 +213,12 @@ async function handleRun(flags: ParsedFlags): Promise<void> {
   }
   const prompt = typeof flags.prompt === 'string' ? flags.prompt : flags._.slice(1).join(' ');
   const diagnostics = cliDiagnostics(flags);
-  await runCommand({
+  const wiring = await setupWiring(flags);
+  const ok = await runCommand({
     profile,
     prompt,
+    provider: wiring.provider,
+    prepare: wiring.prepare,
     mode: typeof flags.mode === 'string' ? flags.mode : undefined,
     search: Boolean(flags.search),
     map: Boolean(flags.map),
@@ -191,6 +226,9 @@ async function handleRun(flags: ParsedFlags): Promise<void> {
     trace: diagnostics.trace,
     traceDir: diagnostics.traceDir,
   });
+  if (!ok) {
+    exit(1);
+  }
 }
 
 function numberFlag(flags: ParsedFlags, key: string): number | undefined {
@@ -218,7 +256,8 @@ async function handleEval(flags: ParsedFlags): Promise<void> {
   }
 }
 
-function handleProfile(flags: ParsedFlags): void {
+async function handleProfile(flags: ParsedFlags): Promise<void> {
+  await setupWiring(flags);
   const sub = flags._[1] || 'list';
   if (sub === 'list') {
     listProfilesCommand();
@@ -255,6 +294,10 @@ async function handleDetectCompile(flags: ParsedFlags): Promise<void> {
 
 /** Unknown or omitted commands print help; a command that cannot continue exits 1. */
 export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
+  // why: the studio parses its own arguments, so they go to it as they were given.
+  if (cliArgs[0] === 'studio') {
+    exit(await studioCommand(cliArgs.slice(1), cwd()));
+  }
   const flags = parseFlags(cliArgs);
   const command = flags._[0] || (flags.help ? 'help' : 'help');
 
@@ -283,7 +326,7 @@ export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
   } else if (command === 'eval') {
     await handleEval(flags);
   } else if (command === 'profile') {
-    handleProfile(flags);
+    await handleProfile(flags);
   } else {
     printHelp();
   }

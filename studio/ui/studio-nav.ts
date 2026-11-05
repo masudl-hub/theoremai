@@ -14,8 +14,8 @@ export const SITE_PAGES = [
 export function packageLinks(name: string, repository: string) {
   return [
     { label: 'GitHub', href: repository },
-    { label: 'JSR', href: `https://jsr.io/${name}` },
     { label: 'npm', href: `https://www.npmjs.com/package/${encodeURIComponent(name)}` },
+    { label: 'JSR', href: `https://jsr.io/${name}` },
   ] as const;
 }
 

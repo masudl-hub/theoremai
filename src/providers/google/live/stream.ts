@@ -60,6 +60,14 @@ export function goAwayIn(events: readonly ModelEvent[]): { timeLeftMs?: number }
  * open across `turnComplete` (background reasoning or async tools may still
  * produce output). Without it, `turnComplete` is the boundary.
  */
+/** A server message that says only `interactionStatus: IDLE`. */
+export function isBareIdle(message: Record<string, unknown>): boolean {
+  return (
+    readLiveInteractionStatus(message) === 'IDLE' &&
+    Object.keys(asRecord(message.serverContent) ?? {}).length === 1
+  );
+}
+
 export function turnPhaseFromMessage(
   message: Record<string, unknown>,
   events: ModelEvent[],

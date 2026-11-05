@@ -1,32 +1,34 @@
 import {
-  clearStaleStudioRuns,
-  createExampleDraft,
+  createResearchWorkspace,
   type StudioDraft,
+  type StudioWorkspace,
   workspaceFromDraft,
 } from '../../mod.ts';
 import type { ReadStep } from '../../read-steps.ts';
 import type { StudioOpened } from '../studio-host.ts';
 import { openProject, type ProjectSession } from './studio-project.ts';
 import { editsAside, restoreProject, restoreStudio } from './studio-restore.ts';
-import { projectKey } from './studio-session.ts';
+import { projectKey, tabStorage } from './studio-session.ts';
 
 /**
  * What the studio opens on in this tab. Draft keys are random, so this runs in the browser. The
  * tab's kept workspace comes back unless a `seed` asks for another; then it waits behind Undo.
  */
-export function openStudio(seed?: {
-  draft: StudioDraft;
-  question: string | undefined;
-}): StudioOpened {
-  clearStaleStudioRuns();
+export async function openStudio(
+  seed?:
+    | { draft: StudioDraft; question: string | undefined }
+    | { workspace: StudioWorkspace; question: string | undefined },
+): Promise<StudioOpened> {
+  await tabStorage();
   const kept = restoreStudio();
-  const fresh = (draft: StudioDraft) => ({
-    workspace: workspaceFromDraft(draft),
+  const freshWorkspace = (workspace: StudioWorkspace) => ({
+    workspace,
     revision: kept.kind === 'restored' ? kept.value.revision + 1 : 0,
   });
   if (seed) {
+    const workspace = 'workspace' in seed ? seed.workspace : workspaceFromDraft(seed.draft);
     return {
-      start: fresh(seed.draft),
+      start: freshWorkspace(workspace),
       question: seed.question,
       displaced: kept.kind === 'restored' ? kept.value.workspace : undefined,
       discarded: kept.kind === 'discarded',
@@ -35,7 +37,7 @@ export function openStudio(seed?: {
   if (kept.kind === 'restored')
     return { start: kept.value, question: undefined, displaced: undefined, discarded: false };
   return {
-    start: fresh(createExampleDraft()),
+    start: freshWorkspace(createResearchWorkspace()),
     question: undefined,
     displaced: undefined,
     discarded: kept.kind === 'discarded',
@@ -52,7 +54,7 @@ export function openStudio(seed?: {
 export async function openStudioProject(
   said?: (step: ReadStep) => void,
 ): Promise<StudioOpened & { project: ProjectSession }> {
-  const { project, workspace } = await openProject(said);
+  const [{ project, workspace }] = await Promise.all([openProject(said), tabStorage()]);
   const key = projectKey(project.name);
   const kept = restoreProject(key, workspace, project.print);
   return {

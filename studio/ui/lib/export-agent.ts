@@ -7,9 +7,11 @@ import {
   type SourceFile,
   workspaceSource,
 } from '../../mod.ts';
+import { runsAsConversation } from './conversation-types.ts';
 
 const PACKAGES = [
   '@theoremjs/agents',
+  '@theoremjs/web',
   '@theoremjs/react',
   'zod',
   'react',
@@ -33,9 +35,8 @@ const HOST_ENDPOINT = '/api/host';
 const EMBEDDING_ENDPOINT = '/api/embedding';
 
 /** Turn profiles run through `createTheoremHandler`; live profiles run through a relay. */
-const NOT_TURNS = new Set(['live', 'decision', 'host', 'embedding']);
 function servesTurns({ profile }: CompiledStudio): boolean {
-  return !NOT_TURNS.has(profile.type);
+  return runsAsConversation(profile.type);
 }
 
 /** The `keySlot` and `fallbackKeySlot` an object names, when they are strings. */
@@ -99,7 +100,7 @@ function serverFile(
   return {
     path: 'route.ts',
     code: `${[
-      `import { ${factory} } from '@theoremjs/react/server';`,
+      `import { ${factory} } from '@theoremjs/web/server';`,
       "import './theorem';",
       `import { ${moduleNames(agent).join(', ')} } from '${module}';`,
       '',
@@ -144,12 +145,15 @@ function browserFile(
   };
 }
 
-/** What the agent takes from its page and its server: `inputs.slots` and `inputs.context`. */
+/** What the agent takes from its page and its server: `inputs.options` and `inputs.context`. */
 function pageInputs({ profile }: CompiledStudio) {
   const inputs = 'inputs' in profile ? profile.inputs : undefined;
-  const slots: Record<string, string[]> = inputs && 'slots' in inputs ? (inputs.slots ?? {}) : {};
+  const declared = inputs && 'options' in inputs ? (inputs.options ?? {}) : {};
+  const options = Object.entries(declared).map(
+    ([name, decl]) => [name, decl.choices.map(({ value }) => value)] as const,
+  );
   const context = inputs && 'context' in inputs ? inputs.context : undefined;
-  return { slots: Object.entries(slots), from: context?.from ?? [] };
+  return { options, from: context?.from ?? [] };
 }
 
 /** The chat's prop for the tools this page answers: a function per tool, returning its output. */
@@ -166,15 +170,15 @@ function pageToolsProp(agent: CompiledStudio): string[] {
   ];
 }
 
-/** The chat's props for what the page supplies: a value per slot, and its context. */
+/** The chat's props for what the page supplies: a value per option, and its context. */
 function pageProps(agent: CompiledStudio): string[] {
-  const { slots, from } = pageInputs(agent);
-  const picked = slots.map(
+  const { options, from } = pageInputs(agent);
+  const picked = options.map(
     ([name, allowed]) => `${JSON.stringify(name)}: ${JSON.stringify(allowed.at(0) ?? '')}`,
   );
   return [
-    ...slots.map(([name, allowed]) => `// ${name}: ${allowed.join(' | ')}`),
-    ...(slots.length > 0 ? [`slots={{ ${picked.join(', ')} }}`] : []),
+    ...options.map(([name, allowed]) => `// ${name}: ${allowed.join(' | ')}`),
+    ...(options.length > 0 ? [`options={{ ${picked.join(', ')} }}`] : []),
     ...(from.includes('client')
       ? ['// What this page tells the agent: any JSON.', 'context={{}}']
       : []),
@@ -441,7 +445,7 @@ ${
   turns
     ? `Install only what my answer about the UI needs:
 - No UI: \`npm install @theoremjs/agents zod\`
-- My own UI: \`npm install @theoremjs/agents @theoremjs/react zod react react-dom\`
+- My own UI: \`npm install @theoremjs/agents @theoremjs/web @theoremjs/react zod react react-dom\`
 - The package-prepared user interface: \`${INSTALL}\``
     : `\`\`\`bash
 ${INSTALL}

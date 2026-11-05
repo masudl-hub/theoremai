@@ -10,6 +10,7 @@ import {
   registerProfile,
   registerProfiles,
   registerTool,
+  registerTools,
   resolveTurn,
   runSession,
 } from '../../src/kernel/default-scope.ts';
@@ -18,7 +19,7 @@ import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/r
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelBinding, TurnModel } from '../../src/kernel/types.ts';
-import { googleEfforts, registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS, googleEfforts } from '../../studio/cookbooks/providers.ts';
 import {
   geminiModels,
   HOST_BINDINGS,
@@ -28,7 +29,7 @@ import {
 import { createTestKernelScope } from '../fixtures/provider-scope.ts';
 import { runTurn } from '../fixtures/registered-runner.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 Deno.test('googleEfforts passes the levels Gemini takes and refuses the rest when the binding is built', () => {
   const efforts = { quick: 'low', deep: 'high' } as const;
   assertEquals(googleEfforts(efforts), efforts);
@@ -651,11 +652,11 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
     "type 'decision' runs through runDecision",
   );
 });
-Deno.test('a slot-mapped structured output reads a declared slot and maps its choices', () => {
+Deno.test('an option-mapped structured output reads a declared option and maps its choices', () => {
   const base = {
     type: 'text' as const,
-    id: 'slot_mapped',
-    identity: { handle: 'Slot mapped' },
+    id: 'option_mapped',
+    identity: { handle: 'Option mapped' },
     ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] as string[] },
   };
@@ -663,24 +664,43 @@ Deno.test('a slot-mapped structured output reads a declared slot and maps its ch
   assertThrows(
     () => defineProfile({ ...base, inputs: { text: true }, outputs: { structured } }),
     TheoremError,
-    "outputs.structured.by 'language' is not a slot in inputs.slots",
+    "outputs.structured.by 'language' is not one of the profile's options",
   );
   assertThrows(
     () =>
       defineProfile({
         ...base,
-        inputs: { text: true, slots: { language: ['tsx'] } },
+        inputs: { text: true, options: { language: { choices: [{ value: 'tsx' }] } } },
         outputs: { structured },
       }),
     TheoremError,
-    "outputs.structured.map maps html, not a choice of slot 'language'",
+    "outputs.structured.map maps html, not a choice of option 'language'",
   );
   const ok = defineProfile({
     ...base,
-    inputs: { text: true, slots: { language: ['html', 'tsx'] } },
+    inputs: {
+      text: true,
+      options: { language: { choices: [{ value: 'html' }, { value: 'tsx' }] } },
+    },
     outputs: { structured },
   });
   assertEquals(ok.type === 'text' && ok.outputs?.structured, structured);
+});
+Deno.test('a structured map reads an option your code sets as it reads one the person sets', () => {
+  const structured = { by: 'plan', map: { paid: 'htmlTurn' }, fallback: 'htmlTurn' };
+  const defined = defineProfile({
+    type: 'text',
+    id: 'code_option_mapped',
+    identity: {
+      handle: 'Code option mapped',
+      options: { plan: { choices: [{ value: 'free' }, { value: 'paid' }] } },
+    },
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] },
+    inputs: { text: true },
+    outputs: { structured },
+  });
+  assertEquals(defined.type === 'text' && defined.outputs?.structured, structured);
 });
 Deno.test('getProfile throws for unknown profile', () => {
   assertThrows(
@@ -774,4 +794,21 @@ Deno.test('resolveTurn leaves protocol options on the binding and projects sessi
   if (cached.type !== 'text') throw new Error('Expected text');
   assertEquals(cached.models.sonar.options?.cache, { mode: 'system', ttl: '5m' });
   assertEquals(generation.sessionId, 'sess-1');
+});
+
+Deno.test('a live profile refuses maxSteps: a call has no one reply to count steps against', () => {
+  assertThrows(
+    () =>
+      defineProfile({
+        type: 'live',
+        id: 'live_steps',
+        identity: { handle: 'live', system: 'hi' },
+        models: modelBindings('gemini31FlashLive'),
+        live: { voice: 'Aoede' },
+        tools: { allow: [] },
+        maxSteps: 3,
+      } as Parameters<typeof defineProfile>[0]),
+    Error,
+    "type 'live' must not set maxSteps",
+  );
 });

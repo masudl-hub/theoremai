@@ -9,7 +9,7 @@ import {
   connectionFields,
   createBlankDraft,
   createExampleDraft,
-  createSpanExampleDraft,
+  createPageReaderExampleDraft,
   defaultToolSpec,
   includeFacet,
   modelBindingNodeId,
@@ -145,13 +145,37 @@ Deno.test('an agent tool naming a removed agent shows on the tool', () => {
   );
 });
 
+Deno.test('a tool whose post_tool reader is gone still compiles; the filter is dropped', () => {
+  const base = workspaceFromDraft(createExampleDraft());
+  const first = must(base.toolSpecs[0]);
+  const workspace: StudioWorkspace = {
+    ...base,
+    toolSpecs: [{ ...first, stageAgentKey: 'missing-reader' }, ...base.toolSpecs.slice(1)],
+  };
+  const result = compileWorkspace(workspace, ON_OWN_KEYS);
+  assert(result.ok, JSON.stringify(!result.ok && result.issues));
+  const tools = result.agents.flatMap((agent) => agent.customTools);
+  const compiled = must(tools.find((each) => each.name === first.toolName));
+  assertEquals('stageAgent' in compiled && compiled.stageAgent, false);
+});
+
+Deno.test('workspaceFromDraft clears a stage reader that is not in the workspace', () => {
+  const draft = createExampleDraft();
+  const first = must(draft.toolSpecs[0]);
+  const workspace = workspaceFromDraft({
+    ...draft,
+    toolSpecs: [{ ...first, stageAgentKey: 'missing-reader' }, ...draft.toolSpecs.slice(1)],
+  });
+  assertEquals(must(workspace.toolSpecs[0]).stageAgentKey, undefined);
+});
+
 Deno.test('an agent tool runs only a text, image, or speech agent', () => {
-  const issues = issuesOf(conciergeCallingHelper(createSpanExampleDraft()));
+  const issues = issuesOf(conciergeCallingHelper(createPageReaderExampleDraft()));
   assert(
     issues.some(
       (issue) =>
         issue.field === 'agentKey' &&
-        issue.message.startsWith("'guardrails.tool_call.span' is a decision agent"),
+        issue.message.startsWith("'research.pagereader' is a decision agent"),
     ),
     JSON.stringify(issues),
   );
@@ -240,6 +264,28 @@ Deno.test('agent ids and library tool names are unique across the workspace', ()
   );
   assert(issues.some((issue) => issue.message === "Another agent has the id 'travel.helper'."));
   assert(issues.some((issue) => issue.message === "Tool name 'my_tool' is used twice."));
+});
+
+Deno.test("a model's mistakes each say what would work", () => {
+  const draft = createExampleDraft();
+  const modelBindings = draft.modelBindings.map((binding) =>
+    binding.modelId === 'smart'
+      ? {
+          ...binding,
+          efforts: [...binding.efforts, { alias: 'max', level: 'xhigh' as const }],
+          defaultEffort: 'balanced',
+          options: { persistViaInteractionID: true },
+        }
+      : binding,
+  );
+  const messages = issuesOf(workspaceFromDraft({ ...draft, modelBindings })).map(
+    (issue) => issue.message,
+  );
+  assertEquals(messages, [
+    'gemini takes the minimal, low, medium or high thinking level, not xhigh.',
+    "Default effort 'balanced' is not one of the efforts. Pick normal, deep or max.",
+    'geminiInteractions has no option persistViaInteractionID. Did you mean persistViaInteractionId?',
+  ]);
 });
 
 Deno.test("a provider's settings answer with the kernel's own rules, each at its field", () => {

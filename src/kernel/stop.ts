@@ -20,30 +20,58 @@ export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP
 /** Hosts wait briefly, then continue once on their own. */
 export const DEFAULT_AUTO_CONTINUE: readonly ContinueStopKind[] = ['length', 'stream_incomplete'];
 
+/** The `native` of a `filtered` stop that Theorem's own guardrail made, not the provider's filter. */
+const GUARDRAIL_STOP_NATIVES: ReadonlySet<string> = new Set([
+  'egress',
+  'canary',
+  'prompt_echo',
+  'provider_tool_leak',
+]);
+
+/** Whether Theorem's own guardrail ended the turn, so its error or refusal already says why. */
+export function isGuardrailStop(stop: TurnStop): boolean {
+  return stop.kind === 'filtered' && GUARDRAIL_STOP_NATIVES.has(stop.native ?? '');
+}
+
 /** Pause before an auto-continue, the host's or the turn's own, so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 
 /** Which stops a profile offers Continue for, and which the host continues on its own. */
 export interface ProfileTurnResumptionSpec {
   /**
-   * The host's UI policy for offering Continue: the kernel does not refuse a `continueFrom`
-   * outside it, since a continue is one more turn the host could send as plain text anyway.
-   * Omit → length / stream_incomplete / provider_error; `[]` = none.
+   * Which early stops the host offers the user a Continue for; the kernel doesn't refuse a continue
+   * after other stops.
+   *
+   * @remarks The host's UI policy for offering Continue: the kernel does not refuse a
+   * `continueFrom` outside it, since a continue is one more turn the host could send as plain text
+   * anyway. Omit → length / stream_incomplete / provider_error; `[]` = none.
    */
   allowContinue?: ContinueStopKind[];
   /**
-   * Omit → length / stream_incomplete; `[]` = none. Apart from `allowContinue`: a stop can be
-   * continued without Continue being offered for it. The host sends the `continueFrom` turn
-   * with `continuation`. A text turn also sends a failed model call (`provider_error`,
-   * `stream_incomplete`) again itself when this list is set and names that stop, and the
-   * call gave no reply and no tool call: the turn keeps its history, its step count and
-   * what it has read. A failure the same call would meet again (the provider refused the
-   * request) is not sent again. Omitted, a turn sends nothing again.
+   * Which early stops are continued without asking, whether or not allowContinue offers a Continue
+   * for them. When set, a text turn sends a listed failed model call that gave no reply again
+   * itself; the host continues the rest. Naming length also repairs a call the output limit cut
+   * off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.
+   *
+   * @remarks Omit → length / stream_incomplete; `[]` = none. Apart from `allowContinue`: a stop can
+   * be continued without Continue being offered for it. The host sends the `continueFrom` turn with
+   * `continuation`. A text turn also sends a failed model call (`provider_error`,
+   * `stream_incomplete`) again itself when this list is set and names that stop, and the call gave
+   * no reply and no tool call: the turn keeps its history, its step count and what it has read. A
+   * failure the same call would meet again (the provider refused the request) is not sent again,
+   * except once without its files when it carried any: accepted that way, the turn goes on and
+   * `done.mediaRefused` names them. Named here, `length` also repairs a call the output limit cut
+   * off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.
+   * Omitted, a turn sends nothing again.
    */
   autoContinue?: ContinueStopKind[];
   /**
-   * Compared against `TurnRequest.continuation`; omit → no count cap. Also how many model
-   * calls one text turn sends again itself; omit → one.
+   * How many times one reply may be continued; once set, each continue must say which one it is.
+   * Also how many model calls one text turn sends again itself, failed calls and cut-off repairs
+   * together (one when unset).
+   *
+   * @remarks Compared against `TurnRequest.continuation`; omit → no count cap. Also how many model
+   * calls one text turn sends again itself, failed calls and cut-off repairs together; omit → one.
    */
   maxContinues?: number;
 }
@@ -60,12 +88,20 @@ export function isContinueStopKind(kind: string): kind is ContinueStopKind {
  * interfaces always project `canStop: true` because `TurnRequest.signal` is always wired.
  */
 export interface ProfileTurnBehaviourSpec {
+  /** Continuing a reply that stopped early; live uses sessionResumption instead. */
   resumption?: ProfileTurnResumptionSpec;
-  /** Default true on text / live. Gates injects only; stage events still emit. */
+  /**
+   * Lets your onStage hook add messages to a running turn. Text profiles also let the user steer.
+   *
+   * @remarks Default true on text / live. Gates injects only; stage events still emit.
+   */
   allowSteering?: boolean;
   /**
-   * Text only. What the last model call under `maxSteps` may do. Omit = `'stop'`: it may call
-   * tools, and if it does the turn stops as `step_limit`. `'answer'` sends it without tools.
+   * What happens when a turn reaches maxSteps while the model still wants tools: the turn stops
+   * with no answer, or the last call is made without tools so it answers.
+   *
+   * @remarks Text only. What the last model call under `maxSteps` may do. Omit = `'stop'`: it may
+   * call tools, and if it does the turn stops as `step_limit`. `'answer'` sends it without tools.
    */
   atStepLimit?: StepLimitMode;
 }
@@ -76,6 +112,7 @@ export interface ProfileTurnBehaviourSpec {
  * no mid-turn inject to steer.
  */
 export interface MediaTurnBehaviourSpec {
+  /** Continuing a reply that stopped early; live uses sessionResumption instead. */
   resumption?: ProfileTurnResumptionSpec;
 }
 
@@ -108,6 +145,11 @@ export function isFailedStopKind(kind: TurnStop['kind']): boolean {
   return FAILED_STOP_KINDS.has(kind);
 }
 
+/** True for a turn that ended in failure: its model call failed, or the model never gave its answer. */
+export function isFailedTurnStop(kind: TurnStop['kind']): boolean {
+  return isFailedStopKind(kind) || kind === 'answer_missing';
+}
+
 export function stageAbortStop(
   abort: true | { reason?: string },
 ): TurnStop & { kind: 'cancelled' } {
@@ -138,6 +180,13 @@ export function profileTurnResumption(profile: {
 }): ProfileTurnResumptionSpec | undefined {
   if (profile.type === 'live') return undefined;
   return profile.turnBehaviour?.resumption;
+}
+
+/** How many model calls a turn sends again when the output limit cuts one off: `maxContinues` (one when unset) while `autoContinue` names `length`, else none. */
+export function cutOffRepairs(profile: Parameters<typeof profileTurnResumption>[0]): number {
+  const policy = profileTurnResumption(profile);
+  if (!policy?.autoContinue?.includes('length')) return 0;
+  return policy.maxContinues ?? 1;
 }
 
 /** Text-only, for the interface `allowSteering` projection; `profileAllowsInject` adds live. */
@@ -180,7 +229,8 @@ function openAiFinishKind(finish: string, effective: string, native: string | un
       ? { kind: 'provider_error', native }
       : { kind: 'completed', native };
   }
-  if (finish === 'length') return { kind: 'length', native };
+  // probed 2026-11-04: OpenRouter ends a call the output limit cut off with `tool_calls`; only the upstream's own reason says `length`.
+  if (finish === 'length' || effective === 'length') return { kind: 'length', native };
   if (finish === 'tool_calls' || finish === 'tool-calls') return { kind: 'tool', native };
   if (finish === 'content_filter' || finish === 'content-filter') {
     return { kind: 'filtered', native };

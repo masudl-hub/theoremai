@@ -8,7 +8,7 @@ const STEPS: ReadStep[] = [
   { file: 'backend/theorem/tools/places.ts', from: 'studio.setup.ts' },
   { file: 'backend/theorem/tools/plants.ts', from: 'backend/theorem/tools/places.ts' },
   { file: 'backend/infrastructure/providers.ts', from: 'backend/theorem/profiles/thinker.ts' },
-  { found: 'profile', name: 'bonsai.thinker', file: 'backend/theorem/profiles/thinker.ts' },
+  { found: 'profile', name: 'garden.thinker', file: 'backend/theorem/profiles/thinker.ts' },
   { found: 'tool', name: 'search_places', file: 'backend/theorem/tools/places.ts' },
   { found: 'tool', name: 'remove_plant', file: 'backend/theorem/tools/plants.ts' },
 ];
@@ -74,7 +74,7 @@ Deno.test('an agent and a tool keep the type their file writes, and one without 
     { file: 'backend/tools/places.ts', from: 'studio.setup.ts' },
     {
       found: 'profile',
-      name: 'bonsai.pagereader',
+      name: 'garden.pagereader',
       file: 'backend/tools/places.ts',
       type: 'decision',
     },
@@ -82,7 +82,7 @@ Deno.test('an agent and a tool keep the type their file writes, and one without 
     { found: 'tool', name: 'remove_plant', file: 'backend/tools/places.ts' },
   ];
   const nodes = by(readMap(typed, 6));
-  assertEquals(nodes['profile:bonsai.pagereader']?.type, 'decision');
+  assertEquals(nodes['profile:garden.pagereader']?.type, 'decision');
   assertEquals(nodes['tool:search_places']?.type, 'http');
   assertEquals('type' in (nodes['tool:remove_plant'] ?? {}), false);
 });

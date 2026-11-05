@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-net --allow-sys --allow-env --allow-read
 
-import { createKernelScope, defineProfile, openRouter, openRouterProvider } from '../mod.ts';
+import { createKernelScope, defineProfile, openRouterOpenAi, openRouterProvider } from '../mod.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 
 function valueAfterFlag(flag: string): string | undefined {
@@ -33,7 +33,7 @@ scope.profiles.register(
       handle: 'Smoke',
       system: 'You are a precise verification assistant. Answer briefly.',
     },
-    models: { [model]: provider.model(openRouter, apiId, { maxOutputTokens: 1024 }) },
+    models: { [model]: provider.model(openRouterOpenAi, apiId, { maxOutputTokens: 1024 }) },
     inputs: { text: true },
     tools: { allow: [] },
   }),

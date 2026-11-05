@@ -13,6 +13,11 @@ import { mapStrings } from '../../kernel/engine/tree.ts';
  * - `{ b64_json, media_type }`: OpenRouter `/images` `data[]` entries.
  * - a `data:<mime>;base64,<bytes>` string: OpenRouter chat
  *   `message.images[].image_url.url`.
+ * - a part that names its own bytes by `type`, with no mime: Interactions
+ *   `image` deltas (`data`, probed 30/10/2026), its signatures (`signature` on
+ *   a `thought_signature` delta, a `thought` or a `function_call`; 1 000 384
+ *   characters on one image call, 02/11/2026), and OpenRouter's
+ *   `reasoning.encrypted` (`data`).
  *
  * The hash covers the raw bytes, the same hash a trace blob part carries. A
  * record whose bytes were hashed carries `dataKind: 'sha256'`; a hashed data
@@ -22,6 +27,16 @@ import { mapStrings } from '../../kernel/engine/tree.ts';
 
 const DATA_URL = /^data:([^;,]+);base64,/;
 
+/** Where a part with no mime holds its bytes, by its `type`. */
+const BYTES_KEY_BY_TYPE = new Map([
+  ['image', 'data'],
+  ['audio', 'data'],
+  ['thought_signature', 'signature'],
+  ['thought', 'signature'],
+  ['function_call', 'signature'],
+  ['reasoning.encrypted', 'data'],
+]);
+
 export function inlineBytesKey(rec: Record<string, unknown>): string | undefined {
   const mime = rec.mime_type ?? rec.mimeType;
   if (typeof mime === 'string' && typeof rec.data === 'string') {
@@ -30,7 +45,9 @@ export function inlineBytesKey(rec: Record<string, unknown>): string | undefined
   if (typeof rec.media_type === 'string' && typeof rec.b64_json === 'string') {
     return 'b64_json';
   }
-  return undefined;
+  const key = typeof rec.type === 'string' ? BYTES_KEY_BY_TYPE.get(rec.type) : undefined;
+  // why: A call carries an empty `signature` when its thought held the real one; that is no bytes.
+  return key && typeof rec[key] === 'string' && rec[key] !== '' ? key : undefined;
 }
 
 const BYTES_SHA256 = 'sha256';

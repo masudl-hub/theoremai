@@ -91,7 +91,7 @@ Owns every module under `src/guardrails/`.
 | `normalize.ts` | Detection normalization |
 | `serialize.ts` | `textForScan` — flatten non-text payloads for detectors without ever throwing |
 | `tool-result.ts` | Tool boundary — fence, provenance, result / failure / argument guards |
-| `tool-directives.ts` | What `tool_instructions` reads a tool's text for |
+| `tool-directives.ts` | The orders to the agent that `injection` also reads a tool's text for |
 | `quota.ts` | In-memory daily slots for HTTP hosts |
 
 ## Canary
@@ -101,7 +101,7 @@ Owns every module under `src/guardrails/`.
 | `mintCanary` | Generate a random 32-hex token (128 bits, no prefix): a Live session's canary |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased, or nested |
-| `wrapContext` | Fence a context package in `<page_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
+| `wrapContext` | Fence a context package in `<turn_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
 | `contextNote` | The `context.note` labels line, which tells the model what that fence means; the runner appends it to the system prompt of a profile that sets `inputs.context`. An empty override leaves it out. |
 | `userDataNote` | The `user_data.note` labels line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image, and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with the private stretches of the system prompt, also stops a reply echoing them |
@@ -176,8 +176,9 @@ The reason the model reads on a rewrite is the labels' `egress.rejection`,
 with a line for each detector that matched (`retryRejection`). The line is the
 detector's hint, which says what to leave out, followed by up to three of the
 texts it matched, each cut to 120 characters (`egress.rejection_found`).
-`canary_leak` and `prompt_leak` give their hint alone: what they match is never
-repeated. A Theorem detector's hint is the labels' `detect.hint.<detector>`;
+`canary_leak` gives its hint alone: the canary is never repeated. `prompt_leak`
+quotes the passages the reply repeated, since the model already holds them and
+must know which to leave out. A Theorem detector's hint is the labels' `detect.hint.<detector>`;
 one the profile adds patterns to may set its own `hint` beside them. A detector
 of the host's own sets `hint`, or gets `detect.hint.own`, which names its
 label. A hint is one line of at most 300 characters. The rewrite request is
@@ -237,8 +238,8 @@ at `reply`, `reply_structured`, `live_reply`, and `thought`:
 
 | Detector | Default | Finds |
 | --- | --- | --- |
-| `marker_leak` | `block` in a reply, `redact` in a thought | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
-| `ungiven_images` | `block` in a reply, `redact` in a thought | An image that loads a URL the model was not given |
+| `marker_leak` | `flag` | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
+| `ungiven_images` | `flag` | An image that loads a URL the model was not given |
 | `ungiven_links` | `ignore` | A link to a URL the model was not given |
 
 `ungiven_images` and `ungiven_links` also take `allow: { hosts?, fromTools? }`:
@@ -375,7 +376,10 @@ breaks it — the same verdict as a scan of the whole reply. The prompt echo
 check rereads its own short lookback (`promptEchoScanFrom`) and holds from the
 first word of the longest run of prompt words ending the text, or from a word
 still being written that could become a prompt word (`promptEchoHoldFrom`), so
-no word of an echo reaches the host. Both holds read on from where a leak
+no word of an echo reaches the host. The check keeps the prompt's words, not a
+list of every run, and looks for a run when it reads one. Its reading lives as
+long as the array of private stretches it read, so a turn keeps its own and
+turns that overlap never rebuild each other's. Both holds read on from where a leak
 could still start, not the whole held text: text further back than an opening
 can span (`RELEASED_LOOKBACK`) that opens no leak never will. Either way the
 cost grows with the reply or thought, not its square. What the
@@ -409,7 +413,9 @@ action at the boundary. Ordinary prose streams at
 once; a blocked match has shown the host none of its characters, however long
 and however chunked, including a match padded past any fixed window. Each
 character is read once per view, so the cost grows with the reply, not its
-square.
+square. It also grows with the patterns: each one is an automaton more that
+reads every character of every view its detector reads. Theorem sets no limit
+on how many patterns a detector takes, or how long each is.
 
 A host's `find` cannot say where a match might still start, so the gate keeps
 a fixed tail for it: `HOST_FIND_HOLD` characters (256; on Live
@@ -420,8 +426,10 @@ than the tail is read when the attempt ends.
 scan detects. A window that ends on a possible leak opening of any length
 carries it (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
-or cycles is one match: the turn or session ends when it completes, and only
-the chunks before the completing one were released. The same constructor backs
+or cycles is one match. Only the chunks before the completing one were
+released. Under `flag` the match is reported and goes out. Under `redact`, what
+goes out after them has the token replaced. Under `block` the turn or session
+ends there. The same constructor backs
 `runTurn` and
 Live (`processLiveOutboundBatch`). The detectors of what is the profile's own
 (`canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`,
@@ -430,27 +438,27 @@ action `guardrails.detect` gives it for the boundary: `ignore` is not read,
 `flag` is reported once and shown, `redact` and `block` hold the rest of the
 reply and the end of the attempt replaces the match or stops the reply. A leak
 the end-of-attempt read cannot place still stops the reply. A model's tool call is read at
-`tool_arguments` (default: the canary refuses the call, the prompt is
-flagged), and structured output at `reply_structured`. Any other event
+`tool_arguments` (default: both are flagged), and structured output at `reply_structured`. Any other event
 carrying a leak follows the reply's action, where `redact` stops the turn as
 `block` does, since an event has no text to replace. A provider-side tool's
 report of one always ends the turn: that call already ran.
 `outputs.streaming.mode: 'sse'` and egress can both stay on.
 
-**Thoughts are omitted from, never stopped.** Only the reply stream flows
+**Thoughts are read, never stopped.** Only the reply stream flows
 through progressive yield, and the end-of-attempt egress payload carries reply
 text and structured output; nothing in a thought stops the turn
 (`isGuardedOutput`). A host that shows thoughts
 (`outputs.streaming.streamThoughts`) shows what they say and loads what they
-link, so each thought runs through a guard that omits what leaks and streams
-the rest as it clears — in `runTurn` and Live alike:
+link, so each thought runs through a guard that streams it as it clears — in
+`runTurn` and Live alike. By default a leak is flagged and shown; under
+`redact` or `block` at `thought` it is omitted:
 
 | Leak | Guarded when | Placeholder (labels key) |
 | --- | --- | --- |
-| Image | `ungiven_images` is above `ignore` at `thought` | `thought.omitted_image` |
-| Link | `ungiven_links` is above `ignore` at `thought` | `thought.omitted_link` |
-| Boundary marker | `marker_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
-| Canary, prompt echo | `canary_leak` / `prompt_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
+| Image | `ungiven_images` is `redact` or `block` at `thought` | `thought.omitted_image` |
+| Link | `ungiven_links` is `redact` or `block` at `thought` | `thought.omitted_link` |
+| Boundary marker | `marker_leak` is `redact` or `block` at `thought` | `thought.omitted_instructions` |
+| Canary, prompt echo | `canary_leak` / `prompt_leak` is `redact` or `block` at `thought` | `thought.omitted_instructions` |
 
 Each omission reports a `guardrail` event at stage `thought`, action `redact`,
 before the thought text it changed. `canary_leak` and `prompt_leak` report a
@@ -502,71 +510,105 @@ keep streaming.
 
 ## Evaluation
 
-Detector quality is measured, not asserted. Every detector here is a pattern
-matcher, and pattern matchers fail on content nobody thought to write down — so
-the point of the harness is to expose that against corpora the authors did not
-choose.
+Use the bench to measure each detector on data that someone else labelled. It
+reports how many attacks a detector finds (recall), how often it fires on benign
+text (false alarms), and how long it takes at each boundary.
 
 ```bash
-deno task guardrails:eval
+deno task bench:guardrails --limit=200
 ```
 
-Corpora are fetched on demand and cached under `.guardrail-corpus/` (gitignored,
-never published). Nothing third-party is vendored. The harness itself
-(`src/guardrails/eval/`, `scripts/guardrails-eval.ts`) is repo-only: it is excluded
-from the published package and is not part of `@theoremjs/agents/guardrails/testing`.
+The bench sends each text across its boundary through the studio's
+`runGuardrailProbe`. The agent is the example draft's `travel.concierge`, with
+every detector on `flag`. A text longer than `PROBE_TEXT_LIMIT` goes to
+`detectAt` alone. That path has no turn, so the detectors that need the turn's
+canary, system prompt, or tool names do not read it. The summary counts the
+rows that each path read.
 
-| Source | License | Role |
-| --- | --- | --- |
-| `S-Labs/prompt-injection-dataset` | MIT | ~11k labelled prompts; benign half is security-adjacent |
-| `deepset/prompt-injections` | Apache-2.0 | Independent, partly non-English |
-| `reshabhs/SPML_Chatbot_Prompt_Injection` | MIT | Attacks paired with the system prompt they target |
-| `gravitee-io/pii-detection-dataset` | Apache-2.0 | PII with ground-truth spans, in structured payloads |
-| `Lakera/b3-agent-security-benchmark-weak` | other* | Attacks against named, realistic agent apps |
-| `nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1` | CC-BY-4.0 | Agentic IPI, labelled `exfiltration` / `unauthorized_action` |
-| `glaiveai/glaive-function-calling-v2` | Apache-2.0 | Benign tool results at scale (`FUNCTION RESPONSE` bodies) |
-| `ethz-spylab/agentdojo` | MIT | Environment fixtures; benign output in tool shape |
-| `microsoft/llmail-inject-challenge` | MIT | 370k adaptive attacks from a live competition, email-shaped, labelled by whether they evaded defense |
-| `leolee99/NotInject` | none declared | Benign prompts built from injection trigger words — the over-refusal benchmark |
-| `yanismiraoui/prompt_injections` | Apache-2.0 | Multilingual injection prompts |
-| `prodnull/prompt-injection-repo-dataset` | Apache-2.0 | Hard negatives: security docs, CVEs, pentest guides. **Gated — needs `HF_TOKEN`** |
+| Option | What it does |
+| --- | --- |
+| `--dataset=a,b` | Runs only these datasets |
+| `--role=train,test` | Runs only datasets with these roles |
+| `--limit=N` | Reads at most N texts from each dataset |
+| `--workers=N` | Runs N probe workers. Absent: one less than the CPU count |
+| `--holdout` | Allows the hold-out datasets |
+| `--root=DIR` | The data root. Absent: `GUARDRAIL_DATA`, then `~/Development/.guardrail-data` |
+| `--corpus=DIR` | The guardrail corpus. Absent: `GUARDRAIL_CORPUS`, then `guardrail-corpus` under the root |
 
-\* Fetched for evaluation only, never redistributed.
+Each run writes `.guardrails-bench/<run>/results.jsonl`, one line per text, and
+`summary.json`. `.guardrails-bench/latest` names the last run. A line keeps its
+text only when a detector fired or the text is an attack. While it runs, the
+bench also rewrites `progress.json`, at most once a second, with the datasets
+finished and the current one scored on its rows so far.
 
-LLMail-Inject is loaded twice: once whole, and once filtered to the subset carrying
-`objectives.defense.undetected` — attacks that beat the competition's own defenses. A
-score on the second is worth more than a score on textbook payloads.
+To read a run in the studio, start the studio from the folder the bench ran in.
+Test guardrails then shows a Health view. It lists each detector on each
+dataset, with recall, false alarms, and time, and the change since the run
+before. Above it, four figures pool every detector on every dataset shown:
+recall, false alarms, the slowest p95 with the median and mean of every
+timing, and the texts read. Charts beside them rank the detectors by each
+figure, and a sunburst shows where the texts come from: each boundary, then
+each dataset. Each dataset's name opens its source page,
+and its licence sits beside it. The Matrix view lists every boundary against every detector and
+shades each cell by recall, false alarms or p95 time, pooled over the datasets
+that cross there: blue where it does well, grey where it does badly. A strip
+under it shows the scale. A white cell has no dataset that scores it. A hatched
+cell is a detector that cannot read that boundary (`DETECTOR_BOUNDARIES`). The
+bench sets every detector to flag wherever it can read, so a white cell is a
+gap in the data, never a detector left off.
+A cell opens its rows in the table. Open a row to see its figures, a chart of its worst
+categories, and the texts behind each figure, with each match marked. **Probe the draft** sends one of those texts
+through the probe again, with the open draft.
 
-Corpora are consumed whole, not sampled. Where a run does fetch a slice, the report
-prints `n of total` so a rate is never quoted as if it covered the corpus. A source
-that cannot be reached — the gated one without a token — is listed under
-**Not loaded** and narrows the report rather than breaking it.
+A run still going shows as it goes: how many datasets it has finished, the one
+it is on, and the scores so far, compared with the last whole run. A run with
+`--limit` reads only part of each dataset, so the view never shows it or
+compares with it. A run whose progress has not moved for two minutes has
+stopped, and the view leaves it out.
 
-`REVIEWED_SOURCES` in `src/guardrails/eval/corpus.ts` records corpora that were evaluated and
-deliberately left out, with the objection: non-commercial licenses, undeclared
-licenses, and `Lakera/mosscap_prompt_injection`, whose 223k entries are attacks only
-in context and would understate a detector as unfairly as a soft benign set
-overstates one.
+The studio server answers `GET /api/studio/bench` with the runs,
+`GET /api/studio/bench/live` with a running run's progress as server-sent
+events, and `GET /api/studio/bench/rows` with a figure's texts. Where no run
+exists, they answer 404 and the view does not show. `studio/guardrail-bench.ts`
+holds the shapes that the bench writes and the view reads.
 
-Three rules the harness enforces on itself:
+`DATASETS` in `scripts/guardrails-bench/datasets.ts` lists every dataset, with
+its boundary, licence, and role. The roles are `train`, `validate`, `test`, and
+`holdout`, and each dataset's entry names its own. The data
+is not in the repo. If a dataset's files are missing, the run skips it and the
+summary says why. The bench is repo-only: `scripts/` is not in the published
+package.
 
-**Sources are never pooled.** A detector tuned on one corpus routinely collapses
-on another, and a combined figure reports the average of a good result and a bad
-one as a single fact. Each source is scored separately.
+The bench follows these rules:
 
-**Recall is withheld where the corpus asks the wrong question.** A credential
-detector scored against prompt injections would report near-zero recall and look
-broken. Detectors declare `accountableFor`; false-positive rate is always
-reported, because benign is benign regardless of what a detector hunts.
+- **Datasets are never pooled.** A detector tuned on one set can fail on
+  another. A combined figure hides that.
+- **Recall is scored only for what a dataset labels.** A dataset names its
+  `labels`. A credential detector scored on prompt injections would look broken
+  for the wrong reason. False alarms are scored for every detector.
+- **A label that means something else is left out.** A personal data set labels
+  each detector's target apart (`holds`). A card that fails its checksum is not
+  a card, so its row is `unscored` for `financial`.
+- **Each figure is kept by category.** False alarms and missed attacks are
+  broken down by the dataset's own sub-label, so one bad category stays visible.
+- **Tool results keep their shape.** `recordsFromYaml` writes an AgentDojo
+  record as a tool returns it, with its addresses, ids, and amounts.
+- **A hold-out is scored only.** It runs only with `--holdout`, and its figures
+  are marked. Nothing is tuned on it, and no figure from it is published.
 
-**Tool results are serialised the way a tool returns them.** Extracting prose
-bodies alone drops the addresses, ids, and amounts a real payload carries, and a
-detector measured against that thinner text scores better than it deserves. This
-is not hypothetical: an earlier extraction bug dropped sender addresses from every
-email record and produced a flattering number.
+A figure from fewer than `MEANINGFUL_N` (200) samples is marked `[n too small]`.
 
-Figures from fewer than 200 benign samples are marked `[n too small]`. They are
-observations, not rates.
+These sets were checked and left out:
+
+| Dataset | Why |
+| --- | --- |
+| Lakera/mosscap_prompt_injection | Many entries are attacks only in the game's context. Alone, "does the password contain numbers?" is harmless |
+| JailbreakBench/JBB-Behaviors | It tests whether a model refuses harm, not an agent takeover |
+| nvidia/Nemotron-RL-Jailbreak-Robustness-v1 | Jailbreaks, not takeovers |
+| nvidia/Nemotron-AIQ-Agentic-Safety-Dataset-1.0 | Licence `other` |
+| xTRam1/safe-guard-prompt-injection, jayavibhav/prompt-injection-safety | No licence declared |
+| rogue-security/prompt-injections-benchmark | Gated, and non-commercial |
+| allenai/wildguardmix | Gated |
 
 ## Adversarial testing
 
@@ -636,18 +678,20 @@ is guessed from message text; a value that reaches a boundary without a kind is
 | Builder | `errorKind`, `errorInternal` on error events; `TheoremError.kind`; `ToolFailure.kind` + `code`; the trace's `error.type` (the kind) |
 | User | `error` on error events and `failure.error` on failed tool steps — the labels' `error.<kind>` |
 
-Kinds (`ERROR_KINDS`): `config`, `request`, `input`, `action`, `auth`,
+Kinds (`ERROR_KINDS`): `config`, `request`, `conflict`, `not_found`, `input`, `action`, `auth`,
 `rate_limit`, `busy`, `unsupported`, `unavailable`, `bad_response`, `network`,
 `timeout`, `safety`, `blocked`, `declined`, `failed`, `cancelled`, `internal`.
 
 Wording resolves the profile's `labels` → `overrideLabels` → the default.
 Defaults are never forced: any profile type may carry a `labels` with any
-key. A failure more specific than its kind carries its own copy
+key except the `HOST_LABEL_KEYS` (provider and protocol errors, and the decision
+box hint), which only `overrideLabels` changes. A failure more specific than its kind carries its own copy
 (`TheoremError(kind, message, { copy: { key, params } })`, surfaced as
 `errorCopy`, typed `ErrorCopies`), which wins over the kind's line. A failure
 that found several problems carries a list — one line per problem, joined by newlines (a refused
 turn's files: every reason, each naming its file). Tool-step wording may use
-`{tool}`.
+`{tool}`. A tool step whose request never reached its host reads `tool.unreachable`,
+not `error.network`, which names the model provider.
 
 Producers emit `toErrorEvent(err)` — a `ProducedError`, `{ type: 'error',
 errorKind, errorCopy?, errorInternal }` with the raw detail always set and no
@@ -666,6 +710,7 @@ leaked fragments never reach the client wire.
 | --- | --- |
 | HTTP 401 / 402 / 403 | `auth` |
 | HTTP 408 / 504 / 524 | `timeout` |
+| HTTP 409 | `conflict` |
 | HTTP 429 | `rate_limit` |
 | HTTP 503 / 529 | `busy` |
 | Other HTTP ≥ 500 | `unavailable` |
@@ -689,14 +734,19 @@ not the key.
 | `denied` | `declined` |
 | A remote tool without its credential (`not_authorized`); tool HTTP 401 / 402 / 403 | `auth` |
 | Tool HTTP 429 | `rate_limit` |
-| `network_error` | `network` |
+| `network_error`: the fetch failed, or reading its body failed | `network` |
+| `timeout` | `timeout` |
+| `request_failed`: anything else a remote call threw | that error's kind; `internal` when it is not a `TheoremError` |
 | `invalid_*`, `malformed_arguments` | `bad_response` |
 | `handler_error` from a handler that threw a `TheoremError` | that error's kind |
 | any other `handler_error`, `mcp_*`, other tool HTTP statuses | `failed` |
 | `unknown_tool`, `not_loaded`, `not_gated`, `provider_native` | `request` |
 | `cancelled` | `cancelled` |
 
-`describeError` returns the raw detail for logs. `throwIfAborted(signal)`
+`describeError` returns the raw detail for logs: the error's message, then a
+`caused by:` line for each error in its `cause` chain. `errorInternal` and the
+trace's `exception.message` use it. A provider error keeps its cause, with keys
+removed from each message. `throwIfAborted(signal)`
 preserves a framework error, abort, or timeout reason when execution must stop;
 `isAbortError` / `isTimeoutError` read the error name only.
 
@@ -718,7 +768,7 @@ explicit allow-or-block host boundary, documented in [Decision disclosure](#deci
 | `trusted` | `identity.system` — author-time profile copy | Never |
 | `assembled` | `req.system` — host-built per turn | `system` |
 | `assembled` | `input.context.server` — context the host's own code sends | `context` |
-| `untrusted` | User text, slots, `input.context.client`, history, attachments, tool results | The boundary it crosses |
+| `untrusted` | User text, options, `input.context.client`, history, attachments, tool results | The boundary it crosses |
 
 Trusted on the way in is not public on the way out. The private text of the
 system prompt as sent is guarded against echo by the `prompt_leak` detector
@@ -735,17 +785,22 @@ closing a word stay as written). The carry between steps and cycles means
 spreading the dump over them does not restart the count.
 
 A system prompt is a string or a list of parts (`SystemPrompt`), and the parts
-are sent concatenated as written. With no `{ private: text }` part the whole
+are sent concatenated as written. `identity.system` is a list of lines
+(`ProfileSystem`), where each line is a string or a list of parts; every line
+that fits the turn is sent, a blank line apart. Marks are settled on the prompt
+as written, so a dropped line never changes the marks of a kept line. With no `{ private: text }` part the whole
 prompt is private; with one, the plain parts beside it are shareable — lines
 the agent is meant to say word for word, like a greeting, or a voice line. Marks
-apply per source: `identity.system` (or its `systemByRole` entry) and
+apply per source: `identity.system` and
 `req.system` are joined a blank line apart, and a mark in one leaves the other
 as private as it was written. The canary note and the `user_data` note are
 always private. Adjacent private parts read as one stretch; a run of words never
 bridges a shareable part, and shareable text never stops a reply, even where it
-repeats private words. The contract: no reply carries 12 or more consecutive
-words of private prompt text, Theorem's notes, or the canary. A paraphrase is
-not caught, and secrets never belong in the prompt. A profile whose prompt is
+repeats private words. The contract: Theorem checks every reply for 12 or more
+consecutive words of private prompt text, Theorem's notes, or the canary, and
+reports each one it finds. Under the default `flag`, the reply goes out as
+written. To keep a leak from the person, set `canary_leak` and `prompt_leak`
+to `redact` or `block`. A paraphrase is not caught, and secrets never belong in the prompt. A profile whose prompt is
 quoted throughout can still set `detect: { prompt_leak: 'ignore' }`.
 
 Trusted text reaches the provider verbatim. Injection redaction would strip a
@@ -776,7 +831,7 @@ looks, and what it does: a detector, a boundary, an action.
 
 | API | Role |
 | --- | --- |
-| `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`), `injection`, `tool_instructions`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
+| `DETECTORS` | `ids`, `financial`, `network`, `credentials`, `email`, `phone`, `bank_account` (the `SENSITIVE_GROUPS`), `injection`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
 | `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
 | `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output`, `tool_failure`, and `tool_shown`, for each of `TOOL_KINDS` |
 | `recordOf` | One value for each of a list of keys, by key: `recordOf(BOUNDARIES, () => 'ignore')` |
@@ -791,7 +846,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `user` | The message the person typed |
 | `attachment` | The text of a file the person attached |
 | `voice` | The transcript of what the person said |
-| `slots` | The values the host fills into the prompt |
+| `options` | The values a turn states for its options |
 | `context` | What the page or the host tells the model to know |
 | `history` | Earlier messages the host replays |
 | `injected` | Messages a host stage adds during the turn |
@@ -841,8 +896,8 @@ sensitive detectors do. A profile with no tools has nothing to find.
 
 ### Whose patterns
 
-`ids`, `financial`, `network`, `credentials`, and `injection` read with
-patterns, and a host chooses whose:
+`ids`, `financial`, `network`, `credentials`, `email`, `phone`, `bank_account`,
+and `injection` read with patterns, and a host chooses whose:
 
 | `theorem` | `patterns` | The detector reads with |
 | --- | --- | --- |
@@ -886,9 +941,8 @@ detect: compileDetect({
     compiler where it runs (it imports `refa`). `compileDetectTables` and
     `compiledDetectModule` are the two steps it takes.
 - `defineProfile` rejects: `theorem` or `patterns` on another detector; a
-  pattern that does not compile, matches the empty text, repeats a name, is
-  longer than `MAX_PATTERN_LENGTH` (1024) or is one of more than
-  `MAX_PATTERNS` (64); `patterns` with no `compiled`, or with one compiled from
+  pattern that does not compile, matches the empty text, or repeats a name;
+  `patterns` with no `compiled`, or with one compiled from
   other patterns or by another compiler version. `compilePatterns` also
   refuses a pattern with no automaton to hold by (a backreference to text
   that varies), and one whose time is not bound by the text's length:
@@ -950,7 +1004,18 @@ detect: compileDetect({
   a stretch outside the text, an empty one, or anything but a list, stops the
   text as `block` does whatever the action set; the hit names the detector, no
   match, and how it failed as its `signal`: `find_threw`, or `find_result`
-  for what it returned.
+  for what it returned. The guardrail event's `errorInternal` names the
+  detector and why it failed, with what it threw, for the builder only. A
+  request it stops throws with the same reason in its message. The trace
+  cleans what it stores with the same `find`, so it stores `[omitted]` in
+  place of the reason. The event's `errorSummary` says the same in the
+  kernel's words only, such as `Host detector 'harbor.pii' find threw
+  TimeoutError (error 3f9a1c2b)`: the error's type is its name when that is
+  letters only, else `Error`. The trace stores it as `error_summary`, and the
+  hit's `signal` too. A thrown error's reason ends with the same error id, so
+  the builder can match the trace to the host stream. A host that wants the
+  reason itself in the trace turns off the host's clean-up
+  (`observability.scrub.sensitive.host: false`).
 - A reply streams up to a pattern's match, as above. `find` cannot say where a
   match might still start, so with one the last `HOST_FIND_HOLD` (256)
   characters of a reply stay held, `HOST_FIND_HOLD_LIVE` (96) in a Live reply,
@@ -967,21 +1032,20 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 `id`, `label`, `actions`, the `names` of the patterns, and whether there is a
 `find`. A client never runs them; `sanitizeUserDraft` leaves them to the kernel.
 
-| Boundaries | Sensitive detectors | `injection` | `tool_instructions` |
-| --- | --- | --- | --- |
-| `user` … `live_user` | `redact` | `redact` | — |
-| `tool_output_function`, `tool_failure_function` | `redact` | `redact` | `ignore` |
-| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `redact` | `redact` | `flag` |
-| `tool_arguments_*` | `flag` | `ignore` | — |
-| `tool_shown_*` | `ignore`; `credentials` `redact` | `ignore` | — |
-| `reply`, `reply_structured` | `ignore`; `credentials` `redact` | `ignore` | — |
-| `live_reply`, `thought` | `ignore` | `ignore` | — |
+| Boundaries | Sensitive detectors (every group, `email`, `phone` and `bank_account` too) | `injection` |
+| --- | --- | --- |
+| `user` … `live_user` | `flag` | `flag` |
+| `tool_output_*`, `tool_failure_*` | `flag` | `flag` |
+| `tool_arguments_*` | `flag` | `ignore` |
+| `tool_shown_*` | `ignore`; `credentials` `flag` | `ignore` |
+| `reply`, `reply_structured` | `ignore`; `credentials` `flag` | — |
+| `live_reply`, `thought` | `ignore` | — |
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
 | --- | --- | --- | --- | --- | --- | --- |
-| `tool_arguments_*` | `block` | `flag` | — | — | — | — |
-| `reply`, `reply_structured`, `live_reply` | `block` | `block` | `block` | `block` | `ignore` | `flag` |
-| `thought` | `redact` | `redact` | `redact` | `redact` | `ignore` | `flag` |
+| `tool_arguments_*` | `flag` | `flag` | — | — | — | — |
+| `reply`, `reply_structured`, `live_reply` | `flag` | `flag` | `flag` | `flag` | `ignore` | `flag` |
+| `thought` | `flag` | `flag` | `flag` | `flag` | `ignore` | `flag` |
 
 A dash is a boundary the detector does not apply at. The default is also the
 recommended action.
@@ -1002,7 +1066,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 
 | Boundary | What `block` does |
 | --- | --- |
-| `user`, `attachment`, `voice`, `slots`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by labels `detect.blocked` |
+| `user`, `attachment`, `voice`, `options`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by labels `detect.blocked` |
 | `injected` | The same, at the stage that added the message |
 | `live_user` | The message is not sent into the session |
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
@@ -1035,7 +1099,9 @@ A reply is read as it streams, so no character of a match is shown before its ac
 
 Text with no profile in hand — a host replaying a transcript through
 `formatToolResult`, a trace being written — has every match of the detectors
-in question replaced, whatever any profile sets.
+in question replaced, whatever any profile sets. `email`, `phone`, and
+`bank_account` are not among them (`WORKING_GROUPS` in `sensitive-groups.ts`):
+no profile asked for their matches to be taken out.
 
 ## Sanitization
 
@@ -1051,9 +1117,12 @@ switch cannot mean different things on different paths.
 
 | API | Role |
 | --- | --- |
-| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
+| `sanitizeTurnRequest(req, profile)` | Full turn: text, options, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
 | `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
+
+A request a match blocks throws an `input` error worded `detect.blocked`. Its
+message names the boundary and, when a host detector failed, why it failed.
 
 `injectionSpans` and `sensitiveSpans` return `RedactSpan[]`; `applySpans`
 (from observability) performs replacement. Detection runs on normalized text
@@ -1123,10 +1192,13 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 
 | Group | Matches |
 | --- | --- |
-| `ids` | SSNs (bare and in context), ITINs, EINs |
-| `financial` | IBANs, and card numbers a card network issues that pass the Luhn check |
+| `ids` | SSNs (bare and in context), ITINs, EINs, and any 9-digit SSN, ITIN, EIN, or national ID, dashed, spaced, or run together, after a field name that says which (`ssn`, `social security number`, `tax id`, `tax number`, `taxpayer id`, `itin`, `tin`, `ein`, `national id`), with markup tags, a short aside in brackets, or up to three words between |
+| `financial` | IBANs whose check digits hold (ISO 13616, mod 97), run together or in printed groups of four, and card numbers a card network issues that pass the Luhn check |
 | `network` | IPv4 and IPv6 addresses |
-| `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys |
+| `email` | Email addresses with an ASCII local part and domain, whose top-level domain starts with a letter (`typescript@4.4.4` is not one) |
+| `phone` | International numbers with `+`, North American numbers, national numbers with a leading 0, and any number after a phone label in English, French, German, Spanish, Italian, or Portuguese; each has 7 to 15 digits and is not shaped like an SSN or a date |
+| `bank_account` | Account, routing, and sort-code numbers of 5 or more digits, run together or in spaced groups, only after a label that names them (`Account Number`, `Account Numbers`, `acct`, `a/c`, `routing number`, `sort code`, and their German, Italian, Portuguese, French, Spanish, and Dutch names), with a table cell's tags between, in brackets, or straight after a hyphen (`ACCT-…`); an IBAN is `financial` |
+| `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys, and Apify, FleetBase, Nightfall, Teamwork and Ubidots keys and Zapier webhook URLs |
 
 ### Credential rules
 
@@ -1138,7 +1210,9 @@ The `credentials` group reads two rule lists (`CREDENTIALS` in `sensitive.ts`):
   `credential-rules.ts` from it. A rule that reads a file path is left out,
   because a chat has no files.
 - **Theorem's own rules** (`OWN_CREDENTIAL_RULES`), for forms gitleaks does not
-  cover.
+  cover. The vendor formats come from a comparison with the SecretBench
+  candidate regexes: each one has a prefix of its own and gitleaks has no rule
+  for it. Publishable `pk_` keys are left out, because they are not secret.
 
 To take a new gitleaks release, replace the two files in `scripts/gitleaks/`,
 then run:
@@ -1158,7 +1232,7 @@ is not what the generator writes.
 | Keywords | The rule runs only when the text holds one of its keywords, in any case |
 | Secret | The rule's `secretGroup`, else its first non-empty group, else the whole match. Only the secret is redacted |
 | Entropy | The match is dropped when the secret's Shannon entropy is at or under the rule's floor |
-| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match, or its lines, or when the secret holds a stopword |
+| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match, or the lines the match is on, or when the secret holds a stopword. A line that holds many matches is read once for each allowlist |
 
 Three differences from gitleaks are deliberate:
 
@@ -1184,8 +1258,8 @@ that it cannot convert exactly.
 
 `sensitiveSpans` finds, and never itself replaces. A selection is `true` (every
 group), `false` (none), or an object switching the groups it names, the rest at
-their default. Inbound, `guardrails.detect` (default `redact` for every group)
-replaces them in untrusted and assembled text; trusted text is left verbatim
+their default. Inbound, `guardrails.detect` (default `flag` for every group)
+reports them in untrusted and assembled text, and replaces them where the profile sets `redact`; trusted text is left verbatim
 (see [Trust levels](#trust-levels)). IPv4 and IPv6 addresses count inbound,
 where they are the user's personal data; no group reads the reply by default,
 because an address in a reply is not a secret (see [Egress](#egress)). A
@@ -1228,7 +1302,7 @@ in the body are stripped before wrapping, so a result cannot claim a friendlier
 provenance than it has. Local and builtin results get injection and
 sensitive-data redaction but are not fenced and keep any forged `tool_data`
 markers — fencing a local tool's output would change prompts hosts have already
-tuned. `tool_instructions` starts at `ignore` on a function's text.
+tuned.
 
 **What the model reads.** Each result once: a tool's own `finding` leads and the
 rest of its output follows as `data`; a result with no `finding` is its output
@@ -1286,20 +1360,22 @@ The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 | --- | --- | --- |
 | `detect.<detector>` | `tool_call`, `tool_result` | That detector matched arguments, output, or a failure message; the event's `boundary` says which |
 | `tool_call.tainted-turn` | `tool_call` | State-changing call on a turn that has read remote content |
-| `tool_call.steered-turn` | `tool_call` | Same, where that content carried a directive |
+| `tool_call.steered-turn` | `tool_call` | Same, where `injection` matched in that content |
 | `tool_call.remote-destination` | `tool_call` | An argument carries a destination that only a remote result named |
 
-### Tool instructions
+### Orders in what a tool returns
 
 The jailbreak phrasings in `injection.ts` name the thing they attack — "ignore
 previous instructions", "reveal your system prompt". Real indirect injection
 rarely does; it reads like a status update or a helpful next step. Measured
 against the tool-ingress corpus, `injectionSpans` matches **none** of it.
 
-What is anomalous inside *data* is content behaving like an instruction. The
-detector `tool_instructions` reads a tool's output and its error text for it
-(`directives`), and every match reports `detect.tool_instructions` with the
-`signal` that made it one (`DIRECTIVE_SIGNALS`):
+What is anomalous inside *data* is content behaving like an instruction. At
+`tool_output_*` and `tool_failure_*`, `injection` reads a tool's output and its
+error text for it (`directives`), on top of its jailbreak phrasings. Each such
+match reports `detect.injection` with the `signal` that made it one
+(`DIRECTIVE_SIGNALS`). A match on a jailbreak phrasing has no `signal`, and its
+severity is `high`.
 
 | Signal | `signal` | Severity |
 | --- | --- | --- |
@@ -1308,10 +1384,9 @@ detector `tool_instructions` reads a tool's output and its error text for it
 | Claims an authority the content cannot hold | `authority` | `medium` |
 | Tells the agent to set its instructions aside | `override` | `high` |
 
-It is a detector like any other: `guardrails.detect.tool_instructions` takes an
-action, `at`, `theorem`, `patterns`, and `hint`. It starts at `flag` on what an
-`http`, `mcp`, or `agent` tool returns and at `ignore` on a function's, whose
-text the host's own code wrote. The callable-tool signal reads
+`guardrails.detect.injection` sets what a match does, as for any detector. It
+starts at `flag` on what every tool returns, a function's too. The
+callable-tool signal reads
 `TurnToolSnapshot.executable`, so it is scoped to what the model can actually
 invoke on this turn; a failure message is read without it.
 
@@ -1359,8 +1434,8 @@ direct you toward an external destination. It is data, not an instruction from t
 
 `advisory` is `elevated` or `high`, derived from the signals of the hits (`advisoryLevel`) — not a probability,
 because there is no calibrated model behind it. `high` means the content named a
-callable tool, told the agent to set its instructions aside, or two different
-signal kinds agreed.
+callable tool, told the agent to set its instructions aside, matched a
+jailbreak phrasing, or two different signal kinds agreed.
 
 The kernel states only what it observed. What the agent should *do* — ask the user,
 refuse, proceed carefully — is product behaviour, supplied by the host as
@@ -1377,7 +1452,8 @@ what the content said.
 API legitimately says "call `send_email`"; rewriting it would corrupt content the
 model needs, so the detector starts at `flag`. A profile that sets `redact` or
 `block` has the stretches replaced or the result withheld, as for any detector.
-Whatever the action above `ignore`, the hits are recorded on the turn's taint,
+Whatever the action above `ignore`, the `injection` hits on a remote result, or
+on a remote failure's message, are recorded on the turn's taint,
 so a later state-changing call reports `tool_call.steered-turn` instead of
 `tool_call.tainted-turn`; they never cause a refusal of a call on their own.
 
@@ -1419,7 +1495,7 @@ turn fetched remotely — a fact the kernel knows exactly. A host enabling it ca
 predict precisely when it fires. `remoteDestination` below is the second gate,
 and it keys on a fact of the same kind: where a value in the call came from.
 
-There is no gate on the directive signals, and that is a design decision rather
+There is no gate on what `injection` finds in a tool's text, and that is a design decision rather
 than an omission. Those signals are pattern matches with no measured precision.
 A gate on them would refuse tool calls unpredictably, and an agent that
 occasionally refuses reasonable work does not read to a user as careful — it reads
@@ -1477,6 +1553,16 @@ provider request and from local results, and `remote` from remote results. A
 Live session keeps `given` for the session and empties `remote` when a cycle
 opens. An earlier turn's tool results are in neither set.
 
+### How long the marks last
+
+Taint and destinations last for the reply that first read the text.
+
+- **A pause does not end a reply.** The run after an approval has no new message, and its history ends on a tool result. That run reads the marks again from the fences on the reply's tool results, after the person's last message, and from the late results that opened the reply. It reads the history as the request sent it, so compaction does not lose them. A `continueFrom` run goes on with its reply in the same way. A host does nothing for this. A local tool's result in that part of the history is `given`, if the tool is registered.
+- **A new message starts clean.** One old read does not hold the conversation. A remote read of an earlier reply can still steer the model while it stays in history. The gates do not cover this case. This is a choice: a mark that lasts would refuse every write for the rest of the chat.
+- **A late result is a read.** Text from a background call in `input.context` or `input.history` reads as the host's or the user's. Pass the stored outcome in `input.lateResults`. The model reads it as a tool result, and it marks the reply that receives it. The history keeps its fence, so a run after a pause reads the marks, and a later turn reads its text as a tool's, not as `given`. A history built from events holds it too, through the `late_results` event, so the host passes the outcome once.
+
+A role `user` message that a stage or a steer adds in the middle of a reply ends the part of the history that the run reads. A read before that message is not carried across a pause.
+
 The rule does not find a call that needs no new destination: a deletion, or a
 message to a contact the user already has. `afterRemoteRead` covers those calls.
 
@@ -1519,6 +1605,8 @@ Emission sites of host events (non-`allow` only):
 
 `attachment` and `trace` are stages in the schema that nothing emits.
 
+A run that reads a reply's marks again emits no event. The event went out when the reply first read the text.
+
 The trace records each decision as a `theorem.guardrail` event on the span
 where it happened when `observability.include.guardrailDecisions` is true
 (default). The input and final egress checks record there even when they
@@ -1556,7 +1644,7 @@ reports `detect.<key>` (`detectRule`), and its hit carries the detector's
 
 | Group | Rules |
 | --- | --- |
-| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection`, `detect.tool_instructions`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
+| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.email`, `detect.phone`, `detect.bank_account`, `detect.injection`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
 | `EGRESS_RULES` | `egress.provider-tool-leak`, `egress.unscannable` |
 | `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn`, `tool_call.remote-destination` |
 | `NETWORK_RULES` | `network.blocked` |
@@ -1573,6 +1661,9 @@ It follows redirects manually, with a limit of 20 hops and Fetch-standard method
 Each target passes the same URL check before the next request. Tool auth and
 configured headers go to the configured origin only and are never re-sent once a
 redirect leaves it. OAuth discovery and token requests do not follow redirects.
+A hop whose request or body read fails throws `TheoremError` with kind
+`network`, and the error the fetch threw is its `cause`. A `dnsOverHttpsResolver`
+query that fails reads the same way.
 
 `fetchGuarded` takes an optional `resolveHost`. With it, every hop's host name
 is resolved first and the hop is refused when any address is private or the name
@@ -1585,6 +1676,9 @@ DNS lookup, such as Workers. The lookup is separate from the
 connection's own, so it stops names that point inward but not a DNS server that
 changes its answer between the two (rebinding); that stays the host egress
 layer's job. `onCheck`, when given, hears how long each hop's check took.
+`beforeSend`, when given, runs once after the first hop's checks pass and before
+anything is sent. What it throws passes unchanged, so it never reads as
+`network`. HTTP and MCP tools take their execution claim there.
 
 ```ts
 guardrails: {
@@ -1628,13 +1722,17 @@ rather than its content policy — leaving it at defaults is the safe choice.
 if (skipQuota(peer, req)) return runTurn(...);
 const ip = clientIp(peer, req);
 const status = takeSlot(profile, ip, Date.now());
-// 'ok' | 'busy' | 'quota' | 'not_configured'
+if (status === 'busy') throw quotaBusy(profile);
+if (status === 'quota') throw quotaExhausted(profile);
 try {
   await runTurn(...);
 } finally {
-  releaseSlot(profile, ip);
+  if (status === 'ok') releaseSlot(profile, ip);
 }
 ```
+
+Call `releaseSlot` only after `ok`. A `busy` answer means the client's earlier turn
+holds the slot, and releasing it there frees that turn's slot while it still runs.
 
 `clientIp` uses `cf-connecting-ip` only when the peer is loopback (`127.0.0.1`,
 `::1`, `localhost`), else the peer, else `'unknown'`. `skipQuota` is true for a
@@ -1686,15 +1784,21 @@ placeholder, or a placeholder the key never fills in.
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | labels |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | labels (the Live session words the ended signal's `message` when it closes) |
 | Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | labels |
-| Stops | `stop.<kind>` for each kind that ends a reply short: `cancelled`, `interrupted`, `length`, `filtered`, `provider_error`, `stream_incomplete`, `step_limit`. A turn whose transcript has an error shows the error instead; `stopText(stop, blocks, labels)` applies that rule | labels |
+| Stops | `stop.<kind>` for each kind that ends a reply short: `cancelled`, `interrupted`, `length`, `filtered`, `provider_error`, `stream_incomplete`, `step_limit`, `answer_missing`. A turn whose transcript has an error shows the error instead; `stopText(stop, blocks, labels)` applies that rule | labels |
 | Composer | `composer.model`, `composer.effort` (the pickers' titles) | labels |
 | Tools | `tool.*` (model-facing), `tool.completed_hidden` | labels |
 | Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | labels |
 
+Every detector of Theorem's has a `detect.hint.<detector>` key, such as
+`detect.hint.email`. A detector of the host's own uses `detect.hint.own`. The
+hint is what the model is told when that detector stops a reply that is then
+retried.
+
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
-`src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless
-React directories (`react/src/client`, `components`, `hooks`, `server`; the
-default UI in `react/src/ui` words its own chrome). Only
+`src/kernel`, `src/guardrails`, and `src/interface` trees, the headless
+React directories (`react/src/client`, `components`, `hooks`; the default UI
+in `react/src/ui` words its own chrome), and `web/src/client` and
+`web/src/server`. Only
 `src/guardrails/labels.ts` is auto-skipped. Everything else must either live
 in the labels or carry an explicit reason:
 
@@ -1711,13 +1815,13 @@ It does not suggest an automatic retry of the unresolved operation.
 ## Decision disclosure
 
 Decision profiles do not run the turn egress lifecycle. Their only active
-guardrail is `guardrails.disclosure.enforce`, a host pre-dispatch check over the
-JSON state that would leave the process for TypeSafe Jev. It returns only
+guardrail is `guardrails.disclosure.enforce`, a host check before dispatch. It gets the
+JSON state that would leave the process for the decision provider, and the images that
+would go with it (`assets`). It returns only
 `allow` or `block`; a block prevents the request and surfaces a `DecisionError`
-with code `disclosure_blocked` (kind `blocked`). The registry rejects the inherited shared
-guardrail fields (quota, sanitization, redaction, canary, egress, network, and
-taint) on decision profiles because none have meaningful semantics on this
-bounded request path.
+with code `disclosure_blocked` (kind `blocked`). The registry refuses every other
+guardrail field (`quota`, `detect`, `blockedReply`, `network`, and `taint`) on a
+decision profile, because none has an effect on this bounded request path.
 
 ## Exported API
 
@@ -1727,8 +1831,8 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
-| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `DecisionGuardrailsSpec`, `DecisionDisclosureEnforcer`, `DecisionDisclosureVerdict`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `detects`, `resolveAllow`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `detectRule`, `EGRESS_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `checkDestinationGate`, `turnDestinations`, `addGivenDestinations`, `addHistoryDestinations`, `addRequestDestinations`, `addResultDestinations`, `TurnDestinations`, `DestinationVerdict`, `DESTINATION_GATES`, `DestinationGate`, `directives`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
@@ -1739,7 +1843,7 @@ From `src/guardrails/mod.ts`:
 | Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `NameAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaBusy`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
+| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `HOST_LABEL_KEYS`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
 
 From `src/guardrails/compile-egress.ts` (build time only):
 
@@ -1873,9 +1977,9 @@ From `src/guardrails/testing.ts` (test / harness only):
     },
     "Evaluation": {
       "supports": [
-        { "kind": "source", "path": "src/guardrails/eval/mod.ts" },
-        { "kind": "source", "path": "src/guardrails/eval/corpus.ts" },
-        { "kind": "contract_test", "path": "tests/guardrails/eval.test.ts" }
+        { "kind": "source", "path": "src/guardrails/detect-at.ts" },
+        { "kind": "contract_test", "path": "tests/scripts/guardrails-bench.test.ts" },
+        { "kind": "contract_test", "path": "tests/scripts/guardrails-bench-parse.test.ts" }
       ]
     },
     "Adversarial testing": {

@@ -19,6 +19,7 @@ import {
   detectProblem,
 } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
+import { WORKING_GROUPS } from '../../src/guardrails/sensitive-groups.ts';
 import type { ProfileGuardrailsSpec } from '../../src/guardrails/types.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -34,7 +35,7 @@ const INBOUND: readonly Boundary[] = [
   'user',
   'attachment',
   'voice',
-  'slots',
+  'options',
   'history',
   'injected',
   'system',
@@ -101,11 +102,10 @@ const LEAKS: readonly Detector[] = ['canary_leak', 'prompt_leak'];
 /** The detectors of what carries data out of a reply: they read only what the model says or thinks. */
 const SHOWN: readonly Detector[] = ['marker_leak', 'ungiven_images', 'ungiven_links', 'tool_leak'];
 
-Deno.test('a marker or an ungiven image stops the reply by default, and a link is not read', () => {
+Deno.test('a marker or an ungiven image is flagged in the reply by default, and a link is not read', () => {
   const replies: Boundary[] = ['reply', 'reply_structured', 'live_reply'];
   for (const detector of ['marker_leak', 'ungiven_images'] as const) {
-    assertEquals(where(undefined, detector, 'block'), replies);
-    assertEquals(where(undefined, detector, 'redact'), ['thought']);
+    assertEquals(where(undefined, detector, 'flag'), [...replies, 'thought']);
   }
   assertEquals(where(undefined, 'ungiven_links', 'ignore'), [...BOUNDARIES]);
   for (const detector of SHOWN) {
@@ -113,55 +113,91 @@ Deno.test('a marker or an ungiven image stops the reply by default, and a link i
   }
 });
 
-Deno.test('tool_instructions reads what a tool returns: flagged from a remote tool, not read from a function', () => {
+Deno.test('injection flags what any tool returns by default, from a function too', () => {
   const returned = TOOL_BOUNDARIES.filter(
     (boundary) => boundary.startsWith('tool_output_') || boundary.startsWith('tool_failure_'),
   );
-  assertEquals(DETECTOR_BOUNDARIES.tool_instructions, returned);
+  const flagged = where(undefined, 'injection', 'flag');
   assertEquals(
-    where(undefined, 'tool_instructions', 'flag'),
-    returned.filter((boundary) => !boundary.endsWith('_function')),
+    returned.filter((boundary) => !flagged.includes(boundary)),
+    [],
   );
-  assertEquals(where(undefined, 'tool_instructions', 'redact'), []);
 });
 
-Deno.test('a credential is redacted from a reply by default, and not read in a thought or a Live reply', () => {
-  for (const boundary of TOOL_BOUNDARIES.filter((b) => b.startsWith('tool_shown_'))) {
-    assertEquals(DETECT_DEFAULTS.credentials[boundary], 'redact');
+Deno.test('no detector redacts or blocks anywhere by default', () => {
+  for (const detector of DETECTORS) {
+    assertEquals(where(undefined, detector, 'redact'), []);
+    assertEquals(where(undefined, detector, 'block'), []);
   }
-  assertEquals(where(undefined, 'credentials', 'redact').includes('reply'), true);
-  assertEquals(where(undefined, 'credentials', 'redact').includes('reply_structured'), true);
+});
+
+Deno.test('a credential is flagged in a reply by default, and not read in a thought or a Live reply', () => {
+  for (const boundary of TOOL_BOUNDARIES.filter((b) => b.startsWith('tool_shown_'))) {
+    assertEquals(DETECT_DEFAULTS.credentials[boundary], 'flag');
+  }
+  assertEquals(where(undefined, 'credentials', 'flag').includes('reply'), true);
+  assertEquals(where(undefined, 'credentials', 'flag').includes('reply_structured'), true);
   assertEquals(where(undefined, 'credentials', 'ignore').includes('thought'), true);
   assertEquals(where(undefined, 'credentials', 'ignore').includes('live_reply'), true);
 });
 
-Deno.test('what comes in is redacted by default, and nothing the model writes is read for it', () => {
-  const others = [...LEAKS, ...SHOWN, 'tool_instructions', 'credentials'];
+Deno.test('what comes in is flagged by default, and nothing the model writes is read for it', () => {
+  const others = [...LEAKS, ...SHOWN, 'credentials'];
   for (const detector of DETECTORS.filter((d) => !others.includes(d))) {
-    assertEquals(where(undefined, detector, 'block'), []);
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);
-    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'redact');
+    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'flag');
   }
 });
 
-Deno.test('a leak stops the reply by default and is taken out of a thought', () => {
+Deno.test('an email, phone, or account number is flagged where it comes in, and never taken out by default', () => {
+  for (const detector of WORKING_GROUPS) {
+    assertEquals(where(undefined, detector, 'block'), []);
+    assertEquals(where(undefined, detector, 'redact'), []);
+    assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
+    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'flag');
+  }
+});
+
+Deno.test('a leak is flagged in all the model writes by default', () => {
   const calls = TOOL_BOUNDARIES.filter((boundary) => boundary.startsWith('tool_arguments_'));
   const replies: Boundary[] = ['reply', 'reply_structured', 'live_reply'];
-  assertEquals(where(undefined, 'canary_leak', 'block'), [...calls, ...replies]);
-  assertEquals(where(undefined, 'prompt_leak', 'block'), replies);
-  assertEquals(where(undefined, 'prompt_leak', 'flag'), calls);
   for (const detector of LEAKS) {
-    assertEquals(where(undefined, detector, 'redact'), ['thought']);
+    assertEquals(where(undefined, detector, 'flag'), [...calls, ...replies, 'thought']);
+    assertEquals(where(undefined, detector, 'block'), []);
     for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'ignore');
   }
 });
 
 Deno.test('a tool call is flagged for data by default and not read for injection', () => {
   const calls = TOOL_BOUNDARIES.filter((boundary) => boundary.startsWith('tool_arguments_'));
-  assertEquals(where(undefined, 'credentials', 'flag'), calls);
-  assertEquals(where(undefined, 'injection', 'flag'), []);
+  for (const boundary of calls) assertEquals(DETECT_DEFAULTS.credentials[boundary], 'flag');
   for (const boundary of calls) assertEquals(DETECT_DEFAULTS.injection[boundary], 'ignore');
+});
+
+Deno.test('injection is not read in what the model says or thinks, and a profile cannot turn it on there', () => {
+  const said: Boundary[] = ['reply', 'reply_structured', 'live_reply', 'thought'];
+  assertEquals(
+    DETECTOR_BOUNDARIES.injection,
+    BOUNDARIES.filter((boundary) => !said.includes(boundary)),
+  );
+  for (const boundary of said) {
+    assertEquals(
+      where({ detect: { injection: 'block' } }, 'injection', 'ignore').includes(boundary),
+      true,
+    );
+    ok(
+      detectProblem('guardrails.detect', { injection: { at: { [boundary]: 'flag' } } })?.startsWith(
+        `guardrails.detect.injection.at.${boundary} is not a boundary injection applies at`,
+      ),
+    );
+  }
+  for (const boundary of ['tool_arguments_agent', 'tool_arguments_function', 'tool_shown_mcp']) {
+    assertEquals(
+      detectProblem('guardrails.detect', { injection: { at: { [boundary]: 'flag' } } }),
+      undefined,
+    );
+  }
 });
 
 Deno.test('one action sets every detector at every boundary it applies at', () => {
@@ -181,7 +217,7 @@ Deno.test('a detector takes one action everywhere or an action per boundary', ()
   };
   assertEquals(where(spec, 'credentials', 'block'), [...BOUNDARIES]);
   assertEquals(where(spec, 'ids', 'block'), ['tool_arguments_mcp', 'reply']);
-  assertEquals(resolveGuardrailPolicy(spec).detect.ids.user, 'redact');
+  assertEquals(resolveGuardrailPolicy(spec).detect.ids.user, 'flag');
   assertEquals(resolveGuardrailPolicy(spec).detect.network, DETECT_DEFAULTS.network);
 });
 
@@ -200,6 +236,7 @@ Deno.test('detectProblem names a misspelt detector, boundary, or action', () => 
   const problems: [unknown, string][] = [
     ['mask', 'guardrails.detect must be one of'],
     [{ id: 'block' }, 'guardrails.detect.id is not a detector'],
+    [{ tool_instructions: 'flag' }, 'guardrails.detect.tool_instructions is not a detector'],
     [{ ids: 'mask' }, 'guardrails.detect.ids must be one of'],
     [{ ids: { at: { replies: 'block' } } }, 'guardrails.detect.ids.at.replies is not a boundary'],
     [{ ids: { at: { reply: true } } }, 'guardrails.detect.ids.at.reply must be one of'],

@@ -1,5 +1,5 @@
 /**
- * The studio's workspace, kept in this tab's sessionStorage so it outlives a reload or a trip
+ * The studio's workspace, kept in this tab's records so it outlives a reload or a trip
  * to the docs and back. Every change bumps a revision, so th30 can tell its own edits from the
  * visitor's. Keys never come here: the vault stays in memory, and a tool's URLs and headers are kept
  * with their credentials masked.
@@ -22,6 +22,7 @@ import {
   type ToolSpecDraft,
   toolReach,
   toolSnapshot,
+  type WorkspaceStarts,
   withLibraryDraft,
   withSharedCarry,
   withToolCarry,
@@ -93,14 +94,39 @@ export function keptTool(tool: ToolSpecDraft, started?: ToolSpecDraft): ToolSpec
 export function keptWorkspace(workspace: StudioWorkspace): StudioWorkspace {
   return {
     ...workspace,
-    toolSpecs: workspace.toolSpecs.map((tool) => keptTool(tool, workspace.starts.tools[tool.key])),
-    starts: {
-      ...workspace.starts,
-      tools: Object.fromEntries(
-        Object.entries(workspace.starts.tools).map(([key, tool]) => [key, keptTool(tool)]),
-      ),
-    },
+    toolSpecs: keptLibrary(workspace.toolSpecs, workspace.starts),
+    starts: keptStarts(workspace.starts),
   };
+}
+
+// why: Opening a node writes the workspace again with the same tools; they are masked once.
+// invariant: The workspace never edits a library or its starts in place.
+const keptLibraries = new WeakMap<
+  ToolSpecDraft[],
+  { starts: WorkspaceStarts; kept: ToolSpecDraft[] }
+>();
+const keptStartsOf = new WeakMap<WorkspaceStarts, WorkspaceStarts>();
+
+function keptLibrary(tools: ToolSpecDraft[], starts: WorkspaceStarts): ToolSpecDraft[] {
+  const known = keptLibraries.get(tools);
+  if (known?.starts === starts) return known.kept;
+  const kept = tools.map((tool) => keptTool(tool, starts.tools[tool.key]));
+  keptLibraries.set(tools, { starts, kept });
+  return kept;
+}
+
+function keptStarts(starts: WorkspaceStarts): WorkspaceStarts {
+  let kept = keptStartsOf.get(starts);
+  if (!kept) {
+    kept = {
+      ...starts,
+      tools: Object.fromEntries(
+        Object.entries(starts.tools).map(([key, tool]) => [key, keptTool(tool)]),
+      ),
+    };
+    keptStartsOf.set(starts, kept);
+  }
+  return kept;
 }
 
 /** True when two values are the same, or records holding the same values. */
@@ -152,7 +178,7 @@ interface StoreState {
   changes: DraftChange[];
   listeners: Set<() => void>;
   timer: ReturnType<typeof setTimeout> | undefined;
-  /** The sessionStorage key the workspace is written under. */
+  /** The name the workspace is kept under in the tab's records. */
   slot: string;
   /** For a project's workspace: the print of the files its starts stand on. */
   files: string | undefined;
@@ -161,8 +187,8 @@ interface StoreState {
     | undefined;
 }
 
-/** Writes the workspace, masked, to sessionStorage. */
-function writeWorkspace(state: StoreState): void {
+/** Keeps the workspace, masked, in the tab's records. */
+function writeWorkspace(state: StoreState, isLeaving = false): void {
   state.timer = undefined;
   const record: StoredWorkspace = {
     v: STUDIO_WORKSPACE_VERSION,
@@ -170,11 +196,9 @@ function writeWorkspace(state: StoreState): void {
     revision: state.revision,
     ...(state.files === undefined ? {} : { files: state.files }),
   };
-  try {
-    session()?.setItem(state.slot, JSON.stringify(record));
-  } catch {
-    // Quota or a blocked store: the page keeps working on what is in memory.
-  }
+  const text = JSON.stringify(record);
+  if (isLeaving) session()?.setItemLeaving(state.slot, text);
+  else session()?.setItem(state.slot, text);
 }
 
 /** Queues a write, unless one is already queued. */
@@ -247,23 +271,13 @@ function sharedCarry(state: StoreState, made: StudioWorkspace): SharedCarry {
  */
 function isQuiet(state: StoreState): boolean {
   if (getPref('askShared') === 'never') return true;
-  try {
-    return session()?.getItem(`${state.slot}${QUIET_SUFFIX}`) === '1';
-  } catch {
-    return false;
-  }
+  return session()?.getItem(`${state.slot}${QUIET_SUFFIX}`) === '1';
 }
 
 /** Sets whether shared values are asked about, as Settings does: asking again also ends this tab's "don't ask again". */
 function setQuiet(state: StoreState, quiet: boolean): void {
   setPref('askShared', quiet ? 'never' : 'always');
-  if (!quiet) {
-    try {
-      session()?.removeItem(`${state.slot}${QUIET_SUFFIX}`);
-    } catch {
-      // Storage is off: nothing was kept to end.
-    }
-  }
+  if (!quiet) session()?.removeItem(`${state.slot}${QUIET_SUFFIX}`);
   notifyListeners(state);
 }
 
@@ -455,13 +469,7 @@ export function createStudioStore(
       const { pending } = state;
       if (!pending) return;
       for (const key of reachKeys(pending.reach)) state.agreed.add(key);
-      if (quiet) {
-        try {
-          session()?.setItem(`${state.slot}${QUIET_SUFFIX}`, '1');
-        } catch {
-          // Storage is full or off: the builder is asked again.
-        }
-      }
+      if (quiet) session()?.setItem(`${state.slot}${QUIET_SUFFIX}`, '1');
       commitWorkspace(state, pending.carry, pending.by);
     },
     /** Whether a change to a shared value is made without asking. */
@@ -480,11 +488,11 @@ export function createStudioStore(
       state.files = files;
       scheduleWrite(state);
     },
-    /** Writes now if a write is pending; the route calls it on pagehide and unmount. */
-    flush() {
+    /** Writes now if a write is pending; the route calls it on pagehide, as `isLeaving`, and unmount. */
+    flush(isLeaving = false) {
       if (state.timer === undefined) return;
       clearTimeout(state.timer);
-      writeWorkspace(state);
+      writeWorkspace(state, isLeaving);
     },
   };
 }

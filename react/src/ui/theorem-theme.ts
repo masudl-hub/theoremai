@@ -14,6 +14,15 @@ export const theoremTheme: DefinedTheme = defineTheme({
   name: 'theorem',
   extends: neutralTheme,
   icons: tablerIcons,
+  tokens: {
+    // why: neutral's shadows carry a 1px white ring in dark mode. Surfaces lift by shadow alone.
+    '--shadow-low':
+      '0 2px 4px light-dark(oklch(0 0 0 / 5%), oklch(0 0 0 / 25%)), 0 4px 8px light-dark(oklch(0 0 0 / 10%), oklch(0 0 0 / 40%))',
+    '--shadow-med':
+      '0 2px 4px light-dark(oklch(0 0 0 / 5%), oklch(0 0 0 / 35%)), 0 4px 12px light-dark(oklch(0 0 0 / 10%), oklch(0 0 0 / 50%))',
+    '--shadow-high':
+      '0 4px 6px light-dark(oklch(0 0 0 / 10%), oklch(0 0 0 / 50%)), 0 12px 24px light-dark(oklch(0 0 0 / 15%), oklch(0 0 0 / 70%))',
+  },
   components: {
     // why: Media keeps a margin from the viewport edges, over a lighter scrim than
     // Astryx's shared --color-overlay (dialogs keep theirs).

@@ -4,12 +4,10 @@ import {
   type NodeOrigins,
   ON_OWN_KEYS,
   rowOrigin,
-  type StudioAsks,
   type StudioIssue,
   type StudioProvider,
   type StudioRunPayload,
   type StudioRunsOn,
-  type WriteAsk,
 } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 
@@ -42,17 +40,6 @@ export const RowOrigins = createContext<{
   open: (origin: SettingOrigin) => void;
 } | null>(null);
 
-/**
- * Asks the builder before a real run of a tool that writes, and answers whether to run it. Where
- * no page mounts the question, the run is refused.
- */
-export const ConfirmWrite = createContext<(ask: WriteAsk) => Promise<boolean>>(() =>
-  Promise.resolve(false),
-);
-
-/** The project's tools that write: the ones the studio makes ask, and the ones it cannot. */
-export const ProjectAsks = createContext<StudioAsks>({ asked: [], inside: [] });
-
 /** The origin a section around a row has already named, so the row does not name it again. */
 export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);
 
@@ -70,7 +57,7 @@ export function useRowOrigin(
   if (!held || !origin) return undefined;
   return {
     origin,
-    said: origin === held.scope.section || origin === held.scope.partly || origin === above,
+    said: origin === held.scope.section || origin === above,
     open: () => {
       held.open(origin);
     },
@@ -102,6 +89,9 @@ export const ISSUE_ROW_ATTRIBUTE = 'data-issue';
  */
 export const ListBadges = createContext(1);
 
+/** The preview's guardrail test: whether it is open, and the button that opens or closes it. Null while no agent compiles. */
+export const GuardrailTest = createContext<{ open: boolean; toggle: () => void } | null>(null);
+
 /** What the studio runs on: the page's lent keys, the builder's own, or their machine. */
 export const RunsOn = createContext<StudioRunsOn>(ON_OWN_KEYS);
 
@@ -124,6 +114,9 @@ export interface WorkspaceAgent {
   agentId: string;
   type: string;
 }
+
+/** Whether a change waits on the shared-change dialog, so a field showing it isn't reset yet. */
+export const ChangeHeld = createContext(false);
 
 /**
  * The workspace around the agent the editor shows: the agents it can name, which of the library's

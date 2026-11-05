@@ -15,25 +15,30 @@ import '@astryxdesign/core/reset.css';
 import '@astryxdesign/core/astryx.css';
 import './built/theme.css';
 
-export type { InkWaveStatus } from '../client/ink-waveform.ts';
 export type {
   LiveCallOptions,
   PageTool,
   PageToolAnswer,
   PageTools,
-} from '../client/live/live-page-tool.ts';
+} from '@theoremjs/web/client';
+export type { InkWaveStatus } from '../client/ink-waveform.ts';
 export { useLiveCaptionLog } from '../client/live/use-live-caption-log.ts';
 export {
   InkWaveform,
   type InkWaveformProps,
   type InkWaveLevels,
 } from '../components/InkWaveform.tsx';
-export { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
+export {
+  type LiveCall,
+  type LiveCallInput,
+  useLiveCall,
+} from '../components/live/use-live-call.ts';
 export { theoremTheme } from './built/theorem.js';
 export {
   ChatComposerBar,
   type ChatComposerBarProps,
   EFFORT_ICON,
+  generationOptions,
   type LiveComposerBarProps,
 } from './ChatComposerBar.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
@@ -70,6 +75,8 @@ export {
   useLabels,
 } from './labels-provider.tsx';
 export { PaneFailure, PaneLoading, PaneState } from './PaneState.tsx';
+export { RadialBars, Sunburst, type SunburstNode } from './RadialCharts.tsx';
+export { type RankedBar, RankedBars } from './RankedBars.tsx';
 export { InPlace, PaneLayout, PanePanel, Prose, RaisedPane } from './SidePanel.tsx';
 export {
   DEFAULT_CHAT_MAX_WIDTH,
@@ -89,4 +96,6 @@ export {
 } from './ToolGateCard.tsx';
 export { ToolResult } from './ToolResult.tsx';
 export { TraceGuardrailsView, TracePlacement, useTraceInspector } from './TraceInspectorPanel.tsx';
+export { ChartStat } from './TraceOverview.tsx';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme.tsx';
+export { ChartCard, type TraceFill } from './trace-patterns.tsx';

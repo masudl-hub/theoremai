@@ -7,25 +7,27 @@
  */
 
 import {
+  assertToolSettings,
   DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   type LabelKey,
   liveIngressChannelDefault,
+  TheoremError,
 } from '@theoremjs/agents';
 import {
   BOUNDARIES,
-  type Boundary,
   DETECTORS,
-  type DetectAction,
   type Detector,
+  type DetectSpec,
   recordOf,
+  resolveDetect,
 } from '@theoremjs/agents/guardrails';
-import { type JsonObject, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
+import { type JsonObject, PROFILE_GRAPH, type ToolBackground } from '@theoremjs/agents/kernel';
 import {
   CONTEXT_SENDERS,
   type ContextSender,
-  fieldMeta,
   type ProfileType,
+  profileFieldProblems,
 } from '@theoremjs/agents/schema';
 import { canonical } from './canonical.ts';
 import {
@@ -38,7 +40,9 @@ import {
   type GuardrailsDraft,
   type ImageReferenceDraft,
   INLINE_LABELS,
+  MODEL_LIMITS,
   type ModelBindingDraft,
+  type OptionDraft,
   type PatternDraft,
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
@@ -52,6 +56,7 @@ import {
   type StudioProvider,
 } from './providers.ts';
 import { stubOutputFromSchema } from './stub.ts';
+import { parseSystemMarkup, WHEN_LINE } from './system-markup.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
 /** Where a read stopped, one-based, on the file the visitor is editing. */
@@ -204,7 +209,7 @@ class Src {
 
 interface ParsedModule {
   tools: Record<string, unknown>[];
-  structured?: { id: string; spec: Record<string, unknown> };
+  structures: { id: string; spec: Record<string, unknown> }[];
   profile?: Record<string, unknown>;
   provider?: { definition: string; spec: Record<string, unknown> };
   questions?: Record<string, unknown>;
@@ -381,6 +386,20 @@ function objectArg(args: unknown[], src: Src, message: string): Record<string, u
   return value;
 }
 
+/** Refuses, where it is written, a tool the kernel would not register. */
+function refuseBadTool(tool: Record<string, unknown>, spans: readonly StudioSourceSpan[]): void {
+  try {
+    assertToolSettings({ ...tool, name: text(tool.name) });
+  } catch (error) {
+    if (!(error instanceof TheoremError)) throw error;
+    const named = spans
+      .filter((span) => new RegExp(`\\b${span.path}\\b`).test(error.message))
+      .sort((a, b) => b.path.length - a.path.length);
+    const at = named[0] ?? spans[0] ?? { line: 1, column: 1 };
+    throw new ReadFail(error.message, at.line, at.column);
+  }
+}
+
 function registerToolCall(args: unknown[], src: Src, spans: readonly StudioSourceSpan[]): unknown {
   const tool = objectArg(args, src, 'registerTool() needs the tool object.');
   const type = tool.type;
@@ -389,6 +408,7 @@ function registerToolCall(args: unknown[], src: Src, spans: readonly StudioSourc
     const at = spans.findLast((span) => span.path === 'type') ?? src.pos();
     throw new ReadFail(STUDIO_TOOL_TYPE_MESSAGE, at.line, at.column);
   }
+  refuseBadTool(tool, spans);
   return { kind: 'registerTool', tool };
 }
 
@@ -579,13 +599,13 @@ function readCall(src: Src, parsed: ParsedModule): void {
     if (typeof id !== 'string' || !isRecord(spec)) {
       src.fail('registerStructured() needs an id and a spec.');
     }
-    parsed.structured = { id, spec };
+    parsed.structures.push({ id, spec });
   }
 }
 
 function parseModule(text: string, of: Src['of'] = 'profile'): ParsedModule {
   const src = new Src(text, of);
-  const parsed: ParsedModule = { tools: [], spans: [] };
+  const parsed: ParsedModule = { tools: [], structures: [], spans: [] };
   for (src.skip(); !src.done; src.skip()) {
     if (src.peekIdent() === 'import') {
       src.expectIdent();
@@ -617,10 +637,62 @@ function markup(value: unknown, srcMessage: string): string {
   return value
     .map((part) => {
       if (typeof part === 'string') return part;
+      if (Array.isArray(part)) return markup(part, srcMessage);
       if (isRecord(part) && typeof part.private === 'string') return `{private: ${part.private}}`;
       throw new ReadFail(srcMessage, 1, 1);
     })
     .join('');
+}
+
+/**
+ * A prompt as the draft holds it: its lines as one text, a blank line between them. A bare
+ * `{ private }` is no line, and a `when` line holding a blank line can't be told from two lines.
+ */
+function promptText(value: unknown): string {
+  const srcMessage = 'The system prompt has to be text.';
+  const lines = Array.isArray(value) ? value : [value];
+  const texts = lines.map((line: unknown) => {
+    if (Array.isArray(value) && typeof line !== 'string' && !Array.isArray(line)) {
+      throw new ReadFail(srcMessage, 1, 1);
+    }
+    return markup(line, srcMessage);
+  });
+  for (const text of texts) {
+    const parsed = parseSystemMarkup(text);
+    if (WHEN_LINE.test(text) && parsed.ok && parsed.lines.length > 1) {
+      throw new ReadFail('A "when" line in the system prompt can\'t hold a blank line.', 1, 1);
+    }
+  }
+  return texts.join('\n\n');
+}
+
+/** A file's options as rows, each keeping the key the row of its name had. */
+function optionRows(
+  value: unknown,
+  isShownInChat: boolean,
+  current: readonly OptionDraft[],
+): OptionDraft[] {
+  const byName = new Map(current.map((option) => [option.name, option]));
+  return Object.entries(record(value) ?? {}).map(([name, decl]) => {
+    const previous = byName.get(name);
+    const option = record(decl);
+    const entries: unknown[] = Array.isArray(option?.choices) ? option.choices : [];
+    const choices = entries.map((entry, index) => {
+      const choice = record(entry);
+      return {
+        key: previous?.choices[index]?.key ?? draftKey('choice'),
+        value: text(choice?.value),
+        description: text(choice?.description),
+      };
+    });
+    return {
+      key: previous?.key ?? draftKey('option'),
+      name,
+      label: text(option?.label),
+      isShownInChat,
+      choices,
+    };
+  });
 }
 
 function jsonText(value: unknown): string {
@@ -704,8 +776,6 @@ function readAllow(into: DetectDraft, detector: Detector, spec: unknown): void {
 }
 
 function readDetector(into: DetectDraft, detector: Detector, rule: Record<string, unknown>): void {
-  const at = record(rule.at) ?? {};
-  into.detect[detector] = { ...into.detect[detector], ...(at as Record<Boundary, DetectAction>) };
   const source = into.sources[detector];
   if (source) {
     if (rule.theorem === false) source.theorem = false;
@@ -730,8 +800,11 @@ function ownDetector(key: string, rule: Record<string, unknown>): GuardrailsDraf
 function guardrailsOf(spec: unknown): GuardrailsDraft {
   const blank = createBlankDraft().guardrails;
   if (!isRecord(spec)) return blank;
+  // The actions are the kernel's own reading, so one action for every detector, one for a
+  // detector, and a detector's `action` under its `at` all open as the kernel runs them.
+  const actions = resolveDetect(spec.detect as DetectSpec | undefined);
   const read: DetectDraft = {
-    detect: structuredClone(blank.detect),
+    detect: recordOf(DETECTORS, (detector) => ({ ...actions[detector] })),
     sources: structuredClone(blank.sources),
     allow: structuredClone(blank.allow),
     innocentNames: [...blank.innocentNames],
@@ -799,6 +872,11 @@ function applyLabels(draft: StudioDraft, labels: unknown): void {
   draft.labels = entries;
 }
 
+function limitsOf(value: unknown): ModelBindingDraft['limits'] {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(MODEL_LIMITS.map(({ name }) => [name, whole(value[name])]));
+}
+
 function bindingOf(
   modelId: string,
   spec: unknown,
@@ -825,6 +903,7 @@ function bindingOf(
     apiId: text(spec.apiId),
     options: (record(spec.options) ?? {}) as JsonObject,
     timeoutMs: timeout,
+    limits: limitsOf(spec.limits),
     efforts,
     defaultEffort: text(spec.defaultEffort),
     allowEffortSelect: spec.allowEffortSelect === true,
@@ -884,6 +963,9 @@ function toolRoute(spec: Record<string, unknown>) {
     bodyParam: filled(mapping.bodyParam),
     serverUrl: filled(spec.serverUrl),
     mcpToolName: filled(spec.mcpToolName),
+    maxResponseBytes: whole(spec.maxResponseBytes),
+    sessionIdleMs: whole(record(spec.session)?.idleMs),
+    sessionMax: whole(record(spec.session)?.max),
   } satisfies Partial<ToolSpecDraft>;
 }
 
@@ -933,6 +1015,8 @@ function toolOf(
     // A page tool's source has no handler: its stub is the studio's own, so it is kept.
     stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),
     answeredBy: page ? 'page' : undefined,
+    after: spec.after === true ? true : undefined,
+    background: spec.background as ToolBackground | undefined,
     ...toolRoute(spec),
     agentKey: agentId ? agentKeyOf?.(agentId) : undefined,
     maxCallsPerTurn: whole(spec.maxCallsPerTurn),
@@ -1078,14 +1162,16 @@ function identityOf(
   type: StudioProfileType | '',
 ): StudioDraft['identity'] {
   const identity = record(profile.identity) ?? {};
-  const byRole = identity.systemByRole;
   return {
     ...current,
     agentId: text(profile.id),
     profileType: type,
     handle: text(identity.handle),
-    system: markup(identity.system, 'The system prompt has to be text.'),
-    systemByRoleJson: isRecord(byRole) || Array.isArray(byRole) ? jsonText(byRole) : '',
+    system: promptText(identity.system),
+    options: [
+      ...optionRows(identity.options, false, current.options),
+      ...optionRows(record(profile.inputs)?.options, true, current.options),
+    ],
   };
 }
 
@@ -1108,6 +1194,15 @@ function isContextSender(value: string): value is ContextSender {
   return (CONTEXT_SENDERS as readonly string[]).includes(value);
 }
 
+/** The byte counts a file wrote by type; anything else is left out. */
+function limitsByMimeOf(value: unknown): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(record(value) ?? {}).filter(
+      (entry): entry is [string, number] => typeof entry[1] === 'number',
+    ),
+  );
+}
+
 function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
   const context = record(inputs.context);
   return {
@@ -1117,8 +1212,7 @@ function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
     maxFiles: whole(inputs.maxFiles),
     maxBytes: whole(inputs.maxBytes),
     maxTurnBytes: whole(inputs.maxTurnBytes),
-    limitsByMimeJson: jsonText(inputs.limitsByMime),
-    slotsJson: jsonText(inputs.slots),
+    limitsByMime: limitsByMimeOf(inputs.limitsByMime),
     contextFrom: strings(context?.from).filter(isContextSender),
     contextMaxChars: whole(context?.maxChars),
   };
@@ -1137,15 +1231,25 @@ function itemRulesOf(
 
 function outputsOf(
   outputs: Record<string, unknown> | undefined,
-  structured: ParsedModule['structured'],
+  structures: ParsedModule['structures'],
 ): StudioDraft['outputs'] {
+  const picks = record(outputs?.structured);
+  const structured = picks
+    ? structures.find(({ id }) => id === text(picks.fallback))
+    : structures[0];
   const schemaId = structured?.id ?? text(outputs?.structured);
+  const shapes = Object.entries(record(picks?.map) ?? {}).map(([choice, id]) => ({
+    choice,
+    schemaId: text(id),
+    schemaJson: jsonText(structures.find((shape) => shape.id === id)?.spec.jsonSchema),
+  }));
   const streaming = record(outputs?.streaming);
   const validation = record(outputs?.validation);
   return {
     mode: schemaId ? 'structured' : 'text',
     schemaId,
     schemaJson: jsonText(structured?.spec.jsonSchema),
+    ...(picks ? { byOption: { option: text(picks.by), shapes } } : {}),
     streamMode: text(streaming?.mode) as StudioDraft['outputs']['streamMode'],
     streamThoughts: streaming?.streamThoughts !== false,
     validationEnabled: validation !== undefined,
@@ -1294,39 +1398,10 @@ function profileTypeOf(profile: Record<string, unknown>): StudioProfileType | ''
   return type as StudioProfileType | '';
 }
 
-/** The settings a reader below would otherwise take as their default when set to anything else. */
-const LISTED_SETTINGS = ['turnBehaviour.atStepLimit', 'outputs.validation.items.*.onFail'] as const;
-
-/** Refuses, where it is written, a listed setting set to a value the kernel's table does not list. */
-function refuseUnlisted(
-  profile: Record<string, unknown>,
-  spans: readonly StudioSourceSpan[],
-): void {
-  for (const setting of LISTED_SETTINGS) {
-    const options = fieldMeta(setting)?.options ?? [];
-    for (const [path, value] of valuesAt(profile, setting.split('.'), [])) {
-      if (value !== undefined && !options.includes(value as string)) {
-        failAt(
-          spans,
-          path,
-          `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`,
-        );
-      }
-    }
-  }
-}
-
-/** Each value at `keys` in `value`, `*` standing for every key, with its path as written. */
-function valuesAt(
-  value: unknown,
-  keys: readonly string[],
-  at: readonly string[],
-): [string, unknown][] {
-  const [key, ...rest] = keys;
-  if (key === undefined) return [[at.join('.'), value]];
-  if (!isRecord(value)) return [];
-  const next = key === '*' ? Object.keys(value) : [key];
-  return next.flatMap((each) => valuesAt(value[each], rest, [...at, each]));
+/** Refuses, where it is written, a setting the kernel's catalog cannot hold. */
+function refuseUnheld(profile: Record<string, unknown>, spans: readonly StudioSourceSpan[]): void {
+  const [problem] = profileFieldProblems(profile);
+  if (problem) failAt(spans, problem.path, `${problem.path} ${problem.message}`);
 }
 
 function draftFrom(
@@ -1339,7 +1414,7 @@ function draftFrom(
 } {
   const profile = parsed.profile ?? {};
   const type = profileTypeOf(profile);
-  refuseUnlisted(profile, parsed.spans);
+  refuseUnheld(profile, parsed.spans);
   const byModelId = new Map(current.modelBindings.map((binding) => [binding.modelId, binding]));
   const byToolName = new Map(current.toolSpecs.map((tool) => [tool.toolName, tool]));
   const tools = record(profile.tools) ?? {};
@@ -1356,7 +1431,8 @@ function draftFrom(
     tools: { t2Loader: text(tools.t2Loader), parallel: tools.parallel === true },
     toolSpecs: [],
     inputs: inputs && type !== 'decision' ? inputsOf(inputs) : current.inputs,
-    outputs: outputs || parsed.structured ? outputsOf(outputs, parsed.structured) : current.outputs,
+    outputs:
+      outputs || parsed.structures.length ? outputsOf(outputs, parsed.structures) : current.outputs,
     turnBehaviour: section(profile.turnBehaviour, turnOf, current.turnBehaviour),
     guardrails: section(profile.guardrails, guardrailsOf, current.guardrails),
     observability: section(profile.observability, observabilityOf, current.observability),

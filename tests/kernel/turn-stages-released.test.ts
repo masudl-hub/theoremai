@@ -81,7 +81,14 @@ Deno.test('released: a before_end inject drops the draft the user does not have'
   assertEquals(said(read), [['user', 'and the fern?']]);
   assertEquals(
     eventsOf(events, 'stage').filter((e) => e.released !== undefined),
-    [{ type: 'stage', stage: 'before_end', injected: [{ id: 'in-1' }], released: 0 }],
+    [
+      {
+        type: 'stage',
+        stage: 'before_end',
+        injected: [{ id: 'in-1', messages: [steer] }],
+        released: 0,
+      },
+    ],
   );
   assertEquals(replyText(events), 'first replysecond reply');
   assertEquals(keptText(events), 'second reply');

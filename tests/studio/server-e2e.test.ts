@@ -346,6 +346,72 @@ Deno.test(
           }
         });
 
+      await step("asks each named provider's key with the project's own vault", async () => {
+        const response = await studio.call('/api/studio/keys');
+        assertEquals(response.status, 200);
+        const checks: { provider: string; state: string }[] = await response.json();
+        assertEquals(Object.fromEntries(checks.map((check) => [check.provider, check.state])), {
+          house: 'unchecked',
+          router: 'empty',
+          left: 'unchecked',
+          odd: 'unreachable',
+          own: 'empty',
+          spaced: 'empty',
+        });
+      });
+      await step(
+        'keeps what the page met, and not a clean opening, for the errors command',
+        async () => {
+          assertEquals(
+            (await studio.post('/api/studio/events', { text: 'TypeError: x is undefined' })).status,
+            200,
+          );
+          assertEquals((await studio.post('/api/studio/events', { text: ' ' })).status, 400);
+          const foreign = await studio.call('/api/studio/events', {
+            method: 'POST',
+            origin: 'https://elsewhere.example',
+            body: JSON.stringify({ text: 'planted' }),
+          });
+          assertEquals(foreign.status, 403);
+          const kept: { kind: string; text: string }[] = await (
+            await studio.call('/api/studio/events')
+          ).json();
+          assertEquals(
+            kept.filter((event) => event.kind === 'page').map((event) => event.text),
+            ['the page: TypeError: x is undefined'],
+          );
+          // why: the project opened with nothing to look at, which is not worth keeping.
+          assertEquals(
+            kept.filter((event) => event.kind === 'look'),
+            [],
+          );
+        },
+      );
+      await step('says what it loaded, as the status command prints it', async () => {
+        const status = await studio.call('/api/studio/status');
+        assertEquals(status.headers.get('content-type'), 'text/plain; charset=utf-8');
+        const lines = (await status.text()).split('\n');
+        assertEquals(lines[0]?.startsWith('theorem studio: '), true);
+        assertEquals(
+          lines.slice(1, 5).map((line) => line.trim().split(/\s+/)[0]),
+          ['setup', 'agents', 'tools', 'keys'],
+        );
+        const model = join(studio.root, 'model.ts');
+        Deno.writeTextFileSync(model, "\nthrow new Error('the setup cannot load');\n", {
+          append: true,
+        });
+        try {
+          const now = await (await studio.call('/api/studio/status')).text();
+          assert(now.includes('The files stopped loading'), now);
+        } finally {
+          Deno.writeFileSync(model, bytesOf('model.ts'));
+        }
+        assert(
+          (await (await studio.call('/api/studio/status')).text()).includes(
+            'theorem studio: nothing to look at',
+          ),
+        );
+      });
       await step('opens the project with every provider and agent it registers', () => {
         const agents = opened.workspace.agents.map((agent) => [
           agent.identity.agentId,
@@ -932,13 +998,9 @@ Deno.test(
             studio,
             removeLibraryTool(opened.workspace, toolKey(opened.workspace, 'wipe_desk')),
           );
-          assertEquals([...written].sort(), [
-            'adv.studio.setup.ts',
-            'agents/team.ts',
-            'tools/danger.ts',
-          ]);
-          const setup = Deno.readTextFileSync(join(studio.root, SETUP));
-          assert(!setup.includes('wipe'), setup);
+          assertEquals([...written].sort(), ['agents/team.ts', 'app.ts', 'tools/danger.ts']);
+          const app = Deno.readTextFileSync(join(studio.root, 'app.ts'));
+          assert(!app.includes('wipe'), app);
           assertEquals(snapshot(studio.root).has('tools/danger.ts'), false);
           const reopened = await open(studio);
           assertEquals(

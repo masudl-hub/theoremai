@@ -10,6 +10,7 @@ import type {
   TrustLevel,
 } from '../guardrails/types.ts';
 import type { GuardrailCheck } from '../kernel/engine/turn-trace.ts';
+import { OPTION_DOCS } from '../kernel/field-docs.ts';
 import type {
   CompactionMeter,
   CompactionOutcome,
@@ -21,6 +22,10 @@ import type {
 } from '../kernel/schema.ts';
 import type { StageAffordance } from '../kernel/stages.ts';
 import type { EmbeddingTask, SessionEventKind } from '../kernel/types.ts';
+import { geminiProvider } from '../providers/gemini/provider.ts';
+import { localProvider } from '../providers/local/provider.ts';
+import { openRouterProvider } from '../providers/openrouter/provider.ts';
+import { typesafeProvider } from '../providers/typesafe/provider.ts';
 import type { TraceSpan } from './trace-span.ts';
 
 /** How a value reads: the unit or shape a viewer formats it by. */
@@ -165,71 +170,68 @@ const TRACE_FIELDS = {
   links: { label: 'Links', doc: 'Earlier traces this span follows.' },
 } satisfies Record<string, TraceOptionMeta>;
 
+/**
+ * Each value's label, with its doc from the JSDoc on its list's member (`OPTION_DOCS`). A value
+ * the list does not document throws.
+ */
+function listed<K extends string>(
+  docs: Readonly<Record<string, string>>,
+  labels: Record<K, string>,
+): Record<K, TraceOptionMeta> {
+  const entries = Object.entries<string>(labels).map(([value, label]) => {
+    const doc = docs[value];
+    if (!doc) throw new Error(`${value}: its list does not document it`);
+    return [value, { label, doc }] as const;
+  });
+  return Object.fromEntries(entries) as Record<K, TraceOptionMeta>;
+}
+
 const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = {
-  completed: { label: 'Completed', doc: 'The model finished its answer.' },
-  length: { label: 'Hit output limit', doc: 'The model stopped at its output token limit.' },
-  tool: {
-    label: 'Handed tool to host',
-    doc: 'Stopped to hand a tool call back to the host. Deprecated: approval now stops as “Waiting for approval”.',
-  },
-  gate: {
-    label: 'Waiting for approval',
-    doc: 'A tool call needs confirmation, permission, or sign-in before it runs; the host resumes it.',
-  },
-  filtered: {
-    label: 'Filtered',
-    doc: 'A safety filter or the output guardrail held the answer back.',
-  },
-  provider_error: { label: 'Provider error', doc: 'The provider reported an error.' },
-  cancelled: { label: 'Cancelled', doc: 'The user or host stopped it.' },
-  step_limit: {
-    label: 'Ran out of steps',
-    doc: 'The last model call the profile allows asked for tools, so the turn ended without an answer.',
-  },
-  stream_incomplete: {
-    label: 'Stream cut off',
-    doc: "The provider's stream ended before the answer was complete.",
-  },
-  interrupted: { label: 'Interrupted', doc: 'The user spoke over a Live response.' },
-  generation_complete: {
-    label: 'Generation complete',
-    doc: 'Live: the model finished generating this response; the turn may still be open.',
-  },
+  ...listed(OPTION_DOCS.TURN_STOP_KINDS, {
+    completed: 'Completed',
+    length: 'Hit output limit',
+    tool: 'Handed tool to host',
+    gate: 'Waiting for approval',
+    filtered: 'Filtered',
+    provider_error: 'Provider error',
+    cancelled: 'Cancelled',
+    step_limit: 'Ran out of steps',
+    answer_missing: 'No answer',
+    stream_incomplete: 'Stream cut off',
+    interrupted: 'Interrupted',
+    generation_complete: 'Generation complete',
+  } satisfies Record<TurnStopKind, string>),
   go_away: {
     label: 'Closed by provider',
     doc: 'Live: the provider warned the session would end, then closed it.',
   },
 };
 
-const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
-  config: { label: 'Setup', doc: 'The profile, tool, or schema is set up wrong.' },
-  request: { label: 'Host request', doc: 'The host called theorem wrongly.' },
-  input: { label: 'User input', doc: 'The user sent input the profile does not accept.' },
-  action: { label: 'Not allowed', doc: 'The user asked for something the profile does not allow.' },
-  auth: {
-    label: 'Credentials',
-    doc: 'A missing or rejected credential, or an account that cannot be billed.',
-  },
-  rate_limit: { label: 'Rate limit', doc: 'Too many requests, or a quota used up.' },
-  unsupported: { label: 'Unsupported', doc: 'The model or route cannot serve this request.' },
-  busy: { label: 'Busy', doc: 'The provider is up but too busy for the call.' },
-  unavailable: { label: 'Unavailable', doc: 'The provider is down.' },
-  bad_response: {
-    label: 'Unusable response',
-    doc: 'The provider answered with something that cannot be used.',
-  },
-  network: { label: 'Network', doc: 'The request never reached the provider.' },
-  timeout: { label: 'Timeout', doc: 'The model took longer than the host allowed.' },
-  safety: { label: 'Safety', doc: 'theorem or the provider held the reply back.' },
-  blocked: {
-    label: 'Blocked',
-    doc: "A guardrail or host policy stopped one of the agent's steps.",
-  },
-  declined: { label: 'Declined', doc: "The user declined one of the agent's steps." },
-  failed: { label: 'Failed', doc: "One of the agent's steps ran and failed." },
-  cancelled: { label: 'Cancelled', doc: 'The user or host stopped the turn.' },
-  internal: { label: 'Internal', doc: 'A theorem invariant broke.' },
-};
+const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = listed(
+  OPTION_DOCS.ERROR_KINDS,
+  {
+    config: 'Setup',
+    request: 'Host request',
+    conflict: 'Conflict',
+    not_found: 'Not found',
+    input: 'User input',
+    action: 'Not allowed',
+    auth: 'Credentials',
+    rate_limit: 'Rate limit',
+    unsupported: 'Unsupported',
+    busy: 'Busy',
+    unavailable: 'Unavailable',
+    bad_response: 'Unusable response',
+    network: 'Network',
+    timeout: 'Timeout',
+    safety: 'Safety',
+    blocked: 'Blocked',
+    declined: 'Declined',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
+    internal: 'Internal',
+  } satisfies Record<ErrorKind, string>,
+);
 
 /** `error.type`: an error kind, or the failing stop. An HTTP status or exception shows as is. */
 const ERROR_TYPE_OPTIONS: Readonly<Record<string, TraceOptionMeta>> = {
@@ -261,11 +263,13 @@ const TOOL_ORIGIN_OPTIONS: Readonly<Record<ToolOrigin, TraceOptionMeta>> = {
   delegated: { label: 'Another agent', doc: 'A specialist agent the tool ran.' },
 };
 
-const TOOL_PERMISSION_OPTIONS: Readonly<Record<ToolPermission, TraceOptionMeta>> = {
-  auto: { label: 'Automatic', doc: 'Runs without asking.' },
-  session_consent: { label: 'Ask once', doc: 'Asks once per session, then remembers the answer.' },
-  always_confirm: { label: 'Always ask', doc: 'Asks before every call.' },
-};
+const TOOL_PERMISSION_OPTIONS: Readonly<Record<ToolPermission, TraceOptionMeta>> = listed(
+  OPTION_DOCS.TOOL_PERMISSION,
+  { auto: 'Automatic', session_consent: 'Ask once', always_confirm: 'Always ask' } satisfies Record<
+    ToolPermission,
+    string
+  >,
+);
 
 const LINK_KINDS: Readonly<Record<'resume' | 'continue' | 'retry' | 'trial', TraceOptionMeta>> = {
   resume: { label: 'Resumes', doc: 'Picks up a call that stopped for approval.' },
@@ -299,13 +303,23 @@ const CASE_KINDS: Readonly<Record<'capability' | 'regression', TraceOptionMeta>>
 
 const OPERATIONS: Readonly<
   Record<
-    'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide' | 'embeddings',
+    | 'invoke_agent'
+    | 'chat'
+    | 'generate_content'
+    | 'transcribe'
+    | 'execute_tool'
+    | 'decide'
+    | 'embeddings',
     TraceOptionMeta
   >
 > = {
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
-  chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
-  generate_content: { label: 'Generate content', doc: 'A model call over a Gemini API.' },
+  chat: { label: 'Chat', doc: 'A model call to a chat-completions endpoint.' },
+  generate_content: {
+    label: 'Generate content',
+    doc: 'A model call that generates content other than over chat completions: Gemini, speech, or images.',
+  },
+  transcribe: { label: 'Transcribe', doc: 'One transcription call: a voice clip in, text out.' },
   execute_tool: { label: 'Run tool', doc: 'A tool call theorem ran.' },
   decide: {
     label: 'Decide',
@@ -321,11 +335,12 @@ const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceO
   speech: { label: 'Speech', doc: 'The model answers in audio.' },
 };
 
-const PROVIDERS: Readonly<Record<'gcp.gemini' | 'openrouter' | 'typesafe', TraceOptionMeta>> = {
-  'gcp.gemini': { label: 'Google Gemini', doc: "Google's Gemini API." },
-  openrouter: { label: 'OpenRouter', doc: 'The OpenRouter gateway.' },
-  typesafe: { label: 'TypeSafe', doc: "TypeSafe's native decision API." },
-};
+const PROVIDERS: Readonly<Record<string, TraceOptionMeta>> = Object.fromEntries(
+  [geminiProvider, localProvider, openRouterProvider, typesafeProvider].map((provider) => [
+    provider.traceName ?? provider.id,
+    { label: provider.name, doc: provider.description },
+  ]),
+);
 
 const USAGE_SIDES: Readonly<Record<'input' | 'output', TraceOptionMeta>> = {
   input: { label: 'Input', doc: 'Tokens the model read.' },
@@ -404,13 +419,21 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Credentials',
     doc: 'An API key, token, password assignment, or private key. The decision names the boundary it was crossing and what was done with it.',
   },
+  'detect.email': {
+    label: 'Email',
+    doc: 'An email address. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.phone': {
+    label: 'Phone',
+    doc: 'A phone number. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.bank_account': {
+    label: 'Bank account',
+    doc: 'An account, routing, or sort-code number after a label that names it. The decision names the boundary it was crossing and what was done with it.',
+  },
   'detect.injection': {
     label: 'Injection',
-    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". The decision names the boundary it was crossing and what was done with it.',
-  },
-  'detect.tool_instructions': {
-    label: 'Tool instructions',
-    doc: 'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". In what a tool returns, also a tool\'s text that instructed the agent: beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each such match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
   },
   'detect.canary_leak': {
     label: 'Canary leak',
@@ -549,30 +572,23 @@ const RETRY_REASONS: Readonly<Record<'egress' | 'validation', TraceOptionMeta>> 
   validation: { label: 'Invalid JSON', doc: 'The structured output did not match its schema.' },
 };
 
-const COMPACTION_TIMING_OPTIONS: Readonly<Record<CompactionTiming, TraceOptionMeta>> = {
-  before: { label: 'Before the turn', doc: 'Compacts before the turn runs.' },
-  after: { label: 'After the turn', doc: 'Signals the host to compact after the turn.' },
-};
+const COMPACTION_TIMING_OPTIONS: Readonly<Record<CompactionTiming, TraceOptionMeta>> = listed(
+  OPTION_DOCS.COMPACTION_TIMINGS,
+  { before: 'Before the turn', after: 'After the turn' } satisfies Record<CompactionTiming, string>,
+);
 
-const COMPACTION_METER_OPTIONS: Readonly<Record<CompactionMeter, TraceOptionMeta>> = {
-  history: { label: 'History', doc: 'Counts tokens across earlier turns.' },
-  input: {
-    label: 'Whole input',
-    doc: "Counts the turn's whole input: instructions, history, and attachments.",
-  },
-};
+const COMPACTION_METER_OPTIONS: Readonly<Record<CompactionMeter, TraceOptionMeta>> = listed(
+  OPTION_DOCS.COMPACTION_METERS,
+  { history: 'History', input: 'Whole input' } satisfies Record<CompactionMeter, string>,
+);
 
-const COMPACTION_OUTCOME_OPTIONS: Readonly<Record<CompactionOutcome, TraceOptionMeta>> = {
-  compacted: { label: 'Compacted', doc: 'A summary replaced the earlier messages.' },
-  deferred: {
-    label: 'Kept whole',
-    doc: 'The compactor failed and the history still fits, so it was kept and compaction runs again next turn.',
-  },
-  dropped: {
-    label: 'Dropped',
-    doc: 'The compactor failed and the history no longer fits, so the earlier messages were dropped.',
-  },
-};
+const COMPACTION_OUTCOME_OPTIONS: Readonly<Record<CompactionOutcome, TraceOptionMeta>> = listed(
+  OPTION_DOCS.COMPACTION_OUTCOMES,
+  { compacted: 'Compacted', deferred: 'Kept whole', dropped: 'Dropped' } satisfies Record<
+    CompactionOutcome,
+    string
+  >,
+);
 
 /** `theorem.session` kinds: provider session signals (a finished response is its own record). */
 const SESSION_KINDS: Readonly<
@@ -681,6 +697,12 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'Stream guardrail time',
     'milliseconds',
     "Time every check on this call's streamed output took, together; each check's own time is on its `theorem.guardrail` event.",
+  ),
+  'theorem.turn.system_lines': attr(
+    'agent',
+    'Prompt lines sent',
+    'list',
+    "Which of the profile's prompt lines fit this turn, by number from 1.",
   ),
   'theorem.step': attr('agent', 'Step', 'number', 'Which model call of the turn this is, from 1.'),
   'theorem.attempt': attr(
@@ -1322,6 +1344,12 @@ const HITS = fields('error', 'Hits', 'Each rule that matched.', {
     'How serious the rule says a match is.',
     SEVERITY_OPTIONS,
   ),
+  signal: attr(
+    'error',
+    'Signal',
+    'text',
+    "What made an `injection` match in what a tool returns one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
+  ),
   start: attr('error', 'From', 'number', 'Where the match starts in the checked text.'),
   end: attr('error', 'To', 'number', 'Where the match ends in the checked text.'),
   match: attr(
@@ -1394,6 +1422,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         ),
       }),
       error: attr('error', 'Detail', 'content', "The guardrail's internal reason."),
+      error_summary: attr(
+        'error',
+        'Failure',
+        'text',
+        "Which host detector failed, how, and its error id, in the kernel's words only. The host stream's reason ends with the same id.",
+      ),
     },
   },
   'theorem.attempt.retry': {
@@ -1411,6 +1445,15 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
       step: attr('agent', 'Step', 'number', 'The step whose model call was sent again.'),
       resume: attr('agent', 'Re-send', 'number', 'How many calls the turn has sent again so far.'),
       stop: attr('agent', 'Stop', 'text', 'How the failed call ended.'),
+      error: attr('error', 'Detail', 'content', "The provider's internal reason."),
+    },
+  },
+  'theorem.step.media_refused': {
+    label: 'Sent without files',
+    doc: 'The provider refused a model call that carried files, and the turn sent it without them.',
+    attributes: {
+      step: attr('agent', 'Step', 'number', 'The step whose model call was refused.'),
+      files: attr('agent', 'Files', 'number', 'How many files the call went without.'),
       error: attr('error', 'Detail', 'content', "The provider's internal reason."),
     },
   },
@@ -1465,6 +1508,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'text',
         'The error the compactor failed with.',
         ERROR_KIND_OPTIONS,
+      ),
+      failure_reason: attr(
+        'agent',
+        'Compactor reason',
+        'content',
+        'Why the compactor failed, in its own words.',
       ),
       failure_empty: attr(
         'agent',
@@ -1703,6 +1752,7 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
       );
     case 'chat':
     case 'generate_content':
+    case 'transcribe':
       return withSubject(
         'theorem.request.live' in span.attributes ? 'response' : 'call',
         stringAttribute(span, 'gen_ai.request.model'),

@@ -18,14 +18,14 @@ const USER_OPEN = '<user_data>';
 /** The tag that closes the fence around user content. */
 const USER_CLOSE = '</user_data>';
 /** The tag that closes the fence around context. */
-const CONTEXT_CLOSE = '</page_context>';
+const CONTEXT_CLOSE = '</turn_context>';
 const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
 /** What replaces canary text a reply or event would have carried. */
 /** A fence tag as a model could read one: spacing, case and closing `>` aside. */
 const FENCE =
-  /<\s*(?:\/\s*)?(?:user[\s_-]*data|page[\s_-]*context)\b(?:[^<>\n]{0,40}>|\s*(?:\/\s*)?>)?/gi;
+  /<\s*(?:\/\s*)?(?:user[\s_-]*data|turn[\s_-]*context)\b(?:[^<>\n]{0,40}>|\s*(?:\/\s*)?>)?/gi;
 
 /** Creates a 128-bit, cryptographically random token for one turn's canary binding. */
 function mintCanary(): string {
@@ -89,7 +89,7 @@ function wrapUserData(text: string): string {
  * neither the page nor the person can pass text off as the host's.
  */
 function wrapContext(sender: ContextSender, text: string): string {
-  return `<page_context from="${sender}">\n${stripUserFences(text)}\n${CONTEXT_CLOSE}`;
+  return `<turn_context from="${sender}">\n${stripUserFences(text)}\n${CONTEXT_CLOSE}`;
 }
 
 /** The labels' `context.note`, which tells the model what `wrapContext`'s tags mean. */
@@ -1022,12 +1022,46 @@ function isGuardedOutput(event: ModelEvent): boolean {
   return event.type !== 'thought';
 }
 
+type BareEvent = Extract<
+  ModelEvent,
+  {
+    type:
+      | 'attempt'
+      | 'media'
+      | 'tokens'
+      | 'guardrail'
+      | 'stage'
+      | 'done'
+      | 'response'
+      | 'provider_checkpoint'
+      | 'provider_warning';
+  }
+>;
+
+const BARE_EVENT_TYPES: ReadonlySet<string> = new Set<BareEvent['type']>([
+  'attempt',
+  'media',
+  'tokens',
+  'guardrail',
+  'stage',
+  'done',
+  'response',
+  'provider_checkpoint',
+  'provider_warning',
+]);
+
+/** An event that carries nothing to the host. */
+function isBareEvent(event: ModelEvent): event is BareEvent {
+  return BARE_EVENT_TYPES.has(event.type);
+}
+
 /**
  * What of an event reaches the host as content, field by field: the one list
  * every canary and prompt-leak scan reads. Builder-only fields
  * (`errorInternal`), counts, identities, and media bytes are not content.
  */
 function hostContentOf(event: ModelEvent): unknown[] {
+  if (isBareEvent(event)) return [];
   switch (event.type) {
     case 'text':
     case 'thought':
@@ -1048,6 +1082,7 @@ function hostContentOf(event: ModelEvent): unknown[] {
       return [event.tool];
     case 'tool_draft':
     case 'structured_draft':
+    case 'late_results':
       return [event.text];
     case 'error':
       return [event.error, event.errorCopy];
@@ -1055,16 +1090,6 @@ function hostContentOf(event: ModelEvent): unknown[] {
       return [event.data];
     case 'reasoning':
       return [event.text];
-    case 'attempt':
-    case 'media':
-    case 'tokens':
-    case 'guardrail':
-    case 'stage':
-    case 'done':
-    case 'response':
-    case 'provider_checkpoint':
-    case 'provider_warning':
-      return [];
     default: {
       const unhandled: never = event;
       return unhandled;

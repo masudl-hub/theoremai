@@ -21,9 +21,10 @@ import {
   createTheoremSessionBoundary,
   parseLiveOpenMessage,
   type TheoremSessionBoundary,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { attachStudioLiveSession } from '../live-session-bridge.ts';
 import { STUDIO_READER } from '../reader.ts';
+import { STUDIO_BACKGROUND } from '../runtime-scope.ts';
 import type { StudioTraceLine } from '../traces.ts';
 
 /** The server's end of the page's socket, and the answer that completes the upgrade. */
@@ -75,14 +76,22 @@ async function relay(
   profile: Profile,
   provider: ProviderHostOptions,
   boundary: TheoremSessionBoundary,
+  { host }: { host: unknown },
 ): Promise<void> {
   let session: LiveSession;
   try {
     // Listen before anything waits: the page sends its open message as the socket opens.
     const open = await openMessage(socket);
     session = await runSession(
-      { ...(await boundary.prepareLiveOpen(open)), profile: profile.id },
-      { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
+      {
+        ...(await boundary.prepareLiveOpen(open)),
+        profile: profile.id,
+        execution: boundary.toolExecution,
+        pageExecution: boundary.pageExecution,
+        background: STUDIO_BACKGROUND,
+        ...(host === undefined ? {} : { host }),
+      },
+      provider,
       pageSink(socket, profile),
     );
   } catch (error) {
@@ -121,16 +130,28 @@ export function createStudioLiveHandler(
   profile: Profile,
   provider: ProviderHostOptions,
   upgrade: StudioUpgrade,
+  options: {
+    /** Who the run acts as, by session, as a chat's is. */
+    session: (request: Request) => string;
+    /** The application's context for the tools (`ctx.host`), as a chat's turn has it. */
+    host?: (request: Request) => unknown;
+  },
 ): (request: Request) => Promise<Response> {
   const sessionStore = createMemorySessionStore();
   return async (request) => {
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
       return new Response(null, { status: 426, headers: { upgrade: 'websocket' } });
     }
-    const boundary = await createTheoremSessionBoundary({ request, sessionStore });
+    const { session, host } = options;
+    const boundary = await createTheoremSessionBoundary({
+      request,
+      sessionStore,
+      session,
+      pageStatesTurn: true,
+    });
     const { socket, response } = upgrade(request);
     if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);
-    void relay(socket, profile, provider, boundary);
+    void relay(socket, profile, provider, boundary, { host: host?.(request) });
     return response;
   };
 }

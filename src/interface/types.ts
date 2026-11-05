@@ -14,11 +14,13 @@ import type {
   ModelBinding,
   ModelId,
   ProfileContextSpec,
+  ProfileOptions,
   ProfileOutputsSpec,
   ProviderEvidence,
   Source,
   SpeechProfile,
   TextProfile,
+  TranscriptionProfile,
   TurnStop,
   TurnTokens,
 } from '../kernel/types.ts';
@@ -82,7 +84,8 @@ export interface ProfileInputsInterface {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, string[]>;
+  /** The options a person picks. */
+  options?: ProfileOptions;
   context?: ProfileContextSpec;
 }
 
@@ -140,6 +143,13 @@ export type SpeechProfileInterface = Omit<
 > &
   ComposerInterfaceFields;
 
+/** A transcription profile as a client sees it, without its server-only fields. */
+export type TranscriptionProfileInterface = Omit<
+  TranscriptionProfile,
+  'guardrails' | 'observability' | 'labels' | 'models' | 'outputs' | 'inputs'
+> &
+  ComposerInterfaceFields;
+
 /** A live profile as a client sees it, without its server-only fields. */
 export type LiveProfileInterface = Omit<
   LiveProfile,
@@ -160,6 +170,7 @@ export type ProfileInterface =
   | TextProfileInterface
   | ImageProfileInterface
   | SpeechProfileInterface
+  | TranscriptionProfileInterface
   | LiveProfileInterface;
 
 /** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */
@@ -179,6 +190,7 @@ export type TranscriptBlockKind =
   | 'citation'
   | 'evidence'
   | 'guardrail'
+  | 'late-results'
   | 'error'
   | 'turn-done';
 
@@ -214,7 +226,7 @@ export interface TextBlock extends TranscriptBlockBase {
 /** Where a call stands: the latest phase that changes its status. */
 export type ToolCallState = Extract<
   ToolPhaseEvent,
-  { phase: 'running' | 'gate' | 'complete' | 'error' | 'cancel' }
+  { phase: 'running' | 'gate' | 'background' | 'complete' | 'error' | 'cancel' }
 >;
 
 /** invariant: An issued operation joins its request and phases; historical calls use callId. */
@@ -251,6 +263,8 @@ export interface ToolCall {
   /** When it last settled: complete, failed, cancelled, or gated (epoch ms). */
   endedAt?: number;
   artifacts: unknown[];
+  /** An agent tool's: the calls its agent made, in order, from the call's `progress` phases. */
+  steps?: ToolCall[];
 }
 
 export interface ToolBlock extends TranscriptBlockBase {
@@ -272,9 +286,9 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  /** Base64 for model-generated or attached media. Absent when `url` is set. */
+  /** Base64 for media a model generated, a tool returned or a person attached. Absent when `url` is set. */
   data?: string;
-  /** Remote http(s) URL promoted from completed tool output. Absent when `data` is set. */
+  /** Remote URL from completed tool output or a tool's media part. Absent when `data` is set. */
   url?: string;
   /** A smaller copy of `url` for previews, when the tool output offered one. */
   previewUrl?: string;
@@ -305,6 +319,15 @@ export interface EvidenceBlock extends TranscriptBlockBase {
 export interface GuardrailBlock extends TranscriptBlockBase {
   kind: 'guardrail';
   guardrail: GuardrailEvent;
+}
+
+/**
+ * The message `input.lateResults` put in the conversation, as the model read it. Theorem's own
+ * transcript shows nothing for it: the block keeps it in a history rebuilt from blocks.
+ */
+export interface LateResultsBlock extends TranscriptBlockBase {
+  kind: 'late-results';
+  text: string;
 }
 
 export interface ErrorBlock extends TranscriptBlockBase {
@@ -340,6 +363,7 @@ export type TranscriptBlock =
   | CitationBlock
   | EvidenceBlock
   | GuardrailBlock
+  | LateResultsBlock
   | ErrorBlock
   | TurnDoneBlock;
 

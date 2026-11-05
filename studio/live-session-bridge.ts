@@ -7,8 +7,8 @@ import {
   forClientEvents,
 } from '@theoremjs/agents/host';
 import { bytesToBase64 } from '@theoremjs/agents/kernel';
-import { issuedOperationId as requiredOperationId } from '@theoremjs/react/client';
-import { type PageToolResult, parseLiveClientMessage } from '@theoremjs/react/server';
+import { issuedOperationId as requiredOperationId } from '@theoremjs/web/client';
+import { type PageToolResult, parseLiveClientMessage } from '@theoremjs/web/server';
 import type { StudioTraceRoute } from './traces.ts';
 
 export type StudioLiveSocket = Pick<WebSocket, 'send' | 'close' | 'addEventListener'>;
@@ -31,7 +31,7 @@ type CallWatch = {
   stopAll(): void;
 };
 
-function callWatch(session: LiveSession, timeoutMs: number): CallWatch {
+function callWatch(session: LiveSession, timeoutMs: number | undefined): CallWatch {
   const timers = new Map<string, { operationId: string; timer: ReturnType<typeof setTimeout> }>();
   const stop = (callId: string, operationId: string) => {
     const watched = timers.get(callId);
@@ -41,6 +41,7 @@ function callWatch(session: LiveSession, timeoutMs: number): CallWatch {
   };
   return {
     start(callId, operationId) {
+      if (timeoutMs === undefined) return;
       const previous = timers.get(callId);
       if (previous) clearTimeout(previous.timer);
       timers.set(callId, {
@@ -255,13 +256,14 @@ export type StudioLiveBridgeOptions = {
   pageResult?: (result: PageToolResult) => Promise<boolean | undefined>;
   /** Save trusted checkpoint ownership before the bridge exposes the event. */
   beforeEvent?: (event: TurnEvent) => void | Promise<void>;
-  /** How long the browser has to run a call the model made before the bridge settles it as unanswered. */
+  /**
+   * How long the browser has to run a call the model made before the bridge settles it as
+   * unanswered. Unset, it waits until the browser answers or the socket closes.
+   */
   clientCallTimeoutMs?: number;
   /** Who reads the bridge's events and failures (`forClient`). Default: a visitor. */
   clientEvents?: ClientTurnOptions;
 };
-
-const CLIENT_CALL_TIMEOUT_MS = 20_000;
 
 export function attachStudioLiveSession(
   socket: StudioLiveSocket,
@@ -272,7 +274,7 @@ export function attachStudioLiveSession(
   labels?: LabelOverrides,
   options: StudioLiveBridgeOptions = {},
 ): Promise<void> {
-  const watch = callWatch(session, options.clientCallTimeoutMs ?? CLIENT_CALL_TIMEOUT_MS);
+  const watch = callWatch(session, options.clientCallTimeoutMs);
   const reads: Reads = { labels, clientEvents: options.clientEvents };
   pipeBrowserToSession(socket, session, watch, reads, options.pageResult);
   socket.addEventListener('close', () => {

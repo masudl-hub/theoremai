@@ -10,6 +10,7 @@ import type { ModelRequest } from '../kernel/types.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
 import { TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
+import { isLateResult } from './tool-fence.ts';
 import { isRemoteOrigin } from './tool-result.ts';
 import type { Provenance, ResolvedGuardrailPolicy, Verdict } from './types.ts';
 
@@ -103,10 +104,14 @@ function hostOf(link: string): string {
 
 function destinationsIn(text: string): Found[] {
   const emails = emailsIn(text);
-  let rest = text;
+  const pieces: string[] = [];
+  let at = 0;
   for (const { start, end } of emails) {
-    rest = rest.slice(0, start) + ' '.repeat(end - start) + rest.slice(end);
+    pieces.push(text.slice(at, start), ' '.repeat(end - start));
+    at = end;
   }
+  pieces.push(text.slice(at));
+  const rest = pieces.join('');
   const found = [...emails];
   for (const match of [...rest.matchAll(LINK)]) {
     const host = hostOf(match[0]);
@@ -181,7 +186,14 @@ function addHistoryDestinations(
 ): void {
   for (const message of messages) {
     // why: An earlier turn's tool result is neither the user's word nor this turn's read.
-    if (message.role === 'assistant' || message.role === 'tool' || own.has(message)) continue;
+    if (
+      message.role === 'assistant' ||
+      message.role === 'tool' ||
+      own.has(message) ||
+      isLateResult(message)
+    ) {
+      continue;
+    }
     addGivenDestinations(turn, textForScan(message).text);
   }
 }
@@ -220,6 +232,20 @@ function addResultDestinations(
   for (const key of prose) {
     if (!turn.remote.has(key)) turn.remote.set(key, provenance.tool);
   }
+}
+
+/**
+ * Notes a remote result read back from its fence. `composeToolText` put any `data` on the last
+ * line, and without it a field reads as running text, which is the stricter way.
+ */
+function addFencedDestinations(turn: TurnDestinations, text: string, provenance: Provenance): void {
+  const cut = text.lastIndexOf('\n');
+  const data = cut < 0 ? undefined : parsedJson(text.slice(cut + 1));
+  addResultDestinations(
+    turn,
+    data === undefined ? { finding: text } : { finding: text.slice(0, cut), data },
+    provenance,
+  );
 }
 
 /** A call's verdict, and what an approval card says when the profile asks the user first. */
@@ -274,6 +300,7 @@ function checkDestinationGate(
 
 export type { DestinationVerdict, TurnDestinations };
 export {
+  addFencedDestinations,
   addGivenDestinations,
   addHistoryDestinations,
   addRequestDestinations,

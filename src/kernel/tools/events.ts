@@ -171,17 +171,37 @@ function toolRunningEvent(
   });
 }
 
+/** A call's claim, taken once at the hand-off: right before the destination is asked. */
+export class HandOff {
+  private taken?: Promise<ToolOperationClaim | undefined>;
+  private failed?: { error: unknown };
+
+  constructor(private begin?: () => Promise<ToolOperationClaim | undefined>) {}
+
+  claim(): Promise<ToolOperationClaim | undefined> {
+    this.taken ??= (this.begin?.() ?? Promise.resolve(undefined)).catch((error: unknown) => {
+      this.failed = { error };
+      throw error;
+    });
+    return this.taken;
+  }
+
+  /** The claim's own failure is the coordinator's, so no tool catch may turn it into a tool failure. */
+  rethrowClaimFailure(): void {
+    if (this.failed) throw this.failed.error;
+  }
+}
+
 export async function* dispatchToolBody(
   tool: { labels?: ToolLabels },
   input: unknown,
   ctx: ToolContext,
   base: ToolCallBase,
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
-): AsyncGenerator<TurnEvent, ToolOperationClaim | undefined> {
-  const claim = await beginBody?.(input);
+): AsyncGenerator<TurnEvent, HandOff> {
   throwIfAborted(ctx.signal);
   yield toolRunningEvent(tool, input, ctx, base);
-  return claim;
+  return new HandOff(beginBody && (() => beginBody(input)));
 }
 
 export function startToolExecution<T>(

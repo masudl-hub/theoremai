@@ -1,4 +1,10 @@
-import { LiveRunner, type LiveRunnerProps } from '@theoremjs/react/live';
+import {
+  type LiveCallInput,
+  type LiveCallOptions,
+  LiveRunner,
+  type LiveRunnerProps,
+  useLiveCall,
+} from '@theoremjs/react/live';
 import { useMemo } from 'react';
 import { browserStudioLiveConnection, type StudioBrowserRuntime } from '../browser.ts';
 import {
@@ -7,14 +13,17 @@ import {
   studioLiveConnection,
   studioPageTools,
 } from '../mod.ts';
+import { useActingAs } from './lib/acting-as.ts';
+import { liveSocketAddress } from './lib/project-traces.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 
 /** What a live call is run with, wherever it runs. */
-export type StudioLiveProps = Pick<LiveRunnerProps, 'trace' | 'slots' | 'context'> & {
-  payload: StudioRunPayload;
-  /** Called as each call starts. */
-  note: () => void;
-};
+export type StudioLiveProps = Pick<LiveRunnerProps, 'trace'> &
+  Pick<LiveCallOptions, 'options' | 'stated' | 'context'> & {
+    payload: StudioRunPayload;
+    /** Called as each call starts. */
+    note: () => void;
+  };
 
 /** A live profile's call: in the browser's runtime when there is one, else through the studio's server. */
 export function StudioLive({
@@ -34,10 +43,13 @@ export function StudioLive({
 
 /** A project's live profile: the call runs in the project, through the studio's local server. */
 export function ProjectLive({ endpoint, ...props }: StudioLiveProps & { endpoint: string }) {
+  const { actingAs } = useActingAs();
   return (
     <LiveView
       {...props}
-      connect={() => ({ createSocket: () => new WebSocket(endpoint.replace(/^http/, 'ws')) })}
+      connect={() => ({
+        createSocket: () => new WebSocket(liveSocketAddress(endpoint, actingAs)),
+      })}
     />
   );
 }
@@ -47,25 +59,32 @@ function LiveView({
   note,
   connect,
   trace,
-  slots,
+  options,
+  stated,
   context,
-}: StudioLiveProps & { connect: LiveRunnerProps['connection'] }) {
+}: StudioLiveProps & { connect: LiveCallInput['connection'] }) {
   const iface = useMemo(() => studioInterface(payload), [payload]);
   /** The studio's page answers each page tool with the tool's stub. */
   const pageTools = useMemo(() => studioPageTools(payload), [payload]);
   if (iface.type !== 'live') return null;
   return (
-    <LiveRunner
-      labels={STUDIO_LABELS}
+    <LiveViewCall
       iface={iface}
       connection={() => {
         note();
         return connect();
       }}
       trace={trace}
-      slots={slots}
+      options={options}
+      stated={stated}
       context={context}
       pageTools={pageTools}
     />
   );
+}
+
+/** The call lives here, below the check that the draft is a live profile. */
+function LiveViewCall({ trace, ...input }: LiveCallInput & Pick<LiveRunnerProps, 'trace'>) {
+  const call = useLiveCall(input);
+  return <LiveRunner labels={STUDIO_LABELS} call={call} trace={trace} />;
 }

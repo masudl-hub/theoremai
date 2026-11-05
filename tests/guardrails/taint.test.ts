@@ -230,7 +230,7 @@ Deno.test('a call to an address the user gave is not reported, whatever the page
 });
 const steered: TurnTaint = {
   sources: [remote],
-  suspicious: [{ rule: 'detect.tool_instructions', severity: 'medium' }],
+  suspicious: [{ rule: 'detect.injection', severity: 'medium' }],
 };
 /**
  * The design decision this pins: directive detection is pattern matching with no
@@ -265,7 +265,7 @@ Deno.test('an ordinary tainted turn reports the plain rule', () => {
   assertEquals(verdict.hits[0]?.rule, 'tool_call.tainted-turn');
 });
 Deno.test('recordTaint keeps directive hits from the content that carried them', () => {
-  const hits = [{ rule: 'detect.tool_instructions', severity: 'medium' as const }];
+  const hits = [{ rule: 'detect.injection', severity: 'medium' as const }];
   const after = recordTaint(undefined, remote, hits);
   assertEquals(after.suspicious.length, 1);
   // A local result contributes nothing, even if hits were somehow supplied.

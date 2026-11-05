@@ -1,5 +1,5 @@
+import { type ClientFailure, clientFailure } from '@theoremjs/web/client';
 import { useEffect, useState } from 'react';
-import { type ClientFailure, clientFailure } from '../client/failure.ts';
 
 /**
  * What a transport describes, read once per transport; a failure when it can't be read. A new

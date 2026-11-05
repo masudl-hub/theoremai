@@ -64,6 +64,8 @@
  ],
  "outcome": {
   "guardrails": [
+   "input flag detect.email",
+   "tool_call flag detect.email",
    "tool_call block tool_call.tainted-turn",
    "thought flag detect.tool_leak",
    "thought flag detect.tool_leak",

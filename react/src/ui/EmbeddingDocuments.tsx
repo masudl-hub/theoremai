@@ -19,19 +19,19 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { attachmentIssueText, base64Bytes, type EmbeddingInput } from '@theoremjs/agents';
-import { type ReactNode, useMemo, useState } from 'react';
+import type { EmbeddingInterface } from '@theoremjs/web/client';
 import {
   checkInputs,
   type EmbeddingInputCheck,
   type EmbeddingMediaPart,
   type EmbeddingSplit,
   embeddingBatches,
+  encodeFiles,
   readEmbeddingInputs,
   readsAsText,
   splitText,
-} from '../client/embedding-input.ts';
-import type { EmbeddingInterface } from '../client/embedding-transport.ts';
-import { encodeFiles } from '../client/encode-files.ts';
+} from '@theoremjs/web/client';
+import { type ReactNode, useMemo, useState } from 'react';
 import { type ConsoleView, JsonRequest, RequestCard, RunBar, useBytes } from './ConsoleFrame.tsx';
 import type { LabelText } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';

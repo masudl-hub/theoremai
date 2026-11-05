@@ -35,7 +35,7 @@ export interface MapNode {
   holds?: string[];
   /** A model whose label another model has too: its label with what tells the two apart. */
   long?: string;
-  /** An agent's profile type, a tool's type, a model's provider definition, or the section a shared setting fills. */
+  /** An agent's profile type, a tool's type, or the section a shared setting fills. */
   type?: string;
   /** A profile's sections, in the tree's order. */
   rows?: MapRow[];
@@ -99,7 +99,9 @@ function byRows(
 /** What a section's row says beside its name, where one line can say it. */
 function rowNote(agent: AgentDraft, facet: string, tools: ReadonlyMap<string, string>): string {
   if (facet === 'models')
-    return agent.modelBindings.map((binding) => binding.modelId || 'New model').join(', ');
+    return agent.modelBindings
+      .map((binding) => binding.modelId.trim() || 'Unnamed model')
+      .join(', ');
   if (facet === 'tools') return String(agent.tools.allow.filter((key) => tools.has(key)).length);
   if (facet === 'outputs') return agent.outputs.mode;
   return '';
@@ -121,7 +123,7 @@ export function workspaceMap(
     return {
       id: agentNodeId(agent.key),
       kind: 'agent',
-      label: agentId || 'New agent',
+      label: agentId.trim() || 'Unnamed agent',
       note: handle ? `${type} · ${handle}` : type,
       opens: agentNodeId(agent.key),
       type,
@@ -171,9 +173,8 @@ export function workspaceMap(
         models.set(id, {
           id,
           kind: 'model',
-          label: binding.modelId || 'New model',
+          label: binding.modelId.trim() || 'Unnamed model',
           note: binding.apiId,
-          type: definitions.get(binding.provider),
           opens,
           holds: [opens],
         });
@@ -195,12 +196,15 @@ export function workspaceMap(
 
   const tools = workspace.toolSpecs.map((tool): MapNode => {
     const id = toolSpecNodeId(tool.key);
-    const asked = tool.toolType === 'agent' ? agentIds.get(tool.agentKey ?? '') : undefined;
+    const asked =
+      tool.toolType === 'agent'
+        ? agentIds.get(tool.agentKey ?? '')
+        : agentIds.get(tool.stageAgentKey ?? '');
     if (asked) links.push({ from: id, to: asked, kind: 'asks' });
     return {
       id,
       kind: 'tool',
-      label: tool.toolName || 'New tool',
+      label: tool.toolName.trim() || 'Unnamed tool',
       note: tool.description,
       opens: id,
       type: tool.toolType,
@@ -329,6 +333,36 @@ export function mapFamily(map: WorkspaceMap, id: string | readonly string[]): Wo
     ends.filter(({ from, to }) => family.has(from) && family.has(to)).map(({ link }) => link),
   );
   return { columns, links: map.links.filter((link) => kept.has(link)) };
+}
+
+/**
+ * What lights with `id`, a node or a section's row: the links on its family's paths, everything that
+ * feeds it and everything it feeds however many links away, and the nodes and rows they join. A row's
+ * family starts at its own links, not at every link of its node.
+ */
+export function mapLitFamily<End extends { link: MapLink; from: string; to: string }>(
+  ends: readonly End[],
+  id: string,
+): { ids: Set<string>; lines: Set<MapLink> } {
+  const ids = new Set([id]);
+  const lines = new Set<MapLink>();
+  const walk = (near: 'from' | 'to', far: 'from' | 'to') => {
+    const seen = new Set<string>();
+    const queue = [id];
+    for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+      for (const end of ends) {
+        if (end[near] !== next && end.link[near] !== next) continue;
+        lines.add(end.link);
+        ids.add(end.link.from).add(end.link.to).add(end.from).add(end.to);
+        if (seen.has(end[far])) continue;
+        seen.add(end[far]);
+        queue.push(end[far]);
+      }
+    }
+  };
+  walk('to', 'from');
+  walk('from', 'to');
+  return { ids, lines };
 }
 
 /** A link in words from each end: `[from's side, to's side]`, each before the other node's label. */

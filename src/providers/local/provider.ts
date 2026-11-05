@@ -6,7 +6,7 @@ import {
   type Provider,
 } from '../../kernel/protocols/provider.ts';
 import { openAi } from '../open-ai/protocol.ts';
-import { ollamaEmbedding } from './embedding-protocol.ts';
+import { ollamaEmbeddings } from './embeddings-protocol.ts';
 
 /** What registering `localProvider` takes as `connection`. */
 export interface LocalConnection {
@@ -29,7 +29,7 @@ export const localProvider: Provider<LocalConnection, string> = defineProvider({
   serves: (at) => [
     { protocol: openAi, baseUrl: at.baseUrl },
     {
-      protocol: ollamaEmbedding,
+      protocol: ollamaEmbeddings,
       baseUrl: at.baseUrl,
       url: ({ path }) => {
         const base = new URL(at.baseUrl);

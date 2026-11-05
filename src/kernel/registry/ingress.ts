@@ -69,6 +69,23 @@ function assertSpeechRole(profile: Profile, req: TurnRequest): void {
   }
 }
 
+/** A transcription turn has one job: a clip goes in. No system prompt reaches a model that follows none. */
+function assertTranscriptionRole(profile: Profile, req: TurnRequest): void {
+  if (profile.type !== 'transcription') return;
+  if (req.system) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id} (transcription) takes no system prompt — the input is the clip`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (!req.input?.voice?.length) {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} (transcription) requires a voice clip`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 /** The profile's speech settings with this turn's laid over them. */
 function resolveSpeech(profile: Profile, req: TurnRequest): ProfileSpeechSpec | undefined {
   return profile.type === 'speech'
@@ -188,27 +205,6 @@ function resolveInputParts(profile: Profile, req: TurnRequest): InteractionPart[
   return parts;
 }
 
-function assertTurnSlots(profile: Profile, req: TurnRequest): void {
-  const slots = req.input?.slots;
-  if (!slots) return;
-  const declared = profileInputs(profile)?.slots ?? {};
-  for (const [key, value] of Object.entries(slots)) {
-    const choices = Object.hasOwn(declared, key) ? declared[key] : undefined;
-    if (!choices) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id} has no slot '${key}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    if (!choices.includes(value)) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id}: slot '${key}' takes ${choices.join(', ')}, not '${value}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-  }
-}
-
 /** Refuses context from a sender the profile's `inputs.context` does not list, and a package over its `maxChars`. */
 function assertTurnContext(profile: Profile, req: TurnRequest): void {
   const context = req.input?.context;
@@ -235,8 +231,8 @@ function assertTurnContext(profile: Profile, req: TurnRequest): void {
 export {
   assertOutputMode,
   assertSpeechRole,
+  assertTranscriptionRole,
   assertTurnContext,
-  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
   resolveSpeech,

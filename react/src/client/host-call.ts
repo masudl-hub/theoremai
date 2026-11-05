@@ -6,13 +6,12 @@
  */
 
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
-import type { ClientFailure } from './failure.ts';
-import { type JsonSchema, sampleFromSchema } from './schema-fields.ts';
-import { json } from './shaped-data.ts';
+import type { ClientFailure } from '@theoremjs/web/client';
+import { type JsonSchema, json, sampleFromSchema } from '@theoremjs/web/client';
 
 export type ToolCall = Extract<TranscriptBlock, { kind: 'tool' }>['tool'];
 
-export type HostCallStatus = 'running' | 'gate' | 'complete' | 'error' | 'cancel';
+export type HostCallStatus = 'running' | 'gate' | 'background' | 'complete' | 'error' | 'cancel';
 
 /** What a call's standing reads from. */
 export type HostCallState = {
@@ -23,6 +22,7 @@ export type HostCallState = {
 
 const SETTLED: ReadonlySet<string> = new Set<HostCallStatus>([
   'gate',
+  'background',
   'complete',
   'error',
   'cancel',

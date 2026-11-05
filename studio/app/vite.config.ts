@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
-import { PAGE_BASE, PAGE_HEADERS } from '../page.mjs';
+import { DEV_PAGE_HEADERS, PAGE_BASE } from '../page.mjs';
 import { BOOT_PAINT, BOOT_PAINT_NOSCRIPT } from '../ui/boot-paint.ts';
 import { PROJECT_META } from '../ui/lib/project-address.ts';
 import { studioVite } from '../vite.mjs';
@@ -41,7 +41,7 @@ const projectAddress: Plugin = {
  * tests) is the page's to read, and the project's own files never come through here: they are
  * the project's server's (`studio/server/serve.ts`).
  */
-const SERVED = ['studio', 'react', 'src', 'mod.ts', 'package.json', 'node_modules'];
+const SERVED = ['studio', 'react', 'web', 'src', 'mod.ts', 'package.json', 'node_modules'];
 
 /**
  * Serves the studio as a page of its own, at `/studio/` so a run tab's address is the one the
@@ -56,13 +56,20 @@ export default defineConfig({
   optimizeDeps: {
     // Scan every source up front, lazy chunks included, so a package first reached mid-session
     // never forces a re-optimize that leaves the open tab with two copies of React.
-    entries: ['main.tsx', '../ui/**/*.{ts,tsx}', '../../react/src/**/*.tsx'],
+    entries: [
+      'main.tsx',
+      '../ui/**/*.{ts,tsx}',
+      '../../react/src/**/*.tsx',
+      // why: .ts helpers in the page's own folders reach packages no .tsx imports (code language, messages).
+      '../../react/src/{ui,hooks,client,components}/**/*.ts',
+      '!**/*.test.*',
+    ],
   },
   server: {
     // Only this machine, and only this page: no other page may read what this serves.
     host: '127.0.0.1',
     cors: false,
-    headers: PAGE_HEADERS,
+    headers: DEV_PAGE_HEADERS,
     // The command that starts this names the port; it is never moved to another.
     port: 4984,
     strictPort: true,

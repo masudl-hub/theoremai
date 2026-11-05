@@ -1,14 +1,14 @@
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { base64Bytes, type EmbeddingInput } from '@theoremjs/agents';
-import { useState } from 'react';
 import {
   checkInputs,
   type EmbeddingFields,
+  encodeFiles,
   fieldsInput,
   inputFields,
   readEmbeddingInput,
-} from '../client/embedding-input.ts';
-import { encodeFiles } from '../client/encode-files.ts';
+} from '@theoremjs/web/client';
+import { useState } from 'react';
 import { type ConsoleView, JsonRequest, RequestCard, RunBar, useBytes } from './ConsoleFrame.tsx';
 import {
   EmbeddingFileDrop,

@@ -184,7 +184,7 @@ function directivesOf(signal: DirectiveSignal, ranges: readonly Range[]): Direct
  * Real indirect injection rarely names what it attacks, so this looks for content that behaves
  * like an instruction: each order, claim of authority, tool name, and destination, where it sits
  * in `text`. A page documenting an email API legitimately says "call send_email", so the
- * detector that reads with this (`tool_instructions`) starts at `flag`.
+ * detector that reads with this (`injection`, in what a tool returns) starts at `flag`.
  *
  * `callableTools` is the set the model can invoke this turn. A result naming one is the
  * highest-precision signal: ordinary data has no reason to, and no generic filter can check it
@@ -221,15 +221,18 @@ function directives(text: string, callableTools: readonly string[] = []): Direct
 }
 
 /**
- * How strongly a tool's text reads as instructions, by the `signals` found in it: `high` for an
- * order to drop instructions, a callable tool's name, or two signals together.
+ * How strongly a tool's text reads as instructions, by the `signals` found in it: `high` for
+ * injection phrasing (a match with no signal), an order to drop instructions, a callable tool's
+ * name, or two signals together.
  */
 function advisoryLevel(signals: readonly (string | undefined)[]): AdvisoryLevel {
   if (signals.length === 0) {
     return 'none';
   }
   const kinds = new Set(signals);
-  return kinds.has('tool_name') || kinds.has('override') || kinds.size > 1 ? 'high' : 'elevated';
+  return kinds.has(undefined) || kinds.has('tool_name') || kinds.has('override') || kinds.size > 1
+    ? 'high'
+    : 'elevated';
 }
 
 export type { Directive, DirectiveSignal };

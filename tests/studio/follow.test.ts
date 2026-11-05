@@ -346,3 +346,15 @@ registerTool(wipe);
     files['wipe.ts'].replace('Clears the desk.', 'Clears it all.'),
   );
 });
+
+Deno.test("in Theorem's own package, the walk stops at the package's entry modules, as at node_modules", () => {
+  const files = {
+    'setup.ts': `import { registerTool } from './mod.ts';\nregisterTool({ name: 'own_tool' });`,
+    'mod.ts': `import { registerTool } from '@theoremjs/agents';\nregisterTool({ name: 'ask_user' });\nexport { registerTool };`,
+  };
+  const config = (name: string) =>
+    JSON.stringify({ name, exports: { '.': './mod.ts', './kernel': './src/kernel/mod.ts' } });
+  const tools = (deno: string) => [...project({ ...files, 'deno.json': deno }).tools.keys()];
+  assertEquals(tools(config('@theoremjs/agents')), ['own_tool']);
+  assertEquals(tools(config('@acme/app')), ['own_tool', 'ask_user']);
+});

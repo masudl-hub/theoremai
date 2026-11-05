@@ -11,14 +11,27 @@ type HostPattern =
   | {
       /** What a match is called in the trace. */
       name: string;
-      /** The source of a regular expression. */
+      /**
+       * The source of a regular expression. A pattern takes this or words.
+       *
+       * @remarks The source of a regular expression.
+       */
       pattern: string;
-      /** Any of `i`, `m`, `s`, and `u`. Every match is found, so `g` is implied; `y` is refused. */
+      /**
+       * Regular-expression flags, each a letter: i ignores case, m matches ^ and $ at each line, s
+       * lets . match a line break, u reads Unicode. Not g or y: every match is always found.
+       *
+       * @remarks Any of `i`, `m`, `s`, and `u`. Every match is found, so `g` is implied; `y` is
+       * refused.
+       */
       flags?: string;
     }
   | {
       /** What a match is called in the trace. */
       name: string;
+      /**
+       * Words to match whole, whatever their case. A space in one matches any run of whitespace.
+       */
       words: readonly string[];
     };
 
@@ -70,10 +83,6 @@ interface HostMatcher {
 
 /** Bumped whenever the compiled table's layout or meaning changes. */
 const PATTERN_COMPILER_VERSION = 3;
-
-/** The most patterns one detector takes, and the longest each may be once written as a regular expression. */
-const MAX_PATTERNS = 64;
-const MAX_PATTERN_LENGTH = 1024;
 
 const PATTERN_FLAGS = 'imsu';
 /** A letter, digit, or underscore in any script: what a word may not touch on either side. */
@@ -153,9 +162,6 @@ function patternProblem(path: string, pattern: unknown): string | undefined {
   const shape = shapeProblem(path, pattern);
   if (shape !== undefined) return shape;
   const { source, flags } = patternSource(pattern as HostPattern);
-  if (source.length > MAX_PATTERN_LENGTH) {
-    return `${path} is ${source.length} characters as a regular expression; the most is ${MAX_PATTERN_LENGTH}`;
-  }
   let regex: RegExp;
   try {
     // why: this only checks that the pattern parses and tests it on the empty text; a pattern that
@@ -212,9 +218,6 @@ function patternsProblem(path: string, patterns: unknown, compiled: unknown): st
  */
 function patternListProblem(path: string, patterns: unknown): string | undefined {
   if (!Array.isArray(patterns)) return `${path}.patterns must be a list`;
-  if (patterns.length > MAX_PATTERNS) {
-    return `${path}.patterns lists ${patterns.length} patterns; the most is ${MAX_PATTERNS}`;
-  }
   const names = new Set<string>();
   for (const [index, pattern] of patterns.entries()) {
     const at = `${path}.patterns[${index}]`;
@@ -254,8 +257,6 @@ function matchersOf(patterns: readonly HostPattern[]): readonly HostMatcher[] {
 export type { AutomatonData, CompiledPatterns, HostMatcher, HostPattern, PatternSource };
 export {
   listsPatterns,
-  MAX_PATTERN_LENGTH,
-  MAX_PATTERNS,
   matchersOf,
   PATTERN_COMPILER_VERSION,
   patternListProblem,

@@ -47,4 +47,32 @@ import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations';
 import 'monaco-editor/editor/contrib/wordPartOperations/browser/wordPartOperations';
 import 'monaco-editor/features/find/register';
 
+/** `self` in the browser, which Monaco reads for its workers. */
+interface MonacoHost {
+  MonacoEnvironment?: {
+    getWorker(workerId: string, label: string): Worker;
+  };
+}
+
+/** Gives Monaco its workers: JSON's own, and the editor's for the rest. */
+export async function serveMonacoWorkers() {
+  const [{ default: EditorWorker }, { default: JsonWorker }] = await Promise.all([
+    import('monaco-editor/editor/editor.worker?worker'),
+    import('monaco-editor/languages/features/json/json.worker?worker'),
+  ]);
+  (self as MonacoHost).MonacoEnvironment = {
+    getWorker(_id, label) {
+      return label === 'json' ? new JsonWorker() : new EditorWorker();
+    },
+  };
+}
+
+/** The Monaco theme for the page's colour scheme. */
+export function studioMonacoTheme() {
+  const dark =
+    document.documentElement.dataset.theme === 'dark' ||
+    globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? 'vs-dark' : 'vs';
+}
+
 export { editor, languages, MarkerSeverity, Uri };

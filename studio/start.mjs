@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 /**
  * Opens the studio on a project, with one command:
  *
- *   theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
+ *   theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet] [--offline] [--verbose]
  *
  * That is the installed package's command (`npx theorem-studio`); in the repo it is
  * `node studio/start.mjs`.
@@ -23,29 +23,55 @@ import { fileURLToPath } from 'node:url';
  * does not start, the machine's default editor opens the file.
  * The studio watches the files the setup reads and takes in what the builder's editor changes;
  * `--no-watch` turns that off, and the studio then reads them when the builder comes back to it.
+ * When the project opens the command prints what it loaded (the setup, its entry, the agents
+ * with their providers, the tools), what the project has to look at, as the page flags it, and
+ * then whether each provider takes its key: one request to each, which `--offline` leaves out.
+ * It prints again when what to look at changes, and a line for each run that fails and each
+ * error the page meets. `--verbose` adds a line for every run; `--quiet` turns all of it off.
  * The project loads with its own Deno config: the one `--deno-config` names, else the `deno.json`
  * or `deno.jsonc` in the folder the command ran in, else the studio's.
  * A project already open in a studio is not opened twice: the command says where it is. A second
  * project opens beside the first, on the next free pair of ports.
+ *
+ *   theorem-studio status [setup]
+ *   theorem-studio errors [setup] [--follow]
+ *
+ * read a studio that is open on this project, and change nothing: `status` prints what it loaded,
+ * what its keys said and what to look at; `errors` prints the last 200 things it told the
+ * terminal, and `--follow` then prints each new one until the studio stops.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
-import { builtPage } from './installed.mjs';
+import { builtPage, requireInstalled } from './installed.mjs';
 import { heldPairs, pageAddress, placeFor, serverAddress } from './ports.mjs';
+import { readStudio, studiosOn } from './read-studio.mjs';
 import { chooseSetup, findSetups, setupLines, setupsNamed } from './setups.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const USAGE = `usage: ${builtPage ? 'theorem-studio' : 'node studio/start.mjs'} [setup] [--editor <command>] [--deno-config <file>] [--no-watch]`;
+const COMMAND = builtPage ? 'theorem-studio' : 'node studio/start.mjs';
+const USAGE = `usage: ${COMMAND} [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet] [--offline] [--verbose]
+       ${COMMAND} status [setup]
+       ${COMMAND} errors [setup] [--follow]`;
+// The setup module is named from where the command was run, which is also the project's name.
+const from = process.env.INIT_CWD ?? process.cwd();
+const args = process.argv.slice(2);
+if (args[0] === 'status' || args[0] === 'errors') await read(args[0], args.slice(1));
+requireInstalled();
 /** The value after each flag that takes one. A flag with none, a second setup, or anything else, is a mistake. */
 const VALUED = ['--editor', '--deno-config'];
 const given = {};
 let wanted;
 let noWatch = false;
+let quiet = false;
+let offline = false;
+let verbose = false;
 let mistaken = false;
-const args = process.argv.slice(2);
 for (let at = 0; at < args.length; at += 1) {
   const arg = args[at];
   if (arg === '--no-watch') noWatch = true;
+  else if (arg === '--quiet') quiet = true;
+  else if (arg === '--offline') offline = true;
+  else if (arg === '--verbose') verbose = true;
   else if (VALUED.includes(arg)) {
     const value = args[at + 1];
     if (!value || value.startsWith('--')) mistaken = true;
@@ -60,9 +86,71 @@ if (mistaken) {
 }
 const editor = given['--editor'];
 
-// The setup module is named from where the command was run, which is also the project's name.
-const from = process.env.INIT_CWD ?? process.cwd();
 const setup = await setupToOpen();
+
+/**
+ * Reads the studio open on this project's setup, or on the one named, and stops: the setup to read
+ * is found as one to open is, except that only one open in a studio counts.
+ */
+async function read(command, rest) {
+  const follow = command === 'errors' && rest.includes('--follow');
+  const named = rest.filter((arg) => arg !== '--follow' || command !== 'errors');
+  if (named.length > 1 || named.some((arg) => arg.startsWith('--'))) stopWith(2, USAGE);
+  const [name] = named;
+  const studio = await studioToRead(name);
+  if (command === 'status') {
+    console.log(
+      `theorem studio: ${path.relative(from, studio.setup)} on ${pageAddress(studio.pair)}/studio/`,
+    );
+  }
+  try {
+    await readStudio(studio, command, { follow });
+  } catch (error) {
+    stopWith(1, `theorem studio: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  process.exit(0);
+}
+
+/** The setups a read may mean: the file named, else the ones with the name, else all of them. */
+function setupsToRead(name) {
+  if (name !== undefined && existsSync(path.resolve(from, name))) return [name];
+  const found = findSetups(from);
+  return (name === undefined ? found : setupsNamed(found, name)).map((one) => one.file);
+}
+
+/** The one studio open on those setups; says why there is none, or more than one, and stops. */
+async function studioToRead(name) {
+  const setups = setupsToRead(name);
+  if (name !== undefined && setups.length === 0) {
+    stopWith(
+      2,
+      `theorem studio: no setup is named ${name}. This project has:\n\n${setupLines(findSetups(from)).join('\n')}`,
+    );
+  }
+  const open = studiosOn(
+    await heldPairs(),
+    new Set(setups.map((file) => realpathSync(path.resolve(from, file)))),
+  );
+  if (open.length === 0) {
+    stopWith(
+      1,
+      `theorem studio: no studio is open on ${name ?? from}. Open one: ${COMMAND}${name ? ` ${name}` : ''}`,
+    );
+  }
+  if (open.length > 1) {
+    stopWith(
+      2,
+      `theorem studio: more than one studio is open here. Name the setup:\n\n${open.map((one) => `  ${path.relative(from, one.setup)}`).join('\n')}`,
+    );
+  }
+  return open[0];
+}
+
+/** Says why the command stops, and stops with `code`. */
+function stopWith(code, message) {
+  console.error(message);
+  process.exit(code);
+}
 
 /** Says why no setup opens, and stops. */
 function refuse(message) {
@@ -125,6 +213,9 @@ const server = spawn(
     projectConfig,
     ...(editor ? ['--editor', editor] : []),
     ...(noWatch ? ['--no-watch'] : []),
+    ...(quiet ? ['--quiet'] : []),
+    ...(offline ? ['--offline'] : []),
+    ...(verbose ? ['--verbose'] : []),
   ],
   { cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
 );

@@ -1,4 +1,18 @@
-import { type SessionEventOf, TheoremError, type TurnEvent } from '@theoremjs/agents';
+import type { SessionEventOf, TurnEvent } from '@theoremjs/agents';
+import type {
+  LiveCallOptions,
+  LiveConnectPhase,
+  LiveGateAnswer,
+  LiveGateReply,
+  LiveSessionStatus,
+  LiveToolGatePrompt,
+  TraceFeed,
+} from '@theoremjs/web/client';
+import {
+  continueGatedToolInvocation,
+  type LiveConnection,
+  LiveSessionClient,
+} from '@theoremjs/web/client';
 import {
   type Dispatch,
   type MutableRefObject,
@@ -7,13 +21,7 @@ import {
   useRef,
 } from 'react';
 import { applyLiveTranscript, type LiveCaptionState } from '../../client/live/live-captions.ts';
-import type { LiveCallOptions } from '../../client/live/live-page-tool.ts';
-import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
-import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool.ts';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
-import { runLiveToolCall } from '../../client/live/run-live-tool-call.ts';
-import { type LiveConnection, LiveSessionClient } from '../../client/live-client.ts';
-import type { TraceFeed } from '../../client/trace-feed.ts';
 
 export type LiveClientBindings = LiveCallOptions & {
   voiceAvailable: boolean;
@@ -35,7 +43,6 @@ export type LiveClientBindings = LiveCallOptions & {
   setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
   setInputLevel: Dispatch<SetStateAction<number>>;
   setOutputLevel: Dispatch<SetStateAction<number>>;
-  setActiveTool: Dispatch<SetStateAction<string | null>>;
   setSessionPermissions: Dispatch<SetStateAction<string[]>>;
   setVideoPreview: Dispatch<SetStateAction<HTMLVideoElement | null>>;
   setVideoFacingMode: Dispatch<SetStateAction<LiveFacingMode>>;
@@ -71,41 +78,24 @@ function onLiveTranscript(
   bindings.setCaptions((prev) => applyLiveTranscript(prev, text, isUser, meta?.interim));
 }
 
-async function onLiveToolCall(
-  name: string,
-  toolArgs: Record<string, unknown>,
-  meta: { callId: string; operationId: string },
+/** The user's answer to a gate, as the session takes it; an approval records the permissions it grants. */
+async function onLiveGate(
+  prompt: LiveToolGatePrompt,
   bindings: LiveClientBindings,
-  clientRef: MutableRefObject<LiveSessionClient | null>,
-): Promise<void> {
-  bindings.setActiveTool(name);
-  bindings.clearFailure();
-  const client = clientRef.current;
-  if (!client) {
-    // labels-exempt: internal diagnostic; the user reads error.request
-    bindings.reportFailure(new TheoremError('request', 'live tool call with no session client'));
-    return;
+): Promise<LiveGateReply> {
+  const resolution = await bindings.waitForGateDecision(prompt);
+  if (resolution === 'withdrawn') return 'withdrawn';
+  const reply = continueGatedToolInvocation({
+    toolName: prompt.toolName,
+    gate: prompt.gate,
+    sessionPermissions: bindings.sessionPermissionsRef.current,
+    resolution,
+  });
+  if (reply.decision === 'approve') {
+    bindings.sessionPermissionsRef.current = reply.sessionPermissions;
+    bindings.setSessionPermissions(reply.sessionPermissions);
   }
-  try {
-    await runLiveToolCall({
-      pageTools: bindings.pageTools,
-      executeToolOnRelay: (call) => client.executeToolOnRelay(call),
-      name,
-      toolArgs,
-      callId: meta.callId,
-      operationId: meta.operationId,
-      sessionPermissions: bindings.sessionPermissionsRef.current,
-      setSessionPermissions: (next) => {
-        bindings.sessionPermissionsRef.current = next;
-        bindings.setSessionPermissions(next);
-      },
-      waitForGateDecision: bindings.waitForGateDecision,
-    });
-  } catch (err) {
-    bindings.reportFailure(err);
-  } finally {
-    if (!bindings.gatePromptRef.current) bindings.setActiveTool(null);
-  }
+  return reply;
 }
 
 /** Owns LiveSessionClient construction + reconnect identity. */
@@ -119,7 +109,10 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
     const b = bindingsRef.current;
     const client = new LiveSessionClient({
       ...connection,
-      slots: b.slots,
+      options: b.options,
+      stated: b.stated,
+      model: b.model,
+      effort: b.effort,
       context: b.context,
       voiceIngress: b.voiceAvailable,
       onConnectPhase: (phase) => {
@@ -139,6 +132,9 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
           bindingsRef.current.reportFailure(event.error);
           return;
         }
+        // why: A new call from the model clears the last failure.
+        if (event.type === 'tool' && event.tool.phase === undefined)
+          bindingsRef.current.clearFailure();
         bindingsRef.current.handleLiveTurnEvent(event);
       },
       onTrace: (record) => {
@@ -158,8 +154,11 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
       onSessionEnded: (session) => {
         bindingsRef.current.reportSessionEnded(session);
       },
-      onToolCall: (name, args, meta) =>
-        onLiveToolCall(name, args, meta, bindingsRef.current, clientRef),
+      // why: Read at each call, so a handler the host renders anew is the one that answers.
+      get pageTools() {
+        return bindingsRef.current.pageTools;
+      },
+      onGate: (prompt) => onLiveGate(prompt, bindingsRef.current),
     });
     clientRef.current = client;
     return client;

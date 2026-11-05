@@ -52,9 +52,9 @@ import { openRegisteredLiveSession } from '../../provider-live.ts';
 import { assertHistoryKept } from '../../provider-runtime.ts';
 import { assertTurnContext } from '../../registry/ingress.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
+import { fillOptions, turnFacts } from '../../registry/options.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
-import { fillSlots } from '../../registry/slot-fill.ts';
 import { DEFAULT_RESUMED_AFTER_MS, type TurnStage } from '../../schema.ts';
 import {
   type InjectUnit,
@@ -67,6 +67,11 @@ import {
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import { bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
+import {
+  assertBackgroundCoordinator,
+  type ToolBackgroundService,
+  type ToolBackgroundSupport,
+} from '../../tools/background.ts';
 import { failedActivity, failureEvent } from '../../tools/events.ts';
 import {
   executeRegisteredTool,
@@ -81,7 +86,12 @@ import {
   resumeForAnswer,
 } from '../../tools/gate-answer.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
-import type { PageToolExecution, ToolExecutionCoordinator } from '../../tools/operation.ts';
+import {
+  heldOperation,
+  type PageToolExecution,
+  type ToolExecutionCoordinator,
+  unresolvedOperation,
+} from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
@@ -112,6 +122,7 @@ import type {
 } from '../../types.ts';
 import { prepareLiveContext, prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
+import { EGRESS_FILTERED_STOP } from '../runner/gates.ts';
 import { sessionAgentCaller } from '../runner/mod.ts';
 import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace.ts';
 
@@ -126,13 +137,12 @@ function pageAnswerForLiveRequest(
 
 /** Options for opening a live session: the key vault, a provider's own settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
 export interface RunSessionOptions extends ProviderHostOptions {
-  execution?: ToolExecutionCoordinator;
-  pageExecution?: PageToolExecution;
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault?: KeyVault;
   /**
-   * Milliseconds a gated call waits for its decision (default 30 minutes). A later decision is
-   * refused (`session.gate_expired`), and the model reads the call as abandoned.
+   * Milliseconds a gated call waits for its decision. A later decision is refused
+   * (`session.gate_expired`), and the model reads the call as abandoned. Unset, the call waits
+   * until it is decided or the session closes.
    */
   gateTtlMs?: number;
   /**
@@ -172,10 +182,18 @@ function isReleased(held: HeldCall): boolean {
   return typeof held.state === 'object' && held.state.released === true;
 }
 
-type SettledPhase = Extract<ToolPhaseEvent, { phase: 'complete' | 'error' | 'gate' }>;
+type SettledPhase = Extract<
+  ToolPhaseEvent,
+  { phase: 'complete' | 'error' | 'gate' | 'background' }
+>;
 
 function isSettledPhase(tool: ToolPhaseEvent): tool is SettledPhase {
-  return tool.phase === 'complete' || tool.phase === 'error' || tool.phase === 'gate';
+  return (
+    tool.phase === 'complete' ||
+    tool.phase === 'error' ||
+    tool.phase === 'gate' ||
+    tool.phase === 'background'
+  );
 }
 
 /**
@@ -252,22 +270,7 @@ function sessionSnapshotWithinAllow(
 }
 
 function toTurnRequest(req: SessionRequest): TurnRequest {
-  return {
-    profile: req.profile,
-    providerState: req.providerState,
-    system: req.system,
-    builtInArgs: req.builtInArgs,
-    path: req.path,
-    sessionPermissions: req.sessionPermissions,
-    signal: req.signal,
-    metadata: req.metadata,
-    host: req.host,
-    input: {
-      text: '',
-      history: req.history,
-      slots: req.slots,
-    },
-  };
+  return { ...req, input: { text: '', history: req.history, options: req.inputOptions } };
 }
 
 /**
@@ -277,21 +280,31 @@ function toTurnRequest(req: SessionRequest): TurnRequest {
 function openingPrompt(
   profile: LiveProfile,
   req: SessionRequest,
-  slots: Record<string, string> | undefined,
+  facts: Readonly<Record<string, string>>,
 ): string | undefined {
   const { greeting, resumed } = profile.live;
   if (!req.providerState && !req.history?.length) {
-    return greeting ? fillSlots(profile, greeting, slots, 'live.greeting') : undefined;
+    return greeting ? fillOptions(profile, greeting, facts) : undefined;
   }
   if (!resumed || (req.awayMs ?? 0) < (resumed.afterMs ?? DEFAULT_RESUMED_AFTER_MS)) {
     return undefined;
   }
-  return fillSlots(profile, resumed.prompt, slots, 'live.resumed.prompt');
+  return fillOptions(profile, resumed.prompt, facts);
 }
 
 /** Refuses context the profile's `inputs.context` does not take. */
 function assertSessionContext(profile: Profile, context: TurnContext): void {
   assertTurnContext(profile, { profile: profile.id, input: { context } });
+}
+
+/** Context read at its boundary: the fenced texts that reach the model, and what matched. */
+type OpeningContext = ReturnType<typeof prepareLiveContext> & { ms: number };
+
+function readSessionContext(profile: Profile, context: TurnContext): OpeningContext {
+  assertSessionContext(profile, context);
+  const start = performance.now();
+  const prepared = prepareLiveContext(profile, context);
+  return { ...prepared, ms: performance.now() - start };
 }
 
 function applyVoiceOverride(
@@ -349,9 +362,9 @@ async function applyOutbound(
   const out = batch.action === 'emit' ? batch.events : [];
   if (turnPhase !== 'complete') return out;
 
-  // why: The response is whole only once its verdict is in: `turn_complete` follows what the
-  // verdict released, and a withheld response ends on its error.
-  const said = out.filter((event) => !isTurnComplete(event));
+  // why: The response is whole only once its verdict is in: `turn_complete` and `done` follow what
+  // the verdict released, and a withheld response ends on its error.
+  const said = out.filter((event) => !isTurnComplete(event) && event.type !== 'done');
   const finalized = await finalizeLiveOutboundTurn(gate);
   if (finalized.action === 'withhold') {
     onWithhold();
@@ -365,12 +378,46 @@ async function applyOutbound(
     ...said,
     ...(finalized.action === 'emit' ? finalized.events : []),
     ...out.filter(isTurnComplete),
-    { type: 'done', stop: { kind: 'completed' } },
+    ...(finalized.action === 'emit' && finalized.refused ? refusedDones(out) : doneEvents(out)),
+  ];
+}
+
+function doneEvents(events: TurnEvent[]): TurnEvent[] {
+  return events.filter((event) => event.type === 'done');
+}
+
+/** A refused reply ends `filtered`, as a text turn does; `generation_complete` stays news. */
+function refusedDones(events: TurnEvent[]): TurnEvent[] {
+  const dones = doneEvents(events);
+  const ending = dones.find((event) => !isGenerationDone(event));
+  return [
+    ...dones.filter(isGenerationDone),
+    {
+      ...(ending?.type === 'done' && ending.providerState
+        ? { providerState: ending.providerState }
+        : {}),
+      type: 'done',
+      stop: EGRESS_FILTERED_STOP,
+    },
   ];
 }
 
 function isTurnComplete(event: TurnEvent): boolean {
   return event.type === 'session' && event.session.kind === 'turn_complete';
+}
+
+function isGenerationDone(event: TurnEvent): boolean {
+  return event.type === 'done' && event.stop.kind === 'generation_complete';
+}
+
+/** The close of a reply already reported interrupted: only its checkpoint goes on. */
+function checkpointOfClose(events: TurnEvent[]): TurnEvent[] {
+  return events.flatMap((event): TurnEvent[] => {
+    if (event.type !== 'done') return [event];
+    return event.providerState
+      ? [{ type: 'provider_checkpoint', providerState: event.providerState }]
+      : [];
+  });
 }
 
 /**
@@ -418,8 +465,10 @@ function boundaryDoneEvents(
   doneBatch: TurnEvent[],
   turnPhase: string | undefined,
   interrupted: boolean,
+  withheld: boolean,
 ): TurnEvent[] {
   if (doneBatch.length > 0) return doneBatch;
+  if (withheld) return [{ type: 'done', stop: EGRESS_FILTERED_STOP }];
   if (turnPhase === 'abort' || interrupted) {
     return [{ type: 'done', stop: { kind: 'interrupted' }, interrupted: true }];
   }
@@ -508,6 +557,7 @@ function* yieldLiveNonDoneEvents(
 
 function buildLiveSession(args: {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundService;
   pageExecution?: PageToolExecution;
   tools: ToolRegistry;
   profile: LiveProfile;
@@ -523,6 +573,7 @@ function buildLiveSession(args: {
   host?: unknown;
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
+  fetch?: typeof fetch;
   sessionPermissions?: string[];
   path?: string;
   snapshot: TurnToolSnapshot;
@@ -531,14 +582,14 @@ function buildLiveSession(args: {
   openInitialCycle: boolean;
   /** What the opening request's boundaries matched (seeded history, system text), reported first. */
   requestEvents: readonly TurnEvent[];
-  /** What the request told the agent, sent before anything draws a reply. */
-  initialContext?: TurnContext;
+  /** The request's context, read before setup; the provider seeds its texts before any input. */
+  openingContext?: OpeningContext;
   /** The greeting or resume prompt, sent once the cycle is open. */
   opening?: string;
   trace: LiveTrace;
   /** Runs the agent tools this session's calls reach. */
   agents: AgentCaller;
-  gateTtlMs: number;
+  gateTtlMs: number | undefined;
   signInGate: SignInGatePolicy;
 }): LiveSession {
   const {
@@ -552,6 +603,7 @@ function buildLiveSession(args: {
     onStage,
     host: sessionHost,
     resolveHost,
+    fetch,
     path,
     snapshot,
     trace,
@@ -571,8 +623,21 @@ function buildLiveSession(args: {
   let wakeHost: (() => void) | undefined;
   const includeMatch = resolveObservabilityPolicy(profile.observability).include
     .guardrailMatchPreview;
+  const background: ToolBackgroundSupport | undefined = args.background && {
+    service: args.background,
+    project: (event) =>
+      projectGuardrailTurnEvent(withPublicLabels(event, profile.labels), includeMatch),
+    openTrace: (callId) => {
+      const { open, finish } = trace.toolRecord(callId);
+      return { open, end: finish };
+    },
+  };
 
   let cycle: 'idle' | 'open' = 'idle';
+  /** An interrupt ended the reply; its `turnComplete` is still to come. */
+  let cutOff = false;
+  /** Input landed while this cycle was already open: if an interrupt ends it, that input opens the next. */
+  let ingressInCycle = false;
   let cycleStep = 0;
   /** What this cycle's tool results read from outside the host; a cycle starts clean, as a turn does. */
   let cycleTaint: TurnTaint | undefined;
@@ -715,8 +780,8 @@ function buildLiveSession(args: {
 
   /**
    * A call that ran into `gate`. A sign-in gate this session answers at once tells the model its
-   * pending note and releases the call; a call already released stays released. Either waits
-   * `gateTtlMs` for its outcome. False: the call is not released, and the caller holds it.
+   * pending note and releases the call; a call already released stays released. Either waits for
+   * its outcome, for `gateTtlMs` when it is set. False: the call is not released, and the caller holds it.
    */
   const releaseGated = (
     callId: string,
@@ -730,7 +795,10 @@ function buildLiveSession(args: {
     if (answersNow) answerModel(callId, held, readBack);
     clearTimeout(held.lapse);
     held.state = { gate, createdAt: Date.now(), released: true };
-    held.lapse = setTimeout(() => lapseReleased(callId, held), gateTtlMs);
+    held.lapse =
+      gateTtlMs === undefined
+        ? undefined
+        : setTimeout(() => lapseReleased(callId, held), gateTtlMs);
     return true;
   };
 
@@ -815,15 +883,19 @@ function buildLiveSession(args: {
   };
 
   /** Context is background: it joins no history and opens no cycle, and its addresses count as given. */
-  const landContext = (context: TurnContext) => {
-    assertSessionContext(profile, context);
-    const start = performance.now();
-    const prepared = prepareLiveContext(profile, context);
-    trace.inboundCheck(performance.now() - start, prepared.guardrails[0]);
-    for (const guardrail of prepared.guardrails) enqueuePending(guardrail);
-    for (const text of prepared.texts) {
+  const noteContext = (read: OpeningContext) => {
+    trace.inboundCheck(read.ms, read.guardrails[0]);
+    for (const guardrail of read.guardrails) enqueuePending(guardrail);
+    for (const text of read.texts) {
       addSeenUrls(givenUrls.request, text);
       addGivenDestinations(destinations, text);
+    }
+  };
+
+  const landContext = (context: TurnContext) => {
+    const read = readSessionContext(profile, context);
+    noteContext(read);
+    for (const text of read.texts) {
       assertOpen();
       connection.sendContext(text);
     }
@@ -882,8 +954,12 @@ function buildLiveSession(args: {
   };
 
   const openCycleIfNeeded = async (): Promise<{ aborted: boolean }> => {
-    if (cycle === 'open') return { aborted: false };
+    if (cycle === 'open') {
+      ingressInCycle = true;
+      return { aborted: false };
+    }
     cycle = 'open';
+    ingressInCycle = false;
     cycleStep += 1;
     cycleTaint = undefined;
     destinations.remote.clear();
@@ -956,6 +1032,7 @@ function buildLiveSession(args: {
       tools: args.tools,
       agents: args.agents,
       execution: args.execution,
+      background,
       profile,
       name: held.name,
       input,
@@ -965,6 +1042,7 @@ function buildLiveSession(args: {
         sessionPermissions,
         credentials: per.credentials ?? sessionCredentials,
         resolveHost,
+        fetch,
         path,
         signal,
         resume,
@@ -1003,14 +1081,11 @@ function buildLiveSession(args: {
       // invariant: A dispatched call with no outcome cannot regain approval authority.
       const unresolved = dispatched || isUnresolvedOperationError(err);
       held.state = unresolved ? 'uncertain' : waiting;
-      if (unresolved)
-        throw new TheoremError(
-          'unavailable',
-          labelText('tool.execution_uncertain', {}, profile.labels),
-          {
-            copy: { key: 'tool.execution_uncertain' },
-            cause: err,
-          },
+      if (unresolved && !isUnresolvedOperationError(err))
+        throw unresolvedOperation(
+          errorKind(err),
+          'The held call was dispatched and did not settle, so its effects are unknown', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          err,
         );
       throw err;
     } finally {
@@ -1109,14 +1184,7 @@ function buildLiveSession(args: {
         copy: { key: 'session.gate_expired' },
       });
     }
-    if (held.state === 'uncertain')
-      throw new TheoremError(
-        'unavailable',
-        labelText('tool.execution_uncertain', {}, profile.labels),
-        {
-          copy: { key: 'tool.execution_uncertain' },
-        },
-      );
+    if (held.state === 'uncertain') throw heldOperation('uncertain');
     if (gateLapsed(held)) {
       if (isReleased(held)) lapseReleased(callId, held);
       else
@@ -1149,11 +1217,9 @@ function buildLiveSession(args: {
       const { tool } = event;
       if (tool.phase === undefined) {
         if (calls.has(tool.callId) || identities.has(tool.callId)) {
-          throw new TheoremError(
-            'bad_response',
-            labelText('provider.duplicate_call', {}, profile.labels),
-            { cause: { code: 'duplicate_pending_call' } },
-          );
+          throw new TheoremError('bad_response', labelText('provider.duplicate_call'), {
+            cause: { code: 'duplicate_pending_call' },
+          });
         }
         identities.set(tool.callId, crypto.randomUUID());
       }
@@ -1172,13 +1238,19 @@ function buildLiveSession(args: {
     });
     // why: An abort only drops what the gate held; there is no check to time.
     if (item.turnPhase !== 'abort') trace.outboundTime(performance.now() - gateStart);
+    // why: A close after a cut-off reply is not a finish, and the next cycle may already be open.
+    const closesCutOff = item.turnPhase === 'complete' && cutOff;
+    if (item.turnPhase === 'complete') cutOff = false;
+    if (item.turnPhase === 'abort') {
+      cutOff = hostEvents.some((ev) => ev.type === 'done' && ev.interrupted);
+    }
     for (const ev of gated) {
       if (ev.type === 'guardrail') trace.outbound(ev);
     }
 
     recordLiveHistory(gated, recordUserText, recordAssistantText);
     const sealed = await sealLiveCheckpoints(
-      gated,
+      closesCutOff ? checkpointOfClose(gated) : gated,
       history,
       calls,
       profile.providerContinuation?.history !== 'stateless',
@@ -1187,20 +1259,33 @@ function buildLiveSession(args: {
     const tokens = await trace.settle();
     if (tokens) yield tokens;
 
-    const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
+    // why: `generation_complete` is news, not the end: the verdict on the reply comes after it.
+    for (const ev of doneBatch.filter(isGenerationDone)) {
+      yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+    }
+    const ending = doneBatch.filter((ev) => !isGenerationDone(ev));
+    const interrupted = ending.some((ev) => ev.type === 'done' && ev.interrupted);
     const completeBoundary =
-      item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
+      !closesCutOff &&
+      (item.turnPhase === 'complete' ||
+        item.turnPhase === 'abort' ||
+        withholdClose ||
+        ending.length > 0);
 
     // why: Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
     // provider sends no status) often have no folded `done` — still end the cycle.
     if (completeBoundary && cycle === 'open') {
-      const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
+      const boundaryDone = boundaryDoneEvents(ending, item.turnPhase, interrupted, withholdClose);
       for await (const ev of endCycleAroundDone(boundaryDone)) {
         yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
       }
+      // why: A barge-in reaches the model before its `interrupted` reaches us, so the reply
+      // to it comes with no ingress left to open the cycle it belongs to.
+      if (interrupted && ingressInCycle)
+        await withIngress(() => openCycleIfNeeded().then(() => {}));
       yield* drainPendingHostEvents(pendingHostEvents);
-    } else if (doneBatch.length > 0) {
-      for (const ev of doneBatch) {
+    } else {
+      for (const ev of ending) {
         yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
       }
     }
@@ -1402,6 +1487,7 @@ function buildLiveSession(args: {
       }
       forward();
       settleHeld(callId, held, readBack);
+      if (settled.phase === 'background') return {};
       return settled.phase === 'complete'
         ? { outputRaw: settled.output, ...(settled.awaiting ? { awaiting: true } : {}) }
         : { failure: settled.failure };
@@ -1418,10 +1504,11 @@ function buildLiveSession(args: {
     },
   };
 
-  const { initialContext, opening } = args;
-  if (args.openInitialCycle || initialContext || opening) {
+  const { openingContext, opening } = args;
+  if (args.openInitialCycle || openingContext || opening) {
     void withIngress(async () => {
-      if (initialContext) landContext(initialContext);
+      // why: the provider already seeded these texts; only their bookkeeping is left.
+      if (openingContext) noteContext(openingContext);
       if (!args.openInitialCycle && !opening) return;
       const opened = await openCycleIfNeeded();
       if (opening && !opened.aborted) {
@@ -1468,9 +1555,10 @@ async function openTracedSession(
   if (refusal) throw refusal;
   throwIfAborted(safe.signal);
 
+  assertBackgroundCoordinator(req.background, req.execution);
   const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
   assertLiveProfile(profile);
-  if (req.context) assertSessionContext(profile, req.context);
+  const openingContext = req.context ? readSessionContext(profile, req.context) : undefined;
 
   if (req.snapshot) {
     gen0.tools = sessionSnapshotWithinAllow(profile, req.snapshot);
@@ -1488,6 +1576,7 @@ async function openTracedSession(
   ]);
   const completeReq: ModelRequest = {
     ...providerCompleteRequest(registry.tools, generation, system.text),
+    ...(openingContext?.texts.length ? { context: openingContext.texts } : {}),
     signal: safe.signal,
     tapUpstream: trace.sent,
   };
@@ -1526,8 +1615,9 @@ async function openTracedSession(
   trace.setup(connection.setup);
 
   return buildLiveSession({
-    execution: options.execution,
-    pageExecution: options.pageExecution,
+    execution: req.execution,
+    ...(req.background ? { background: req.background } : {}),
+    pageExecution: req.pageExecution,
     tools: registry.tools,
     profile,
     canary: generation.canary,
@@ -1540,14 +1630,15 @@ async function openTracedSession(
     host: req.host,
     credentials: req.credentials,
     resolveHost: req.resolveHost,
+    fetch: req.fetch,
     sessionPermissions: req.sessionPermissions,
     path: req.path,
     snapshot: gen0.tools,
     historySeed: req.history,
     openInitialCycle: hasInitialInput,
     requestEvents,
-    initialContext: req.context,
-    opening: hasInitialInput ? undefined : openingPrompt(profile, req, safe.input?.slots),
+    openingContext,
+    opening: hasInitialInput ? undefined : openingPrompt(profile, req, turnFacts(profile, safe)),
     trace,
     agents: sessionAgentCaller(registry, req, options, trace.agentCanaries),
     gateTtlMs,

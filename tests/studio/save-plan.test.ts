@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from '@std/assert';
+import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
@@ -130,6 +130,16 @@ Deno.test("a setting the file never wrote is added after the last one, in the fi
     tools: { allow: ['list'], loader: 'find' },
   });
   assertEquals(inline.text.includes("tools: { allow: ['list'], loader: 'find' },"), true);
+});
+
+Deno.test('a block the file left empty takes its first setting in place', () => {
+  const file = INLINE.replace("tools: { allow: ['list'] },", 'observability: {},');
+  const { text, statuses } = saved({ 'setup.ts': file }, BASE, {
+    ...BASE,
+    observability: { resource: { 'service.name': 'desk' } },
+  });
+  assertEquals(statuses, ['observability: written']);
+  assertStringIncludes(text, "'service.name': 'desk',");
 });
 
 Deno.test('a setting put back to its default is taken out with its comma', () => {

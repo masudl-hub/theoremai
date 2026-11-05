@@ -1,24 +1,41 @@
 import type { SystemPart, SystemPrompt } from '@theoremjs/agents/kernel';
 
 /**
- * The studio's way to write a system prompt with private sections: the
- * whole prompt as text, each private section wrapped as `{private: …}`.
+ * The studio's way to write a system prompt: the whole prompt as text, a blank
+ * line starting a new line, each private section wrapped as `{private: …}`.
  */
-type SystemMarkup = { ok: true; prompt: SystemPrompt | undefined } | { ok: false; message: string };
+type SystemMarkup = { ok: true; lines: SystemPrompt[] } | { ok: false; message: string };
 
 const OPEN = /\{\s*private\s*:/g;
+const BLANK_LINE = /\n(?:[ \t]*\n)+/;
+const WHEN_LINE = /^\s*when\s/;
 
-function lineAt(text: string, index: number): number {
-  return text.slice(0, index).split('\n').length;
+/** A line as the profile holds it, without the white space at its ends. */
+function promptLine(parts: readonly SystemPart[]): SystemPrompt | undefined {
+  const [first, ...rest] = parts;
+  if (first === undefined) return undefined;
+  if (rest.length === 0 && typeof first === 'string') return first.trim() || undefined;
+  const line = [...parts];
+  const last = parts.at(-1);
+  if (typeof first === 'string') line[0] = first.trimStart();
+  if (typeof last === 'string') line[line.length - 1] = last.trimEnd();
+  const kept = line.filter((part) => part !== '');
+  const [only, ...others] = kept;
+  return others.length === 0 && typeof only === 'string' ? only : kept;
 }
 
 /**
  * A section closes at the `}` that balances its `{`, so braces inside it pair
- * up as written. Its text is trimmed; the text around it is kept as written,
- * apart from the ends of the whole prompt.
+ * up as written, and a blank line inside it stays in it. Its text is trimmed;
+ * the text around it is kept as written, apart from the ends of each line.
  */
 function parseSystemMarkup(text: string): SystemMarkup {
-  const parts: SystemPart[] = [];
+  const lines: SystemPart[][] = [[]];
+  const addText = (chunk: string) => {
+    const [head = '', ...rest] = chunk.split(BLANK_LINE);
+    lines.at(-1)?.push(head);
+    lines.push(...rest.map((line) => [line]));
+  };
   let at = 0;
   for (const open of text.matchAll(OPEN)) {
     if (open.index < at) continue;
@@ -28,30 +45,42 @@ function parseSystemMarkup(text: string): SystemMarkup {
       if (text[close] === '{') depth++;
       else if (text[close] === '}') depth--;
     }
+    addText(text.slice(at, open.index));
     if (depth > 0) {
       return {
         ok: false,
-        message: `The {private: section on line ${String(lineAt(text, open.index))} has no closing }.`,
+        message: `The {private: section on line ${String(lines.length)} has no closing }.`,
       };
     }
     const secret = text.slice(open.index + open[0].length, close - 1).trim();
     if (!secret) {
       return {
         ok: false,
-        message: `The {private: section on line ${String(lineAt(text, open.index))} is empty.`,
+        message: `The {private: section on line ${String(lines.length)} is empty.`,
       };
     }
-    parts.push(text.slice(at, open.index), { private: secret });
+    lines.at(-1)?.push({ private: secret });
     at = close;
   }
-  parts.push(text.slice(at));
-  if (parts.length === 1) return { ok: true, prompt: text.trim() || undefined };
-  const first = parts[0];
-  const last = parts.at(-1);
-  if (typeof first === 'string') parts[0] = first.trimStart();
-  if (typeof last === 'string') parts[parts.length - 1] = last.trimEnd();
-  return { ok: true, prompt: parts.filter((part) => part !== '') };
+  addText(text.slice(at));
+  return {
+    ok: true,
+    lines: lines.flatMap((parts) => {
+      const line = promptLine(parts.filter((part) => part !== ''));
+      return line === undefined ? [] : [line];
+    }),
+  };
+}
+
+/**
+ * A plain line as the kernel sends it once the studio opens it: each stretch between blank lines
+ * is a line of its own, with a blank line between them either way.
+ * invariant: A text with a `when` stretch stays whole, since opening it would put that stretch under a `when`.
+ */
+function plainLines(line: string): string[] {
+  const lines = line.trim().split(BLANK_LINE);
+  return lines.some((each) => WHEN_LINE.test(each)) ? [line.trim()] : lines;
 }
 
 export type { SystemMarkup };
-export { parseSystemMarkup };
+export { parseSystemMarkup, plainLines, promptLine, WHEN_LINE };

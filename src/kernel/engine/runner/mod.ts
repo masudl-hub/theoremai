@@ -5,6 +5,8 @@ import {
   userDataNote,
 } from '../../../guardrails/canary.ts';
 import {
+  describeError,
+  errorKind,
   isAbortError,
   TheoremError,
   throwIfAborted,
@@ -33,7 +35,9 @@ import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
-import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
+import { assertBackgroundCoordinator, type ToolBackgroundSupport } from '../../tools/background.ts';
+import { cloneTurnToolSnapshot, expandT1Policy, promoteTurnTools } from '../../tools/resolve.ts';
+import type { SteerQueue } from '../../tools/steer.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
 import { keptReply, turnDoneOf } from '../../turn-events.ts';
 import type {
@@ -57,6 +61,7 @@ import type {
   TurnToolSnapshot,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
+import { detachedTrace } from '../background.ts';
 import {
   type CompactionTokens,
   type CompactorRun,
@@ -79,7 +84,12 @@ import { sumEventTokens, sumTurnTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import { createAgentCaller, NESTED_THROWS, turnError } from './nested.ts';
 import { applyTurnStage } from './stages.ts';
-import { openTurnState, type StepExecutionState, type TurnTraceState } from './state.ts';
+import {
+  cutConversation,
+  openTurnState,
+  type StepExecutionState,
+  type TurnTraceState,
+} from './state.ts';
 import { shouldSkipStreamEvent } from './stream.ts';
 
 function projectForObs(
@@ -138,6 +148,7 @@ function runNestedTurn(args: {
   canaries: string[];
   agentDepth: number;
   compacting?: TraceCtx['compacting'];
+  steers?: SteerQueue;
 }): AsyncGenerator<TurnEvent> {
   const ctx = newTraceCtx(
     args.registry,
@@ -147,6 +158,7 @@ function runNestedTurn(args: {
   );
   ctx.agentDepth = args.agentDepth;
   if (args.compacting) ctx.compacting = args.compacting;
+  if (args.steers) ctx.steers = args.steers;
   ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
   return runTracedTurn(
     ctx,
@@ -199,9 +211,9 @@ async function runCompactor(args: {
     }
   } catch (err) {
     throwIfAborted(args.signal);
-    const error = err instanceof TheoremError ? err.kind : 'internal';
+    const error = errorKind(err);
     if (NESTED_THROWS.has(error)) throw err;
-    return { droppedMedia, failure: { error } };
+    return { droppedMedia, failure: { error, errorInternal: describeError(err) } };
   }
   throwIfAborted(args.signal);
 
@@ -219,7 +231,11 @@ async function runCompactor(args: {
   if (stop !== 'completed' || error) {
     return {
       droppedMedia,
-      failure: { ...(stop ? { stop } : {}), ...(error ? { error } : {}) },
+      failure: {
+        ...(stop ? { stop } : {}),
+        ...(error ? { error } : {}),
+        ...(reported?.errorInternal ? { errorInternal: reported.errorInternal } : {}),
+      },
       ...usage,
     };
   }
@@ -274,6 +290,9 @@ function compactionOutcome(
     dropped_media: result.droppedMedia,
     ...(result.failure?.stop ? { failure_stop: result.failure.stop } : {}),
     ...(result.failure?.error ? { failure_error: result.failure.error } : {}),
+    ...(result.failure?.errorInternal
+      ? { failure_reason: traceContent(result.failure.errorInternal) }
+      : {}),
     ...(result.failure?.empty ? { failure_empty: true } : {}),
     ...(result.failure?.unreadable ? { failure_unreadable: true } : {}),
     ...(result.summary === undefined ? {} : { summary: traceContent(result.summary) }),
@@ -373,6 +392,8 @@ async function* emitTurn(args: {
   provider: TurnModel;
   trace: TurnTraceState;
   agents: AgentCaller | undefined;
+  background: ToolBackgroundSupport | undefined;
+  steers: SteerQueue | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
 }): AsyncGenerator<TurnEvent> {
@@ -382,10 +403,18 @@ async function* emitTurn(args: {
     tools: args.registry.tools,
     profile,
     generation,
+    request: safe,
     trace: args.trace,
     ...(args.agents ? { agents: args.agents } : {}),
+    ...(args.background ? { background: args.background } : {}),
+    ...(args.steers ? { steers: args.steers } : {}),
   });
   args.outState.state = state;
+  if (state.lateResults !== undefined) {
+    const late: TurnEvent = { type: 'late_results', text: state.lateResults };
+    state.allEmittedEvents.push(late);
+    yield late;
+  }
 
   const pre = yield* applyTurnStage({
     profile,
@@ -425,7 +454,10 @@ async function* emitTurn(args: {
   const done = turnDoneOf(
     {
       stop: state.lastStop ?? { kind: 'completed' },
+      steps: state.stepCount,
+      ...(state.mediaRefused ? { mediaRefused: state.mediaRefused } : {}),
       ...(state.providerState &&
+      !cutConversation(state) &&
       !(
         'providerContinuation' in profile && profile.providerContinuation?.history === 'stateless'
       ) &&
@@ -458,6 +490,8 @@ async function* streamTurnEvents(
     provider,
     trace: ctx.trace,
     agents: ctx.agents,
+    background: ctx.background,
+    steers: ctx.steers,
     outState: ctx,
   })) {
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
@@ -520,6 +554,9 @@ type TraceCtx = {
   observability?: ResolvedObservabilityPolicy;
   state?: StepExecutionState;
   agents?: AgentCaller;
+  background?: ToolBackgroundSupport;
+  /** Set on a detached agent call's own turn: what its host tells it while it runs. */
+  steers?: SteerQueue;
 };
 
 function newTraceCtx(
@@ -573,7 +610,7 @@ async function* runTracedTurn(ctx: TraceCtx, provider: TurnModel): AsyncGenerato
  * The trace record is written however the turn ends, including when the host stops reading early;
  * spans still open then close as `ERROR` / `unclosed`.
  */
-async function* runTurnInRegistry(
+async function* tracedTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
   provider: TurnModel,
@@ -590,6 +627,29 @@ async function* runTurnInRegistry(
     guardrails: ctx.known?.guardrails,
   });
   ctx.observability = policy;
+  const { background: service } = req;
+  if (service) {
+    ctx.background = {
+      service,
+      project: (event) =>
+        withPublicLabels(projectForObs(event, ctx.observability), ctx.known?.labels),
+      openTrace: () =>
+        detachedTrace({
+          traceparent: tree.root.traceparent(),
+          write: (spans) =>
+            writeTrace(
+              sink,
+              buildRecord({
+                spans,
+                policy,
+                canaries: ctx.canaries,
+                ...(req.metadata ? { metadata: req.metadata } : {}),
+              }),
+              policy,
+            ),
+        }),
+    };
+  }
   try {
     yield* runTracedTurn(ctx, provider);
   } finally {
@@ -642,7 +702,21 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
   }
 }
 
+/** A turn's events, each read by `req.onEvent` before the caller gets it. */
+async function* runTurnInRegistry(
+  registry: KernelRegistry,
+  req: TurnRequest,
+  provider: TurnModel,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<TurnEvent> {
+  for await (const event of tracedTurnInRegistry(registry, req, provider, sinkOverride)) {
+    await req.onEvent?.(event);
+    yield event;
+  }
+}
+
 async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<TurnEvent> {
+  assertBackgroundCoordinator(ctx.req.background, ctx.req.execution);
   const checkStart = performance.now();
   const sanitized = sanitizeTurnRequestWithEvents(
     ctx.req,
@@ -672,10 +746,12 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   if (sanitized.refusal) throw sanitized.refusal;
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
   await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
+  promoteTurnTools(ctx.registry.tools, gen.tools, ctx.safe.promoted);
   if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
   if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);
   ctx.generation = gen;
+  ctx.root.set({ 'theorem.turn.system_lines': [...gen.systemLines] });
   ctx.canary = gen.canary;
   ctx.canaries.push(gen.canary);
   const binding = profile.models[gen.model];
@@ -844,7 +920,9 @@ async function compactHistoryInRegistry(
   const turnReq: TurnRequest = {
     profile: req.profile,
     input: {},
-    ...(req.conversationId ? { conversationId: req.conversationId } : {}),
+    conversationId: req.conversationId,
+    projectId: req.projectId,
+    links: req.links,
   };
   const tree = startTrace(`invoke_agent ${req.profile}`, {
     ...turnSpanOptions(turnReq),

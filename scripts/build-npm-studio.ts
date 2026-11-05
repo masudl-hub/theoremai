@@ -3,8 +3,8 @@
  * `studio/package.json` names built to JavaScript and declarations, and the page built in advance.
  * Deno runs no TypeScript from `node_modules`, so tsc writes the JavaScript; Deno checks it. Vite
  * builds the page with the kernel's declarations in it, so the studio ships in lockstep with the
- * kernel and the React package: the version, the runtime floor, and both peers come from the root
- * manifest, pinned.
+ * kernel, the web package, and the React package: the version, the runtime floor, and their peers
+ * come from the root manifest, pinned.
  */
 import { BUILT_PAGE, PROJECT_PLACEHOLDER } from '../studio/page.mjs';
 
@@ -16,6 +16,7 @@ const launchers = [
   'installed.mjs',
   'ports.mjs',
   'setups.mjs',
+  'read-studio.mjs',
   'page.mjs',
   'serve-page.mjs',
 ];
@@ -109,8 +110,12 @@ const pkg = {
   peerDependencies: {
     ...manifest.peerDependencies,
     '@theoremjs/agents': version,
+    '@theoremjs/web': version,
     '@theoremjs/react': version,
   },
+  // why: the command serves a page built with its own React, so a project on any React, or none,
+  // installs it. Only an app that shows the screen itself needs `@theoremjs/react` and its peers.
+  peerDependenciesMeta: { '@theoremjs/react': { optional: true } },
 };
 await Deno.writeTextFile(`${outDir}/package.json`, `${JSON.stringify(pkg, null, 2)}\n`);
 

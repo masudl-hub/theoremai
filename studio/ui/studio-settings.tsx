@@ -37,7 +37,7 @@ import { editorLabel, STUDIO_EDITORS } from '../editors.ts';
 import type { StudioActingAs, StudioPeopleOffer, StudioPerson } from '../people.ts';
 import { IconCursor } from './brand-icons.tsx';
 import { freshPerson, listPeople, useActingAs } from './lib/acting-as.ts';
-import { type StudioPrefs, setPref, usePref } from './lib/studio-prefs.ts';
+import { setPref, usePref } from './lib/studio-prefs.ts';
 import type { ProjectSession } from './lib/studio-project.ts';
 import {
   closeSettings,
@@ -73,12 +73,6 @@ const SETTINGS: readonly (SearchableItem & { section: SettingsSection; words?: s
     label: 'Ask before changing a shared value',
     section: 'confirmations',
     words: 'confirm asking',
-  },
-  {
-    id: 'ask-writes',
-    label: 'Ask before a tool writes',
-    section: 'confirmations',
-    words: 'confirm asking destructive run',
   },
   { id: 'keys', label: 'Model keys', section: 'keys', words: 'api key provider' },
   {
@@ -245,49 +239,16 @@ export interface SharedAsking {
   set: (asks: boolean) => void;
 }
 
-const isAskWrites = (value: string): value is StudioPrefs['askWrites'] =>
-  value === 'always' || value === 'destructive';
-
 function ConfirmationSettings({ shared }: { shared: SharedAsking }) {
-  const askWrites = usePref('askWrites');
   return (
-    <>
-      <Group
-        title="Shared values"
-        about="A value several agents share changes on every one of them."
-      >
-        <CheckboxInput
-          label="Ask before changing a shared value"
-          description="Shows which agents and files the change reaches, before it is made."
-          value={shared.asks}
-          onChange={shared.set}
-        />
-      </Group>
-      <Divider />
-      <Group
-        title="Tools that write"
-        about="A real run of a tool that writes can change something outside the studio."
-      >
-        <RadioList
-          label="Ask before a run"
-          value={askWrites}
-          onChange={(next) => {
-            if (isAskWrites(next)) setPref('askWrites', next);
-          }}
-        >
-          <RadioListItem
-            value="always"
-            label="Every tool that writes"
-            description="Shows the input the run would send, each time."
-          />
-          <RadioListItem
-            value="destructive"
-            label="Only destructive tools"
-            description="Tools that read and write run straight away. Tools marked destructive still ask."
-          />
-        </RadioList>
-      </Group>
-    </>
+    <Group title="Shared values" about="A value several agents share changes on every one of them.">
+      <CheckboxInput
+        label="Ask before changing a shared value"
+        description="Shows which agents and files the change reaches, before it is made."
+        value={shared.asks}
+        onChange={shared.set}
+      />
+    </Group>
   );
 }
 
@@ -575,11 +536,16 @@ function SectionBody({ section, ...props }: StudioSettingsProps & { section: Set
       return <ConfirmationSettings shared={props.shared} />;
     case 'keys':
       return (
+        // why: a project's runs sign with the vault its own entry sets, so a key typed here runs nothing.
         <Group
           title="Model keys"
-          about="Your own keys, to run an agent with. Never saved, never written to your project."
+          about={
+            props.project
+              ? "This project's runs sign with the keys in its entry's provider vault. The studio does not read or change them."
+              : 'Your own keys, to run an agent with. Never saved, never written to your project.'
+          }
         >
-          {props.keys}
+          {props.project ? null : props.keys}
         </Group>
       );
     case 'people':
@@ -598,7 +564,7 @@ const isSection = (value: string): value is SettingsSection =>
 function SettingsNavHead({ project, version }: { project: ProjectSession; version: string }) {
   return (
     <VStack gap={4}>
-      <VStack gap={1}>
+      <VStack gap={1} className="studio-nav-head">
         <Heading level={3}>theorem studio</Heading>
         <Text type="supporting" color="secondary">
           {`${project.name} · @theoremjs/agents ${version}`}
@@ -607,7 +573,7 @@ function SettingsNavHead({ project, version }: { project: ProjectSession; versio
       <Typeahead
         label="Search"
         isLabelHidden
-        placeholder="Search settings..."
+        placeholder="Search settings"
         searchSource={settingsSource}
         value={null}
         onChange={(item) => {
@@ -629,7 +595,7 @@ export function StudioSettings(props: StudioSettingsProps) {
   const isNarrow = useMediaQuery('(max-width: 768px)');
   const { section } = useSettingsDoor();
   return (
-    <Section variant="transparent" height="100%" padding={0}>
+    <Section variant="transparent" height="100%" padding={0} className="studio-settings">
       {/* Starts at the left edge, as the tree and editor do; the settings keep a readable width. */}
       <Layout
         height="fill"
@@ -662,7 +628,7 @@ export function StudioSettings(props: StudioSettingsProps) {
           )
         }
         content={
-          <LayoutContent padding={0}>
+          <LayoutContent padding={0} className="studio-settings-main">
             <Section variant="transparent" padding={3} dividers={['bottom']}>
               <HStack gap={2} vAlign="center">
                 <StackItem size="fill">

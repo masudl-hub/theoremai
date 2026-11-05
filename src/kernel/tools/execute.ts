@@ -12,7 +12,12 @@ import {
   inspectToolArguments,
   toolCallEvent,
 } from '../../guardrails/tool-result.ts';
-import type { Provenance, ResolvedGuardrailPolicy, ToolOrigin } from '../../guardrails/types.ts';
+import type {
+  GuardrailHit,
+  Provenance,
+  ResolvedGuardrailPolicy,
+  ToolOrigin,
+} from '../../guardrails/types.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
 import {
   recordToolCheck,
@@ -20,6 +25,7 @@ import {
   type ToolCallEnd,
   type ToolOutcome,
 } from '../engine/tool-trace.ts';
+import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
 import { isAwaitingUserInput, type Source } from '../turn-events.ts';
@@ -27,12 +33,14 @@ import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '..
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
 import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
+import { planDetach, splitBackground, type ToolBackgroundSupport } from './background.ts';
 import { coordinateTool } from './coordinate.ts';
 import {
   dispatchToolBody,
   failedActivity,
   failedActivityOf,
   failureEvent,
+  type HandOff,
   messageOf,
   networkBlocked,
   networkBlockedEvent,
@@ -44,13 +52,14 @@ import {
   toolEvent,
 } from './events.ts';
 import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
+import { fetchToolImages } from './image-fetch.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
 import type {
   ToolExecutionCoordinator,
   ToolOperationClaim,
   ToolOperationOutcome,
 } from './operation.ts';
-import { operationUnavailable, operationWireValue } from './operation.ts';
+import { operationBroken, operationWireValue } from './operation.ts';
 import {
   checkPermission,
   gateDetails,
@@ -114,7 +123,7 @@ export {
 
 import { UncheckedOutput } from './unchecked-output.ts';
 
-function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
+export function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
   if (tool.type === 'agent') return agentToolOrigin(tools.findProfile(tool.profile));
   if (tool.type === 'http') return 'http';
   if (tool.type === 'mcp') return 'mcp';
@@ -452,6 +461,8 @@ async function* settleToolCall(args: {
   reproject?: Reproject;
   /** Run on the output the call settles with, after any `mutate`. */
   sources?: (output: unknown) => Source[];
+  /** Fetches the pictures the settled output names; runs only for a result the guard let through. */
+  images?: (output: unknown) => ReturnType<typeof fetchToolImages>;
   labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
@@ -489,7 +500,15 @@ async function* settleToolCall(args: {
     }
   }
 
-  if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
+  if (!failure) {
+    modelResult = yield* citeAndShow({
+      base,
+      sources,
+      images: args.images,
+      outputRaw,
+      modelResult,
+    });
+  }
   yield failure
     ? failureEvent(
         base,
@@ -510,6 +529,44 @@ async function* settleToolCall(args: {
     ...(callNotStarted ? { callNotStarted: true as const } : {}),
     ...(awaiting ? { awaiting: true as const } : {}),
     ...stageSettlement(post),
+  };
+}
+
+/** The settled output's cited sources, then the pictures its tool names; the result carrying them. */
+async function* citeAndShow(args: {
+  base: ToolCallBase;
+  sources: ((output: unknown) => Source[]) | undefined;
+  images: ((output: unknown) => ReturnType<typeof fetchToolImages>) | undefined;
+  outputRaw: unknown;
+  modelResult: ModelToolResult;
+}): AsyncGenerator<TurnEvent, ModelToolResult> {
+  const { base, sources, images, outputRaw, modelResult } = args;
+  if (sources) yield* sourceEvents(base, sources, outputRaw);
+  if (!images || outputRaw === undefined) return modelResult;
+  return yield* withFetchedImages(base, modelResult, images, outputRaw);
+}
+
+/**
+ * The result with the pictures its tool names, fetched after the guard and the stages passed it.
+ * The addresses fetched are written into the result's text, so the egress rule on pictures the
+ * model shows counts them as given by a tool.
+ */
+async function* withFetchedImages(
+  base: ToolCallBase,
+  result: ModelToolResult,
+  images: (output: unknown) => ReturnType<typeof fetchToolImages>,
+  outputRaw: unknown,
+): AsyncGenerator<TurnEvent, ModelToolResult> {
+  const fetched = await images(outputRaw);
+  if (fetched.warning) yield toolEvent(base, { phase: 'warning', warning: fetched.warning });
+  if (fetched.parts.length === 0) return result;
+  const note = `\n[Pictures shown with this result: ${fetched.urls.join(' ')}]`; // labels-exempt: a marker the egress rule reads the addresses from, not prose (P2)
+  return {
+    ...result,
+    parts: [...(result.parts ?? []), ...fetched.parts],
+    ...(result.modelText !== undefined
+      ? { modelText: result.modelText + note }
+      : { finding: result.finding + note }),
   };
 }
 
@@ -704,18 +761,24 @@ function waitsForPage(tool: FunctionToolDef, ctx: ToolContext): boolean {
 async function* receivePageAnswer(
   tool: FunctionToolDef,
   ctx: ToolContext,
-  claim: ToolOperationClaim | undefined,
+  handOff: HandOff,
   base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, ToolContext> {
   const execution = ctx.pageExecution;
   if (tool.answeredBy !== 'page' || !execution) return ctx;
-  if (!claim?.invocation) throw operationUnavailable();
+  const claim = await handOff.claim();
+  if (!claim?.invocation) {
+    throw new TheoremError(
+      'config',
+      `Page tool '${tool.name}' needs a tool execution coordinator (execution)`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
   const argumentsForPage = jsonObjectSchema.parse(
     operationWireValue(claim.invocation.preparedInput),
   );
   const dispatch = await execution.dispatch(claim, ctx.signal);
   throwIfAborted(ctx.signal);
-  if (!dispatch.grantId) throw operationUnavailable();
+  if (!dispatch.grantId) throw operationBroken('The page dispatch returned no grantId'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   yield toolEvent(base, {
     phase: 'dispatch',
     grantId: dispatch.grantId,
@@ -773,6 +836,7 @@ export async function* executeFunction(
   const settleOutcome = (outcome: ToolBodyOutcome) =>
     settleBodyOutcome({
       outcome,
+      ctx,
       tool,
       base,
       callId,
@@ -804,8 +868,8 @@ export async function* executeFunction(
   }
 
   throwIfAborted(ctx.signal);
-  const claim = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
-  ctx = yield* receivePageAnswer(tool, ctx, claim, base);
+  const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
+  ctx = yield* receivePageAnswer(tool, ctx, handOff, base);
   const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>
     settleToolFailure(
@@ -821,6 +885,7 @@ export async function* executeFunction(
     ? { ...ctx, signedInFetch: signedInFetch(signedIn.prepared, ctx, checks) }
     : ctx;
   let output: unknown;
+  await handOff.claim();
   try {
     const shown = new HandlerEvents(base, guard.handlerEvents(stages?.drafts === true));
     output = yield* runHandler(tool.handler, input as never, handlerCtx, shown);
@@ -1032,8 +1097,9 @@ async function* settleBodyOutcome(args: {
   stages?: ToolStageSupport;
   guard: ResultGuard;
   labels: LabelOverrides | undefined;
+  ctx: ToolContext;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { outcome, tool, base, callId, safeInput, stages, guard, labels } = args;
+  const { outcome, tool, base, callId, safeInput, stages, guard, labels, ctx } = args;
   const name = tool.name;
 
   if (outcome.kind === 'gated') {
@@ -1070,6 +1136,12 @@ async function* settleBodyOutcome(args: {
     guard,
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
     sources: tool.sources,
+    ...(tool.type !== 'function' && tool.images
+      ? {
+          images: (output: unknown) =>
+            fetchToolImages(tool.images as never, output, ctx, tool.imageLimits),
+        }
+      : {}),
     labels: tool.labels,
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
@@ -1082,6 +1154,7 @@ async function* settleBodyOutcome(args: {
 
 interface RegisteredToolCall {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundSupport;
   invocation?: unknown;
   onDispatch?: () => void;
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>;
@@ -1220,10 +1293,19 @@ export async function* executeRegisteredTool(
     ...args,
     ctx: { ...args.ctx, operationId: args.ctx.operationId ?? crypto.randomUUID() },
   };
+  const operationId = args.ctx.operationId ?? crypto.randomUUID();
+  const detach = planDetach({
+    tool: args.tools.get(args.name),
+    input: args.input,
+    support: args.background,
+    base: { name: args.name, callId: args.callId, operationId },
+    agents: args.agents,
+    labels: args.profile.labels,
+  });
   return yield* coordinateTool(
     args.execution,
     {
-      operationId: args.ctx.operationId ?? crypto.randomUUID(),
+      operationId,
       callId: args.callId,
       profileId: args.profile.id,
       toolId: args.name,
@@ -1235,9 +1317,12 @@ export async function* executeRegisteredTool(
       context: args.invocation,
     },
     args.ctx.signal,
-    (beginBody) =>
+    (beginBody, hooks) =>
       executeTracedTool({
         ...args,
+        ...(detach ? { openSpan: detach.trace.open } : {}),
+        ctx: { ...args.ctx, signal: hooks.signal },
+        ...(args.stages ? { stages: { ...args.stages, ...hooks } } : {}),
         beginBody: async (input) => {
           const claim = (await beginBody?.(input)) ?? (await args.beginBody?.(input));
           args.onDispatch?.();
@@ -1253,6 +1338,7 @@ export async function* executeRegisteredTool(
         resume: args.ctx.resume,
         snapshot: args.snapshot,
       }),
+    detach,
   );
 }
 
@@ -1306,7 +1392,8 @@ async function* runRegisteredTool(
   args: RegisteredToolCall,
   tool: RegisteredTool | undefined,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { profile, name, input, callId, ctx, snapshot, stages } = args;
+  const { profile, name, callId, ctx, snapshot, stages } = args;
+  const { input } = splitBackground(tool?.type === 'builtin' ? undefined : tool, args.input);
   const safeInput = plainToolInput(input);
   const operationId = ctx.operationId ?? crypto.randomUUID();
   const base = {
@@ -1526,9 +1613,11 @@ async function* executeAgentTool(args: {
       caller: handlerCtx.profile,
       ...(span ? { span } : {}),
       ...(handlerCtx.signal ? { signal: handlerCtx.signal } : {}),
+      ...(args.stages?.steers ? { steers: args.stages.steers } : {}),
     });
     // why: A retry throws away the reply drafted so far; the drafts stop there, and the output arrives whole.
     let retried = false;
+    const seen: TurnEvent[] = [];
     for (;;) {
       const next = await run.next();
       if (next.done) {
@@ -1538,6 +1627,12 @@ async function* executeAgentTool(args: {
         return;
       }
       const event = next.value;
+      if (event.type === 'tokens' || event.type === 'tool') {
+        seen.push(event);
+        const spent = sumTurnTokens(seen);
+        // why: A stopped agent throws before it returns its usage.
+        if (spent) args.stages?.spent?.(spent);
+      }
       if (event.type === 'attempt') retried = true;
       if (event.type === 'text' || event.type === 'structured_draft') {
         if (!retried) yield { kind: 'draft', text: event.text };
@@ -1625,7 +1720,7 @@ async function* settleByType(
     });
   }
   const guard = resultGuard(tools, tool, fullCtx, snapshot, stages?.span);
-  const remoteOutcome: ToolBodyOutcome =
+  const body: ToolBodyOutcome =
     tool.type === 'http'
       ? yield* executeHttpTool(
           tool,
@@ -1638,7 +1733,8 @@ async function* settleByType(
         )
       : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions, beginBody);
   return yield* settleBodyOutcome({
-    outcome: remoteOutcome,
+    outcome: body,
+    ctx: fullCtx,
     tool,
     base,
     callId: base.callId,
@@ -1682,16 +1778,23 @@ function* guardFailure(
     yield { type: 'guardrail', guardrail: checked.event };
   }
   const message = checked.text ?? labelText('detect.output_blocked', {}, guard.labels);
-  return { modelResult: yield* reportFailure({ ...failure, message }, guard) };
+  return {
+    modelResult: yield* reportFailure({ ...failure, message }, guard, checked.suspicious),
+  };
 }
 
-/** A failure framed for the model in the kernel's own words, fenced and labelled like any result. */
+/**
+ * A failure framed for the model in the kernel's own words, fenced and labelled like any result.
+ * `suspicious` is what `injection` found in a remote failure's message, which raises taint as a
+ * result's does.
+ */
 function* reportFailure(
   failure: ToolFailure,
   guard: GuardInputs,
+  suspicious?: GuardrailHit[],
 ): Generator<TurnEvent, ModelToolResult> {
   const framed = frameToolFailure(failure);
-  return (yield* readBack(framed, guard, undefined)) ?? framed;
+  return (yield* readBack(framed, guard, undefined, suspicious)) ?? framed;
 }
 
 /** A result read at `tool_output_<kind>`. A blocked one settles as a failed call the model is told about. */
@@ -1726,6 +1829,7 @@ function* readBack(
   result: ModelToolResult,
   guard: GuardInputs,
   boundary: ToolBoundary | undefined,
+  carried?: GuardrailHit[],
 ): Generator<TurnEvent, ModelToolResult | undefined> {
   const { provenance, span } = guard;
   const start = performance.now();
@@ -1737,6 +1841,7 @@ function* readBack(
     boundary,
     guard.callableTools,
     guard.labels,
+    carried,
   );
   recordToolCheck(span, 'tool_result', performance.now() - start, guarded.event);
   if (guarded.event) {

@@ -13,28 +13,33 @@
  * @module
  */
 
-import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { defaultKernelScope, type ProviderHostOptions } from '@theoremjs/agents';
+import { basename } from 'node:path';
+import { defaultKernelScope } from '@theoremjs/agents';
+import { loadSetup } from '@theoremjs/agents/cli';
 import type { StudioActingAs, StudioPeople } from '../people.ts';
 import { editedImages, editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
 import { createStudioHandler, type ProjectImages, type ProjectQuestions } from './handler.ts';
+import { type KeptSessionLink, keptSessionStore } from './kept-sessions.ts';
 
 type SetupModule = {
-  default?: () => unknown | Promise<unknown>;
+  /** The application's entry point, relative to the setup file. It exports `theorem`, a `TurnWiring`. */
+  entry?: unknown;
   /** What the tools read as `ctx.host`, for the person the builder picked; `undefined` is no one. A promise is awaited first. */
   host?: (request: Request, actingAs: StudioActingAs | undefined) => unknown;
   /** The places and people a run may act as. Read before it is trusted: a setup is not always type-checked. */
   people?: StudioPeople;
-  provider?: ProviderHostOptions;
   /** What each decision profile asks, by the profile's id. */
   questions?: ProjectQuestions;
   /** The pictures each decision profile sends, by the profile's id. */
   images?: ProjectImages;
 };
 
-/** What `serve.ts` hands each load on its input. The key never touches disk. */
-export type ProjectLoad = { conversationKey: string; edits?: ProjectEdits };
+/** What `serve.ts` hands each load on its input. The key and the token never touch disk. */
+export type ProjectLoad = {
+  conversationKey: string;
+  sessions: KeptSessionLink;
+  edits?: ProjectEdits;
+};
 
 /** The line this prints once it listens. `serve.ts` waits for it. */
 export const PROJECT_READY = 'theorem-studio-project-ready';
@@ -43,8 +48,10 @@ if (import.meta.main) {
   const [setupPath = '', ...flags] = Deno.args;
   const flag = (name: string) => flags[flags.indexOf(`--${name}`) + 1] ?? '';
   const port = Number(flag('port'));
-  const setup: SetupModule = await import(pathToFileURL(resolve(setupPath)).href);
-  await setup.default?.();
+  const loaded = await loadSetup(setupPath);
+  const setup = loaded.setup as SetupModule;
+  const { theorem } = loaded;
+  await theorem.register?.();
   const load: ProjectLoad = await new Response(Deno.stdin.readable).json();
   let { questions, images } = setup;
   if (load.edits) {
@@ -59,11 +66,13 @@ if (import.meta.main) {
     listenHost: `127.0.0.1:${port}`,
     ...(setup.host ? { host: setup.host } : {}),
     ...(setup.people !== undefined ? { people: setup.people } : {}),
-    ...(setup.provider ? { provider: setup.provider } : {}),
+    ...(theorem.provider ? { provider: theorem.provider } : {}),
+    ...(theorem.prepare ? { prepare: theorem.prepare } : {}),
     ...(questions ? { questions } : {}),
     ...(images ? { images } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),
     conversationKey: load.conversationKey,
+    sessionStore: (profileId) => keptSessionStore(load.sessions, profileId),
   });
   Deno.serve({ hostname: '127.0.0.1', port, onListen: () => console.log(PROJECT_READY) }, handler);
 }

@@ -4,6 +4,7 @@ import {
   resolveComposerPrimary,
 } from '../../src/interface/composer-actions.ts';
 import {
+  composerPendingMoves,
   composerPendingPreview,
   consumeNextComposerQueue,
   consumeNextComposerSteer,
@@ -99,6 +100,18 @@ Deno.test('pending: move within kind only', () => {
   );
 });
 
+Deno.test('pending: a message moves only past one of its kind', () => {
+  const a = createComposerPendingMessage({ kind: 'queue', draft: { text: 'a' }, id: 'a' });
+  const b = createComposerPendingMessage({ kind: 'queue', draft: { text: 'b' }, id: 'b' });
+  const s = createComposerPendingMessage({ kind: 'stash', draft: { text: 's' }, id: 's' });
+  assertEquals(composerPendingMoves([a], 'a'), { up: false, down: false });
+  assertEquals(composerPendingMoves([a, s], 'a'), { up: false, down: false });
+  assertEquals(composerPendingMoves([a, s], 's'), { up: false, down: false });
+  assertEquals(composerPendingMoves([a, b, s], 'a'), { up: false, down: true });
+  assertEquals(composerPendingMoves([a, b, s], 'b'), { up: true, down: false });
+  assertEquals(composerPendingMoves([a], 'gone'), { up: false, down: false });
+});
+
 Deno.test('pending: promote stash to queue', () => {
   const stash = createComposerPendingMessage({ kind: 'stash', draft: { text: 'idea' }, id: 'x' });
   const next = promoteComposerPendingKind([stash], 'x', 'queue');
@@ -187,7 +200,10 @@ Deno.test('removeLandedSteers drops only the steers the stage event names', () =
   const next = removeLandedSteers(pending, {
     type: 'stage',
     stage: 'post_tool',
-    injected: [{ id: 'a' }, { id: 'a2' }],
+    injected: [
+      { id: 'a', messages: [] },
+      { id: 'a2', messages: [] },
+    ],
   });
   assertEquals(
     next.map((m) => m.id),

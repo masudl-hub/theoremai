@@ -1,4 +1,4 @@
-import type { TraceFeed } from '@theoremjs/react/client';
+import type { TraceFeed } from '@theoremjs/web/client';
 import { useMemo } from 'react';
 import type { StudioBrowserRuntime } from '../../browser.ts';
 import type { StudioRunPayload } from '../../mod.ts';

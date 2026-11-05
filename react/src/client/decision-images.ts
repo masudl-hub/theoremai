@@ -106,21 +106,18 @@ function at(state: DecisionJson, path: string): DecisionJson | undefined {
 }
 
 /**
- * The image a box answer is drawn on: `field` itself when it is a held reference, else the one at
- * that state field, else the first the state refers to, else the first held. A box answer names no image, so this is the
- * page's best reading of where it points.
+ * The image a box answer is drawn on: the one its question gives, by reference or by the state
+ * field that holds it, else the decision's only image. Otherwise the page cannot tell, so none.
  */
 export function boxSource(
   images: DecisionImages,
   state: DecisionJson,
-  field?: string,
+  image?: string,
 ): DecisionAsset | undefined {
-  const names = Object.keys(images);
-  const pointed = field === undefined || field in images ? field : at(state, field);
-  const named =
-    (typeof pointed === 'string' && pointed in images ? pointed : undefined) ??
-    names.find((name) => mentions(state, name));
-  return images[named ?? names[0] ?? ''];
+  const reference = image === undefined || image in images ? image : at(state, image);
+  if (typeof reference === 'string' && reference in images) return images[reference];
+  const held = Object.values(images);
+  return image === undefined && held.length === 1 ? held[0] : undefined;
 }
 
 /** A box answer's edges, each a share of the image from its top or left. */

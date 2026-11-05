@@ -9,3 +9,28 @@
   stroke: var(--color-border-emphasized);
   stroke-width: 1.5;
 }
+
+/* A line drawing in runs out from the node it leaves, as the loader's map draws: its own pace, not
+   the scroll's. */
+.map-line-drawing {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: map-line-draw var(--duration-medium, 240ms) var(--ease-standard, ease-out) forwards;
+}
+
+/* A token drawing in shows over the same span. */
+.map-token-drawing {
+  animation: map-draw-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) both;
+}
+
+@keyframes map-line-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes map-draw-in {
+  from {
+    opacity: 0;
+  }
+}

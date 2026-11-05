@@ -1,7 +1,7 @@
 import type { EmbeddingInput, EmbeddingUsage } from '@theoremjs/agents';
+import type { EmbeddingInterface, EmbeddingTransport } from '@theoremjs/web/client';
+import { addUsage, embeddingBatches } from '@theoremjs/web/client';
 import { useState } from 'react';
-import { addUsage, embeddingBatches } from '../client/embedding-input.ts';
-import type { EmbeddingInterface, EmbeddingTransport } from '../client/embedding-transport.ts';
 import { type OneCallState, useOneCall } from './use-one-call.ts';
 
 /** Documents embedded for search: each one's vector, in the order given. */

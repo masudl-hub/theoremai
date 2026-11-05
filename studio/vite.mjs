@@ -141,7 +141,7 @@ function emitDeclarations(hostRoot) {
     emitDeclarationOnly: true,
     skipLibCheck: true,
     strict: true,
-    target: ts.ScriptTarget.ES2022,
+    target: ts.ScriptTarget.ES2023,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     allowImportingTsExtensions: true,

@@ -1,6 +1,6 @@
 ---
 description: How to write, change or review Theorem documentation (README, docs/, changelog, JSDoc)
-globs: ["**/*.md", "docs/**", "react/README.md"]
+globs: ["**/*.md", "docs/**", "react/README.md", "web/README.md"]
 alwaysApply: false
 ---
 

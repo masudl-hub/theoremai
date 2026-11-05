@@ -2,8 +2,8 @@ import type { ModelEvent, ProviderEvidence } from '../kernel/types.ts';
 import { canaryNoteMarker, guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
 import type { DetectAction, ResolvedDetect } from './detectors.ts';
 import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
-import { CANARY_HIT, PROMPT_ECHO_HIT } from './hits.ts';
-import { scanTextForPromptEcho } from './prompt-echo.ts';
+import { CANARY_HIT, promptEchoHit } from './hits.ts';
+import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES, EGRESS_RULES } from './rules.ts';
 import type { GuardrailContext, GuardrailHit } from './types.ts';
 
@@ -19,15 +19,16 @@ function canaryHits(text: string, canary?: string): GuardrailHit[] {
   return canary && scanTextForCanaryLeak(text, canary) ? [CANARY_HIT] : [];
 }
 
-/** The prompt-echo hit, when `text` repeats the guarded system prompt's own words. */
+/** A hit for each stretch of `text` that repeats the guarded system prompt's own words. */
 function promptEchoHits(
   text: string,
   privateSystem?: readonly string[],
   canary?: string,
 ): GuardrailHit[] {
-  return privateSystem && scanTextForPromptEcho(text, privateSystem, canary)
-    ? [PROMPT_ECHO_HIT]
-    : [];
+  if (!privateSystem) return [];
+  return promptEchoRanges(text, privateSystem, canary).map(([start, end]) =>
+    promptEchoHit(text, start, end),
+  );
 }
 
 /** What a prompt-leak check reads of the turn. */
@@ -110,11 +111,12 @@ function eventLeak(
     found.push([canaryAction, CANARY_HIT]);
   }
   const promptAction = detect.prompt_leak[boundary];
-  if (
-    promptAction !== 'ignore' &&
-    texts.some((text) => promptEchoHits(text, scope.privateSystem, scope.canary).length > 0)
-  ) {
-    found.push([promptAction, PROMPT_ECHO_HIT]);
+  if (promptAction !== 'ignore') {
+    for (const text of texts) {
+      for (const hit of promptEchoHits(text, scope.privateSystem, scope.canary)) {
+        found.push([promptAction, hit]);
+      }
+    }
   }
   if (found.length === 0) return undefined;
   return {

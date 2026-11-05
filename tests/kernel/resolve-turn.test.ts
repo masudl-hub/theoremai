@@ -9,21 +9,22 @@ import {
   projectProfile,
   registerProfile,
   registerStructured,
+  registerTools,
   resolveTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { clampThinkingLevel, mimeAllowed } from '../../src/kernel/registry/catalog.ts';
 import type { ModelBinding, TurnRequest } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
 type Loose = Record<string, unknown>;
 const GEMINI = { protocol: 'scripted', provider: 'scripted', apiId: 'g' } as const;
-const SONAR = { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' } as const;
+const SONAR = { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y' } as const;
 function define(id: string, over: Loose = {}): void {
   registerProfile({
     id,
@@ -152,13 +153,16 @@ Deno.test('a summaries flag becomes a mode, and left unset stays unset', () => {
   check(summaries('off'), 'none', 'false');
   check(summaries('unset'), undefined, 'unset');
 });
-Deno.test('a structured output is picked by the slot value, else its fallback', () => {
+Deno.test('a structured output is picked by the option value, else its fallback', () => {
   clearProfiles();
   registerStructured('resolve.happy', { jsonSchema: { type: 'object', title: 'happy' } });
   registerStructured('resolve.sad', { jsonSchema: { type: 'object', title: 'sad' } });
   registerStructured('resolve.other', { jsonSchema: { type: 'object', title: 'other' } });
   define('mapped', {
-    inputs: { text: true, slots: { mood: ['happy', 'sad', 'meh'] } },
+    inputs: {
+      text: true,
+      options: { mood: { choices: [{ value: 'happy' }, { value: 'sad' }, { value: 'meh' }] } },
+    },
     outputs: {
       structured: {
         by: 'mood',
@@ -169,9 +173,9 @@ Deno.test('a structured output is picked by the slot value, else its fallback', 
   });
   define('named', { outputs: { structured: 'resolve.sad' } });
   define('plain');
-  const structured = (id: string, slots?: Record<string, string>) =>
+  const structured = (id: string, options?: Record<string, string>) =>
     (
-      resolved(turn(id, { input: { text: 'hi', ...(slots ? { slots } : {}) } })) as {
+      resolved(turn(id, { input: { text: 'hi', ...(options ? { options } : {}) } })) as {
         structured: unknown;
       }
     ).structured;
@@ -201,7 +205,7 @@ Deno.test('a structured output is picked by the slot value, else its fallback', 
       }
     ).id,
     'resolve.other',
-    'no slots',
+    'no options',
   );
   check(
     (
@@ -210,7 +214,7 @@ Deno.test('a structured output is picked by the slot value, else its fallback', 
       }
     ).id,
     'resolve.other',
-    'slot left out',
+    'option left out',
   );
   check(
     (

@@ -13,7 +13,7 @@ import {
   type ProtocolRequest,
 } from '../../../src/kernel/protocols/mod.ts';
 import { openAi } from '../../../src/providers/open-ai/protocol.ts';
-import { openRouter } from '../../../src/providers/openrouter/protocol.ts';
+import { openRouterOpenAi } from '../../../src/providers/openrouter/protocol.ts';
 
 const router = defineProvider({
   id: 'router',
@@ -21,7 +21,7 @@ const router = defineProvider({
   description: 'A gateway that speaks OpenRouter Chat Completions.',
   key: z.string(),
   authorize: bearer(),
-  serves: () => [{ protocol: openRouter, baseUrl: 'https://router.test/api/v1' }],
+  serves: () => [{ protocol: openRouterOpenAi, baseUrl: 'https://router.test/api/v1' }],
 });
 
 function sse(rows: JsonObject[]): Response {
@@ -43,7 +43,7 @@ function setup(rows: JsonObject[], options: JsonObject = {}) {
     binding: checkBinding(
       provider,
       {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'router',
         apiId: 'm-1',
         builtInTools: ['webSearch'],
@@ -74,7 +74,7 @@ const request = {
       role: 'assistant',
       content: '',
       tool_calls: [{ id: 'c1', type: 'function', function: { name: 'weather', arguments: '{}' } }],
-      reasoning: [{ data: signed, origin: { protocol: 'openRouter' } }],
+      reasoning: [{ data: signed, origin: { protocol: 'openRouterOpenAi' } }],
     },
     { role: 'tool', tool_call_id: 'c1', name: 'weather', content: 'Sunny.' },
   ],
@@ -86,13 +86,34 @@ async function collect(events: AsyncIterable<ProtocolEvent>): Promise<ProtocolEv
   return out;
 }
 
-Deno.test('openRouter extends openAi and only it takes OpenRouter reasoning back', () => {
-  assertEquals(openRouter.lineage, ['openRouter', 'openAi']);
-  assertEquals(openRouter.endpoints.text, '/chat/completions');
-  assertEquals(carriesTo('openRouter', openAi), false);
+Deno.test('openRouterOpenAi extends openAi and only it takes OpenRouter reasoning back', () => {
+  assertEquals(openRouterOpenAi.lineage, ['openRouterOpenAi', 'openAi']);
+  assertEquals(openRouterOpenAi.endpoints.text, '/chat/completions');
+  assertEquals(carriesTo('openRouterOpenAi', openAi), false);
 });
 
-Deno.test('openRouter writes its body: effort, routing, cache, session, web search, reasoning', async () => {
+Deno.test('openRouterOpenAi sends the host routing beside its own, and the host wins', async () => {
+  const provider = { only: ['gmicloud/fp8'], allow_fallbacks: false };
+  const { sent, call } = setup(
+    [{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }],
+    { provider },
+  );
+  await collect(callProtocol(call).complete(request));
+  assertEquals(sent[0]?.provider, { require_parameters: true, ...provider });
+
+  const off = setup([{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }], {
+    provider: { require_parameters: false },
+  });
+  await collect(callProtocol(off.call).complete(request));
+  assertEquals(off.sent[0]?.provider, { require_parameters: false });
+});
+
+Deno.test('openRouterOpenAi refuses a routing field it does not know', () => {
+  const parsed = openRouterOpenAi.options.safeParse({ provider: { onlyy: ['a'] } });
+  assertEquals(parsed.success, false);
+});
+
+Deno.test('openRouterOpenAi writes its body: effort, routing, cache, session, web search, reasoning', async () => {
   const { sent, call } = setup(
     [{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }],
     { cache: { mode: 'system', ttl: '1h' } },
@@ -113,7 +134,7 @@ Deno.test('openRouter writes its body: effort, routing, cache, session, web sear
   assertEquals(messages[1]?.reasoning, 'Plan.');
 });
 
-Deno.test('openRouter reads thinking, citation lists, and reasoning to send back', async () => {
+Deno.test('openRouterOpenAi reads thinking, citation lists, and reasoning to send back', async () => {
   const { call } = setup([
     {
       citations: ['https://a.test', 'https://a.test'],
@@ -142,11 +163,11 @@ Deno.test('openRouter reads thinking, citation lists, and reasoning to send back
   assertEquals(events[3], {
     type: 'reasoning',
     data: { details: [{ type: 'reasoning.encrypted', data: 'xyz', index: 0 }] },
-    origin: { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
+    origin: { protocol: 'openRouterOpenAi', provider: 'router', apiId: 'm-1' },
   });
 });
 
-Deno.test('openRouter sends speech as openAi does', async () => {
+Deno.test('openRouterOpenAi sends speech as openAi does', async () => {
   const registry = createProviderRegistry();
   registry.register(router, { keySlot: 'main' });
   const provider = registry.require('router', 'tts-1');
@@ -155,7 +176,7 @@ Deno.test('openRouter sends speech as openAi does', async () => {
     provider,
     binding: checkBinding(
       provider,
-      { protocol: 'openRouter', provider: 'router', apiId: 'tts-1' },
+      { protocol: 'openRouterOpenAi', provider: 'router', apiId: 'tts-1' },
       'speech',
     ),
     profileType: 'speech',
@@ -163,13 +184,21 @@ Deno.test('openRouter sends speech as openAi does', async () => {
     fetch: (_input, init) => {
       sent.push(JSON.parse(String(init?.body)) as JsonObject);
       return Promise.resolve(
-        new Response(new Uint8Array([1]), { headers: { 'content-type': 'audio/mpeg' } }),
+        new Response(new Uint8Array([1]), {
+          headers: {
+            'content-type': 'audio/mpeg',
+            'x-generation-id': 'gen-tts-openrouter',
+          },
+        }),
       );
     },
     wait: async () => {},
   });
-  await collect(call.complete({ ...request, history: [] } as unknown as ProtocolRequest));
+  const events = await collect(
+    call.complete({ ...request, history: [] } as unknown as ProtocolRequest),
+  );
   assertEquals(sent[0], { model: 'tts-1', input: 'And tomorrow?' });
+  assertEquals(events[0], { type: 'response', response: { id: 'gen-tts-openrouter' } });
 });
 
 Deno.test('a busy model moves to the fallback slot once the primary key has had its tries', async () => {
@@ -180,7 +209,7 @@ Deno.test('a busy model moves to the fallback slot once the primary key has had 
     provider,
     binding: checkBinding(
       provider,
-      { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
+      { protocol: 'openRouterOpenAi', provider: 'router', apiId: 'm-1' },
       'text',
     ),
     profileType: 'text',
@@ -213,7 +242,7 @@ Deno.test('a 500 stays on the primary key', async () => {
     provider,
     binding: checkBinding(
       provider,
-      { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
+      { protocol: 'openRouterOpenAi', provider: 'router', apiId: 'm-1' },
       'text',
     ),
     profileType: 'text',
@@ -239,7 +268,7 @@ Deno.test('a quota refusal backs off on the primary key before the fallback slot
     provider,
     binding: checkBinding(
       provider,
-      { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
+      { protocol: 'openRouterOpenAi', provider: 'router', apiId: 'm-1' },
       'text',
     ),
     profileType: 'text',

@@ -73,11 +73,11 @@ Deno.test('detectProblem refuses a pattern setting a detector cannot take, and a
   check({ ids: { theorem: false } }, undefined);
   check(
     { canary_leak: { theorem: false } },
-    'guardrails.detect.canary_leak.theorem is a setting of the detectors that read with patterns only (ids, financial, network, credentials, injection, tool_instructions, tool_leak)',
+    'guardrails.detect.canary_leak.theorem is a setting of the detectors that read with patterns only (ids, financial, network, credentials, email, phone, bank_account, injection, tool_leak)',
   );
   check(
     { prompt_leak: { patterns: RECORDS } },
-    'guardrails.detect.prompt_leak.patterns is a setting of the detectors that read with patterns only (ids, financial, network, credentials, injection, tool_instructions, tool_leak)',
+    'guardrails.detect.prompt_leak.patterns is a setting of the detectors that read with patterns only (ids, financial, network, credentials, email, phone, bank_account, injection, tool_leak)',
   );
   check({ ids: { theorem: 'no' } }, 'guardrails.detect.ids.theorem must be a boolean');
   check(
@@ -215,4 +215,15 @@ Deno.test('agents detect-compile writes the table each detector’s patterns nee
     undefined,
   );
   await Deno.remove(dir, { recursive: true });
+});
+
+Deno.test('a detector takes as many patterns as the host gives it, each as long as it is written', () => {
+  const many: HostPattern[] = Array.from({ length: 80 }, (_, i) => ({
+    name: `code-${i}`,
+    pattern: `CODE-${i}-\\d{4}`,
+  }));
+  const long: HostPattern = { name: 'long', pattern: `REF-${'x'.repeat(1_500)}` };
+  const spec = { ids: { theorem: false, patterns: [...many, long] } } satisfies DetectSpec;
+  assertEquals(detectProblem('guardrails.detect', compileDetect(spec)), undefined);
+  assertEquals(found(spec, 'see CODE-79-1234'), [`${DETECT_RULES.ids}:code-79`]);
 });

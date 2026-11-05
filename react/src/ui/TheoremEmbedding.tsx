@@ -1,12 +1,13 @@
 import { VStack } from '@astryxdesign/core/VStack';
 import type { EmbeddingInput } from '@theoremjs/agents';
-import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { type EmbeddingMatch, rankMatches } from '../client/embedding-input.ts';
 import {
   createEmbeddingTransport,
   type EmbeddingInterface,
+  type EmbeddingMatch,
   type EmbeddingTransport,
-} from '../client/embedding-transport.ts';
+  rankMatches,
+} from '@theoremjs/web/client';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
 import { useEmbeddingIndex } from '../hooks/use-embedding-index.ts';
 import { useTheoremEmbedding } from '../hooks/use-theorem-embedding.ts';
 import {

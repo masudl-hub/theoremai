@@ -8,9 +8,9 @@
  * @module
  */
 
+import { type ComposerDrawerSummary, humanize, type LiveState } from '@theoremjs/web/client';
 import { IntlMessageFormat } from 'intl-messageformat';
-import type { ComposerDrawerSummary } from '../client/composer-drawer.ts';
-import type { LiveState } from '../client/live/live-state.ts';
+import type { LiveActiveTool } from '../client/live/apply-live-turn-tool-event.ts';
 import type { TurnUsage, WorkStatus } from '../client/transcript-groups.ts';
 
 type LabelEntry = { defaultMessage: string; description: string; params?: readonly string[] };
@@ -135,15 +135,27 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.composer.pending.steer': {
     defaultMessage: 'Steering',
-    description: 'Badge on a waiting steering message.',
+    description: 'Name of a waiting steering message, read by screen readers on its icon.',
+  },
+  '@theorem.composer.pending.steer.description': {
+    defaultMessage: 'Steering: the agent reads it at its next step.',
+    description: 'Tooltip on a waiting steering message.',
   },
   '@theorem.composer.pending.queue': {
     defaultMessage: 'Queued',
-    description: 'Badge on a waiting queued message.',
+    description: 'Name of a waiting queued message, read by screen readers on its icon.',
+  },
+  '@theorem.composer.pending.queue.description': {
+    defaultMessage: 'Queued: it sends once this reply finishes.',
+    description: 'Tooltip on a waiting queued message.',
   },
   '@theorem.composer.pending.stash': {
     defaultMessage: 'Stashed',
-    description: 'Badge on a waiting stashed message.',
+    description: 'Name of a waiting stashed message, read by screen readers on its icon.',
+  },
+  '@theorem.composer.pending.stash.description': {
+    defaultMessage: 'Stashed: it waits here until you send it.',
+    description: 'Tooltip on a waiting stashed message.',
   },
   '@theorem.composer.pending.edit': {
     defaultMessage: 'Edit',
@@ -203,6 +215,11 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Sources',
     description: 'The row of source chips (screen readers).',
   },
+  '@theorem.transcript.sources_more': {
+    defaultMessage: '{count, plural, one {+# other} other {+# others}}',
+    description: 'Overflow chip that opens the menu of remaining source citations.',
+    params: ['count'],
+  },
   '@theorem.transcript.tool_input': {
     defaultMessage: 'Input',
     description: "A tool call's arguments, in its detail.",
@@ -210,6 +227,10 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.transcript.tool_input_edited': {
     defaultMessage: 'Input (edited)',
     description: "A tool call's arguments after the user edited them on approval.",
+  },
+  '@theorem.transcript.tool_steps': {
+    defaultMessage: 'Calls',
+    description: 'The calls the agent an agent tool ran made, in its detail.',
   },
   '@theorem.transcript.tool_output': {
     defaultMessage: 'Output',
@@ -224,10 +245,6 @@ export const THEOREM_UI_CATALOG = {
     description:
       "Tokens a reply used, under it, or an agent tool's called agent used, on its call row.",
     params: ['count'],
-  },
-  '@theorem.data.view': {
-    defaultMessage: 'View as',
-    description: 'Switch between tool data drawn by its shape and its JSON.',
   },
   '@theorem.data.shaped': {
     defaultMessage: 'Data',
@@ -249,6 +266,16 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: '{count} more — switch to JSON to see them',
     description: 'Rows past the shown ones, left to the JSON view.',
     params: ['count'],
+  },
+  '@theorem.data.image': {
+    defaultMessage: 'Image {index}',
+    description: 'An image in tool data, named by its place among the images and videos.',
+    params: ['index'],
+  },
+  '@theorem.data.video': {
+    defaultMessage: 'Video {index}',
+    description: 'A video in tool data, named by its place among the images and videos.',
+    params: ['index'],
   },
   '@theorem.data.large': {
     defaultMessage: 'Too large to lay out — showing the first {size} of its JSON',
@@ -418,10 +445,6 @@ export const THEOREM_UI_CATALOG = {
     description: "The state's size against the profile's limit, under the field.",
     params: ['size', 'limit'],
   },
-  '@theorem.decision.view': {
-    defaultMessage: 'Edit as',
-    description: 'Switch between the state as fields and as JSON.',
-  },
   '@theorem.decision.fields': {
     defaultMessage: 'Fields',
     description: 'The state edited field by field.',
@@ -471,7 +494,8 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.decision.confidence': {
     defaultMessage: '{percent} sure',
-    description: "How sure the model is of a choice or score; percent is formatted, e.g. '92%'.",
+    description:
+      "How sure the model is of a choice, score or box; percent is formatted, e.g. '92%'.",
     params: ['percent'],
   },
   '@theorem.decision.option': {
@@ -859,6 +883,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'running',
     description: 'A tool call in progress.',
   },
+  '@theorem.host.status.background': {
+    defaultMessage: 'in background',
+    description: 'A tool call that replied and goes on after the turn.',
+  },
   '@theorem.host.status.gate': {
     defaultMessage: 'waiting',
     description: 'A tool call paused on approval or sign-in.',
@@ -939,6 +967,10 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.panel.trace.no_match': {
     defaultMessage: 'No spans match',
     description: 'Trace panel, when the search matches nothing.',
+  },
+  '@theorem.panel.trace.download': {
+    defaultMessage: 'Download trace',
+    description: "Saves the trace's records as a file.",
   },
   '@theorem.panel.trace.back': {
     defaultMessage: 'Back',
@@ -1076,6 +1108,11 @@ export const THEOREM_UI_CATALOG = {
     description:
       'Under the guardrail checks that acted: the checks that let the text through, each with what it checked and its time.',
     params: ['checks'],
+  },
+  '@theorem.panel.trace.guardrails.places': {
+    defaultMessage: '{count, plural, one {# place} other {# places}}',
+    description: 'A rule a guardrail check matched: how many places in the text it matched.',
+    params: ['count'],
   },
   '@theorem.panel.trace.guardrails.from': {
     defaultMessage: 'from {tool}',
@@ -1296,6 +1333,14 @@ export const THEOREM_UI_CATALOG = {
     description: 'Switches front and back camera.',
   },
   '@theorem.live.end_call': { defaultMessage: 'End call', description: 'Hangs up.' },
+  '@theorem.live.expand': {
+    defaultMessage: 'Open call',
+    description: 'Asks the host to show a minimized call full size.',
+  },
+  '@theorem.live.minimize': {
+    defaultMessage: 'Minimize call',
+    description: 'Asks the host to show the call small; the call goes on.',
+  },
   '@theorem.live.new_session': {
     defaultMessage: 'New session',
     description: 'Captions divider between calls.',
@@ -1445,10 +1490,21 @@ export function workStatusLabel(t: LabelText, status: WorkStatus | null): string
     : t('@theorem.transcript.worked_for', { duration: workDuration(t, status.elapsedMs) });
 }
 
-/** A live call's status line; `calling_tool` names the tool. */
-export function liveStateLabel(t: LabelText, state: LiveState, toolName: string | null): string {
-  if (state === 'calling_tool')
-    return t('@theorem.live.state.calling_tool', { tool: toolName ?? '' });
+/**
+ * A live call's status line. While a tool runs it is the tool's activity label, as chat shows
+ * it, else `calling_tool` with the tool's name in words, as its gate names it.
+ */
+export function liveStateLabel(
+  t: LabelText,
+  state: LiveState,
+  tool: LiveActiveTool | null,
+): string {
+  if (state === 'calling_tool') {
+    return (
+      tool?.activity ??
+      t('@theorem.live.state.calling_tool', { tool: humanize(tool?.name ?? '').toLowerCase() })
+    );
+  }
   return t(`@theorem.live.state.${state}`);
 }
 

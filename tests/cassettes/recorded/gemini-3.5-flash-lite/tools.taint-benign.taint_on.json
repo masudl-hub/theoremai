@@ -65,6 +65,8 @@
  ],
  "outcome": {
   "guardrails": [
+   "input flag detect.email",
+   "tool_call flag detect.email",
    "tool_call block tool_call.tainted-turn"
   ],
   "error": null,

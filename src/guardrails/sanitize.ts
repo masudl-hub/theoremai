@@ -20,7 +20,7 @@ import type { GuardrailEvent, TrustLevel } from './types.ts';
 /** The boundaries one turn request crosses, in the order their events are reported. */
 const REQUEST_BOUNDARIES = [
   'user',
-  'slots',
+  'options',
   'repair',
   'attachment',
   'voice',
@@ -28,14 +28,16 @@ const REQUEST_BOUNDARIES = [
   'system',
 ] as const satisfies readonly Boundary[];
 
-function sanitizeSlots(
-  slots: Record<string, string> | undefined,
+function sanitizeOptions(
+  options: Readonly<Record<string, string>> | undefined,
   reader: BoundaryReader,
-): Record<string, string> | undefined {
-  if (!slots) {
-    return slots;
+): Readonly<Record<string, string>> | undefined {
+  if (!options) {
+    return options;
   }
-  return Object.fromEntries(Object.entries(slots).map(([key, value]) => [key, reader.read(value)]));
+  return Object.fromEntries(
+    Object.entries(options).map(([key, value]) => [key, reader.read(value)]),
+  );
 }
 
 /** The browser's context is the visitor's to change; the host's is built by its own code, like turn system text. */
@@ -122,9 +124,10 @@ function sanitizeHistory(
 }
 
 /** The error a turn ends on when a detector set to `block` matched at `boundary`. */
-function requestRefused(boundary: Boundary): TheoremError {
+function requestRefused(boundary: Boundary, reason?: string): TheoremError {
+  const why = reason ? `: ${reason}` : '';
   // labels-exempt: developer contract / internal diagnostic — the user's wording is `detect.blocked`
-  return new TheoremError('input', `guardrails.detect blocked the request at ${boundary}`, {
+  return new TheoremError('input', `guardrails.detect blocked the request at ${boundary}${why}`, {
     copy: { key: 'detect.blocked' },
   });
 }
@@ -153,7 +156,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
     req.system === undefined
       ? undefined
       : mapSystemPrompt(req.system, 'TurnRequest.system', (part) => at.system.read(part));
-  const slots = sanitizeSlots(input.slots, at.slots);
+  const options = sanitizeOptions(input.options, at.options);
   const told = sanitizeContext(input.context, () => boundaryReader('context', detect));
   const repair = sanitizeRepair(input.repair, at.repair);
   const history = input.history ? sanitizeHistory(input.history, at.history) : undefined;
@@ -168,7 +171,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
     const found = at[boundary].found();
     const event = detectEvent(boundary, found);
     if (event) events.push(guardrailTurnEvent(event));
-    if (found.action === 'block') refusal ??= requestRefused(boundary);
+    if (found.action === 'block') refusal ??= requestRefused(boundary, found.errorInternal);
   }
   events.push(...told.events.map(guardrailTurnEvent));
   if (told.blocked) refusal ??= requestRefused('context');
@@ -181,7 +184,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
       input: {
         ...input,
         text,
-        slots,
+        options,
         ...(told.context ? { context: told.context } : {}),
         repair,
         history,

@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { executeRegisteredTool } from '../../src/kernel/tools/mod.ts';
-import { MAX_TOOL_RESPONSE_BYTES } from '../../src/kernel/tools/remote.ts';
 import type { ToolStageSupport } from '../../src/kernel/tools/stage-run.ts';
 import type { ToolDefinitionInput } from '../../src/kernel/tools/types.ts';
 import type { Profile, TurnEvent } from '../../src/kernel/types.ts';
@@ -15,7 +14,7 @@ const profile: Profile = {
   id: 'http-draft',
   type: 'text',
   identity: { handle: 'http-draft' },
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test' } },
   defaultModel: 'm',
   tools: { allow: ['report'] },
   inputs: { text: true },
@@ -55,9 +54,9 @@ function streamed(pieces: string[], init: ResponseInit = {}): Response {
   });
 }
 
-async function run(respond: () => Response, drafts: boolean) {
+async function run(respond: () => Response, drafts: boolean, tool = TOOL) {
   const scope = createTestKernelScope();
-  scope.tools.register(TOOL);
+  scope.tools.register(tool);
   const stages: ToolStageSupport = {
     handlers: [],
     profile,
@@ -133,12 +132,17 @@ Deno.test('a failed response reads whole, with no drafts', async () => {
   assertEquals(settlement.failure?.code, 'http_503');
 });
 
-Deno.test('a body past the cap fails as too large', async () => {
-  const piece = 'x'.repeat(1024 * 1024);
-  const { settlement } = await run(
-    () => streamed(['{"finding":"', piece, piece, piece, piece, piece, '"}']),
-    true,
-  );
+const LONG = ['{"finding":"', ...Array.from({ length: 5 }, () => 'x'.repeat(1024 * 1024)), '"}'];
+
+Deno.test('a body past the tool’s maxResponseBytes fails as too large', async () => {
+  const capped = { ...TOOL, maxResponseBytes: 64 * 1024 } as ToolDefinitionInput;
+  const { settlement } = await run(() => streamed(LONG), true, capped);
   assertEquals(settlement.failure?.code, 'response_too_large');
-  assertEquals(MAX_TOOL_RESPONSE_BYTES < 5 * piece.length, true);
+});
+
+Deno.test('a tool with no maxResponseBytes reads its body whole, however long', async () => {
+  // why: Both readers cap in `cappedPieces`; the plain one reads 5 MB in a second, drafts scan it for minutes.
+  const { settlement } = await run(() => streamed(LONG), false);
+  assertEquals(settlement.failure, undefined);
+  assertEquals((settlement.outputRaw as { finding: string }).finding.length, 5 * 1024 * 1024);
 });

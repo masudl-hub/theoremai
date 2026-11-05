@@ -100,7 +100,7 @@ export type SetupExport = 'questions' | 'images';
 /** The setup module's `export const <name>`, when it writes one. */
 export function setupExport(
   source: ts.SourceFile,
-  name: SetupExport,
+  name: SetupExport | 'entry',
 ): ts.VariableDeclaration | undefined {
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement)) continue;
@@ -486,6 +486,29 @@ function providerId(project: ProjectSource, at: Located, depth: number): Located
     : undefined;
 }
 
+/** The objects a spread picks between, or undefined when it does not pick. */
+function branches(from: ts.Expression): ts.Expression[] | undefined {
+  const node = unwrapped(from);
+  if (ts.isConditionalExpression(node)) return [node.whenTrue, node.whenFalse];
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+  )
+    return [node.right];
+  return undefined;
+}
+
+/** Whether a spread of this adds nothing: `{}`, `undefined`, `null` or `false`. */
+function isNothing(node: ts.Expression): boolean {
+  const value = unwrapped(node);
+  if (ts.isObjectLiteralExpression(value)) return value.properties.length === 0;
+  return (
+    value.kind === ts.SyntaxKind.NullKeyword ||
+    value.kind === ts.SyntaxKind.FalseKeyword ||
+    (ts.isIdentifier(value) && value.text === 'undefined')
+  );
+}
+
 /**
  * The object an expression writes out: an object literal, or a provider's `model()` call. Each
  * spread is followed to the object it names. Undefined for anything else.
@@ -509,6 +532,8 @@ export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectS
     const inner = step(project, inside(from), depth + 1);
     // A spread of nothing adds nothing.
     if (inner === MISSING) return;
+    const chosen = branches(inner.node);
+    if (chosen && chosenSpread(chosen.map((node) => ({ ...inner, node })))) return;
     const held = shapeOf(project, inner, depth + 1);
     if (!held) {
       shape.open = { node: written, source: at.source, after: new Set() };
@@ -521,6 +546,25 @@ export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectS
       shape.entries.set(entry.key, entry);
       if (!sure || sure.has(entry.key)) shape.open?.after.add(entry.key);
     }
+  };
+  /**
+   * A spread that picks between objects (`cond ? { a } : {}`, `cond && { a }`) sets each key of
+   * each one in code, at the key: which one holds is the code's. False when one cannot be read.
+   */
+  const chosenSpread = (chosen: Located[]): boolean => {
+    const shapes: ObjectShape[] = [];
+    for (const branch of chosen) {
+      const inner = step(project, branch, depth + 1);
+      if (inner === MISSING || isNothing(inner.node)) continue;
+      const held = shapeOf(project, inner, depth + 1);
+      if (!held || held.open) return false;
+      shapes.push(held);
+    }
+    for (const held of shapes) {
+      for (const { key, property, source } of held.entries.values())
+        put({ key, source, ...(property ? { property } : {}) });
+    }
+    return true;
   };
   if (ts.isObjectLiteralExpression(node)) {
     shape.own = { node, source: at.source };
@@ -1227,8 +1271,53 @@ export interface FileStep {
 }
 
 /**
- * Walks the project's files from `entry`, the setup module, following each import. Yields each
- * file as it is read, so a caller can say where the walk is. Returns every file read.
+ * The entry modules of Theorem's own package, when the project is that package: a file there
+ * imports `./mod.ts` where an application imports `@theoremjs/agents`. The walk stops at them, as
+ * it stops at `node_modules`.
+ */
+function theoremEntries(root: string, read: ReadFile): Set<string> {
+  const text = read(resolve(root, 'deno.json'));
+  if (text === undefined) return new Set();
+  let config: { name?: unknown; exports?: unknown };
+  try {
+    config = JSON.parse(text);
+  } catch {
+    return new Set();
+  }
+  if (typeof config.name !== 'string' || !config.name.startsWith('@theoremjs/')) return new Set();
+  const { exports } = config;
+  const entries =
+    typeof exports === 'string'
+      ? [exports]
+      : exports !== null && typeof exports === 'object'
+        ? Object.values(exports).filter((entry) => typeof entry === 'string')
+        : [];
+  return new Set(entries.map((entry) => resolve(root, entry)));
+}
+
+/** The path the setup's `entry` export names, as it writes it: a string the walk follows as an import. */
+function namedEntry(setup: ts.SourceFile): string | undefined {
+  const initializer = setupExport(setup, 'entry')?.initializer;
+  const value = initializer && unwrapped(initializer);
+  return value && ts.isStringLiteralLike(value) ? value.text : undefined;
+}
+
+/** The application entry the setup at `setupFile` names, as a path, read from the file as it is now. */
+export function entryOf(setupFile: string): string | undefined {
+  const setup = ts.createSourceFile(
+    setupFile,
+    Deno.readTextFileSync(setupFile),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const named = namedEntry(setup);
+  return named === undefined ? undefined : resolve(dirname(setupFile), named);
+}
+
+/**
+ * Walks the project's files from `entry`, the setup module, following each import and the
+ * application entry the setup names. Yields each file as it is read, so a caller can say where
+ * the walk is. Returns every file read.
  */
 export function* walkProject(
   entry: string,
@@ -1236,6 +1325,7 @@ export function* walkProject(
   read: ReadFile,
 ): Generator<FileStep, Map<string, ts.SourceFile>> {
   const files = new Map<string, ts.SourceFile>();
+  const theorem = theoremEntries(root, read);
   const queue: FileStep[] = [{ file: resolve(entry) }];
   for (let step = queue.shift(); step !== undefined; step = queue.shift()) {
     const path = step.file;
@@ -1245,9 +1335,10 @@ export function* walkProject(
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
     files.set(path, source);
     yield step;
-    for (const specifier of specifiers(source)) {
+    const app = files.size === 1 ? namedEntry(source) : undefined;
+    for (const specifier of app ? [app, ...specifiers(source)] : specifiers(source)) {
       const next = importedFile(path, specifier, (file) => read(file) !== undefined, root);
-      if (next && !files.has(next)) queue.push({ file: next, from: path });
+      if (next && !files.has(next) && !theorem.has(next)) queue.push({ file: next, from: path });
     }
   }
   return files;

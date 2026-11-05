@@ -13,6 +13,7 @@ import {
 } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
 import { eventsOf, firstOf, sessionEventOf } from '../fixtures/events.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { geminiLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
@@ -56,6 +57,7 @@ registerProfile(
       sessionResumption: true,
     },
     tools: { allow: [TOOL] },
+    guardrails: { detect: TAKE_OUT_LEAKS },
   }),
 );
 /** The same live profile with its own ended-call wording. */
@@ -550,3 +552,11 @@ Deno.test('a quota refusal with no filled fallback slot fails the open as rate_l
   assertEquals(rootOf(records[0]).attributes['error.type'], 'rate_limit');
 });
 catalogGate();
+
+Deno.test("a session's trace names its project, beside its conversation", async () => {
+  const harness = await open({ projectId: 'p1', conversationId: 'c1' });
+  await finish(harness);
+  const root = rootOf(sessionRecord(harness.records));
+  assertEquals(root.attributes['theorem.project.id'], 'p1');
+  assertEquals(root.attributes['gen_ai.conversation.id'], 'c1');
+});

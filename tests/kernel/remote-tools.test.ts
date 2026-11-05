@@ -15,7 +15,7 @@ import {
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import { executeRegisteredTool, parseMcpRpcResponse } from '../../src/kernel/tools/mod.ts';
-import { buildHttpToolTarget, MAX_TOOL_RESPONSE_BYTES } from '../../src/kernel/tools/remote.ts';
+import { buildHttpToolTarget } from '../../src/kernel/tools/remote.ts';
 import type { ToolAuthConfig } from '../../src/kernel/tools/types.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 import { isRecord } from '../../src/kernel/util/record.ts';
@@ -314,6 +314,47 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
     const completes = toolEventsOf(events, 'complete');
     assertEquals(completes.length, 1);
     assertEquals(completes[0]?.output, { id: 'usr_123', name: 'Alice' });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+Deno.test("Declarative HTTP Tool sends its request through the run's fetch", async () => {
+  resetTools();
+  registerTool({
+    name: 'fetch_user_profile',
+    description: 'Fetch user profile by id',
+    type: 'http',
+    endpoint: 'https://api.example.com/users/{id}',
+    method: 'GET',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({ id: z.string() }),
+    output: z.object({ id: z.string(), name: z.string() }),
+    mapping: { pathParams: ['id'] },
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.reject(new Error('the global fetch was used'))) as typeof fetch;
+  const sent: string[] = [];
+  const runFetch = ((input: string | URL | Request) => {
+    sent.push(input.toString());
+    return Promise.resolve(Response.json({ id: 'usr_123', name: 'Alice' }));
+  }) as typeof fetch;
+  try {
+    const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'fetch_user_profile',
+      input: { id: 'usr_123' },
+      callId: 'call_run_fetch',
+      ctx: { fetch: runFetch },
+    });
+    let next = await exec.next();
+    while (!next.done) next = await exec.next();
+    assertEquals(sent, ['https://api.example.com/users/usr_123']);
+    assertEquals((next.value.outputRaw as { name: string }).name, 'Alice');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -633,9 +674,10 @@ Deno.test('parseMcpRpcResponse parses plain JSON bodies', () => {
   const tools = parsed.result?.tools;
   assertEquals(Array.isArray(tools) && tools.length === 0, true);
 });
-function registerLinearMcpFixture() {
+function registerLinearMcpFixture(maxResponseBytes?: number) {
   resetTools();
   registerTool({
+    ...(maxResponseBytes === undefined ? {} : { maxResponseBytes }),
     name: 'linear_issue',
     description: 'Create linear issue via MCP',
     type: 'mcp',
@@ -764,7 +806,7 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     assertEquals(toolEventsOf(httpErr.events, 'error')[0]?.failure?.code, 'mcp_http_500');
     assertEquals(
       toolEventsOf(httpErr.events, 'error')[0]?.failure?.message,
-      `MCP server error HTTP 500: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
+      `MCP server error HTTP 500 from mcp.linear.app: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
     );
     globalThis.fetch = (() =>
       Promise.resolve(
@@ -1443,6 +1485,7 @@ Deno.test('Declarative HTTP Tool fails, without reading on, when the response is
     input: z.object({}),
     output: z.unknown(),
     mapping: {},
+    maxResponseBytes: 4 * 1024 * 1024,
   });
   const chunk = new Uint8Array(1024 * 1024).fill(32);
   let pulled = 0;
@@ -1473,7 +1516,7 @@ Deno.test('Declarative HTTP Tool fails, without reading on, when the response is
       events.push(next.value);
     }
     assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'response_too_large');
-    assertEquals(pulled <= MAX_TOOL_RESPONSE_BYTES / chunk.byteLength + 2, true);
+    assertEquals(pulled <= 4 + 2, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1499,6 +1542,24 @@ async function withMcpResult<T>(result: unknown, run: () => Promise<T>): Promise
   }
 }
 const LINEAR_INPUT = { title: 'Bug', description: 'Investigate' };
+Deno.test('an MCP result past the tool’s maxResponseBytes fails as too large', async () => {
+  registerLinearMcpFixture(64);
+  const issue = { issueId: 'LIN-9', url: `https://linear.app/issue/${'9'.repeat(100)}` };
+  const { settlement } = await withMcpResult({ structuredContent: issue }, () =>
+    collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_too_large'),
+  );
+  assertEquals(settlement?.failure?.code, 'response_too_large');
+});
+Deno.test('registration refuses a read limit that is not a whole number above 0', () => {
+  for (const maxResponseBytes of [0, -1, 1.5, Number.NaN]) {
+    assertThrows(
+      () => registerLinearMcpFixture(maxResponseBytes),
+      Error,
+      'maxResponseBytes needs a whole number above 0',
+    );
+  }
+  resetTools();
+});
 Deno.test('an MCP result is its structured content when that fits the declared output', async () => {
   registerLinearMcpFixture();
   const issue = { issueId: 'LIN-7', url: 'https://linear.app/issue/LIN-7' };

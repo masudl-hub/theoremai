@@ -5,8 +5,8 @@ import { Text } from '@astryxdesign/core/Text';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Token } from '@astryxdesign/core/Token';
 import { IconSearch } from '@tabler/icons-react';
+import { createHostTransport, type HostTransport } from '@theoremjs/web/client';
 import { useEffect, useMemo, useState } from 'react';
-import { createHostTransport, type HostTransport } from '../client/index.ts';
 import { TheoremHost } from '../ui/index.ts';
 import './studio.css';
 

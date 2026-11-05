@@ -21,31 +21,49 @@ import {
   DESTINATION_GATES,
   TAINT_GATES,
 } from '../guardrails/types.ts';
-import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
+import { FIELD_DOCS, OPTION_DOCS } from './field-docs.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
-import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
+import { isProfileRootField, profileFieldScope, profileKeysOf, valuesAt } from './profile-scope.ts';
+import type { ToolBackground } from './tools/background.ts';
+import type { DecisionQuestion } from './types.ts';
 
 export { BLOCKED_REPLY_ON_BLOCK, type BlockedReplyOnBlock };
 /** The kinds of profile: each fixes which fields and models a profile may use. */
 export const PROFILE_TYPES = [
+  /** A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way. */
   'text',
+  /** Makes pictures from a prompt, in the shape, size, and format the image block sets. */
   'image',
+  /** Gives your app a voice. Each turn reads text aloud in the voice the speech block names. */
   'speech',
+  /** Turns a voice clip into text. Each turn takes one clip and gives back what was said. */
+  'transcription',
+  /** For talking in real time. One continuous voice and video session, rather than separate turns. */
   'live',
+  /** For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score, or a number. */
   'decision',
+  /** For when your app needs vectors from text or provider-supported media. */
   'embedding',
+  /** A governed passthrough to your tool registry, with no model. It calls MCP, HTTP, and in-app function tools under the same permissions and traces as any agent, guarded by detect and network. */
   'host',
 ] as const;
 /** One of {@linkcode PROFILE_TYPES}. */
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 /** Reasoning effort levels, lowest to highest; a model accepts only the levels its catalog row lists. */
 export const THINKING_LEVELS = [
+  /** No thinking, where the provider has that level. */
   'none',
+  /** The least thinking. */
   'minimal',
+  /** Light thinking. */
   'low',
+  /** Moderate thinking. */
   'medium',
+  /** Heavy thinking. */
   'high',
+  /** Heavier thinking, where the provider has that level. */
   'xhigh',
+  /** The most thinking the model supports, where the provider has that level. */
   'max',
 ] as const;
 /** One of {@linkcode THINKING_LEVELS}. */
@@ -73,48 +91,88 @@ export const SUMMARY_MODES = ['auto', 'none'] as const;
 /** One of {@linkcode SUMMARY_MODES}. */
 export type SummaryMode = (typeof SUMMARY_MODES)[number];
 /** Whether the provider call streams (`sse`) or is one buffered call. */
-export const STREAM_MODES = ['sse', 'buffered'] as const;
+export const STREAM_MODES = [
+  /** Events arrive as the model writes, so a reply that fails outputs.validation has already streamed when it is rewritten; some providers always answer image and speech in one piece. */
+  'sse',
+  /** One non-streaming call, whose events arrive together; under outputs.validation, only once the reply passes or retries run out. Thinking still streams. */
+  'buffered',
+] as const;
 /** One of {@linkcode STREAM_MODES}. */
 export type StreamMode = (typeof STREAM_MODES)[number];
 /** Audio encodings a speech profile can return. */
-export const SPEECH_AUDIO_FORMATS = ['pcm', 'mp3'] as const;
+export const SPEECH_AUDIO_FORMATS = [
+  /** Uncompressed audio, delivered as WAV. */
+  'pcm',
+  /** Compressed audio; a provider that cannot make it refuses the turn. */
+  'mp3',
+] as const;
 /** One of {@linkcode SPEECH_AUDIO_FORMATS}. */
 export type SpeechAudioFormat = (typeof SPEECH_AUDIO_FORMATS)[number];
 /** Who can send a turn its context: the browser, or the host's own code. */
 /** How long a caller is away, in milliseconds, before `live.resumed.prompt` is sent, when the profile sets no `afterMs`. */
 export const DEFAULT_RESUMED_AFTER_MS = 3000;
-export const CONTEXT_SENDERS = ['client', 'server'] as const;
+export const CONTEXT_SENDERS = [
+  /** The browser. A visitor can change it, so it is untrusted. */
+  'client',
+  /** The host's own code. It is assembled, like turn system text. */
+  'server',
+] as const;
 /** One of {@linkcode CONTEXT_SENDERS}. */
 export type ContextSender = (typeof CONTEXT_SENDERS)[number];
 /** What the user starting to speak does to a live model that is mid-reply. */
-export const LIVE_ACTIVITY_HANDLINGS = ['START_OF_ACTIVITY_INTERRUPTS', 'NO_INTERRUPTION'] as const;
+export const LIVE_ACTIVITY_HANDLINGS = [
+  /** The user speaking cuts the reply off. */
+  'START_OF_ACTIVITY_INTERRUPTS',
+  /** The model finishes its reply. */
+  'NO_INTERRUPTION',
+] as const;
 /** One of {@linkcode LIVE_ACTIVITY_HANDLINGS}. */
 export type LiveActivityHandling = (typeof LIVE_ACTIVITY_HANDLINGS)[number];
 /** How readily live voice detection decides the user has started speaking. */
 export const LIVE_START_SENSITIVITIES = [
+  /** Detects the start of speech less often. */
   'START_SENSITIVITY_LOW',
+  /** Detects the start of speech more often. */
   'START_SENSITIVITY_HIGH',
 ] as const;
 /** One of {@linkcode LIVE_START_SENSITIVITIES}. */
 export type LiveStartSensitivity = (typeof LIVE_START_SENSITIVITIES)[number];
 /** How readily live voice detection decides the user has stopped speaking. */
-export const LIVE_END_SENSITIVITIES = ['END_SENSITIVITY_LOW', 'END_SENSITIVITY_HIGH'] as const;
+export const LIVE_END_SENSITIVITIES = [
+  /** Ends speech less often, waiting through pauses. */
+  'END_SENSITIVITY_LOW',
+  /** Ends speech more often, at shorter pauses. */
+  'END_SENSITIVITY_HIGH',
+] as const;
 /** One of {@linkcode LIVE_END_SENSITIVITIES}. */
 export type LiveEndSensitivity = (typeof LIVE_END_SENSITIVITIES)[number];
 /** What compaction counts against its token limit: the stored history or the next request's input. */
-export const COMPACTION_METERS = ['history', 'input'] as const;
+export const COMPACTION_METERS = [
+  /** Tokens in the earlier conversation. */
+  'history',
+  /** The prompt tokens the provider reported for the last call, or the count the host passes in. */
+  'input',
+] as const;
 /** One of {@linkcode COMPACTION_METERS}. */
 export type CompactionMeter = (typeof COMPACTION_METERS)[number];
 /** Whether compaction runs before or after a turn. */
-export const COMPACTION_TIMINGS = ['before', 'after'] as const;
+export const COMPACTION_TIMINGS = [
+  /** The kernel compacts before the turn runs. */
+  'before',
+  /** The turn's done event says compaction is due, and the host runs it. */
+  'after',
+] as const;
 /** One of {@linkcode COMPACTION_TIMINGS}. */
 export type CompactionTiming = (typeof COMPACTION_TIMINGS)[number];
-/**
- * - `compacted`: a summary replaced the compacted messages.
- * - `deferred`: the compactor failed and the history still fits `maxTokens`, so it is kept whole.
- * - `dropped`: the compactor failed over `maxTokens`, so the compacted messages were dropped.
- */
-export const COMPACTION_OUTCOMES = ['compacted', 'deferred', 'dropped'] as const;
+/** What a compaction did. */
+export const COMPACTION_OUTCOMES = [
+  /** A summary replaced the compacted messages. */
+  'compacted',
+  /** The compactor failed and the history still fits `maxTokens`, so it is kept whole. */
+  'deferred',
+  /** The compactor failed over `maxTokens`, so the compacted messages were dropped. */
+  'dropped',
+] as const;
 /** One of {@linkcode COMPACTION_OUTCOMES}. */
 export type CompactionOutcome = (typeof COMPACTION_OUTCOMES)[number];
 /** Which part of the prompt is cached: the whole request (`automatic`) or the system instruction only (`system`). */
@@ -127,32 +185,72 @@ export const CACHE_TTLS = ['5m', '1h'] as const;
 export type CacheTtl = (typeof CACHE_TTLS)[number];
 /** Why a turn stopped, as `done.stop.kind` reports it. */
 export const TURN_STOP_KINDS = [
+  /** The model finished its reply. */
   'completed',
+  /** The model reached its token limit. */
   'length',
-  /** The model called tools and the turn hands them to the host (`done.tools`). */
+  /**
+   * The model called tools and the turn hands them to the host, in done.tools.
+   *
+   * @remarks The model called tools and the turn hands them to the host (`done.tools`).
+   */
   'tool',
-  /** `pre_tool` blocked the body; the host resumes via invokeTool/executeTool, not continueFrom. */
+  /**
+   * A tool call waits for confirmation, permission, sign-in, or the page that answers it. The host
+   * resumes it with invokeTool, not continueFrom.
+   *
+   * @remarks `pre_tool` blocked the body; the host resumes via invokeTool/executeTool, not continueFrom.
+   */
   'gate',
+  /** The provider filtered the reply, or the egress guardrail withheld it. */
   'filtered',
+  /** The provider failed or reported an error. */
   'provider_error',
+  /** The user or host cancelled the turn, or a stage aborted it. */
   'cancelled',
+  /** The stream ended without the provider reporting a final status. */
   'stream_incomplete',
-  /** The turn made its last allowed model call and that call asked for tools: there is no answer. */
+  /**
+   * The last model call maxSteps allows asked for tools, so the turn ended with no answer.
+   *
+   * @remarks The turn made its last allowed model call and that call asked for tools: there is no answer.
+   */
   'step_limit',
+  /** The model finished without calling the answer tool, and no repair was left. */
+  'answer_missing',
+  /** Live: the user spoke over the reply and cut it off. */
   'interrupted',
-  /** Live: model finished generating audio/text for this utterance; turn may still be open. */
+  /**
+   * Live: the model finished generating audio or text for this utterance. The turn may still be open.
+   *
+   * @remarks Live: model finished generating audio/text for this utterance; turn may still be open.
+   */
   'generation_complete',
 ] as const;
 /** One of {@linkcode TURN_STOP_KINDS}. */
 export type TurnStopKind = (typeof TURN_STOP_KINDS)[number];
 /** What a text turn's last allowed model call may do, as `turnBehaviour.atStepLimit` sets it. */
-export const STEP_LIMIT_MODES = ['stop', 'answer'] as const;
+export const STEP_LIMIT_MODES = [
+  /** It may still call tools; if it does, they run and the turn stops as step_limit with no answer. */
+  'stop',
+  /** It is sent without tools, so it writes the answer from what the turn has gathered. */
+  'answer',
+] as const;
 /** What happens to a list item its check refuses, as `outputs.validation.items.*.onFail` sets it. */
 export const ITEM_FAIL_ACTIONS = ['drop', 'fix'] as const;
 /** One of {@linkcode STEP_LIMIT_MODES}. */
 export type StepLimitMode = (typeof STEP_LIMIT_MODES)[number];
 /** Every other stop resumes by another host path, or not at all. */
-export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
+export const CONTINUE_STOP_KINDS = [
+  /** The reply hit the output token limit. */
+  'length',
+  /** The connection dropped mid-reply. */
+  'stream_incomplete',
+  /** The provider returned an error or timed out. */
+  'provider_error',
+  /** The model finished without calling the answer tool. */
+  'answer_missing',
+] as const;
 /** One of {@linkcode CONTINUE_STOP_KINDS}. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
 /** The points in a turn where a stage handler runs. */
@@ -218,7 +316,12 @@ export type StageApplyWarningCode = (typeof STAGE_APPLY_WARNING_CODES)[number];
 /** The `status` of a tool output that asks the user a question. */
 export const AWAITING_USER_INPUT_STATUS = 'awaiting_user_input' as const;
 /** Enforced by the kernel at resolve time. */
-export const TOOL_LOAD_TIERS = ['T0', 'T2'] as const;
+export const TOOL_LOAD_TIERS = [
+  /** At the start of every turn. */
+  'T0',
+  /** On demand: when tools.t1Policy picks it at the start of a turn, or when the tools.t2Loader tool loads it mid-turn (custom tools only). */
+  'T2',
+] as const;
 /** One of {@linkcode TOOL_LOAD_TIERS}. */
 export type ToolLoadTier = (typeof TOOL_LOAD_TIERS)[number];
 /** The HTTP methods an `http` tool may use. */
@@ -226,25 +329,93 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 /** One of {@linkcode HTTP_METHODS}. */
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 /** When remote tool auth is missing or expired. */
-export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model', 'fail'] as const;
+export const AUTH_UNAUTHENTICATED_POLICIES = [
+  /** The turn stops and asks the host for a credential. */
+  'gate',
+  /** The model is told the tool isn't signed in, and the turn goes on. */
+  'report_to_model',
+  /** The call fails as not signed in, for a key the host holds that no person can sign in to replace. */
+  'fail',
+] as const;
 /** One of {@linkcode AUTH_UNAUTHENTICATED_POLICIES}. */
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 /** The kinds of tool a profile can list. */
-export const TOOL_TYPES = ['builtin', 'function', 'http', 'mcp', 'agent'] as const;
+export const TOOL_TYPES = [
+  /** The provider's own tool, such as Google Search, run by the provider. */
+  'builtin',
+  /** Your handler runs it. */
+  'function',
+  /** The kernel calls your HTTP endpoint. */
+  'http',
+  /** The kernel calls a tool on a remote MCP server. */
+  'mcp',
+  /** The kernel runs one turn of another registered agent and returns its reply. */
+  'agent',
+] as const;
+/** When the model gets a tool's reply, as `registerTool.background` sets it. */
+const TOOL_BACKGROUND_MODES = [
+  /** The model gets its reply when the body ends. */
+  'never',
+  /** The model chooses, call by call, whether to go on without the result. */
+  'ask',
+  /** The model gets its reply at once, and the body goes on after the turn. */
+  'always',
+  /** The model gets its reply once the body has run past this time. */
+  'afterMs',
+] as const satisfies readonly (
+  | Extract<ToolBackground, string>
+  | keyof Extract<ToolBackground, object>
+)[];
+/** The kinds of question a decision asks, as `decision.questions.type` sets them. */
+const DECISION_QUESTION_TYPES = [
+  /** One of the named options, with a confidence and a probability for each option. */
+  'choice',
+  /** A level on an ordered scale, with a confidence. */
+  'score',
+  /** One number, which may weigh named criteria. */
+  'noul',
+  /** Where something is in an image: its top, bottom, left and right edges, with a confidence. */
+  'box',
+] as const satisfies readonly DecisionQuestion['type'][];
 /** How much a tool can change: nothing, data, or irreversibly. */
-export const TOOL_ACCESS = ['read-only', 'read-write', 'destructive'] as const;
+export const TOOL_ACCESS = [
+  /** Only reads. */
+  'read-only',
+  /** Creates or updates things. */
+  'read-write',
+  /** Deletes, charges, or does something else hard to undo. */
+  'destructive',
+] as const;
 /** One of {@linkcode TOOL_ACCESS}. */
 export type ToolAccess = (typeof TOOL_ACCESS)[number];
 /** When the user must approve a tool call: never, once per session, or every call. */
-export const TOOL_PERMISSION = ['auto', 'session_consent', 'always_confirm'] as const;
+export const TOOL_PERMISSION = [
+  /** Runs without asking. */
+  'auto',
+  /** Asks once; the approval lasts as long as the host keeps passing it back. */
+  'session_consent',
+  /** Asks every time. */
+  'always_confirm',
+] as const;
 /** One of {@linkcode TOOL_PERMISSION}. */
 export type ToolPermission = (typeof TOOL_PERMISSION)[number];
 /** The credential shapes a remote tool can authenticate with. */
-export const TOOL_AUTH_TYPES = ['bearer', 'api_key', 'oauth2'] as const;
+export const TOOL_AUTH_TYPES = [
+  /** A token; a secret typed in at the prompt becomes a bearer token. */
+  'bearer',
+  /** An API key; a secret typed in at the prompt becomes an API key. */
+  'api_key',
+  /** An OAuth sign-in; the host supplies the token. */
+  'oauth2',
+] as const;
 /** One of {@linkcode TOOL_AUTH_TYPES}. */
 export type ToolAuthType = (typeof TOOL_AUTH_TYPES)[number];
 /** Adds UI-only `none`, which omits auth at compile time. */
-export const STUDIO_AUTH_TYPES = ['none', ...TOOL_AUTH_TYPES] as const;
+export const STUDIO_AUTH_TYPES = [
+  /** The tool sends no credential. */
+  'none',
+  ...TOOL_AUTH_TYPES,
+] as const;
 /** One of {@linkcode STUDIO_AUTH_TYPES}. */
 export type StudioAuthType = (typeof STUDIO_AUTH_TYPES)[number];
 /** One of {@linkcode TOOL_TYPES}. */
@@ -355,7 +526,20 @@ export type FieldMeta = {
   /** What leaving the field out does, as a short phrase a blank control can show. */
   unset?: string;
 };
+/** A field a kernel type declares: its doc is the JSDoc there, through `FIELD_DOCS`. */
 function field(
+  type: string,
+  options?: readonly string[],
+  optionDescriptionsOrNote?: Record<string, string> | string,
+  optionNote?: string,
+): FieldMeta {
+  return metaField(type, '', options, optionDescriptionsOrNote, optionNote);
+}
+/**
+ * A detector or boundary row: its doc is `DETECTOR_META`'s or `BOUNDARY_META`'s, since a member
+ * of a string union has no JSDoc.
+ */
+function metaField(
   type: string,
   doc: string,
   options?: readonly string[],
@@ -364,6 +548,7 @@ function field(
 ): FieldMeta {
   if (options) {
     if (typeof optionDescriptionsOrNote === 'object') {
+      sourcedOptionDocs(options, optionDescriptionsOrNote);
       return optionNote
         ? { type, doc, options, optionDescriptions: optionDescriptionsOrNote, optionNote }
         : { type, doc, options, optionDescriptions: optionDescriptionsOrNote };
@@ -376,15 +561,25 @@ function field(
   return { type, doc };
 }
 /**
+ * Throws unless the docs are a list's `OPTION_DOCS` entry, or `DETECT_ACTION_META`'s, and name
+ * exactly these options, so a value's doc has one source.
+ */
+function sourcedOptionDocs(options: readonly string[], docs: Record<string, string>): void {
+  const sourced =
+    Object.values(OPTION_DOCS).includes(docs) ||
+    DETECT_ACTIONS.every((action) => docs[action] === DETECT_ACTION_META[action].doc);
+  if (!sourced) throw new Error(`option docs for ${options.join(', ')} are not a list's JSDoc`);
+}
+/**
  * Parents whose next key is a host-owned map key (model id, slot name, …).
  * The annotator substitutes `*` so `models.flash.apiId` → `models.*.apiId`.
  */
 export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
-  'identity.systemByRole',
   'labels',
-  'inputs.slots',
+  'inputs.options',
+  'identity.options',
   'inputs.limitsByMime',
   'outputs.validation.fields',
   'outputs.validation.items',
@@ -410,124 +605,67 @@ const DETECT_ACTION_DOCS = recordOf(DETECT_ACTIONS, (action) => DETECT_ACTION_ME
 function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
   if (DETECTOR_META[detector].allow === 'names') {
     return [
-      [`${path}.allow`, field('NameAllow', 'The names that are innocent in a reply.')],
+      [`${path}.allow`, field('NameAllow')],
       [
         `${path}.allow.names`,
         {
-          ...field(
-            'string[]',
-            'Names of tools or parameters that are not read for, such as a tool called search.',
-          ),
+          ...field('string[]'),
           unset: 'None',
         },
       ],
     ];
   }
-  const hosts =
-    detector === 'ungiven_links'
-      ? 'Hostnames whose links pass whatever their URL; the hosts ungiven_images allows pass too.'
-      : 'Hostnames whose images load whatever their URL, such as your own CDN.';
   return [
-    [
-      `${path}.allow`,
-      field('UrlAllow', 'What passes besides the URLs the model was given this turn.'),
-    ],
-    [`${path}.allow.hosts`, { ...field('string[]', hosts), unset: 'None' }],
+    [`${path}.allow`, field('UrlAllow')],
+    [`${path}.allow.hosts`, { ...field('string[]'), unset: 'None' }],
     [
       `${path}.allow.fromTools`,
       {
-        ...field(
-          'boolean',
-          'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user, and history gave.',
-        ),
+        ...field('boolean'),
         unset: 'On',
       },
     ],
   ];
 }
-const COMPILED_DOC =
-  'The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed whenever patterns is set.';
 /** The rows of one pattern in a detector's `patterns`. */
 function patternRows(path: string): [string, FieldMeta][] {
   const each = `${path}.patterns.*`;
   return [
-    [`${each}.name`, field('string', 'What a match is called in the trace.')],
-    [
-      `${each}.pattern`,
-      field('string', 'The source of a regular expression. A pattern takes this or words.'),
-    ],
+    [`${each}.name`, field('string')],
+    [`${each}.pattern`, field('string')],
     [
       `${each}.flags`,
       {
-        ...field(
-          'string',
-          'Regular-expression flags, each a letter: i ignores case, m matches ^ and $ at each line, s lets . match a line break, u reads Unicode. Not g or y: every match is always found.',
-        ),
+        ...field('string'),
         unset: 'None',
       },
     ],
-    [
-      `${each}.words`,
-      field(
-        'string[]',
-        'Words to match whole, whatever their case. A space in one matches any run of whitespace.',
-      ),
-    ],
+    [`${each}.words`, field('string[]')],
   ];
 }
 /** The rows of a detector of the host's own, under a key with a dot. */
 function hostDetectorFields(path: string): [string, FieldMeta][] {
-  const action = (doc: string) => field('DetectAction', doc, DETECT_ACTIONS, DETECT_ACTION_DOCS);
+  const action = (doc?: string) =>
+    doc
+      ? metaField('DetectAction', doc, DETECT_ACTIONS, DETECT_ACTION_DOCS)
+      : field('DetectAction', DETECT_ACTIONS, DETECT_ACTION_DOCS);
   return [
-    [
-      path,
-      field(
-        'HostDetectorConfig',
-        'Your own detector, keyed with a dot: acme.codenames. No default action.',
-      ),
-    ],
-    [`${path}.label`, field('string', 'What an editor and the trace call it.')],
+    [path, field('HostDetectorConfig')],
+    [`${path}.label`, field('string')],
     [
       `${path}.action`,
       {
-        ...action('What a match does, at every boundary.'),
+        ...action(),
         unset: 'Only the boundaries at names are read',
       },
     ],
-    [`${path}.at`, field('{ [boundary]: DetectAction }', 'An action per boundary, over action.')],
+    [`${path}.at`, field('{ [boundary]: DetectAction }')],
     ...BOUNDARIES.map((boundary): [string, FieldMeta] => [
       `${path}.at.${boundary}`,
       { ...action(BOUNDARY_META[boundary].doc), unset: DETECT_ACTION_META.ignore.label },
     ]),
-    [
-      `${path}.patterns`,
-      {
-        ...field(
-          'HostPattern[]',
-          'Its patterns, each a name and a regular expression or a list of words, read on the text as written.',
-        ),
-        unset: 'None',
-      },
-    ],
-    ...patternRows(path),
-    [`${path}.compiled`, field('CompiledPatterns', COMPILED_DOC)],
-    [
-      `${path}.hint`,
-      {
-        ...field(
-          'string',
-          'One line telling the model what to leave out, sent when this detector blocks a reply that is then retried.',
-        ),
-        unset: 'The labels’s detect.hint.own, which names the label',
-      },
-    ],
-    [
-      `${path}.find`,
-      field(
-        'HostFind',
-        'Its own reading, for what patterns cannot say: a function that returns where the matches start and end. It runs on every text crossing a boundary the detector reads, so it returns at once.',
-      ),
-    ],
+    ...patternTail(path, 'The labels’s detect.hint.own, which names the label'),
+    [`${path}.find`, field('HostFind')],
   ];
 }
 /** The rows of a detector that reads with patterns: whose it reads with. */
@@ -536,35 +674,21 @@ function patternFields(path: string): [string, FieldMeta][] {
     [
       `${path}.theorem`,
       {
-        ...field(
-          'boolean',
-          'Whether Theorem’s own patterns run. Off with no patterns of your own turns the detector off.',
-        ),
+        ...field('boolean'),
         unset: 'On',
       },
     ],
-    [
-      `${path}.patterns`,
-      {
-        ...field(
-          'HostPattern[]',
-          'Your own patterns, each a name and a regular expression or a list of words. A match takes this detector’s action.',
-        ),
-        unset: 'None',
-      },
-    ],
+    ...patternTail(path, 'The labels’s detect.hint line for this detector'),
+  ];
+}
+
+/** The patterns, compiled patterns and hint rows a detector that reads with patterns shares. */
+function patternTail(path: string, hintUnset: string): [string, FieldMeta][] {
+  return [
+    [`${path}.patterns`, { ...field('HostPattern[]'), unset: 'None' }],
     ...patternRows(path),
-    [`${path}.compiled`, field('CompiledPatterns', COMPILED_DOC)],
-    [
-      `${path}.hint`,
-      {
-        ...field(
-          'string',
-          'One line telling the model what to leave out, sent when this detector blocks a reply that is then retried. Set it beside patterns of your own.',
-        ),
-        unset: `The labels’s detect.hint line for this detector`,
-      },
-    ],
+    [`${path}.compiled`, field('CompiledPatterns')],
+    [`${path}.hint`, { ...field('string'), unset: hintUnset }],
   ];
 }
 /** The settings a detector's full form takes, as a sentence lists them. */
@@ -576,16 +700,12 @@ function settingsOf(detector: Detector): string {
 }
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */
 function detectFields(): Record<string, FieldMeta> {
-  const action = (type: string, doc: string) =>
-    field(type, doc, DETECT_ACTIONS, DETECT_ACTION_DOCS);
+  const action = (type: string, doc?: string) =>
+    doc
+      ? metaField(type, doc, DETECT_ACTIONS, DETECT_ACTION_DOCS)
+      : field(type, DETECT_ACTIONS, DETECT_ACTION_DOCS);
   const rows: [string, FieldMeta][] = [
-    [
-      'guardrails.detect',
-      action(
-        'DetectAction | { [detector]: DetectorRule }',
-        'What a guardrail does when a detector matches. One action covers every detector; an object sets each detector (or one of your own) apart. Absent: each detector keeps its default action.',
-      ),
-    ],
+    ['guardrails.detect', action('DetectAction | { [detector]: DetectorRule }')],
   ];
   for (const detector of DETECTORS) {
     const path = `guardrails.detect.${detector}`;
@@ -601,17 +721,11 @@ function detectFields(): Record<string, FieldMeta> {
     rows.push([
       `${path}.action`,
       {
-        ...action(
-          'DetectAction',
-          'What a match of this detector does at every boundary it reads, unless `at` names that boundary.',
-        ),
+        ...action('DetectAction'),
         unset: 'Each boundary keeps its default',
       },
     ]);
-    rows.push([
-      `${path}.at`,
-      field('{ [boundary]: DetectAction }', 'An action per boundary, over action or the default.'),
-    ]);
+    rows.push([`${path}.at`, field('{ [boundary]: DetectAction }')]);
     for (const boundary of DETECTOR_BOUNDARIES[detector]) {
       const unset = DETECT_ACTION_META[DETECT_DEFAULTS[detector][boundary]].label;
       const meta = action('DetectAction', BOUNDARY_META[boundary].doc);
@@ -621,9 +735,24 @@ function detectFields(): Record<string, FieldMeta> {
   rows.push(...hostDetectorFields('guardrails.detect.*'));
   return Object.fromEntries(rows);
 }
-function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
+/** Gives each field its doc from `FIELD_DOCS`; a field that also writes one here throws, so one text has one source. */
+function withFieldDocs(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
   return Object.fromEntries(
     Object.entries(fields).map(([path, meta]) => {
+      const declared = FIELD_DOCS[path];
+      if (declared === undefined) return [path, meta];
+      if (meta.doc) {
+        throw new Error(
+          `${path}: a kernel type declares it, so its doc is that JSDoc; use field()`,
+        );
+      }
+      return [path, { ...meta, doc: declared }];
+    }),
+  );
+}
+function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string, FieldMeta> {
+  return Object.fromEntries(
+    Object.entries(withFieldDocs(fields)).map(([path, meta]) => {
       const scope = profileFieldScope(path);
       return [
         path,
@@ -637,1020 +766,463 @@ function withScopeAndPresence(fields: Record<string, FieldMeta>): Record<string,
   );
 }
 /**
- * Adding a profile field? Add it here; scope it in `PROFILE_FIELD_SCOPE` if only some types
- * take it, and record it in `PROFILE_FIELD_PRESENCE` if it is required or its absence matters.
+ * Adding a profile field? Write its doc as JSDoc on the type, run `deno task field-docs`, and add
+ * it here with `field()`; scope it in `PROFILE_FIELD_SCOPE` if only some types take it, and record
+ * it in `PROFILE_FIELD_PRESENCE` if it is required or its absence matters. A map's entries
+ * (`models.*`) take their doc from a `@catalog <path> <text>` tag on the map's property.
  */
 export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
-  'profile.id': field(
-    'string',
-    'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
-  ),
+  'profile.id': field('string'),
   'profile.type': field(
-    "'text' | 'image' | 'speech' | 'live' | 'decision' | 'embedding' | 'host'",
-    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision, embedding, or host.',
+    "'text' | 'image' | 'speech' | 'transcription' | 'live' | 'decision' | 'embedding' | 'host'",
     PROFILE_TYPES,
-    {
-      text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',
-      image: 'Makes pictures from a prompt, in the shape, size, and format the image block sets.',
-      speech:
-        'Gives your app a voice. Each turn reads text aloud in the voice the speech block names.',
-      live: 'For talking in real time. One continuous voice and video session, rather than separate turns.',
-      decision:
-        'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score, or a number.',
-      embedding: 'For when your app needs vectors from text or provider-supported media.',
-      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP, and in-app function tools under the same permissions and traces as any agent, guarded by detect and network.',
-    },
+    OPTION_DOCS.PROFILE_TYPES,
   ),
-  identity: field(
-    '{ handle, system?, systemByRole? }',
-    "The agent's display name and the system instruction it is given.",
-  ),
-  'identity.handle': field(
-    'string',
-    'The name hosts and users see for this agent, at most 32 characters; the model never sees it. It is also the role a turn gets when it names none, so identity.systemByRole may hold an entry under it.',
-  ),
-  'identity.system': field(
-    'string | Array<string | { private: string }>',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; some providers send it for an image profile only with includeText on. Mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
-  ),
-  'identity.systemByRole': field(
-    'Record<string, string | Array<string | { private: string }>>',
-    'Other system instructions, picked by the role a turn names.',
-  ),
-  'identity.systemByRole.*': field(
-    'string | Array<string | { private: string }>',
-    'The instruction that replaces identity.system when a turn names this role.',
-  ),
-  models: field(
-    'Record<ModelId, ModelBinding | DecisionModelBinding>',
-    'The trained AI systems that turn input into results. Each entry binds a local name to an upstream model and its call settings.',
-  ),
-  'models.*': field(
-    'ModelBinding | DecisionModelBinding',
-    'One model: how to reach it and the settings sent with it.',
-  ),
-  'models.*.protocol': field('string', 'The API shape this model is spoken to in.'),
-  'models.*.provider': field(
-    'string',
-    'The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its registration supplies the endpoint and authentication.',
-  ),
-  'models.*.keySlot': field(
-    'KeySlot',
-    "The key slot this model's calls are signed with, instead of the provider's. Use it to bill one model to a different key. Absent: the provider's primary slot.",
-  ),
-  'models.*.fallbackKeySlot': field(
-    'KeySlot',
-    "The key slot tried once after a rate limit or a busy model on the primary slot, instead of the provider's fallback. Must differ from the primary slot. Absent: the provider's fallback slot, if it has one.",
-  ),
-  'models.*.options': field(
-    'JsonObject',
-    "Settings only this model's protocol has, such as a task type or vector size. Each is checked when the profile loads. Any left out keep the provider's default.",
-  ),
-  providerContinuation: field(
-    'ProviderContinuationPolicy',
-    'Who holds the conversation a saved provider state continues.',
-  ),
-  'providerContinuation.history': field(
-    "'host' | 'stateless' | 'provider'",
-    'Who holds the conversation a checkpoint continues: the host passes history back, the provider keeps it and the checkpoint travels alone, or the profile is stateless and every request stands alone.',
-    ['host', 'stateless', 'provider'],
-  ),
-  'models.*.apiId': field(
-    'string',
-    "The model's id as the provider lists it, such as gemini-2.5-flash; sent on every call. The name this model has in the profile is its key in models.",
-  ),
-  'models.*.timeoutMs': field(
-    'number',
-    'How long a decision waits for its provider, in milliseconds. Omit for no timeout.',
-  ),
-  decision: field(
-    '{ contract: DecisionContractId }',
-    'Names the host decision this profile makes.',
-  ),
-  'decision.contract': field(
-    'string',
-    'Your name for this decision, on its traces. Not sent to the model. Not checked against the questions.',
-  ),
-  'models.*.efforts': field(
-    'Record<string, ThinkingLevel>',
-    'Named thinking levels. A turn picks one when allowEffortSelect is on. A provider refuses a level its model does not take. Speech ignores them, and so may an image profile without includeText.',
-  ),
+  identity: field('{ handle, options?, system? }'),
+  'identity.handle': field('string'),
+  'identity.options': field('Record<string, OptionDecl>'),
+  'identity.options.*': field('OptionDecl'),
+  'identity.options.*.label': field('string'),
+  'identity.options.*.choices': field('OptionChoice[]'),
+  'identity.options.*.choices.*.value': field('string'),
+  'identity.options.*.choices.*.description': field('string'),
+  'identity.system': field('string | Array<string | Array<string | { private: string }>>'),
+  models: field('Record<ModelId, ModelBinding | DecisionModelBinding>'),
+  'models.*': field('ModelBinding | DecisionModelBinding'),
+  'models.*.protocol': field('string'),
+  'models.*.provider': field('string'),
+  'models.*.keySlot': field('KeySlot'),
+  'models.*.fallbackKeySlot': field('KeySlot'),
+  'models.*.options': field('JsonObject'),
+  providerContinuation: field('ProviderContinuationPolicy'),
+  'providerContinuation.history': field("'host' | 'stateless' | 'provider'", [
+    'host',
+    'stateless',
+    'provider',
+  ]),
+  'models.*.apiId': field('string'),
+  'models.*.timeoutMs': field('number'),
+  'models.*.limits': field('ProviderLimits'),
+  'models.*.limits.operationTimeoutMs': field('number'),
+  'models.*.limits.connectTimeoutMs': field('number'),
+  'models.*.limits.liveStepTimeoutMs': field('number'),
+  'models.*.limits.maxWireRecordBytes': field('number'),
+  'models.*.limits.maxWireResponseBytes': field('number'),
+  'models.*.limits.maxEventBytes': field('number'),
+  'models.*.limits.maxStepBytes': field('number'),
+  'models.*.limits.maxStepEvents': field('number'),
+  'models.*.limits.maxPendingToolCalls': field('number'),
+  decision: field('{ contract: DecisionContractId }'),
+  'decision.contract': field('string'),
+  'models.*.efforts': field('Record<string, ThinkingLevel>'),
   'models.*.efforts.*': field(
     unionType(THINKING_LEVELS),
-    'The thinking level sent to the provider for this name.',
     THINKING_LEVELS,
-    {
-      none: 'No thinking, where the provider has that level.',
-      minimal: 'The least thinking.',
-      low: 'Light thinking.',
-      medium: 'Moderate thinking.',
-      high: 'Heavy thinking.',
-      xhigh: 'Heavier thinking, where the provider has that level.',
-      max: 'The most thinking the model supports, where the provider has that level.',
-    },
+    OPTION_DOCS.THINKING_LEVELS,
   ),
-  'models.*.defaultEffort': field('string', "The effort a turn gets when it doesn't pick one."),
-  'models.*.allowEffortSelect': field(
-    'boolean',
-    'Lets a turn pick an effort; needs two or more efforts.',
-  ),
-  'models.*.summaries': field(
-    'boolean',
-    'Asks the model for summaries of its thinking, which not every model sends; with some providers, off only hides thoughts, and others ignore it.',
-  ),
-  'models.*.maxOutputTokens': field(
-    'number',
-    'The token limit for one reply. Some providers never send it for speech, or for image without includeText.',
-  ),
-  'models.*.temperature': field(
-    'number',
-    "How varied the model's wording is; higher is more random. Some providers never send it for speech, or for image without includeText.",
-  ),
-  'models.*.builtInTools': field(
-    'BuiltinToolId[]',
-    "The provider's own tools, such as Google Search, this model may use; each must be registered as a builtin tool and declared by the provider's adapter.",
-  ),
-  'models.*.compaction': field(
-    'CompactionSpec',
-    'Summarises history past a threshold. A text agent can write the summary. Other types name a compaction profile.',
-  ),
-  'models.*.compaction.maxTokens': field('number', 'The token budget compactAt is a fraction of.'),
+  'models.*.defaultEffort': field('string'),
+  'models.*.allowEffortSelect': field('boolean'),
+  'models.*.summaries': field('boolean'),
+  'models.*.maxOutputTokens': field('number'),
+  'models.*.temperature': field('number'),
+  'models.*.builtInTools': field('BuiltinToolId[]'),
+  'models.*.compaction': field('CompactionSpec'),
+  'models.*.compaction.maxTokens': field('number'),
   'models.*.compaction.trigger': field(
     '(ctx: CompactionTriggerContext) => boolean | Promise<boolean>',
-    'Your function that decides when to compact, in place of compactAt and maxTokens.',
   ),
-  'models.*.compaction.compactAt': field(
-    'number',
-    'The fraction of maxTokens, between 0 and 1, at which compaction starts, unless trigger decides.',
-  ),
-  'models.*.compaction.previousExchanges': field(
-    'number',
-    'How much recent history compaction keeps: a number of exchanges (1 or more), a fraction of maxTokens below compactAt, or 0 to compact it all.',
-  ),
+  'models.*.compaction.compactAt': field('number'),
+  'models.*.compaction.previousExchanges': field('number'),
   'models.*.compaction.profile': {
-    ...field(
-      'ProfileId',
-      'The text profile that writes the summary; register it before this one. Leave it out and a text agent summarises its own history, with its own instructions and model and no tools. Its registered model binding selects the provider independently of the calling agent.',
-    ),
+    ...field('ProfileId'),
     unset: 'The agent itself',
   },
   'models.*.compaction.timing': field(
     unionType(COMPACTION_TIMINGS),
-    'Whether the kernel compacts before the turn or tells the host to compact after it.',
     COMPACTION_TIMINGS,
-    {
-      before: 'The kernel compacts before the turn runs.',
-      after: "The turn's done event says compaction is due, and the host runs it.",
-    },
+    OPTION_DOCS.COMPACTION_TIMINGS,
   ),
   'models.*.compaction.meter': field(
     unionType(COMPACTION_METERS),
-    'What the threshold counts.',
     COMPACTION_METERS,
-    {
-      history: 'Tokens in the earlier conversation.',
-      input:
-        'The prompt tokens the provider reported for the last call, or the count the host passes in.',
-    },
+    OPTION_DOCS.COMPACTION_METERS,
   ),
-  'profile.defaultModel': field('ModelId', "The model a turn gets when it doesn't pick one."),
-  'profile.allowModelSelect': field(
-    'boolean',
-    'Lets a turn name the model it runs on; a name the profile does not declare is refused.',
-  ),
-  'profile.maxSteps': field(
-    'number',
-    'The most model calls one turn may make while using tools, counted afresh for each rewrite; 1 runs the tools asked for but never sends their results back. Live sessions ignore it.',
-  ),
-  tools: field(
-    '{ allow: ToolId[]; t1Policy?; t2Loader?; parallel? }',
-    'The registered tools this profile may use, and how they load. Built-in tools are set per model.',
-  ),
-  'tools.allow': field(
-    'ToolId[]',
-    "Your registered tools this agent may use; the provider's own tools go on the model's builtInTools instead.",
-  ),
-  'tools.t1Policy': field(
-    '(ctx) => ToolId[] | Promise<ToolId[]>',
-    'Your function that picks, at the start of each turn, which T2 tools to load up front; the rest wait for tools.t2Loader.',
-  ),
-  'tools.t2Loader': field(
-    'ToolId',
-    "The function tool that loads T2 tools. It must be in allow and return { loaded: ToolId[] }. One forbidden id fails the load. Ids off the turn path are skipped. The tools it loads can be called from the next step: a step's calls see the tools as they stood when the step began.",
-  ),
-  'tools.parallel': field(
-    'boolean',
-    'true: the calls of one step run side by side, and a call whose pre_tool answers waitFor starts its body once those calls settle. Left out or false: they run one at a time, in the order the model made them. A step is the calls the model makes together in a turn, or the calls a host runs through invokeToolStep.',
-  ),
-  inputs: field(
-    'ProfileInputsSpec | DecisionInputsSpec',
-    'What a turn may send (text, files, voice, choices), or on a decision, the state it reads.',
-  ),
-  'inputs.state': field("'json'", 'A decision reads JSON state, passed on each call.', ['json']),
-  'inputs.maxStateBytes': field(
-    'number',
-    'The largest state, in bytes, a decision call may send; larger state is refused before it leaves your process.',
-  ),
-  'inputs.text': field('boolean', 'Whether a turn may send text.'),
-  'inputs.attachments': field('{ accept: string[] }', 'Lets turns send files.'),
+  'profile.defaultModel': field('ModelId'),
+  'profile.allowModelSelect': field('boolean'),
+  'profile.maxSteps': field('number'),
+  tools: field('{ allow: ToolId[]; t1Policy?; t2Loader?; parallel? }'),
+  'tools.allow': field('ToolId[]'),
+  'tools.t1Policy': field('(ctx) => ToolId[] | Promise<ToolId[]>'),
+  'tools.t2Loader': field('ToolId'),
+  'tools.parallel': field('boolean'),
+  inputs: field('ProfileInputsSpec | DecisionInputsSpec'),
+  'inputs.state': field("'json'", ['json']),
+  'inputs.maxStateBytes': field('number'),
+  'inputs.text': field('boolean'),
+  'inputs.attachments': field('{ accept: string[] }'),
   'inputs.attachments.accept': field(
     'string[]',
-    'The file types a turn may send, where type/* matches a whole family; image profiles take only images, video, and PDF.',
     ATTACHMENT_ACCEPT_MIMES,
     "Types the kernel knows; a listed type it doesn't know is refused when a turn sends it.",
   ),
-  'inputs.voice': field('{ accept: string[] }', 'Lets turns send voice clips.'),
-  'inputs.voice.accept': field(
-    'string[]',
-    'The audio types a voice clip may be; audio/* matches them all.',
-    VOICE_ACCEPT_MIMES,
-    'Audio types the kernel knows.',
-  ),
-  'inputs.maxFiles': field(
-    'number',
-    'The most files and voice clips one turn or embedding request may send, counted together.',
-  ),
-  'inputs.maxBytes': field(
-    'number',
-    'The largest file or clip, in bytes, a turn or embedding request may send inline.',
-  ),
-  'inputs.maxTurnBytes': field(
-    'number',
-    'The most bytes one turn or embedding request may send inline across all its files and clips.',
-  ),
-  'inputs.limitsByMime': field(
-    'Record<string, number>',
-    'Size limits by file type that replace maxBytes for those types.',
-  ),
-  'inputs.limitsByMime.*': field(
-    'number',
-    'The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.',
-  ),
-  'inputs.slots': field(
-    'Record<string, string[]>',
-    'Named choices a turn or a call can make, such as language, each with its allowed values. {name} in a prompt becomes the chosen value.',
-  ),
-  'inputs.slots.*': field(
-    'string[]',
-    'The values a turn may choose for this slot; any other is refused.',
-  ),
-  'inputs.context': field(
-    '{ from: ContextSender[]; maxChars: number }',
-    'Lets the page or the host send the agent one package of things to know, read at the context boundary.',
-  ),
+  'inputs.voice': field('{ accept: string[] }'),
+  'inputs.voice.accept': field('string[]', VOICE_ACCEPT_MIMES, 'Audio types the kernel knows.'),
+  'inputs.maxFiles': field('number'),
+  'inputs.maxBytes': field('number'),
+  'inputs.maxTurnBytes': field('number'),
+  'inputs.limitsByMime': field('Record<string, number>'),
+  'inputs.limitsByMime.*': field('number'),
+  'inputs.options': field('Record<string, OptionDecl>'),
+  'inputs.options.*': field('OptionDecl'),
+  'inputs.options.*.label': field('string'),
+  'inputs.options.*.choices': field('OptionChoice[]'),
+  'inputs.options.*.choices.*.value': field('string'),
+  'inputs.options.*.choices.*.description': field('string'),
+  'inputs.context': field('{ from: ContextSender[]; maxChars: number }'),
   'inputs.context.from': field(
     "Array<'client' | 'server'>",
-    'Who may send context; context from anyone else is refused.',
     CONTEXT_SENDERS,
-    {
-      client: 'The browser. A visitor can change it, so it is untrusted.',
-      server: "The host's own code. It is assembled, like turn system text.",
-    },
+    OPTION_DOCS.CONTEXT_SENDERS,
   ),
-  'inputs.context.maxChars': field(
-    'number',
-    'The longest package, in characters of its JSON, each sender may send.',
-  ),
-  outputs: field(
-    'ProfileOutputsSpec',
-    'The shape of the reply, how it is checked, and how it streams.',
-  ),
-  'outputs.structured': field(
-    'StructuredSchemaId | StructuredBySlot | null',
-    'The registered JSON schema the reply must follow, which can vary by slot; register it before the profile.',
-  ),
-  image: field(
-    'ProfileImageSpec',
-    'How the images this profile generates are shaped and made: size, format, quality and references. Each setting is sent only where the provider has it; one it lacks is refused or ignored, as that setting says.',
-  ),
-  'image.aspectRatio': field('string', 'The shape of generated images, such as 16:9.'),
-  'image.resolution': field('string', 'How detailed generated images are, such as 1K, 2K or 4K.'),
-  'image.mimeType': field(
-    'string',
-    'The file type of generated images; a provider that takes a fixed set of types may use png for any other.',
-  ),
-  'image.quality': field(
-    'string',
-    'How much effort the model spends on each image: auto, low, medium, or high. A provider that has no such setting refuses it.',
-  ),
-  'image.background': field(
-    'string',
-    'The background of generated images: auto, transparent, or opaque. A provider that has no such setting refuses it.',
-  ),
-  'image.n': field(
-    'number',
-    'How many images one request makes, where the provider takes a count.',
-  ),
-  'image.seed': field(
-    'number',
-    'A seed for repeatable images, where the provider and the model honour it.',
-  ),
-  'image.outputCompression': field(
-    'number',
-    'Compression from 0 to 100 for jpeg and webp images, where the provider takes it.',
-  ),
-  'image.references': field(
-    'Array<TurnBlob | TurnMediaRef>',
-    "Images sent with every turn, before the user's. Each is bytes (`data`) or a link (`uri`). Some providers take http(s) links only, and none with includeText.",
-  ),
-  'image.includeText': field(
-    'boolean',
-    'Whether the model may write text alongside its images; with some providers this also sends the system instruction and history.',
-  ),
-  speech: field(
-    'ProfileSpeechSpec',
-    "How the profile's speech sounds and is delivered: voice, style, speed and audio format. A turn may replace voice, style and speed for that turn.",
-  ),
-  'speech.voice': field(
-    'string',
-    "The voice the speech is read in, by the provider's own name for it; a turn's speech.voice replaces it.",
-  ),
-  'speech.style': field(
-    'string',
-    "How the script is delivered, in plain words (pace, mood, accent); it is never read aloud, and a turn's speech.style replaces it. A model that takes no direction ignores it.",
-  ),
-  'speech.speed': field(
-    'number',
-    "The speaking rate, where 1 is the voice's own pace; a turn's speech.speed replaces it. A provider that has no rate refuses it or ignores it.",
-  ),
+  'inputs.context.maxChars': field('number'),
+  outputs: field('ProfileOutputsSpec'),
+  'outputs.structured': field('StructuredSchemaId | StructuredByOption | null'),
+  image: field('ProfileImageSpec'),
+  'image.aspectRatio': field('string'),
+  'image.resolution': field('string'),
+  'image.mimeType': field('string'),
+  'image.quality': field('string'),
+  'image.background': field('string'),
+  'image.n': field('number'),
+  'image.seed': field('number'),
+  'image.outputCompression': field('number'),
+  'image.references': field('Array<TurnBlob | TurnMediaRef>'),
+  'image.includeText': field('boolean'),
+  speech: field('ProfileSpeechSpec'),
+  'speech.voice': field('string'),
+  'speech.style': field('string'),
+  'speech.speed': field('number'),
   'speech.format': field(
     unionType(SPEECH_AUDIO_FORMATS),
-    "The audio encoding each turn's speech comes back in, and so what the host plays or stores.",
     SPEECH_AUDIO_FORMATS,
-    {
-      pcm: 'Uncompressed audio, delivered as WAV.',
-      mp3: 'Compressed audio; a provider that cannot make it refuses the turn.',
-    },
+    OPTION_DOCS.SPEECH_AUDIO_FORMATS,
   ),
-  live: field(
-    'ProfileLiveSpec',
-    'How a realtime voice and video session runs: what it accepts from the user, the voice it answers in, when it hears the user start and stop, and how it resumes and trims its context.',
-  ),
-  'live.ingress': field('LiveIngressSpec', 'Which channels the session accepts from the user.'),
-  'live.ingress.audio': field('boolean', 'Whether the session accepts microphone audio.'),
-  'live.ingress.video': field('boolean', 'Whether the session accepts camera frames.'),
-  'live.ingress.text': field('boolean', 'Whether the session accepts typed text.'),
-  'live.voice': field(
-    'string',
-    'The voice the model speaks in.',
-    GOOGLE_SPEECH_VOICES,
-    'Voice names to pick from; any other name is sent as written.',
-  ),
-  'live.vad': field(
-    'LiveVadSpec',
-    'How the session detects when the user starts and stops speaking.',
-  ),
+  live: field('ProfileLiveSpec'),
+  'live.ingress': field('LiveIngressSpec'),
+  'live.ingress.audio': field('boolean'),
+  'live.ingress.video': field('boolean'),
+  'live.ingress.text': field('boolean'),
+  'live.voice': field('string'),
+  'live.vad': field('LiveVadSpec'),
   'live.vad.activityHandling': field(
     unionType(LIVE_ACTIVITY_HANDLINGS),
-    "Whether the user speaking interrupts the model's reply.",
     LIVE_ACTIVITY_HANDLINGS,
-    {
-      START_OF_ACTIVITY_INTERRUPTS: 'The user speaking cuts the reply off.',
-      NO_INTERRUPTION: 'The model finishes its reply.',
-    },
+    OPTION_DOCS.LIVE_ACTIVITY_HANDLINGS,
   ),
   'live.vad.startSensitivity': field(
     unionType(LIVE_START_SENSITIVITIES),
-    'How readily the session decides the user has started speaking.',
     LIVE_START_SENSITIVITIES,
-    {
-      START_SENSITIVITY_LOW: 'Detects the start of speech less often.',
-      START_SENSITIVITY_HIGH: 'Detects the start of speech more often.',
-    },
+    OPTION_DOCS.LIVE_START_SENSITIVITIES,
   ),
   'live.vad.endSensitivity': field(
     unionType(LIVE_END_SENSITIVITIES),
-    'How readily the session decides the user has stopped speaking.',
     LIVE_END_SENSITIVITIES,
-    {
-      END_SENSITIVITY_LOW: 'Ends speech less often, waiting through pauses.',
-      END_SENSITIVITY_HIGH: 'Ends speech more often, at shorter pauses.',
-    },
+    OPTION_DOCS.LIVE_END_SENSITIVITIES,
   ),
-  'live.vad.prefixPaddingMs': field(
-    'number',
-    'How long speech must last, in milliseconds, before it counts as the user starting to speak.',
-  ),
-  'live.vad.silenceDurationMs': field(
-    'number',
-    "How long a silence, in milliseconds, ends the user's speech.",
-  ),
-  'live.sessionResumption': field(
-    'boolean',
-    'Whether the provider sends resume handles, which the host can pass to a new session to carry this one on.',
-  ),
-  'live.greeting': field(
-    'string',
-    'A prompt the call sends itself when it opens new, so the agent speaks first. The visitor does not see it. It may use {slot}.',
-  ),
-  'live.resumed': field(
-    '{ prompt: string; afterMs?: number }',
-    'What happens when a call comes back after a drop. It needs live.sessionResumption.',
-  ),
-  'live.resumed.prompt': field(
-    'string',
-    'A prompt the call sends itself when it resumes, so the agent says it is back. The visitor does not see it. It may use {slot}.',
-  ),
-  'live.resumed.afterMs': field(
-    'number',
-    'The shortest time away, in milliseconds, that earns the prompt; a shorter drop resumes silently.',
-  ),
-  'live.contextCompression': field(
-    'LiveContextCompressionSpec',
-    "Trims the session's context once it grows past the trigger.",
-  ),
-  'live.contextCompression.triggerTokens': field(
-    'number',
-    'The context size, in tokens, that starts trimming.',
-  ),
-  'live.contextCompression.slidingWindow': field(
-    'LiveSlidingWindowSpec',
-    'Trims by dropping the oldest turns; the system instruction stays.',
-  ),
-  'live.contextCompression.slidingWindow.targetTokens': field(
-    'number',
-    'The context size, in tokens, to trim down to; below the trigger.',
-  ),
-  'live.transcription': field('LiveTranscriptionSpec', "Text transcripts of the session's speech."),
-  'live.transcription.input': field('boolean', "Whether the user's speech is transcribed."),
-  'live.transcription.output': field(
-    'boolean',
-    "Whether the model's speech is transcribed; always on while a detector reads live_reply, since it reads the transcript.",
-  ),
-  'outputs.validation': field(
-    'ProfileValidationSpec',
-    'Your checks on a structured reply, and how many rewrites a failure gets.',
-  ),
-  'outputs.validation.fields': field(
-    'Record<string, ProfileValidator>',
-    'Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid; a path no structured schema reaches is refused when the profile registers.',
-  ),
+  'live.vad.prefixPaddingMs': field('number'),
+  'live.vad.silenceDurationMs': field('number'),
+  'live.sessionResumption': field('boolean'),
+  'live.greeting': field('string'),
+  'live.resumed': field('{ prompt: string; afterMs?: number }'),
+  'live.resumed.prompt': field('string'),
+  'live.resumed.afterMs': field('number'),
+  'live.contextCompression': field('LiveContextCompressionSpec'),
+  'live.contextCompression.triggerTokens': field('number'),
+  'live.contextCompression.slidingWindow': field('LiveSlidingWindowSpec'),
+  'live.contextCompression.slidingWindow.targetTokens': field('number'),
+  'live.transcription': field('LiveTranscriptionSpec'),
+  'live.transcription.input': field('boolean'),
+  'live.transcription.output': field('boolean'),
+  'outputs.validation': field('ProfileValidationSpec'),
+  'outputs.validation.fields': field('Record<string, ProfileValidator>'),
   'outputs.validation.fields.*': field(
-    '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
-    'Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.',
+    '(candidate: unknown, options?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
   ),
-  'outputs.validation.items': field(
-    'Record<string, ProfileItemRule>',
-    'Your checks on the items of a list, each keyed by the dotted path of that list in the structured reply, such as claims; a path no structured schema reaches as a list is refused when the profile registers.',
-  ),
-  'outputs.validation.items.*': field(
-    'ProfileItemRule',
-    'Your check on each item of this list. A refused item never fails the reply and the rest of the reply is kept.',
-  ),
+  'outputs.validation.items': field('Record<string, ProfileItemRule>'),
+  'outputs.validation.items.*': field('ProfileItemRule'),
   'outputs.validation.items.*.check': field(
     '(item: unknown, turn: ItemCheckTurn) => ValidationResult | Promise<ValidationResult>',
-    'Your check on one item, given what the tools of the turn returned (turn.toolResults); its error is the reason the model reads on a rewrite and the host reads on the removed item.',
   ),
-  'outputs.validation.items.*.onFail': field(
-    "'drop' | 'fix'",
-    'drop removes a refused item. fix first asks the model to rewrite the refused items alone, once and while retries remain, then removes any refused again. Removed items leave on the structured event as removed.',
-    ITEM_FAIL_ACTIONS,
-  ),
-  'outputs.validation.maxRetries': field(
-    'number',
-    "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; under sse, an attempt that gets rewritten has already streamed. A rewrite of a blocked reply (guardrails.blockedReply) counts against this too.",
-  ),
-  'outputs.streaming': field(
-    'ProfileStreamingSpec',
-    'How the reply reaches the host, and whether its thinking does.',
-  ),
-  'outputs.streaming.mode': field(
-    unionType(STREAM_MODES),
-    'Whether the reply reaches the host as the model writes it, or whole.',
-    STREAM_MODES,
-    {
-      sse: 'Events arrive as the model writes, so a reply that fails outputs.validation has already streamed when it is rewritten; some providers always answer image and speech in one piece.',
-      buffered:
-        'One non-streaming call, whose events arrive together; under outputs.validation, only once the reply passes or retries run out. Thinking still streams.',
-    },
-  ),
-  'outputs.streaming.streamThoughts': field(
-    'boolean',
-    "Whether the model's thinking reaches the host.",
-  ),
-  turnBehaviour: field(
-    'ProfileTurnBehaviourSpec',
-    'Whether a reply that stopped early can be continued, and whether a running turn can be steered.',
-  ),
-  'turnBehaviour.resumption': field(
-    'ProfileTurnResumptionSpec',
-    'Continuing a reply that stopped early; live uses sessionResumption instead.',
-  ),
+  'outputs.validation.items.*.onFail': field("'drop' | 'fix'", ITEM_FAIL_ACTIONS),
+  'outputs.validation.maxRetries': field('number'),
+  'outputs.streaming': field('ProfileStreamingSpec'),
+  'outputs.streaming.mode': field(unionType(STREAM_MODES), STREAM_MODES, OPTION_DOCS.STREAM_MODES),
+  'outputs.streaming.streamThoughts': field('boolean'),
+  turnBehaviour: field('ProfileTurnBehaviourSpec'),
+  'turnBehaviour.resumption': field('ProfileTurnResumptionSpec'),
   'turnBehaviour.resumption.allowContinue': field(
     'ContinueStopKind[]',
-    "Which early stops the host offers the user a Continue for; the kernel doesn't refuse a continue after other stops.",
     CONTINUE_STOP_KINDS,
-    {
-      length: 'The reply hit the output token limit.',
-      stream_incomplete: 'The connection dropped mid-reply.',
-      provider_error: 'The provider returned an error or timed out.',
-    },
+    OPTION_DOCS.CONTINUE_STOP_KINDS,
   ),
   'turnBehaviour.resumption.autoContinue': field(
     'ContinueStopKind[]',
-    'Which early stops are continued without asking, whether or not allowContinue offers a Continue for them. When set, a text turn sends a listed failed model call that gave no reply again itself; the host continues the rest.',
     CONTINUE_STOP_KINDS,
-    {
-      length: 'The reply hit the output token limit.',
-      stream_incomplete: 'The connection dropped mid-reply.',
-      provider_error: 'The provider returned an error or timed out.',
-    },
+    OPTION_DOCS.CONTINUE_STOP_KINDS,
   ),
-  'turnBehaviour.resumption.maxContinues': field(
-    'number',
-    'How many times one reply may be continued; once set, each continue must say which one it is. Also how many failed model calls one text turn sends again itself (one when unset).',
-  ),
-  'turnBehaviour.allowSteering': field(
-    'boolean',
-    'Lets your onStage hook add messages to a running turn. Text profiles also let the user steer.',
-  ),
+  'turnBehaviour.resumption.maxContinues': field('number'),
+  'turnBehaviour.allowSteering': field('boolean'),
   'turnBehaviour.atStepLimit': field(
     "'stop' | 'answer'",
-    'What happens when a turn reaches maxSteps while the model still wants tools: the turn stops with no answer, or the last call is made without tools so it answers.',
     STEP_LIMIT_MODES,
-    {
-      stop: 'It may still call tools; if it does, they run and the turn stops as step_limit with no answer.',
-      answer: 'It is sent without tools, so it writes the answer from what the turn has gathered.',
-    },
+    OPTION_DOCS.STEP_LIMIT_MODES,
   ),
-  guardrails: field(
-    'ProfileGuardrailsSpec',
-    'Theorem checks what enters or leaves an agent’s context and generation against built-in or custom rules at each configured boundary.',
-  ),
-  'guardrails.quota': field(
-    'QuotaGuardrailSpec',
-    'A daily turn limit. Your server enforces it with takeSlot.',
-  ),
-  'guardrails.quota.perDay': field(
-    'number',
-    'Turns each client IP may run on this profile per UTC day, one at a time; counts live in the process, and a loopback caller is not counted.',
-  ),
+  guardrails: field('ProfileGuardrailsSpec'),
+  'guardrails.quota': field('QuotaGuardrailSpec'),
+  'guardrails.quota.perDay': field('number'),
   ...detectFields(),
-  'guardrails.blockedReply': field(
-    'BlockedReplySpec',
-    'How a reply a guardrail blocked is handled: the model rewrites it, or the user gets a refusal, and how many rewrites it gets.',
-  ),
+  'guardrails.blockedReply': field('BlockedReplySpec'),
   'guardrails.blockedReply.onBlock': field(
     unionType(BLOCKED_REPLY_ON_BLOCK),
-    'Whether the model gets to rewrite a reply a guardrail blocked, or the user gets a refusal in its place.',
     BLOCKED_REPLY_ON_BLOCK,
-    {
-      retry:
-        'The model reads why and rewrites the reply, up to maxRetries times; once retries run out, the reply is withheld and the turn ends with a safety error. Live never rewrites: it withholds at once.',
-      refuse: 'The user sees the egress.refusal wording in place of the reply, and the turn ends.',
-    },
+    OPTION_DOCS.BLOCKED_REPLY_ON_BLOCK,
   ),
-  'guardrails.blockedReply.maxRetries': field(
-    'number',
-    'How many times the model may rewrite a blocked reply. Live ignores it.',
-  ),
-  'guardrails.network': field('NetworkGuardrailSpec', 'Addresses HTTP and MCP tools may reach.'),
-  'guardrails.network.allowPrivateNetworks': field(
-    'boolean',
-    'Lets tools reach localhost and private network addresses, for local development.',
-  ),
-  'guardrails.network.allowedHosts': field(
-    'string[]',
-    "Hostnames tools may reach even when they resolve to a private address; public hosts don't need listing. Names are resolved only when the host passes resolveHost.",
-  ),
-  'guardrails.network.allowedSchemes': field('string[]', 'The URL schemes tools may use.'),
-  'guardrails.taint': field('TaintGuardrailSpec', 'Tool limits after a remote read.'),
+  'guardrails.blockedReply.maxRetries': field('number'),
+  'guardrails.network': field('NetworkGuardrailSpec'),
+  'guardrails.network.allowPrivateNetworks': field('boolean'),
+  'guardrails.network.allowedHosts': field('string[]'),
+  'guardrails.network.allowedSchemes': field('string[]'),
+  'guardrails.taint': field('TaintGuardrailSpec'),
   'guardrails.taint.afterRemoteRead': field(
     unionType(TAINT_GATES),
-    "Which tool calls are refused, by each tool's access, once the turn has read a remote tool's result.",
     TAINT_GATES,
-    {
-      off: 'None; risky calls are only logged.',
-      destructive: 'Destructive calls.',
-      write: 'Read-write and destructive calls.',
-    },
+    OPTION_DOCS.TAINT_GATES,
   ),
   'guardrails.taint.remoteDestination': field(
     unionType(DESTINATION_GATES),
-    "What happens to a tool call, read-only ones too, that sends to an email address, a link's host or a bank account number (IBAN) that only the running text of a remote tool's result named. One the user, the system prompt, or a local tool gave passes, and so does one that is a whole field of the result.",
     DESTINATION_GATES,
-    {
-      off: 'The call runs; it is only logged.',
-      confirm: 'The call waits for the user to approve it; an approval runs it.',
-      block: 'The call is refused, and the model is told why.',
-    },
+    OPTION_DOCS.DESTINATION_GATES,
   ),
-  'guardrails.disclosure': field(
-    '{ enforce: DecisionDisclosureEnforcer }',
-    'Your check on the state before a decision sends it to the model.',
-  ),
+  'guardrails.disclosure': field('{ enforce: DecisionDisclosureEnforcer }'),
   'guardrails.disclosure.enforce': field(
     '(state, context) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>',
-    'Your function that allows or blocks the state before it is sent.',
   ),
-  labels: field(
-    'LabelOverrides',
-    "This profile's own wording for error lines, notices, and notes to the model, by labels key.",
-  ),
-  'labels.*': field(
-    'string',
-    'The wording for this labels key; canary.bind_note must keep its {canary} placeholder.',
-  ),
-  observability: field(
-    'ProfileObservabilitySpec',
-    "Where this profile's traces go and what they keep.",
-  ),
-  'observability.writeTo': field(
-    'false | string | TraceSink',
-    'Where traces go: a registered destination id, your own writer, or false. An unregistered id fails the turn at the start. A sink passed to runTurn replaces it.',
-  ),
-  'observability.sampleRate': field(
-    'number',
-    'The share of traces kept, from 0 to 1, each kept or dropped whole; a sink passed straight to runTurn keeps every trace.',
-  ),
-  'observability.include': field('TraceIncludeSpec', 'Which optional parts of a trace are kept.'),
-  'observability.include.upstreamLog': field(
-    'boolean',
-    'Keeps each row the provider sent back, scrubbed, as it arrived, with media bytes replaced by their sha256.',
-  ),
-  'observability.include.outboundWire': field(
-    'boolean',
-    'Keeps each request body sent to the provider, scrubbed.',
-  ),
-  'observability.include.evidenceRaw': field(
-    'boolean',
-    "Keeps the provider's raw payload on grounding results such as search citations; upstreamLog rows keep their own copy.",
-  ),
-  'observability.include.usage': field(
-    'boolean',
-    'Keeps token counts and other usage figures on spans; upstreamLog rows keep their own.',
-  ),
-  'observability.include.guardrailDecisions': field('boolean', 'Keeps each guardrail decision.'),
-  'observability.include.guardrailMatchPreview': field(
-    'boolean',
-    "Keeps the exact text each guardrail matched, unscrubbed, on the trace and the host's event stream; for debugging only.",
-  ),
-  'observability.resource': field(
-    'Record<string, TraceAttributeValue>',
-    'Attributes stamped on every trace, such as service.name.',
-  ),
-  'observability.scrub': field(
-    'TraceScrubSpec',
-    "What is removed from stored traces, separately from the turn's guardrails.",
-  ),
-  'observability.scrub.sensitive': field(
-    'ScrubSwitch',
-    "Removes what the data detectors (IDs, Financial, Network, Credentials) and your own detectors find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours, or both for the trace alone.",
-  ),
-  'observability.scrub.injection': field(
-    'ScrubSwitch',
-    "Removes what Injection and Tool instructions find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours, or both for the trace alone.",
-  ),
-  'observability.scrub.canary': field(
-    'ScrubSwitch',
-    "Removes the canary token from stored traces. The canary is Theorem's, so { theorem: false } keeps it.",
-  ),
-  'observability.retainForDays': field(
-    'number',
-    'Days a trace file is kept, by its UTC day. The next write removes old files. 0 or less keeps all.',
-  ),
-  'observability.rotateAfterMiB': field(
-    'number',
-    'File size in MiB at which a file-based destination starts a new file, handed to every destination with the record. Default 32.',
-  ),
-  'observability.onWriteError': field(
-    '(err: unknown) => void',
-    "Your function called when a trace can't be built or written; the turn carries on, and a destination's own error handler takes priority. An unregistered writeTo id is a config error instead.",
-  ),
+  labels: field('LabelOverrides'),
+  'labels.*': field('string'),
+  observability: field('ProfileObservabilitySpec'),
+  'observability.writeTo': field('false | string | TraceSink'),
+  'observability.sampleRate': field('number'),
+  'observability.include': field('TraceIncludeSpec'),
+  'observability.include.upstreamLog': field('boolean'),
+  'observability.include.outboundWire': field('boolean'),
+  'observability.include.evidenceRaw': field('boolean'),
+  'observability.include.usage': field('boolean'),
+  'observability.include.guardrailDecisions': field('boolean'),
+  'observability.include.guardrailMatchPreview': field('boolean'),
+  'observability.resource': field('Record<string, TraceAttributeValue>'),
+  'observability.scrub': field('TraceScrubSpec'),
+  'observability.scrub.sensitive': field('ScrubSwitch'),
+  'observability.scrub.injection': field('ScrubSwitch'),
+  'observability.scrub.canary': field('ScrubSwitch'),
+  'observability.retainForDays': field('number'),
+  'observability.rotateAfterMiB': field('number'),
+  'observability.onWriteError': field('(err: unknown) => void'),
 });
-const TOOL_TYPE_FIELD = field(unionType(TOOL_TYPES), 'How the tool runs.', TOOL_TYPES, {
-  builtin: "The provider's own tool, such as Google Search, run by the provider.",
-  function: 'Your handler runs it.',
-  http: 'The kernel calls your HTTP endpoint.',
-  mcp: 'The kernel calls a tool on a remote MCP server.',
-  agent: 'The kernel runs one turn of another registered agent and returns its reply.',
-});
-const CREDENTIAL_KINDS = {
-  bearer: 'A token; a secret typed in at the prompt becomes a bearer token.',
-  ['api_' + 'key']: 'An API key; a secret typed in at the prompt becomes an API key.',
-  oauth2: 'An OAuth sign-in; the host supplies the token.',
-};
+const TOOL_TYPE_FIELD = field(unionType(TOOL_TYPES), TOOL_TYPES, OPTION_DOCS.TOOL_TYPES);
 /**
  * The catalog of the fields `registerTool` takes, keyed `registerTool.<field>`. The `studio.` and
  * `local.` rows are the studio's own; a builder never sets them.
  */
-export const EXTRA_FIELDS: Record<string, FieldMeta> = {
-  'done.stop.kind': field(
-    'TurnStopKind',
-    'Why the turn ended, on the done event: its stop.kind.',
-    TURN_STOP_KINDS,
-    {
-      completed: 'The model finished its reply.',
-      length: 'The model reached its token limit.',
-      tool: 'The model called tools and the turn hands them to the host, in done.tools.',
-      gate: 'A pre_tool stage held a tool call. The host resumes it with invokeTool, not continueFrom.',
-      filtered: 'The provider filtered the reply, or the egress guardrail withheld it.',
-      provider_error: 'The provider failed or reported an error.',
-      cancelled: 'The turn was cancelled, by the user or by a stage that aborted it.',
-      stream_incomplete: 'The stream ended without the provider reporting a final status.',
-      step_limit:
-        'The last model call maxSteps allows asked for tools, so the turn ended with no answer.',
-      interrupted: 'A live utterance was cut off by an interruption.',
-      generation_complete:
-        'Live: the model finished generating audio or text for this utterance. The turn may still be open.',
-    },
-  ),
+export const EXTRA_FIELDS: Record<string, FieldMeta> = withFieldDocs({
+  'done.stop.kind': field('TurnStopKind', TURN_STOP_KINDS, OPTION_DOCS.TURN_STOP_KINDS),
   'registerTool.type': TOOL_TYPE_FIELD,
   /** Studio-only rows: the editor's local-model connection, and a decision's questions and images. */
-  'local.baseUrl': field(
-    'string',
-    'Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls it directly.',
-  ),
+  'local.baseUrl': field('string'),
   'studio.remoteTools': {
-    ...field(
-      'boolean',
-      'Whether tools that reach other hosts (HTTP and MCP) may run while a local model is in use. Off, a run with a local model reaches no host.',
-    ),
+    ...field('boolean'),
     unset: 'Off',
   },
-  'decision.questions.id': field('string', "The question's name. Its answer comes back under it."),
+  'decision.questions.id': field('string'),
   'decision.questions.type': field(
-    "'choice' | 'score' | 'noul' | 'box'",
-    'The kind of answer the question takes.',
-    ['choice', 'score', 'noul', 'box'],
-    {
-      choice: 'One of the named options, with a confidence and a probability for each option.',
-      score: 'A level on an ordered scale, with a confidence.',
-      noul: 'One number, which may weigh named criteria.',
-      box: 'Where something is in an image: its top, bottom, left and right edges, with a confidence.',
-    },
+    unionType(DECISION_QUESTION_TYPES),
+    DECISION_QUESTION_TYPES,
+    OPTION_DOCS.DECISION_QUESTION_TYPES,
   ),
-  'decision.questions.instructions': field(
-    'DecisionEntry',
-    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box looks in its In image, else in the image of the first field it names.",
-  ),
+  'decision.questions.instructions': field('DecisionEntry'),
   'decision.questions.image': {
-    ...field(
-      'string',
-      "The image a box is in: one of the decision's images, such as <ghs02>, or a state field its instructions name, such as `photo`. The model is told it in the instructions.",
-    ),
+    ...field('string'),
     unset: 'The image the instructions name',
   },
-  'decision.images': field(
-    'Record<string, DecisionAsset>',
-    'Pictures sent with every decision, beside the state. A question names one by its reference, such as <ghs02>. A PNG or JPEG.',
-  ),
-  'decision.images.name': field(
-    'string',
-    'The reference a question writes, without its angle brackets: ghs02 is written <ghs02>. Lowercase letters, digits and _.',
-  ),
-  'registerTool.name': field(
-    'string',
-    "The tool's id, which profiles list in tools.allow (or a model's builtInTools) and the model calls a custom tool by.",
-  ),
-  'registerTool.description': field(
-    'string',
-    'Tells the model what the tool does (custom tools only).',
-  ),
-  'registerTool.input': field(
-    'ZodSchema',
-    "The Zod schema for the tool's arguments, sent to the model and checked on every call.",
-  ),
-  'registerTool.output': field(
-    'ZodSchema',
-    "The Zod schema every result the tool returns must match; the kernel's own not-signed-in note is not checked.",
-  ),
-  'registerTool.handler': field(
-    'ToolHandler',
-    'Your function that runs the tool; it can also yield progress as it goes.',
-  ),
-  'registerTool.endpoint': field(
-    'string',
-    'The URL the tool calls, with {name} placeholders for mapping.pathParams; the scheme and host must be written out.',
-  ),
-  'registerTool.method': field(
-    unionType(HTTP_METHODS),
-    'The HTTP method; every method but GET sends a JSON body.',
-    HTTP_METHODS,
-  ),
-  'registerTool.headers': field(
-    'Record<string, string>',
-    "Headers sent with every request to the tool's own origin, never once a redirect leaves it.",
-  ),
-  'registerTool.mapping': field(
-    '{ pathParams?, queryParams?, bodyParam? }',
-    'Where each argument goes in the request.',
-  ),
-  'registerTool.mapping.pathParams': field(
-    'string[]',
-    'Arguments that fill the {name} placeholders in the endpoint.',
-  ),
-  'registerTool.mapping.queryParams': field('string[]', 'Arguments added to the query string.'),
-  'registerTool.mapping.bodyParam': field(
-    'string',
-    'The one argument sent as the whole JSON body; without it, a method other than GET sends every argument the path and query leave unused.',
-  ),
-  'registerTool.serverUrl': field('string', "The MCP server's URL."),
-  'registerTool.mcpToolName': field('string', "The tool's name on the MCP server."),
-  'registerTool.profile': field(
-    'ProfileId',
-    'The profile this agent tool runs: text, image, or speech. Register it first. Nothing it calls may stop on a gate.',
-  ),
+  'decision.images': field('Record<string, DecisionAsset>'),
+  'decision.images.name': field('string'),
+  'registerTool.name': field('string'),
+  'registerTool.description': field('string'),
+  'registerTool.input': field('ZodSchema'),
+  'registerTool.output': field('ZodSchema'),
+  'registerTool.handler': field('ToolHandler'),
+  'registerTool.endpoint': field('string'),
+  'registerTool.method': field(unionType(HTTP_METHODS), HTTP_METHODS),
+  'registerTool.headers': field('Record<string, string>'),
+  'registerTool.mapping': field('{ pathParams?, queryParams?, bodyParam? }'),
+  'registerTool.mapping.pathParams': field('string[]'),
+  'registerTool.mapping.queryParams': field('string[]'),
+  'registerTool.mapping.bodyParam': field('string'),
+  'registerTool.serverUrl': field('string'),
+  'registerTool.mcpToolName': field('string'),
+  'registerTool.profile': field('ProfileId'),
   'registerTool.answeredBy': {
-    ...field(
-      "'page'",
-      'Who answers a call to a function tool. With page, the page the agent is on returns the output, and the tool has no handler.',
-      ['page'],
-    ),
+    ...field("'page'", ['page']),
     unset: 'Its handler',
   },
+  'registerTool.maxResponseBytes': {
+    ...field('number'),
+    unset: 'No limit',
+  },
+  'registerTool.session': {
+    ...field('McpSessionLimits'),
+    unset: 'No limits',
+  },
+  'registerTool.session.idleMs': {
+    ...field('number'),
+    unset: 'No limit',
+  },
+  'registerTool.session.max': {
+    ...field('number'),
+    unset: 'No limit',
+  },
   'registerTool.maxCallsPerTurn': {
-    ...field('number', 'How many times one turn of the calling agent may run this tool.'),
+    ...field('number'),
     unset: 'As many as its steps allow',
   },
   'registerTool.fieldText': {
-    ...field(
-      'Partial<Record<keyof AgentToolInput, string>>',
-      'What the calling model reads on a field of an agent tool input, such as text. A field the profile does not take is refused when the tool registers.',
-    ),
+    ...field('Partial<Record<keyof AgentToolInput, string>>'),
     unset: 'The fields carry no text',
   },
   'registerTool.hostFields': {
-    ...field(
-      'Record<string, ZodType>',
-      'Fields the calling model fills on an agent tool that only the host reads. onAgentCall gets them as hostInput and turns them into what the agent is sent; the agent never sees them. A name the input already has is refused when the tool registers.',
-    ),
+    ...field('Record<string, ZodType>'),
     unset: 'The input is only what the profile takes',
   },
   'registerTool.hostOnly': {
-    ...field(
-      "Array<'attachments' | 'voice' | 'slots'>",
-      'Channels the called profile takes that the calling model cannot fill on an agent tool; only onAgentCall sends them. A channel the profile does not take is refused when the tool registers.',
-    ),
+    ...field("Array<'attachments' | 'voice' | 'options'>"),
     unset: 'The model can fill every channel the profile takes',
   },
   'registerTool.auth': {
-    ...field('ToolAuthConfig', 'How the tool gets its credential.'),
+    ...field('ToolAuthConfig'),
     unset: 'No credential',
   },
   'registerTool.auth.type': field(
     unionType(TOOL_AUTH_TYPES),
-    "The kind of credential the tool expects, shown when a turn stops to ask for one; the header follows the stored credential's own kind.",
     TOOL_AUTH_TYPES,
-    CREDENTIAL_KINDS,
+    OPTION_DOCS.TOOL_AUTH_TYPES,
   ),
-  'registerTool.auth.slot': field(
-    'string',
-    'Which of the credentials the turn passes in this tool uses.',
-  ),
-  'registerTool.auth.service': field(
-    'string',
-    'The service the person signs in to, as they know it, named when a turn stops to ask for a credential.',
-  ),
+  'registerTool.auth.slot': field('string'),
+  'registerTool.auth.service': field('string'),
   'registerTool.auth.headerName': {
-    ...field(
-      'string',
-      "The header the credential goes in; an API key's own headerName comes first.",
-    ),
+    ...field('string'),
     unset: 'Authorization',
   },
   'registerTool.auth.headerPrefix': {
-    ...field(
-      'string',
-      "Text put before the credential in the header; an API key's own headerPrefix comes first.",
-    ),
+    ...field('string'),
     unset: '"Bearer " for tokens, nothing for API keys',
   },
   'registerTool.auth.queryParam': {
-    ...field(
-      'string',
-      'For a service that takes its API key in the URL: the query parameter the key goes in, in place of a header.',
-    ),
+    ...field('string'),
     unset: 'The key goes in a header',
   },
   'registerTool.auth.onUnauthenticated': {
     ...field(
       unionType(AUTH_UNAUTHENTICATED_POLICIES),
-      "What happens when the credential is missing, expired, can't be refreshed or is refused by the service.",
       AUTH_UNAUTHENTICATED_POLICIES,
-      {
-        gate: 'The turn stops and asks the host for a credential.',
-        report_to_model: "The model is told the tool isn't signed in, and the turn goes on.",
-        fail: 'The call fails as not signed in, for a key the host holds that no person can sign in to replace.',
-      },
+      OPTION_DOCS.AUTH_UNAUTHENTICATED_POLICIES,
     ),
     unset: 'gate',
   },
-  'registerTool.auth.scopes': field(
-    'string[]',
-    'The OAuth scopes the tool needs, shown when a turn stops to ask for a credential. A service asking for any other scope fails the call, with no new sign-in.',
-  ),
-  'registerTool.auth.clientId': field(
-    'string',
-    "Your OAuth client id, kept for the host's sign-in flow; the kernel doesn't read it.",
-  ),
-  'registerTool.auth.redirectUri': field(
-    'string',
-    "Your OAuth redirect URI, kept for the host's sign-in flow; the kernel doesn't read it.",
-  ),
+  'registerTool.auth.preResolved': field('Partial<OAuthEndpoints & { resource: string }>'),
+  'registerTool.auth.scopes': field('string[]'),
+  'registerTool.auth.clientId': field('string'),
+  'registerTool.auth.redirectUri': field('string'),
   'studio.authType': field(
     unionType(STUDIO_AUTH_TYPES),
-    'The kind of credential the tool expects, or none.',
     STUDIO_AUTH_TYPES,
-    { none: 'The tool sends no credential.', ...CREDENTIAL_KINDS },
+    OPTION_DOCS.STUDIO_AUTH_TYPES,
   ),
-  'studio.testCredential': field(
-    'string',
-    "A credential for this tool's connection tests, kept in the tab and never saved.",
-  ),
+  'studio.testCredential': field('string'),
   'studio.stubOutput': {
-    ...field(
-      'Record<string, unknown>',
-      'What a function tool returns in the studio, unless a demo handler has its name.',
-    ),
+    ...field('Record<string, unknown>'),
     unset: 'A stand-in built from the output schema',
   },
-  'studio.sampleInput': field(
-    'Record<string, unknown>',
-    'Arguments for the connection test, never saved.',
-  ),
-  'registerTool.inputSchema': field(
-    'Record<string, unknown>',
-    "The tool's arguments as a JSON Schema, sent to the model.",
-  ),
-  'registerTool.outputSchema': field(
-    'Record<string, unknown>',
-    "The tool's result as a JSON Schema, which a function tool's stand-in result is built from.",
-  ),
-  'registerStructured.jsonSchema': field(
-    'Record<string, unknown>',
-    'The JSON Schema a structured reply must follow, sent to the model as its response format.',
-  ),
-  'registerTool.access': field(
-    unionType(TOOL_ACCESS),
-    "What the tool can change, which taint.afterRemoteRead refuses calls by after a turn reads a remote tool's result.",
-    TOOL_ACCESS,
-    {
-      'read-only': 'Only reads.',
-      'read-write': 'Creates or updates things.',
-      destructive: 'Deletes, charges, or does something else hard to undo.',
-    },
-  ),
+  'studio.sampleInput': field('Record<string, unknown>'),
+  'registerTool.inputSchema': field('Record<string, unknown>'),
+  'registerTool.outputSchema': field('Record<string, unknown>'),
+  'registerStructured.jsonSchema': field('Record<string, unknown>'),
+  'registerTool.access': field(unionType(TOOL_ACCESS), TOOL_ACCESS, OPTION_DOCS.TOOL_ACCESS),
   'registerTool.loadTier': field(
     unionType(TOOL_LOAD_TIERS),
-    'When the tool becomes available to the model; live and host profiles load every allowed tool at the start.',
     TOOL_LOAD_TIERS,
-    {
-      T0: 'At the start of every turn.',
-      T2: 'On demand: when tools.t1Policy picks it at the start of a turn, or when the tools.t2Loader tool loads it mid-turn (custom tools only).',
-    },
+    OPTION_DOCS.TOOL_LOAD_TIERS,
   ),
   'registerTool.permission': field(
     unionType(TOOL_PERMISSION),
-    "Whether the host must approve a call before it runs; the provider's own tools never ask.",
     TOOL_PERMISSION,
-    {
-      auto: 'Runs without asking.',
-      session_consent: 'Asks once; the approval lasts as long as the host keeps passing it back.',
-      always_confirm: 'Asks every time.',
-    },
+    OPTION_DOCS.TOOL_PERMISSION,
   ),
-  'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
-  'registerTool.labels': field(
-    'ToolLabels',
-    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
-  ),
-  'registerTool.labels.activity': {
+  'registerTool.preTool': field('(input, ctx) => StageResult | undefined'),
+  'registerTool.exposeToModel': {
+    ...field('boolean'),
+    unset: 'The model can',
+  },
+  'registerTool.sources': field('(output) => Source[]'),
+  'registerTool.images': field('(output) => string[]'),
+  'registerTool.imageLimits': {
+    ...field('ToolImageLimits'),
+    unset: 'No limit',
+  },
+  'registerTool.askInputSchema': field('Record<string, unknown>'),
+  'registerTool.conflictsWith': field('string[]'),
+  'registerTool.limit': {
+    ...field('HttpToolLimit'),
+    unset: 'No limit',
+  },
+  'registerTool.timeoutMs': {
+    ...field('number'),
+    unset: "As long as the caller's signal lets it",
+  },
+  'registerTool.after': {
+    ...field('boolean'),
+    unset: 'The model sets no order',
+  },
+  'registerTool.background': {
     ...field(
-      'string | string[]',
-      "Transcript text while a call runs, e.g. 'Saving {title} to your collection'. {path} reads the call's input.",
+      "'always' | { afterMs: number } | 'ask' | 'never'",
+      TOOL_BACKGROUND_MODES,
+      OPTION_DOCS.TOOL_BACKGROUND_MODES,
     ),
+    unset: "'never': the model gets its reply when the body ends",
+  },
+  'registerTool.background.afterMs': field('number'),
+  'registerTool.category': field('string'),
+  'registerTool.labels': field('ToolLabels'),
+  'registerTool.labels.activity': {
+    ...field('string | string[]'),
     unset: 'The tool name, in words',
   },
   'registerTool.labels.activityPast': {
-    ...field(
-      'string | string[]',
-      "What the transcript says once a call completes, e.g. 'Found {results.0.name}'. Each {path} is filled from the call's input, then its output.",
-    ),
+    ...field('string | string[]'),
     unset: 'The tool name, in words',
   },
   'registerTool.labels.activityFailed': {
-    ...field(
-      'string | string[]',
-      "What the transcript says when a call fails or the host labels it failed, e.g. 'Couldn't save {title}'. Each {path} is filled from the call's input.",
-    ),
+    ...field('string | string[]'),
     unset: "Couldn't complete, then the tool name in words",
   },
   'registerTool.labels.request': {
-    ...field(
-      'string | string[]',
-      "What the approval card says the agent wants to do, e.g. 'check the weather in {city}'. Each {path} is filled from the call's input.",
-    ),
+    ...field('string | string[]'),
     unset: 'The tool name, in words',
   },
   'registerTool.paths': {
-    ...field(
-      'string[]',
-      'The turn paths this tool is offered on, where * means every path; a turn with no path gets only * tools. Host profiles ignore it.',
-    ),
+    ...field('string[]'),
     unset: 'Every path',
   },
-};
+});
 /** `labels.<key>` resolves to `labels.*` with that key's own note. */
 export function fieldMeta(path: string): FieldMeta | undefined {
   const meta = PROFILE_FIELDS[path] ?? EXTRA_FIELDS[path];
@@ -1660,6 +1232,113 @@ export function fieldMeta(path: string): FieldMeta | undefined {
   if (!wildcard || !Object.hasOwn(LABEL_NOTES, key)) return undefined;
   return { ...wildcard, doc: LABEL_NOTES[key as LabelKey] };
 }
+/** A setting the catalog cannot hold: where it is written, and why. */
+export interface FieldProblem {
+  path: string;
+  message: string;
+}
+
+const isText = (value: unknown) => typeof value === 'string';
+const isTextList = (value: unknown) => Array.isArray(value) && value.every(isText);
+
+const PLAIN_KINDS: Readonly<Record<string, (value: unknown) => boolean>> = {
+  string: isText,
+  ModelId: isText,
+  ProfileId: isText,
+  ToolId: isText,
+  KeySlot: isText,
+  number: (value) => typeof value === 'number',
+  boolean: (value) => typeof value === 'boolean',
+  'string[]': isTextList,
+  'ToolId[]': isTextList,
+  'BuiltinToolId[]': isTextList,
+};
+
+/** Why `value` cannot be `meta`'s field. A range or a shape stays with the check that owns it. */
+function valueProblem(meta: FieldMeta, value: unknown): string | undefined {
+  const { options, type } = meta;
+  if (value === null) return undefined;
+  if (options && (typeof value === 'string' || /^'[^{]*$/.test(type))) {
+    if (options.includes(value as string)) return undefined;
+    return `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`;
+  }
+  const isKind = PLAIN_KINDS[type];
+  return !isKind || isKind(value) ? undefined : `has to be a ${type}.`;
+}
+
+/** Each object path of the catalog, with the keys it takes. */
+function keysByParent(fields: Record<string, FieldMeta>): Map<string, Set<string>> {
+  const children = new Map<string, Set<string>>([['', new Set()]]);
+  for (const path of Object.keys(fields)) {
+    const parent = path.includes('.') ? path.slice(0, path.lastIndexOf('.')) : '';
+    children.set(
+      parent,
+      (children.get(parent) ?? new Set()).add(path.slice(parent.length && parent.length + 1)),
+    );
+  }
+  return children;
+}
+
+/** What is wrong with the value at `at`, as the object `parent` of the catalog: its form or its keys. */
+function shapeProblems(
+  at: string,
+  value: unknown,
+  parent: string,
+  keys: Set<string>,
+  meta: FieldMeta | undefined,
+): FieldProblem[] {
+  if (value === null) return [];
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    if (!parent || /\||\[\]/.test(meta?.type ?? '')) return [];
+    return [{ path: at, message: `has to be an object of ${[...keys].join(', ')}.` }];
+  }
+  return Object.keys(value)
+    .filter((key) => !keys.has(key))
+    .map((key) => ({
+      path: at ? `${at}.${key}` : key,
+      message: `is not a setting; ${at || 'this'} takes ${[...keys].join(', ')}.`,
+    }));
+}
+
+/** The problems of `root` against `fields`, each keyed by the path of keys it names. */
+function fieldProblems(root: unknown, fields: Record<string, FieldMeta>): FieldProblem[] {
+  const problems: FieldProblem[] = [];
+  for (const [parent, keys] of keysByParent(fields)) {
+    // why: A detector's own settings are `detectProblem`'s: which it takes depends on the detector.
+    if (keys.has('*') || parent.startsWith('guardrails.detect')) continue;
+    for (const [at, value] of parent ? valuesAt(root, parent.split('.')) : [['', root] as const]) {
+      problems.push(...shapeProblems(at, value, parent, keys, fields[parent]));
+    }
+  }
+  for (const [path, meta] of Object.entries(fields)) {
+    for (const [at, value] of valuesAt(root, path.split('.'))) {
+      const message = valueProblem(meta, value);
+      if (message) problems.push({ path: at, message });
+    }
+  }
+  return problems;
+}
+
+const PROFILE_CATALOG = Object.fromEntries(
+  Object.entries(PROFILE_FIELDS).map(([path, meta]) => [profileKeysOf(path).join('.'), meta]),
+);
+
+/** Every setting in a profile definition that the catalog cannot hold. Nothing here needs a complete profile. */
+export function profileFieldProblems(profile: unknown): FieldProblem[] {
+  return fieldProblems(profile, PROFILE_CATALOG);
+}
+
+const TOOL_CATALOG = Object.fromEntries(
+  Object.entries(EXTRA_FIELDS)
+    .filter(([path]) => path.startsWith('registerTool.'))
+    .map(([path, meta]) => [path.slice('registerTool.'.length), meta]),
+);
+
+/** Every setting in a tool definition that the catalog cannot hold. Nothing here needs a complete tool. */
+export function toolFieldProblems(tool: unknown): FieldProblem[] {
+  return fieldProblems(tool, TOOL_CATALOG);
+}
+
 export { API_EXPORTS, type ApiExportMeta, REQUEST_FIELDS } from './api-catalog.ts';
 export type {
   ProfileGraphEditor,

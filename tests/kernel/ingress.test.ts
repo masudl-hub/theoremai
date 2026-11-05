@@ -9,20 +9,21 @@ import {
   clearProfiles,
   getProfile,
   registerProfile,
+  registerTools,
   resolveTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
-  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
 } from '../../src/kernel/registry/ingress.ts';
+import { assertTurnOptions } from '../../src/kernel/registry/options.ts';
 import type { Profile, TurnRequest } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
@@ -226,29 +227,35 @@ Deno.test('a repair becomes the prompt, even where the profile takes no user tex
     'it carries the output and the rejection',
   );
 });
-Deno.test('a slot value must be one of its declared choices, and only declared slots may be set', () => {
+Deno.test('an option value must be one of its declared choices, and only declared options may be set', () => {
   clearProfiles();
-  define('slotted', { inputs: { text: true, slots: { mood: ['happy', 'sad'] } } });
-  const slots = (value: Record<string, string>) =>
-    parts({ profile: 'slotted', input: { text: 'x', slots: value } });
-  check(typeof slots({ mood: 'happy' }), 'object', 'a choice');
-  check(slots({ tone: 'happy' }), "Profile slotted has no slot 'tone'", 'undeclared');
+  define('optioned', {
+    inputs: { text: true, options: { mood: { choices: [{ value: 'happy' }, { value: 'sad' }] } } },
+  });
+  const picks = (value: Record<string, string>) =>
+    parts({ profile: 'optioned', input: { text: 'x', options: value } });
+  check(typeof picks({ mood: 'happy' }), 'object', 'a choice');
   check(
-    slots({ mood: 'angry' }),
-    "Profile slotted: slot 'mood' takes happy, sad, not 'angry'",
+    picks({ tone: 'happy' }),
+    "Profile optioned has no option 'tone' on inputs.options",
+    'undeclared',
+  );
+  check(
+    picks({ mood: 'angry' }),
+    "Profile optioned: option 'mood' takes happy, sad, not 'angry'",
     'not a choice',
   );
   check(
-    slots({ toString: 'x' }),
-    "Profile slotted has no slot 'toString'",
-    'an inherited property is no slot',
+    picks({ toString: 'x' }),
+    "Profile optioned has no option 'toString' on inputs.options",
+    'an inherited property is no option',
   );
-  check(typeof parts({ profile: 'slotted', input: { text: 'x' } }), 'object', 'no slots');
-  define('slotless');
+  check(typeof parts({ profile: 'optioned', input: { text: 'x' } }), 'object', 'no options');
+  define('optionless');
   check(
-    parts({ profile: 'slotless', input: { text: 'x', slots: { a: 'b' } } }),
-    "Profile slotless has no slot 'a'",
-    'a profile with no slots',
+    parts({ profile: 'optionless', input: { text: 'x', options: { a: 'b' } } }),
+    "Profile optionless has no option 'a' on inputs.options",
+    'a profile with no options',
   );
 });
 Deno.test('image generation carries its pins and refuses a profile that declares two output formats', () => {
@@ -379,23 +386,29 @@ Deno.test("resolveInputParts refuses on its own what resolveTurn already screene
     'a continue with no input at all',
   );
   check(
-    resolve(chat, { text: 'x', slots: { a: 'b' } }),
+    resolve(chat, { text: 'x', options: { a: 'b' } }),
     'returned',
-    "slots are not this function's",
+    "options are not this function's",
   );
 });
-Deno.test('slot, speech-role, and image-pin refusals carry the request kind', () => {
+Deno.test('option, speech-role, and image-pin refusals carry the request kind', () => {
   clearProfiles();
-  define('slotted', { inputs: { text: true, slots: { mood: ['happy'] } } });
-  const slotted = getProfile('slotted') as never;
-  const slots = (value: Record<string, string>) =>
+  define('optioned', {
+    inputs: { text: true, options: { mood: { choices: [{ value: 'happy' }] } } },
+  });
+  const optioned = getProfile('optioned') as never;
+  const picks = (value: Record<string, string>) =>
     thrown(() =>
-      assertTurnSlots(slotted, { profile: 'slotted', input: { slots: value } } as never),
+      assertTurnOptions(optioned, { profile: 'optioned', input: { options: value } } as never),
     );
-  check(slots({ tone: 'x' }), "request: Profile slotted has no slot 'tone'", 'undeclared');
   check(
-    slots({ mood: 'sad' }),
-    "request: Profile slotted: slot 'mood' takes happy, not 'sad'",
+    picks({ tone: 'x' }),
+    "request: Profile optioned has no option 'tone' on inputs.options",
+    'undeclared',
+  );
+  check(
+    picks({ mood: 'sad' }),
+    "request: Profile optioned: option 'mood' takes happy, not 'sad'",
     'undeclared choice',
   );
   check(

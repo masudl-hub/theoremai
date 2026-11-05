@@ -44,7 +44,7 @@ export {
 } from './trace-catalog.ts';
 export type { TraceRecord } from './trace-record.ts';
 export { buildRecord, contentOf, inlineContent } from './trace-record.ts';
-export { traceRecordSchema } from './trace-schema.ts';
+export { TRACE_VERSION, traceRecordSchema } from './trace-schema.ts';
 export type { TraceSink, TraceWriteContext } from './trace-sink.ts';
 export type {
   SpanHandle,
@@ -65,6 +65,7 @@ export type {
 } from './trace-span.ts';
 export {
   readTraceparent,
+  recordRoot,
   startTrace,
   traceBytes,
   traceContent,

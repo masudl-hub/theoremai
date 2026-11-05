@@ -445,7 +445,11 @@ function assertGrantWithin(
   tokenEndpoint: string,
 ): void {
   if (requested.length === 0) return;
-  const beyond = scopeTokens(granted).filter((scope) => !requested.includes(scope));
+  // why: Some servers join scopes with commas. A comma may also sit inside a scope, so a token
+  // that was asked for stands, and only an unknown one is read as a list, part by part.
+  const beyond = scopeTokens(granted).flatMap((scope) =>
+    requested.includes(scope) ? [] : scope.split(',').filter((part) => !requested.includes(part)),
+  );
   if (beyond.length > 0) {
     throw new Error(
       `Token response from ${tokenEndpoint} grants scopes that were not asked for: ${beyond.join(', ')}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

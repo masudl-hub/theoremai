@@ -11,13 +11,14 @@ export {
   liveSessionOpen,
   parseLiveOpenMessage,
   steerUnitOf,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 export { browserExecution } from './browser-execution.ts';
 export { attachStudioLiveSession } from './live-session-bridge.ts';
 export {
   rewindStudio,
   runStudioDecision,
   runStudioEmbedding,
+  startStudioConversation,
   streamStudioCall,
   streamStudioHostInvoke,
   streamStudioInvoke,

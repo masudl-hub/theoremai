@@ -6,9 +6,18 @@
  * @module
  */
 
-import { type DetectSpec, resolveAllow, resolveDetect } from '@theoremjs/agents/guardrails';
+import {
+  BOUNDARIES,
+  type Boundary,
+  DETECTORS,
+  type DetectSpec,
+  resolveAllow,
+  resolveDetect,
+  TOOL_BOUNDARIES,
+} from '@theoremjs/agents/guardrails';
 import { unsetValue } from '@theoremjs/agents/kernel';
 import { STUDIO_POLICY_UNSET } from './policy.ts';
+import { plainLines, promptLine } from './system-markup.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -24,13 +33,25 @@ function isPolicyFill(path: readonly string[], ours: unknown, theirs: unknown): 
 /** `held` without the table the kernel works out from its patterns. */
 const uncompiled = <T extends { compiled?: unknown }>({ compiled: _, ...held }: T) => held;
 
+/** `actions` at only the boundaries in `boundaries`. */
+function onlyAt<T>(actions: Readonly<Record<Boundary, T>>, boundaries: readonly Boundary[]) {
+  return Object.fromEntries(boundaries.map((boundary) => [boundary, actions[boundary]]));
+}
+
 /**
- * What the kernel reads `detect` as: each detector's action at each boundary, whose patterns it
- * reads with, and what it lets through. Two settings the kernel reads the same are the same here.
+ * What the kernel reads `detect` as: each detector's action at each boundary it reads, whose
+ * patterns it reads with, and what it lets through. Two settings the kernel reads the same are the
+ * same here. A host profile runs tools and no model turn, so it reads only the tool boundaries.
  */
-function detectAsRead(detect: unknown): unknown {
+function detectAsRead(detect: unknown, boundaries: readonly Boundary[]): unknown {
   if (detect === undefined) return undefined;
-  const { sources = {}, host = [], ...read } = resolveDetect(detect as DetectSpec);
+  const { sources = {}, host = [], ...resolved } = resolveDetect(detect as DetectSpec);
+  const read = {
+    ...resolved,
+    ...Object.fromEntries(
+      DETECTORS.map((detector) => [detector, onlyAt(resolved[detector], boundaries)]),
+    ),
+  };
   const allow = Object.entries(resolveAllow(detect as DetectSpec)).map(([detector, held]) => [
     detector,
     {
@@ -44,22 +65,62 @@ function detectAsRead(detect: unknown): unknown {
     sources: Object.fromEntries(
       Object.entries(sources).map(([detector, source]) => [detector, uncompiled(source)]),
     ),
-    host: Object.fromEntries(host.map(({ id, ...rule }) => [id, uncompiled(rule)])),
+    host: Object.fromEntries(
+      host.map(({ id, ...rule }) => [
+        id,
+        uncompiled({ ...rule, actions: onlyAt(rule.actions, boundaries) }),
+      ]),
+    ),
     allow: Object.fromEntries(allow),
   };
 }
 
-/** A profile with its `detect` as the kernel reads it. */
-function asRead(profile: unknown): unknown {
-  if (
-    !isRecord(profile) ||
-    !isRecord(profile.guardrails) ||
-    profile.guardrails.detect === undefined
-  )
-    return profile;
+/**
+ * A prompt as the studio holds it: its lines, split at each blank line, with no white space at the
+ * ends of a line or a private section.
+ * why: this is studio policy, so a prompt written as one text opens as the same prompt.
+ */
+function promptAsHeld(system: unknown): unknown {
+  if (typeof system !== 'string' && !Array.isArray(system)) return system;
+  const lines: unknown[] = typeof system === 'string' ? [system] : system;
+  return lines.flatMap((line) => {
+    if (typeof line === 'string') return plainLines(line);
+    if (!Array.isArray(line)) return [line];
+    return [
+      promptLine(
+        line.map((part) =>
+          isRecord(part) && typeof part.private === 'string'
+            ? { private: part.private.trim() }
+            : part,
+        ),
+      ),
+    ];
+  });
+}
+
+/** A profile with its prompt as the studio holds it. */
+function promptRead(profile: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(profile.identity) || profile.identity.system === undefined) return profile;
   return {
     ...profile,
-    guardrails: { ...profile.guardrails, detect: detectAsRead(profile.guardrails.detect) },
+    identity: { ...profile.identity, system: promptAsHeld(profile.identity.system) },
+  };
+}
+
+/** A profile with its prompt as the studio holds it and its `detect` as the kernel reads it. */
+function asRead(project: unknown): unknown {
+  if (!isRecord(project)) return project;
+  const profile = promptRead(project);
+  if (!isRecord(profile.guardrails) || profile.guardrails.detect === undefined) return profile;
+  return {
+    ...profile,
+    guardrails: {
+      ...profile.guardrails,
+      detect: detectAsRead(
+        profile.guardrails.detect,
+        profile.type === 'host' ? TOOL_BOUNDARIES : BOUNDARIES,
+      ),
+    },
   };
 }
 

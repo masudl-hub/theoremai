@@ -24,7 +24,7 @@ import {
   liveFrameInput,
   newLiveFold,
 } from '../google/live/framing.ts';
-import { closeError, goAwayIn, turnPhaseFromMessage } from '../google/live/stream.ts';
+import { closeError, goAwayIn, isBareIdle, turnPhaseFromMessage } from '../google/live/stream.ts';
 import { asProtocolEvent } from '../shared/protocol-events.ts';
 import type { LiveTurnPhase } from '../types.ts';
 
@@ -46,16 +46,18 @@ function socketTrouble(frame: JsonObject, during: 'setup' | 'session'): TheoremE
 /** Waits for `setupComplete`; a refusal here comes before any event, so the kernel can try the other key. */
 async function setupComplete(frames: Frames, context: ProtocolContext): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = context.limits.connectTimeoutMs;
   const late = new Promise<never>((_, reject) => {
+    if (limit === undefined) return;
     timer = setTimeout(
       () =>
         reject(
           new TheoremError(
             'timeout',
-            `Gemini Live setup timed out after ${context.limits.connectTimeoutMs}ms`, // labels-exempt: developer diagnostic
+            `Gemini Live setup timed out after ${limit}ms`, // labels-exempt: developer diagnostic
           ),
         ),
-      context.limits.connectTimeoutMs,
+      limit,
     );
   });
   try {
@@ -129,6 +131,8 @@ function session(
   const send = (frame: Record<string, unknown>) => sendFrame(socket, frame);
   const fold = newLiveFold();
   let handle = resumedFrom;
+  /** The last reply's end was read, and no server content has come since. */
+  let ended = false;
   let goAway: { timeLeftMs?: number; atMs: number } | undefined;
   let closed: ReturnType<NonNullable<ProtocolSession['closeInfo']>>;
   return {
@@ -166,7 +170,11 @@ function session(
         for (const event of events)
           if (event.type === 'evidence' && event.sessionResumptionHandle)
             handle = event.sessionResumptionHandle;
-        yield* batch(events, turnPhaseFromMessage(frame, events), handle);
+        const phase = turnPhaseFromMessage(frame, events);
+        // why: IDLE may come in a frame of its own after `turnComplete`; that reply already ended.
+        yield* batch(events, ended && isBareIdle(frame) ? 'streaming' : phase, handle);
+        if (phase === 'complete') ended = true;
+        else if (frame.serverContent) ended = false;
       }
     },
     sendText: (text) => settled(() => send(buildGeminiLiveRealtimeInput({ type: 'text', text }))),
@@ -196,6 +204,7 @@ export const geminiLive: Protocol<Record<string, never>> = defineProtocol({
   name: 'Gemini Live',
   description: "Google's Live API for Gemini: a spoken session over one WebSocket.", // labels-exempt: builder field description, read by the studio and docs
   endpoints: { live: '/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent' },
+  operationNames: { live: 'generate_content' },
   options: z.strictObject({}),
   continuation: { version: 1, schema: state },
   create(context) {
@@ -214,10 +223,8 @@ export const geminiLive: Protocol<Record<string, never>> = defineProtocol({
           socket.close(NORMAL_CLOSE, 'setup-failed');
           throw error;
         }
-        const history = wire.history?.length
-          ? buildGeminiLiveClientContent(wire.history)
-          : undefined;
-        if (history) sendFrame(socket, history);
+        const seed = buildGeminiLiveClientContent(wire.history, wire.context);
+        if (seed) sendFrame(socket, seed);
         for (const part of wire.input) sendFrame(socket, buildGeminiLiveRealtimeInput(part));
         return session(socket, frames, context, wire.sessionResumptionHandle);
       },

@@ -28,12 +28,12 @@ function context(labels?: LabelOverrides): GuardrailContext {
   };
 }
 
-/** Whether `marker_leak` blocks `text` as a reply of a turn of `ctx`, under a profile's `detect`. */
+/** Whether `marker_leak` acts on `text` as a reply of a turn of `ctx`, under a profile's `detect`. */
 function boundaryHit(detect: DetectSpec | undefined, text: string, ctx: GuardrailContext): boolean {
   const policy = resolveGuardrailPolicy({ detect });
   const found = detectAt(text, 'reply', policy.detect, scopeOf(policy, ctx));
   const marked = found.hits.some((hit) => hit.rule === DETECT_RULES.marker_leak);
-  return marked && found.action === 'block';
+  return marked && found.action !== 'allow';
 }
 
 /** Whether the reply's stream settles a match in `text` fed a character at a time, and where it held from at the match. */
@@ -69,7 +69,7 @@ Deno.test('the boundary check reads a reworded note only on a turn with a canary
 });
 
 Deno.test('a reply repeating a reworded canary note trips marker_leak, whole and streamed', async () => {
-  // Left at its default, and set to block by name: the same reading.
+  // Left at its default (redact), and set to block by name: the same reading.
   for (const detect of [undefined, { marker_leak: 'block' }] satisfies (DetectSpec | undefined)[]) {
     assertEquals(boundaryHit(detect, REPLY, context(NOTE)), true);
     assertEquals(boundaryHit(detect, REPLY, context()), false);

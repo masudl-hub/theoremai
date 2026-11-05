@@ -3,13 +3,18 @@ import { fixtureHostOptions, runScopedTurn } from '../fixtures/registered-runner
 import '../fixtures/test-host.ts';
 import { assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
+import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
+import type { DetectSpec } from '../../src/guardrails/detectors.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import type { ErrorKind } from '../../src/guardrails/theorem-error.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { ProfileTurnResumptionSpec } from '../../src/kernel/stop.ts';
 import { agentToolOrigin } from '../../src/kernel/tools/agent.ts';
+import type { ToolBackgroundHandle } from '../../src/kernel/tools/background.ts';
+import { createMemoryToolExecution } from '../../src/kernel/tools/memory-execution.ts';
 import type { AgentCall, AgentCallHook, AgentToolDef } from '../../src/kernel/tools/types.ts';
 import type {
   ModelRequest,
@@ -485,7 +490,7 @@ function pictureScope(): KernelScope {
         maxFiles: 2,
         maxBytes: 1_000_000,
         maxTurnBytes: 2_000_000,
-        slots: { depth: ['quick', 'careful'] },
+        options: { depth: { choices: [{ value: 'quick' }, { value: 'careful' }] } },
       },
     }),
   );
@@ -519,14 +524,14 @@ Deno.test("an agent tool's input is what the called profile takes", () => {
     return Object.keys(schema.properties as object);
   };
   assertEquals(properties(scopeWith()), ['text']);
-  assertEquals(properties(pictureScope()), ['text', 'attachments', 'slots']);
+  assertEquals(properties(pictureScope()), ['text', 'attachments', 'options']);
   assertEquals(properties(speechScope()), ['text', 'speech']);
 });
 
-Deno.test('the calling model sends a picture and a slot, and the agent gets both', async () => {
+Deno.test('the calling model sends a picture and an option, and the agent gets both', async () => {
   const seen: ModelRequest[] = [];
   const calls: Parameters<AgentCallHook>[0][] = [];
-  const sent = { text: 'What is this?', attachments: [PICTURE], slots: { depth: 'careful' } };
+  const sent = { text: 'What is this?', attachments: [PICTURE], options: { depth: 'careful' } };
   const events = await collect(pictureScope(), sendingProvider(sent, seen), (call) => {
     calls.push(call);
     return undefined;
@@ -966,4 +971,307 @@ Deno.test("a called agent's tools read the host the hook gives", async () => {
 Deno.test("a called agent's tools read no host when the hook gives none", async () => {
   assertEquals(await hostSeenByAgentTools(), [undefined]);
   assertEquals(await hostSeenByAgentTools(() => ({})), [undefined]);
+});
+
+Deno.test("a stop on the caller stops its called agent, and the caller's turn ends after the agent's", async () => {
+  const stop = new AbortController();
+  let agentSawStop = false;
+  let agentSettled = false;
+  const provider: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (isResearcher(req)) {
+        try {
+          stop.abort();
+          await new Promise<void>((resolve) => {
+            if (req.signal?.aborted) resolve();
+            req.signal?.addEventListener('abort', () => resolve(), { once: true });
+          });
+          agentSawStop = req.signal?.aborted === true;
+          throw req.signal?.reason ?? new DOMException('stopped', 'AbortError');
+        } finally {
+          agentSettled = true;
+        }
+      }
+      yield {
+        type: 'tool',
+        tool: { name: 'ask_researcher', arguments: { text: 'question' }, callId: 'call_0' },
+      };
+    },
+  };
+  const req = { profile: CALLER, input: { text: 'Help' }, signal: stop.signal };
+  try {
+    for await (const _ of runScopedTurn(scopeWith(), req, provider)) {
+      // why: The turn runs until the stop ends it.
+    }
+  } catch {
+    // why: A stopped turn may end by throwing; only the order is checked.
+  }
+  assertEquals({ agentSawStop, agentSettled }, { agentSawStop: true, agentSettled: true });
+});
+
+Deno.test("a detached agent tool settles with the called agent's tokens, and its children run inline", async () => {
+  const scope = scopeWith({ background: 'always' }, ['lookup']);
+  const execution = createMemoryToolExecution();
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  const events: TurnEvent[] = [];
+  const release = Promise.withResolvers<void>();
+  let researcherStep = 0;
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!isResearcher(req)) {
+        const first = !JSON.stringify(req.history).includes('still running');
+        yield { type: 'tokens', tokens: CALLER_TOKENS };
+        if (first) {
+          yield {
+            type: 'tool',
+            tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'call_0' },
+          };
+          return;
+        }
+        yield { type: 'text', text: 'Looking into it.' };
+        return;
+      }
+      await release.promise;
+      researcherStep += 1;
+      yield { type: 'tokens', tokens: RESEARCHER_TOKENS };
+      if (researcherStep === 1) {
+        yield { type: 'tool', tool: { name: 'lookup', arguments: {}, callId: 'child' } };
+        return;
+      }
+      yield { type: 'text', text: 'found' };
+    },
+  };
+  for await (const event of runScopedTurn(
+    scope,
+    {
+      profile: CALLER,
+      input: { text: 'Go' },
+      execution,
+      background: {
+        detached: (handle) => handles.push(handle),
+        event: (event) => {
+          late.push(event);
+        },
+      },
+    },
+    model,
+  )) {
+    events.push(event);
+  }
+  assertEquals(toolPhases(events, 'background').length, 1);
+  assertEquals(toolPhases(events, 'complete').length, 0);
+  release.resolve();
+  await handles[0]?.done;
+  assertEquals(handles.length, 1);
+  const [complete] = toolPhases(late, 'complete').filter((t) => t.name === 'ask_researcher');
+  assertEquals(complete?.phase === 'complete' ? complete.tokens?.total : undefined, 90);
+});
+
+Deno.test('a stopped agent tool settles with the tokens its agent had spent', async () => {
+  const scope = scopeWith({ background: 'always' }, ['lookup']);
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  const spent = Promise.withResolvers<void>();
+  let researcherStep = 0;
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!isResearcher(req)) {
+        if (JSON.stringify(req.history).includes('still running')) {
+          yield { type: 'text', text: 'Looking into it.' };
+          return;
+        }
+        yield {
+          type: 'tool',
+          tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'call_0' },
+        };
+        return;
+      }
+      researcherStep += 1;
+      if (researcherStep === 1) {
+        yield { type: 'tokens', tokens: RESEARCHER_TOKENS };
+        yield { type: 'tool', tool: { name: 'lookup', arguments: {}, callId: 'child' } };
+        return;
+      }
+      spent.resolve();
+      await new Promise<void>((resolve) => {
+        req.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+      throw req.signal?.reason ?? new DOMException('stopped', 'AbortError');
+    },
+  };
+  for await (const _ of runScopedTurn(
+    scope,
+    {
+      profile: CALLER,
+      input: { text: 'Go' },
+      execution: createMemoryToolExecution(),
+      background: {
+        detached: (handle) => handles.push(handle),
+        event: (event) => {
+          late.push(event);
+        },
+      },
+    },
+    model,
+  )) {
+    // why: The turn ends at the reply; the agent keeps running.
+  }
+  await spent.promise;
+  handles[0]?.stop('stopped');
+  await handles[0]?.done;
+  const [failed] = toolPhases(late, 'error').filter((t) => t.name === 'ask_researcher');
+  assertEquals(failed?.phase === 'error' ? failed.failure.code : undefined, 'stopped');
+  assertEquals(
+    failed?.phase === 'error' ? failed.tokens?.total : undefined,
+    RESEARCHER_TOKENS.total,
+  );
+});
+
+Deno.test('an agent tool whose result is too large keeps the tokens its agent spent', async () => {
+  const scope = scopeWith({ background: 'always' });
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (isResearcher(req)) {
+        yield { type: 'tokens', tokens: RESEARCHER_TOKENS };
+        yield { type: 'text', text: 'x'.repeat(2000) };
+        return;
+      }
+      if (JSON.stringify(req.history).includes('still running')) {
+        yield { type: 'text', text: 'Looking into it.' };
+        return;
+      }
+      yield {
+        type: 'tool',
+        tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'call_0' },
+      };
+    },
+  };
+  for await (const _ of runScopedTurn(
+    scope,
+    {
+      profile: CALLER,
+      input: { text: 'Go' },
+      execution: { ...createMemoryToolExecution(), maxOutcomeBytes: 1200 },
+      background: {
+        detached: (handle) => handles.push(handle),
+        event: (event) => {
+          late.push(event);
+        },
+      },
+    },
+    model,
+  )) {
+    // why: The turn ends at the reply; the agent keeps running.
+  }
+  await handles[0]?.done;
+  const [failed] = toolPhases(late, 'error').filter((t) => t.name === 'ask_researcher');
+  assertEquals(failed?.phase === 'error' ? failed.failure.code : undefined, 'result_too_large');
+  assertEquals(
+    failed?.phase === 'error' ? failed.tokens?.total : undefined,
+    RESEARCHER_TOKENS.total,
+  );
+});
+
+/** A scope where the caller reads its agent tool under `detect`, and the researcher reads nothing. */
+function guardedScope(detect: DetectSpec): KernelScope {
+  const scope = createKernelScope();
+  scope.profiles.register({
+    ...textProfile(RESEARCHER, RESEARCHER_SYSTEM, []),
+    guardrails: { detect: 'ignore' },
+  });
+  scope.tools.register(agentTool());
+  scope.profiles.register({
+    ...textProfile(CALLER, 'You help.', ['ask_researcher']),
+    guardrails: { detect },
+  });
+  return scope;
+}
+
+/** The researcher's model sends `reply`, or fails with it as its error text. */
+function researcherSays(reply: string, seen: string[] = [], fails = false): TurnModel {
+  return {
+    async *complete(req) {
+      await Promise.resolve();
+      seen.push(inputText(req));
+      if (fails) {
+        yield { type: 'error', errorKind: 'failed', error: reply };
+        return;
+      }
+      yield { type: 'text', text: reply };
+    },
+  };
+}
+
+async function invokeGuarded(scope: KernelScope, text: string, provider: TurnModel) {
+  const events: TurnEvent[] = [];
+  for await (const event of scope.invokeTool({
+    profile: CALLER,
+    name: 'ask_researcher',
+    input: { text },
+    provider: fixtureHostOptions(provider),
+  })) {
+    events.push(event);
+  }
+  return events;
+}
+
+function guardrailAt(events: TurnEvent[], boundary: string) {
+  return events.flatMap((e) =>
+    e.type === 'guardrail' && e.guardrail.boundary === boundary ? [e.guardrail] : [],
+  );
+}
+
+Deno.test('a call to an agent tool is read at tool_arguments_agent; a blocked one never reaches the agent', async () => {
+  const seen: string[] = [];
+  const events = await invokeGuarded(
+    guardedScope({ credentials: { at: { tool_arguments_agent: 'block' } } }),
+    `key ${TEST_OPENAI_KEY}`,
+    researcherSays('fine', seen),
+  );
+  assertEquals(seen, []);
+  const [error] = toolPhases(events, 'error');
+  assertEquals((error as { failure: { code: string } }).failure.code, 'arguments_blocked');
+  const [event] = guardrailAt(events, 'tool_arguments_agent');
+  assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.credentials']);
+});
+
+Deno.test("the called agent's reply is read at tool_output_agent before the caller reads it", async () => {
+  const events = await invokeGuarded(
+    guardedScope({ credentials: { at: { tool_output_agent: 'block' } } }),
+    'question',
+    researcherSays(`found ${TEST_OPENAI_KEY}`),
+  );
+  const [error] = toolPhases(events, 'error');
+  assertEquals((error as { failure: { code: string } }).failure.code, 'output_blocked');
+  const [event] = guardrailAt(events, 'tool_output_agent');
+  assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.credentials']);
+});
+
+Deno.test("an agent tool's failure message is read at tool_failure_agent", async () => {
+  const events = await invokeGuarded(
+    guardedScope({ credentials: { at: { tool_failure_agent: 'block' } } }),
+    'question',
+    researcherSays(`upstream said ${TEST_OPENAI_KEY}`, [], true),
+  );
+  const [event] = guardrailAt(events, 'tool_failure_agent');
+  assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.credentials']);
+});
+
+Deno.test("what an agent tool's call shows the person is read at tool_shown_agent", async () => {
+  const events = await invokeGuarded(
+    guardedScope({ credentials: { at: { tool_shown_agent: 'block' } } }),
+    'question',
+    researcherSays(`found ${TEST_OPENAI_KEY}`),
+  );
+  const [complete] = toolPhases(events, 'complete');
+  assertEquals((complete as { output: unknown }).output, labelText('detect.shown_blocked', {}));
+  const [event] = guardrailAt(events, 'tool_shown_agent');
+  assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.credentials']);
 });

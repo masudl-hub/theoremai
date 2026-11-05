@@ -4,6 +4,8 @@ import {
   AUTO_CONTINUE_DELAY_MS,
   GenerationStopError,
   isContinueStopKind,
+  isFailedStopKind,
+  isFailedTurnStop,
   isGenerationStopError,
   isResumeableStop,
   isUserCancelledStop,
@@ -21,6 +23,7 @@ Deno.test('turnStopFromOpenAiFinishReason maps normalized reasons', () => {
   assertEquals(turnStopFromOpenAiFinishReason('error').kind, 'provider_error');
   assertEquals(turnStopFromOpenAiFinishReason('stop', 'network_error').kind, 'provider_error');
   assertEquals(turnStopFromOpenAiFinishReason('tool_calls').kind, 'tool');
+  assertEquals(turnStopFromOpenAiFinishReason('tool_calls', 'length').kind, 'length');
   assertEquals(turnStopFromOpenAiFinishReason('content_filter').kind, 'filtered');
 });
 
@@ -96,4 +99,18 @@ Deno.test('GenerationStopError', () => {
   const err = new GenerationStopError({ kind: 'stream_incomplete', native: 'missing_final' });
   assertEquals(isGenerationStopError(err), true);
   assertEquals(err.stop.kind, 'stream_incomplete');
+});
+
+Deno.test('a missing answer is a failed turn, not a failed call, and offers Continue', () => {
+  assertEquals(isFailedStopKind('answer_missing'), false);
+  assertEquals(isFailedTurnStop('answer_missing'), true);
+  assertEquals(isFailedTurnStop('provider_error'), true);
+  assertEquals(isFailedTurnStop('completed'), false);
+  assertEquals(isResumeableStop({ kind: 'answer_missing' }), true);
+  assertEquals(isResumeableStop({ kind: 'answer_missing' }, ['provider_error']), false);
+  assertEquals(shouldAutoContinue({ kind: 'answer_missing' }), false);
+  assertEquals(
+    shouldAutoContinue({ kind: 'answer_missing' }, { autoContinue: ['answer_missing'] }),
+    true,
+  );
 });

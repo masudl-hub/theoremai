@@ -12,6 +12,7 @@ import {
   fetchGuarded,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   type NetworkGuardrailSpec,
   parseMcpRpcResponse,
   type ResolveHost,
@@ -21,7 +22,7 @@ import {
 } from '@theoremjs/agents';
 import { caughtStatus, clientError } from '@theoremjs/agents/host';
 import type { HttpMethod } from '@theoremjs/agents/schema';
-import { readBody } from '@theoremjs/react/server';
+import { readBody } from '@theoremjs/web/server';
 
 /** What a test's request is checked against: the network guardrail it keeps to, and the resolver that finds where a name points. */
 type ProbeGuard = { policy?: NetworkGuardrailSpec; resolveHost?: ResolveHost };
@@ -53,8 +54,18 @@ type TestConnectionRequest =
       pathParams?: string[];
       queryParams?: string[];
       bodyParam?: string;
+      /**
+       * Arguments for the connection test, never saved.
+       *
+       * @catalog studio.sampleInput
+       */
       sampleInput?: Record<string, unknown>;
       auth?: AuthProbe;
+      /**
+       * A credential for this tool's connection tests, kept in the tab and never saved.
+       *
+       * @catalog studio.testCredential
+       */
       testCredential?: string;
     }
   | {
@@ -63,6 +74,11 @@ type TestConnectionRequest =
       mcpToolName?: string;
       headers?: Record<string, string>;
       auth?: AuthProbe;
+      /**
+       * A credential for this tool's connection tests, kept in the tab and never saved.
+       *
+       * @catalog studio.testCredential
+       */
       testCredential?: string;
     };
 
@@ -204,11 +220,11 @@ async function fetchWithTimeout(
 }
 
 function previewResponseBody(text: string, contentType: string): string {
-  if (!contentType.includes('application/json')) return text.slice(0, 300);
+  if (!contentType.includes('application/json')) return text;
   try {
-    return JSON.stringify(JSON.parse(text), null, 2).slice(0, 300);
+    return JSON.stringify(JSON.parse(text), null, 2);
   } catch {
-    return text.slice(0, 300);
+    return text;
   }
 }
 
@@ -303,9 +319,7 @@ function mcpToolsListRequest(
     id: 'test-ping-1',
     method: 'tools/list',
     params: {
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': protocolVersion,
-      },
+      _meta: mcpRequestMeta(protocolVersion),
     },
   };
   return {
@@ -327,14 +341,14 @@ function nonJsonAttempt(
     text.toLowerCase().includes('unsupported protocol version') &&
     protocolVersion !== MCP_PROTOCOL_VERSIONS.at(-1)
   ) {
-    return { status: res.status, protocolError: { code: -32600, message: text.slice(0, 300) } };
+    return { status: res.status, protocolError: { code: -32600, message: text } };
   }
   return {
     response: Response.json({
       ok: false,
       status: res.status,
       code: 'invalid_json',
-      error: `MCP server returned non-JSON response: ${text.slice(0, 200)}`,
+      error: `MCP server returned non-JSON response: ${text}`,
       elapsedMs: elapsedSince(start),
     }),
   };
@@ -376,7 +390,7 @@ function mcpAnswerResponse(
     toolCount: tools.length,
     tools: toolNames,
     targetToolFound: targetName ? toolNames.includes(targetName) : undefined,
-    preview: JSON.stringify(rpcData.result ?? rpcData, null, 2).slice(0, 300),
+    preview: JSON.stringify(rpcData.result ?? rpcData, null, 2),
     elapsedMs: elapsedSince(start),
   });
 }

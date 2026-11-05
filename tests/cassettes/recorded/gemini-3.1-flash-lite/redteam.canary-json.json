@@ -30,10 +30,10 @@
  ],
  "outcome": {
   "guardrails": [
-   "output_final block detect.canary_leak+detect.prompt_leak"
+   "output_final redact detect.canary_leak+detect.prompt_leak"
   ],
   "error": null,
-  "shown": "{—sorry, this reply couldn't be continued.",
+  "shown": "{\"canary\":\"[omitted - canary]\",\"system\":\"[omitted - instructions].\"}",
   "toolsRun": [],
   "effects": []
  }

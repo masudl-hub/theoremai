@@ -3,6 +3,7 @@ import { runScopedTurn, runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { ANSWER_TOOL } from '../../src/kernel/answer-tool.ts';
 import { hasProfile, hasTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertRejects } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -61,6 +62,11 @@ function recordingProvider(into: ModelRequest[]): TurnModel {
   };
 }
 
+/** The schema the request sent: the answer tool's input, since the profile has a tool. */
+function answerSchema(request: ModelRequest | undefined): { properties?: Record<string, unknown> } {
+  return request?.wireTools?.find((tool) => tool.name === ANSWER_TOOL)?.parameters ?? {};
+}
+
 Deno.test('scopes with the same names keep their own tools, profiles, and schemas', async () => {
   const a = taggedScope('alpha');
   const b = taggedScope('beta');
@@ -98,8 +104,8 @@ Deno.test('a scope runs turns on its own registry, never the default one', async
   assertEquals(seenA[0]?.system.includes('system alpha'), true);
   assertEquals(seenA[0]?.system.includes('system beta'), false);
   assertEquals(seenB[0]?.system.includes('system beta'), true);
-  assertEquals(Object.keys(seenA[0]?.structured?.jsonSchema.properties ?? {}), ['alpha']);
-  assertEquals(Object.keys(seenB[0]?.structured?.jsonSchema.properties ?? {}), ['beta']);
+  assertEquals(Object.keys(answerSchema(seenA[0]).properties ?? {}), ['alpha']);
+  assertEquals(Object.keys(answerSchema(seenB[0]).properties ?? {}), ['beta']);
 
   assertEquals(hasProfile(PROFILE), false);
   assertEquals(hasTool(TOOL), false);

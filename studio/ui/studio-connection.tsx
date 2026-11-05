@@ -27,6 +27,7 @@ import {
   studioVault,
 } from '../browser-connection.ts';
 import type { StudioBrowserRuntime } from '../browser-transport.ts';
+import { forwardedFetch } from '../forwarded-fetch.ts';
 import {
   type LentKeys,
   type ModelRoute,
@@ -38,6 +39,8 @@ import {
 } from '../mod.ts';
 import { IconGemini, IconOpenRouter } from './brand-icons.tsx';
 import { InspectorSection } from './inspector.tsx';
+import { screenEndpoint } from './lib/project-address.ts';
+import { holdRuntime } from './lib/runtime-hold.ts';
 import type { StudioSupplies } from './studio-host.ts';
 
 type BrowserKeyVault = Readonly<Record<string, string | undefined>>;
@@ -154,22 +157,19 @@ function useConnectionRuntime(
     const slotted = studioVault(slots, vault);
     return {
       controller,
+      holds: 0,
       runtime: {
         mode,
         signal: controller.signal,
         remoteTools: hasLocal ? remoteTools : true,
+        fetch: forwardedFetch(screenEndpoint()),
         providers: { vault: slotted, ...(localConfig ? { local: localConfig } : {}) },
         decision: { vault: slotted },
         toolHandlers,
       } satisfies StudioBrowserRuntime,
     };
   }, [mode, hasLocal, vault, local, remoteTools, slots, toolHandlers]);
-  useEffect(
-    () => () => {
-      connection?.controller.abort();
-    },
-    [connection],
-  );
+  useEffect(() => (connection ? holdRuntime(connection) : undefined), [connection]);
   return connection?.runtime ?? null;
 }
 

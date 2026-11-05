@@ -18,7 +18,7 @@ import type {
 import { isRecord } from '../../kernel/util/record.ts';
 import { memorySink } from '../../observability/trace.ts';
 import type { TraceRecord } from '../../observability/trace-record.ts';
-import { formatTraceparent } from '../../observability/trace-span.ts';
+import { formatTraceparent, recordRoot } from '../../observability/trace-span.ts';
 import { type EvalRubric, fillRubric } from '../rubrics/types.ts';
 import { buildTrial } from '../trial.ts';
 import type { EvalGradeContext, EvalGrader, EvalResult, Trial } from '../types.ts';
@@ -129,9 +129,7 @@ function judgeKind(grader: string, rubric: EvalRubric, profileId: string): 'text
 }
 
 function traceparentsOf(records: readonly TraceRecord[]): string[] {
-  const spans = records[0]?.spans ?? [];
-  const ids = new Set(spans.map((span) => span.spanId));
-  const root = spans.find((span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId));
+  const root = records[0] && recordRoot(records[0]);
   return root ? [formatTraceparent(root.traceId, root.spanId)] : [];
 }
 

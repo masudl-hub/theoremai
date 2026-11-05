@@ -59,6 +59,9 @@ export type {
   CanaryGateResult,
   CanaryGateSession,
   CanaryStreamGate,
+  DecisionDisclosureEnforcer,
+  DecisionDisclosureVerdict,
+  DecisionGuardrailsSpec,
   DestinationGate,
   DestinationVerdict,
   Directive,
@@ -267,9 +270,9 @@ export {
   keySlotsOf,
   modelBindingSchema,
 } from './src/kernel/protocols/binding.ts';
-export { providerLimitsSchema, resolveProviderLimits } from './src/kernel/protocols/limits.ts';
-export type { CallSetup, ProtocolCall } from './src/kernel/protocols/runtime.ts';
-export { callProtocol, plainWebSocket } from './src/kernel/protocols/runtime.ts';
+export { providerLimitsSchema } from './src/kernel/protocols/limits.ts';
+export type { CallSetup, KeyCheck, ProtocolCall } from './src/kernel/protocols/runtime.ts';
+export { callProtocol, checkKey, plainWebSocket } from './src/kernel/protocols/runtime.ts';
 export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';
 export {
   assertTurnAttachments,
@@ -308,11 +311,13 @@ export type {
   ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
+  TranscriptionProfileDefinition,
 } from './src/kernel/registry/profiles.ts';
 export { createProfileRegistry, defineProfile } from './src/kernel/registry/profiles.ts';
 export { pickModel } from './src/kernel/registry/resolve.ts';
 export type { SchemaRegistry } from './src/kernel/registry/schemas.ts';
 export { createSchemaRegistry } from './src/kernel/registry/schemas.ts';
+export { resolveTurnSystemPrompt } from './src/kernel/registry/system-prompt.ts';
 export type {
   AuthUnauthenticatedPolicy,
   ContinueStopKind,
@@ -420,6 +425,13 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
+export { systemLinesProblem } from './src/kernel/system-lines.ts';
+export type {
+  ToolBackground,
+  ToolBackgroundCall,
+  ToolBackgroundHandle,
+  ToolBackgroundService,
+} from './src/kernel/tools/background.ts';
 export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
 export type { MemoryToolExecutionOptions } from './src/kernel/tools/memory-execution.ts';
@@ -432,6 +444,7 @@ export type {
 } from './src/kernel/tools/mod.ts';
 export {
   askUserTool,
+  assertToolSettings,
   buildHttpToolTarget,
   createToolRegistry,
   credentialPlacement,
@@ -440,6 +453,7 @@ export {
   formatToolResult,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,
@@ -449,6 +463,7 @@ export {
   withCredentialQuery,
 } from './src/kernel/tools/mod.ts';
 export type {
+  BackgroundToolEvent,
   BeginToolOperationResult,
   PageToolDispatch,
   PageToolExecution,
@@ -458,12 +473,14 @@ export type {
   ToolOperationClaim,
   ToolOperationIdentity,
   ToolOperationOutcome,
+  ToolOperationReply,
   ToolOperationUncertainty,
 } from './src/kernel/tools/operation.ts';
 export {
   savedToolInvocationSchema,
   toolInvocationHash,
   toolOperationOutcomeSchema,
+  toolOperationReplySchema,
 } from './src/kernel/tools/operation.ts';
 export type {
   SettledToolCall,
@@ -556,5 +573,4 @@ export {
   traceSpanMeta,
   writeTrace,
 } from './src/observability/mod.ts';
-export * from './src/presets/mod.ts';
 export * from './src/providers/mod.ts';

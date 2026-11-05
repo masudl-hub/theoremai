@@ -19,22 +19,22 @@ const FILES = [
 ];
 
 Deno.test('a setup is named for its folder, or by the name in front of it', () => {
-  assertEquals(setupOf('studio.setup.ts', 'bonsai'), { name: 'bonsai', file: 'studio.setup.ts' });
-  assertEquals(setupOf('evals/studio.setup.ts', 'bonsai')?.name, 'evals');
-  assertEquals(setupOf('backend/support.studio.setup.ts', 'bonsai')?.name, 'support');
-  assertEquals(setupOf('backend/studio.setup.test.ts', 'bonsai'), undefined);
-  assertEquals(setupOf('backend/setup.ts', 'bonsai'), undefined);
+  assertEquals(setupOf('studio.setup.ts', 'arbour'), { name: 'arbour', file: 'studio.setup.ts' });
+  assertEquals(setupOf('evals/studio.setup.ts', 'arbour')?.name, 'evals');
+  assertEquals(setupOf('backend/support.studio.setup.ts', 'arbour')?.name, 'support');
+  assertEquals(setupOf('backend/studio.setup.test.ts', 'arbour'), undefined);
+  assertEquals(setupOf('backend/setup.ts', 'arbour'), undefined);
 });
 
 Deno.test('a project lists its setups by name', () => {
   assertEquals(
-    setupsAmong(FILES, 'bonsai').map((setup) => setup.name),
-    ['bonsai', 'evals', 'support'],
+    setupsAmong(FILES, 'arbour').map((setup) => setup.name),
+    ['arbour', 'evals', 'support'],
   );
 });
 
 Deno.test('a word names a setup by its file or by its name', () => {
-  const setups = setupsAmong(FILES, 'bonsai');
+  const setups = setupsAmong(FILES, 'arbour');
   assertEquals(
     setupsNamed(setups, 'support').map((setup) => setup.file),
     ['backend/support.studio.setup.ts'],
@@ -47,12 +47,12 @@ Deno.test('a word names a setup by its file or by its name', () => {
 });
 
 Deno.test('two setups with one name are both offered', () => {
-  const setups = setupsAmong(['a/web/studio.setup.ts', 'b/web/studio.setup.ts'], 'bonsai');
+  const setups = setupsAmong(['a/web/studio.setup.ts', 'b/web/studio.setup.ts'], 'arbour');
   assertEquals(setupsNamed(setups, 'web').length, 2);
 });
 
 Deno.test('the picker moves between the ends, chooses and leaves', () => {
-  const setups = setupsAmong(FILES, 'bonsai');
+  const setups = setupsAmong(FILES, 'arbour');
   let state = picker(setups);
   state = pick(state, 'up');
   assertEquals(state.at, 0);
@@ -73,8 +73,8 @@ Deno.test('arrow keys, enter, escape, and control-c are the picker keys', () => 
 });
 
 Deno.test('the list lines names up and marks the one the cursor is on', () => {
-  assertEquals(setupLines(setupsAmong(FILES, 'bonsai'), 1), [
-    '  bonsai   studio.setup.ts',
+  assertEquals(setupLines(setupsAmong(FILES, 'arbour'), 1), [
+    '  arbour   studio.setup.ts',
     '› evals    evals/studio.setup.ts',
     '  support  backend/support.studio.setup.ts',
   ]);

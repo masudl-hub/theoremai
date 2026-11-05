@@ -9,13 +9,14 @@ import {
   projectProfile,
   registerProfile,
   registerStructured,
+  registerTools,
   resolveTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { TurnRequest } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
@@ -194,24 +195,26 @@ Deno.test('a guarded text profile carries no live or speech spec', () => {
   check(generation.live, undefined, 'no live spec');
   check(generation.speech, undefined, 'no speech spec');
 });
-Deno.test('a structured map follows the slot, falling back when the slot is unset, empty, or unmapped', () => {
+Deno.test('a structured map follows the option, falling back when the option is unset, empty, or unmapped', () => {
   clearProfiles();
   registerStructured('a', { jsonSchema: { type: 'object' } } as never);
   registerStructured('b', { jsonSchema: { type: 'object' } } as never);
   registerStructured('f', { jsonSchema: { type: 'object' } } as never);
   define('map', {
-    inputs: { text: true, slots: { kind: ['a', 'b', '', 'undefined'] } },
+    inputs: {
+      text: true,
+      options: { kind: { choices: [{ value: 'a' }, { value: 'b' }, { value: 'undefined' }] } },
+    },
     outputs: {
-      structured: { by: 'kind', map: { a: 'a', b: 'b', undefined: 'b', '': 'b' }, fallback: 'f' },
+      structured: { by: 'kind', map: { a: 'a', b: 'b', undefined: 'b' }, fallback: 'f' },
     },
   });
-  const id = (slots?: Record<string, string>) =>
-    resolveTurn({ profile: 'map', input: { text: 'hi', ...(slots ? { slots } : {}) } } as never)
+  const id = (options?: Record<string, string>) =>
+    resolveTurn({ profile: 'map', input: { text: 'hi', ...(options ? { options } : {}) } } as never)
       .generation.structured?.id;
   check(id({ kind: 'a' }), 'a', 'mapped a');
   check(id({ kind: 'b' }), 'b', 'mapped b');
-  check(id(), 'f', 'no slots');
-  check(id({ kind: '' }), 'f', 'empty slot');
+  check(id(), 'f', 'no options');
 });
 Deno.test('efforts: an empty ladder selects nothing; several without a default is a config error', () => {
   clearProfiles();

@@ -140,7 +140,11 @@ Deno.test('stages: onStage inject at pre_turn reaches the provider history', asy
   );
 
   assertEquals(injectedOf(events), [
-    { type: 'stage', stage: 'pre_turn', injected: [{ id: 'steer-1' }] },
+    {
+      type: 'stage',
+      stage: 'pre_turn',
+      injected: [{ id: 'steer-1', messages: [{ role: 'user', content: 'follow-up absorbed' }] }],
+    },
   ]);
 
   assertEquals(
@@ -232,7 +236,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
       stage: 'post_tool',
       callId: stubCall?.callId,
       toolName: 'stub_tool',
-      injected: [{ id: 'steer-2' }],
+      injected: [{ id: 'steer-2', messages: [{ role: 'user', content: 'also do this' }] }],
     },
   ]);
 });
@@ -344,7 +348,11 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
   assertEquals(call, 2);
   assertEquals(beforeEndCount >= 2, true);
   assertEquals(injectedOf(events), [
-    { type: 'stage', stage: 'before_end', injected: [{ id: 'steer-4' }] },
+    {
+      type: 'stage',
+      stage: 'before_end',
+      injected: [{ id: 'steer-4', messages: [{ role: 'user', content: 'extend please' }] }],
+    },
   ]);
   // Both steps reply: the re-entered step's text follows the first, a blank line apart.
   assertEquals(replyText(events), 'first reply\n\nsecond reply');
@@ -438,5 +446,88 @@ Deno.test('stages: inject_not_allowed yields stageWarnings', async () => {
       (e) => e.type === 'stage' && e.stageWarnings?.some((w) => w.code === 'inject_not_allowed'),
     ),
     true,
+  );
+});
+
+/**
+ * A turn that runs `stub_tool`, then gives each later step the next of `answers`, under `guardrails`.
+ * Returns the reply text each `before_end` was given.
+ */
+async function replyAtBeforeEnd(
+  id: string,
+  answers: readonly string[],
+  guardrails?: Parameters<typeof defineProfile>[0]['guardrails'],
+): Promise<string[]> {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      id,
+      identity: { handle: 'bot' },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 4,
+      tools: { allow: ['stub_tool'] },
+      inputs: { text: true },
+      ...(guardrails ? { guardrails } : {}),
+    }),
+  );
+  let call = 0;
+  const provider: TurnModel = {
+    complete: async function* () {
+      call++;
+      if (call === 1) {
+        yield { type: 'text', text: 'on it' };
+        yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } };
+        yield { type: 'done', stop: { kind: 'tool' } };
+        return;
+      }
+      const answer = answers[call - 2] ?? '';
+      if (answer) yield { type: 'text', text: answer };
+      yield { type: 'done', stop: { kind: 'completed' } };
+    },
+  };
+  const seen: string[] = [];
+  await Array.fromAsync(
+    runTurn(
+      {
+        profile: id,
+        input: { text: 'run tool' },
+        onStage: ({ stage, reply }) => {
+          if (stage !== 'before_end') return;
+          seen.push((reply ?? []).map((m) => m.content ?? '').join(''));
+        },
+      },
+      provider,
+    ),
+  );
+  return seen;
+}
+
+Deno.test('stages: before_end is given the answer the model just wrote', async () => {
+  assertEquals(await replyAtBeforeEnd('stage.reply.text', ['renamed you']), ['renamed you']);
+});
+
+Deno.test('stages: before_end is given an empty reply when the last step wrote nothing', async () => {
+  // The text the step before its calls wrote is not the answer.
+  assertEquals(await replyAtBeforeEnd('stage.reply.empty', ['']), ['']);
+});
+
+Deno.test('stages: before_end is given a draft a detector goes on to stop', async () => {
+  const detect = {
+    'test.secret': {
+      label: 'secret',
+      at: { reply: 'block' as const },
+      find: (text: string) => {
+        const at = text.indexOf('SECRET');
+        return at < 0 ? [] : [{ start: at, end: at + 'SECRET'.length }];
+      },
+      hint: 'Leave the secret out.',
+    },
+  };
+  assertEquals(
+    await replyAtBeforeEnd('stage.reply.blocked', ['the SECRET', 'renamed you'], {
+      detect,
+      blockedReply: { onBlock: 'retry', maxRetries: 1 },
+    }),
+    ['the SECRET', 'renamed you'],
   );
 });

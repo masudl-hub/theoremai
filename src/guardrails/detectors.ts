@@ -21,10 +21,10 @@ import {
   matchersOf,
   patternsProblem,
 } from './host-patterns.ts';
-import { SENSITIVE_GROUPS } from './sensitive-groups.ts';
+import { SENSITIVE_GROUPS, WORKING_GROUPS } from './sensitive-groups.ts';
 
 /**
- * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,
+ * What the kernel finds in text: the families of sensitive data, prompt-injection phrasing,
  * a tool's text that instructs the agent, and what is the profile's own on its way out (the canary token, the system instruction, the
  * kernel's markers, an image or link to an address the model was not given, and the names of its
  * tools).
@@ -32,7 +32,6 @@ import { SENSITIVE_GROUPS } from './sensitive-groups.ts';
 const DETECTORS = [
   ...SENSITIVE_GROUPS,
   'injection',
-  'tool_instructions',
   'canary_leak',
   'prompt_leak',
   'marker_leak',
@@ -42,6 +41,11 @@ const DETECTORS = [
 ] as const;
 /** A detector recognizes a particular kind of content in text. Its configured action determines what happens when it finds a match. */
 type Detector = (typeof DETECTORS)[number];
+
+/** The detectors a text is cleaned with when no profile says how: every one but the working groups (`WORKING_GROUPS`). */
+const UNPROFILED_DETECTORS: readonly Detector[] = DETECTORS.filter(
+  (detector) => !(WORKING_GROUPS as readonly string[]).includes(detector),
+);
 
 /**
  * What the kernel does with a match, the same at every boundary:
@@ -56,11 +60,21 @@ type DetectAction = (typeof DETECT_ACTIONS)[number];
 
 /** The addresses `ungiven_images` or `ungiven_links` lets through beyond the ones the model was given. */
 interface UrlAllow {
-  /** Hostnames let through whatever their URL, such as the host's own CDN. */
+  /**
+   * Hostnames whose images load whatever their URL, such as your own CDN.
+   *
+   * @catalog guardrails.detect.ungiven_links.allow.hosts Hostnames whose links pass whatever their
+   * URL; the hosts ungiven_images allows pass too.
+   *
+   * @remarks Hostnames let through whatever their URL, such as the host's own CDN.
+   */
   hosts?: readonly string[];
   /**
-   * Whether a URL a tool returned counts as given. Default true. A tool result can offer the
-   * model URLs to pick from, and the pick tells their server something; false closes that
+   * Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user,
+   * and history gave.
+   *
+   * @remarks Whether a URL a tool returned counts as given. Default true. A tool result can offer
+   * the model URLs to pick from, and the pick tells their server something; false closes that
    * channel, and keeps only what the system prompt, the user, and host history gave.
    */
   fromTools?: boolean;
@@ -68,35 +82,70 @@ interface UrlAllow {
 
 /** The names `tool_leak` lets through. */
 interface NameAllow {
-  /** Names of tools or parameters that are innocent in a reply, such as a tool called `search`. */
+  /**
+   * Names of tools or parameters that are not read for, such as a tool called search.
+   *
+   * @remarks Names of tools or parameters that are innocent in a reply, such as a tool called
+   * `search`.
+   */
   names?: readonly string[];
 }
 
 /** A detector's setting in full. */
 interface DetectorConfig {
-  /** The action at every boundary. Left out, each boundary keeps its default. */
+  /**
+   * What a match of this detector does at every boundary it reads, unless `at` names that boundary.
+   *
+   * @remarks The action at every boundary. Left out, each boundary keeps its default.
+   */
   action?: DetectAction;
-  /** An action for the boundaries it names, over `action` or the default. */
+  /**
+   * An action per boundary, over action or the default.
+   *
+   * @remarks An action for the boundaries it names, over `action` or the default.
+   */
   at?: Partial<Record<Boundary, DetectAction>>;
   /**
-   * Whether Theorem's own patterns run. Default true. With `patterns` it gives the four choices:
-   * both, only Theorem's, only the host's (`false` with patterns), or none (`false` without).
-   * A detector that takes no patterns refuses it.
+   * Whether Theorem’s own patterns run. Off with no patterns of your own turns the detector off.
+   *
+   * @remarks Whether Theorem's own patterns run. Default true. With `patterns` it gives the four
+   * choices: both, only Theorem's, only the host's (`false` with patterns), or none (`false`
+   * without). A detector that takes no patterns refuses it.
    */
   theorem?: boolean;
-  /** The host's own patterns, read on the text as written. A detector that takes no patterns refuses them. */
+  /**
+   * Your own patterns, each a name and a regular expression or a list of words. A match takes this
+   * detector’s action.
+   *
+   * @remarks The host's own patterns, read on the text as written. A detector that takes no
+   * patterns refuses them.
+   */
   patterns?: readonly HostPattern[];
-  /** The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`). Patterns need it. */
+  /**
+   * The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed
+   * whenever patterns is set.
+   *
+   * @remarks The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`).
+   * Patterns need it.
+   */
   compiled?: CompiledPatterns;
   /**
    * One line telling the model what to leave out, sent when this detector blocks a reply that is
-   * then retried. Left out, the labels' `detect.hint.<detector>`. Only beside `patterns`: the
-   * labels' hint describes Theorem's patterns, not the host's.
+   * then retried. Set it beside patterns of your own.
+   *
+   * @remarks One line telling the model what to leave out, sent when this detector blocks a reply
+   * that is then retried. Left out, the labels' `detect.hint.<detector>`. Only beside `patterns`:
+   * the labels' hint describes Theorem's patterns, not the host's.
    */
   hint?: string;
   /**
-   * What the detector lets through: for `ungiven_images` and `ungiven_links` the addresses besides
-   * the given ones, for `tool_leak` the names that are innocent. Any other detector refuses it.
+   * What passes besides the URLs the model was given this turn.
+   *
+   * @catalog guardrails.detect.tool_leak.allow The names that are innocent in a reply.
+   *
+   * @remarks What the detector lets through: for `ungiven_images` and `ungiven_links` the addresses
+   * besides the given ones, for `tool_leak` the names that are innocent. Any other detector refuses
+   * it.
    */
   allow?: UrlAllow | NameAllow;
 }
@@ -128,23 +177,48 @@ type HostFind = (text: string, context: { boundary?: Boundary }) => readonly Hos
 interface HostDetectorConfig {
   /** What an editor and the trace call it. */
   label: string;
-  /** The action at every boundary. Left out, only the boundaries `at` names are read. */
+  /**
+   * What a match does, at every boundary.
+   *
+   * @remarks The action at every boundary. Left out, only the boundaries `at` names are read.
+   */
   action?: DetectAction;
-  /** An action for the boundaries it names, over `action`. */
+  /**
+   * An action per boundary, over action.
+   *
+   * @remarks An action for the boundaries it names, over `action`.
+   */
   at?: Partial<Record<Boundary, DetectAction>>;
-  /** Its patterns, read on the text as written. */
+  /**
+   * Its patterns, each a name and a regular expression or a list of words, read on the text as
+   * written.
+   *
+   * @remarks Its patterns, read on the text as written.
+   */
   patterns?: readonly HostPattern[];
-  /** The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`). Patterns need it. */
+  /**
+   * The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed
+   * whenever patterns is set.
+   *
+   * @remarks The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`).
+   * Patterns need it.
+   */
   compiled?: CompiledPatterns;
   /**
-   * Its own reading. As a reply streams, a `find` reads the text held so far, and the last
+   * Its own reading, for what patterns cannot say: a function that returns where the matches start
+   * and end. It runs on every text crossing a boundary the detector reads, so it returns at once.
+   *
+   * @remarks Its own reading. As a reply streams, a `find` reads the text held so far, and the last
    * `HOST_FIND_HOLD` characters stay held (`HOST_FIND_HOLD_LIVE` in a Live reply): a match is
    * caught whole when it is no longer than that.
    */
   find?: HostFind;
   /**
    * One line telling the model what to leave out, sent when this detector blocks a reply that is
-   * then retried. Left out, the labels' `detect.hint.own`, which names the label.
+   * then retried.
+   *
+   * @remarks One line telling the model what to leave out, sent when this detector blocks a reply
+   * that is then retried. Left out, the labels' `detect.hint.own`, which names the label.
    */
   hint?: string;
 }
@@ -251,17 +325,21 @@ const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arg
 const TOOL_SHOWN_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_shown', kind));
 
 /**
- * Text on its way to the model is redacted, a tool call takes `toTool`, and what the model writes
- * or a tool shows the person is not read.
+ * Text on its way to the model is flagged, a tool call takes `toTool`, and what a tool shows the
+ * person is not read. What the model says or thinks is left out: that text goes to the person.
  */
-function everywhere(toTool: DetectAction): BoundaryActions {
+function notToPerson(toTool: DetectAction): BoundaryActions {
   return {
-    ...recordOf(INBOUND_BOUNDARIES, () => 'redact' as const),
-    ...recordOf(TOOL_BOUNDARIES, () => 'redact' as const),
+    ...recordOf(INBOUND_BOUNDARIES, () => 'flag' as const),
+    ...recordOf(TOOL_BOUNDARIES, () => 'flag' as const),
     ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
     ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'ignore' as const),
-    ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
   };
+}
+
+/** As `notToPerson`, and what the model says or thinks is not read. */
+function everywhere(toTool: DetectAction): BoundaryActions {
+  return { ...notToPerson(toTool), ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const) };
 }
 
 /** What the model writes: a tool call takes `toTool`, what it says takes `said`, a thought `thought`. */
@@ -273,19 +351,6 @@ function leaving(toTool: DetectAction, said: DetectAction, thought: DetectAction
     live_reply: said,
     thought,
   };
-}
-
-/** What a tool returns, its output, and its error text: `remote` from a tool the host did not write, `local` from a function. */
-function returned(remote: DetectAction, local: DetectAction): BoundaryActions {
-  const crossings = ['tool_output', 'tool_failure'] as const;
-  return Object.fromEntries(
-    crossings.flatMap((crossing) =>
-      TOOL_KINDS.map((kind) => [
-        toolBoundary(crossing, kind),
-        kind === 'function' ? local : remote,
-      ]),
-    ),
-  );
 }
 
 /** What the model says or thinks: a reply of any kind takes `said`, a thought `thought`. */
@@ -320,56 +385,68 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     label: 'Credentials',
     doc: 'API keys, tokens, passwords, and private keys.',
     group: 'data',
-    // why: A key the model was handed (in its instructions or a tool's output) is a key the person
-    // reading the reply should not get, nor one a tool returned; the rest still shows. A thought and
-    // a Live reply stay unread, so neither holds its stream nor turns transcription on for every turn.
+    // why: A thought and a Live reply stay unread, so neither holds its stream nor turns
+    // transcription on for every turn.
     defaults: {
       ...everywhere('flag'),
-      ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'redact' as const),
-      reply: 'redact',
-      reply_structured: 'redact',
+      ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'flag' as const),
+      reply: 'flag',
+      reply_structured: 'flag',
     },
+    patterns: true,
+  },
+  email: {
+    label: 'Email',
+    doc: 'Email addresses.',
+    group: 'data',
+    defaults: everywhere('flag'),
+    patterns: true,
+  },
+  phone: {
+    label: 'Phone',
+    doc: 'Phone numbers: international, North American, and national, or any number after a phone label.',
+    group: 'data',
+    defaults: everywhere('flag'),
+    patterns: true,
+  },
+  bank_account: {
+    label: 'Bank account',
+    doc: 'Account, routing, and sort-code numbers after a label that names them. IBANs are `financial`.',
+    group: 'data',
+    defaults: everywhere('flag'),
     patterns: true,
   },
   injection: {
     label: 'Injection',
-    doc: 'Prompt-injection phrasing, plain or disguised.',
+    doc: 'Prompt-injection phrasing, plain or disguised, and orders to the agent in what a tool returns. A match there raises taint.',
     group: 'manipulation',
-    defaults: everywhere('ignore'),
-    patterns: true,
-  },
-  tool_instructions: {
-    label: 'Tool instructions',
-    short: 'From tools',
-    doc: 'Tool output that instructs the agent. A match raises taint.',
-    group: 'manipulation',
-    defaults: returned('flag', 'ignore'),
+    defaults: notToPerson('ignore'),
     patterns: true,
   },
   canary_leak: {
     label: 'Canary leak',
     doc: 'The canary token, plain or encoded. Planted only above Ignore.',
     group: 'setup',
-    defaults: leaving('block', 'block', 'redact'),
+    defaults: leaving('flag', 'flag', 'flag'),
   },
   prompt_leak: {
     label: 'Prompt leak',
     doc: 'Private system-instruction text, plain or disguised.',
     group: 'setup',
-    defaults: leaving('flag', 'block', 'redact'),
+    defaults: leaving('flag', 'flag', 'flag'),
   },
   marker_leak: {
     label: 'Marker leak',
     doc: "The kernel's data markers and canary note.",
     group: 'setup',
-    defaults: shown('block', 'redact'),
+    defaults: shown('flag', 'flag'),
   },
   ungiven_images: {
     label: 'Ungiven images',
     short: 'Images',
     doc: 'An image at an address not given. Loads with no click.',
     group: 'addresses',
-    defaults: shown('block', 'redact'),
+    defaults: shown('flag', 'flag'),
     allow: 'urls',
   },
   ungiven_links: {
@@ -800,4 +877,5 @@ export {
   PATTERN_DETECTORS,
   resolveAllow,
   resolveDetect,
+  UNPROFILED_DETECTORS,
 };

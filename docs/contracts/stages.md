@@ -15,9 +15,9 @@ the release cut.
 | `STAGE_AFFORDANCE_MATRIX` / `applyStageResult` / parsers | landed |
 | `TurnRequest` / `SessionRequest` / `InvokeToolRequest.onStage` types | landed |
 | Text `runTurn` `pre_turn` / `post_tool` / `before_end` / `post_turn` | landed |
-| Text barriers / `onSteer` / `barrier` events deleted from API | landed |
+| Text barriers, the steer handler and `barrier` events deleted from API | landed |
 | `pre_tool` deny/confirm/mutate execute cutover | landed |
-| Tool `preTool`; removed `canExecute` / `preflight` / `interactive` | landed |
+| Tool `preTool` replaced the old can-execute check, `preflight` and `interactive` | landed |
 | `ask_user` awaiting completion; gate vs deny wire | landed |
 | Interface gated/awaiting split (text) | landed |
 | Live profile `allowSteering`; cycle `idle`\|`open`; `LiveSession.executeTool` | landed |
@@ -25,8 +25,8 @@ the release cut.
 | React / interface `gated*` only (`paused*` removed; no aliases) | landed |
 | Cancelled `done` + `post_turn` for AbortSignal (not only stage abort) | landed |
 
-Slice 1 removed: `TURN_STEER_BARRIERS`, `TurnSteer*`, `onSteer`, `barrier` events.
-Slice 2 removed: `canExecute`, `preflight`, `interactive` tool config; pause fiction for
+Slice 1 removed: the turn steer barrier constants and types, the steer handler, `barrier` events.
+Slice 2 removed: the can-execute check, `preflight`, `interactive` tool config; pause fiction for
 confirm/permission/auth (`phase: 'gate'` + `stop.kind: 'gate'`). `ask_user` completes with
 `awaiting_user_input`. Slice 3: live stages + `executeTool` + studio `onStage`
 + full `paused*` → `gated*` cut (no aliases).
@@ -59,7 +59,7 @@ ceiling on host side effects.
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `waitFor`, `abort` |
-| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort` |
+| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject` and `abort` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort` |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 
@@ -75,15 +75,10 @@ type TurnStage =
   | 'before_end'
   | 'post_turn';
 
-/** Confirm-to-run / permission gate — NOT ToolPause, NOT awaiting. */
-interface ToolGate {
-  kind: 'confirmation' | 'permission' | 'auth' | 'page';
-  tool: string;
-  permission?: ToolPermission;
-  summary?: string;
-  /** Auth challenge when kind === 'auth' (same fields as today’s authChallenge). */
-  authChallenge?: ToolPause['authChallenge'];
-}
+/** Confirm-to-run / permission / sign-in / page gate; not awaiting. */
+type ToolGate =
+  | (ToolGateBase & { kind: 'confirmation' | 'permission' | 'page' })
+  | (ToolGateBase & { kind: 'auth'; authChallenge: ToolAuthChallenge });
 
 interface StageContext {
   stage: TurnStage;
@@ -97,6 +92,8 @@ interface StageContext {
   input?: unknown;
   /** pre_tool in a turn's step: every call the model made in the step, in its order, as the host was shown it. */
   stepCalls?: readonly { callId: string; tool: string; input: unknown }[];
+  /** pre_tool: the user approved this call where it stopped, at its permission or a confirmation. A sign-in is not an approval. */
+  approved?: true;
   /** True when pre_tool settled without running the body (deny or gate). */
   callNotStarted?: boolean;
   outputRaw?: unknown;
@@ -110,11 +107,16 @@ interface StageContext {
   awaiting?: boolean;
   stop?: TurnStop;
   gate?: ToolGate;
+  /**
+   * before_end on text: the answer the model just wrote, before any guardrail verdict on it and
+   * not yet in `history`. Its last step wrote no text when no message here carries any.
+   */
+  reply?: readonly TurnHistoryMessage[];
 }
 
 interface StageResult {
   inject?: TurnHistoryMessage[];
-  /** Names this inject; the stage event recording it landing carries it in `injected`. */
+  /** Names this inject; the stage event recording it landing carries it, with its messages, in `injected`. */
   injectId?: string;
   /**
    * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
@@ -125,7 +127,7 @@ interface StageResult {
   abort?: boolean | { reason?: string };
   /** pre_tool: refuse the call. post_tool: replace the result with this failure. */
   deny?: { code?: string; message?: string };
-  /** pre_tool only — request confirm/permission gate (not ask_user). */
+  /** pre_tool only — request confirm/permission gate (not ask_user). Once the user grants it, the call's resume asks nothing more. */
   confirm?: true | { summary?: string };
   /** pre_tool: replace the input. post_tool: replace the raw output. Both re-validate. */
   mutate?: { input: unknown } | { output: unknown };
@@ -162,7 +164,7 @@ type StageHandler = (
 | `TurnRequest.onStage` | Required for inject; optional otherwise | All five on text; image/speech emit stages but inject never allowed |
 | `SessionRequest.onStage` | Set once at `runSession`; immutable for session life | All five on live cycles + tool executes |
 | `InvokeToolRequest.onStage` | Optional | `pre_tool` / `post_tool` only |
-| `LiveSession` | **No** `setOnStage` — avoids mid-session races | — |
+| `LiveSession` | **No** way to set a handler later — avoids mid-session races | — |
 
 If both `InvokeToolRequest.onStage` and an ambient turn/session handler exist,
 **both** run at tool stages: tool-local ambient first is N/A; order is
@@ -184,14 +186,18 @@ ran; `warnings` lists warning codes. See
 3. Run the same sanitize path as today’s steer injects (`sanitizeHistory` +
    untrusted-input policy from the profile).
 4. Text / Interactions: append to turn history, after the opening input; when
-   `interactionsContinuation` is active, also append `user_input` steps.
+   `persistViaInteractionId` continues a stored interaction, the next model call
+   sends them in its `continuation`: the history past `stateHistoryLength`.
 5. Live: apply as live ingress only — **text** via `sendText` (or equivalent
    realtime text). **No** `TurnMediaRef` / history `parts` inject on live
    (live already refuses media refs). Other modalities out of scope for inject.
    An inject with any message live cannot send as plain text (`parts`, or no
    text) is refused whole with an `inject_invalid_messages` stage warning;
    none of it is written.
-6. `before_end` inject on text: the answer the model just wrote goes into turn
+6. `before_end` on text: `StageContext.reply` is the answer the model just wrote, so a host can
+   tell a turn about to end with no answer (no text in it) and inject to ask for one. A draft a
+   detector goes on to stop is in it: the egress gate, not the host, answers that draft.
+   `before_end` inject on text: the answer the model just wrote goes into turn
    history first, then the inject, and the step loop re-enters subject to
    **maxSteps** (see Budgets), so the model goes on from its answer. On live:
    schedule ingress; does not invent a fake model pull.
@@ -217,8 +223,9 @@ provider checkpoint still covers it. Structured replies get no blank line.
 non-empty string; anything else refuses the inject whole with an
 `inject_id_invalid` warning, as does an `injectId` without an `inject`). Where
 the messages land in the conversation — not when the handler returns — the
-kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id }] }`
-naming the injects that landed at that stage, and `released` when a draft
+kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages }] }`
+naming the injects that landed at that stage, each with the messages it added as the model reads
+them (after the `injected` guardrails), and `released` when a draft
 dropped (see 7). An inject that never lands (a
 live cycle that aborts first, a refused live inject) is never reported, so a
 host that sent it knows to send it again. Unnamed injects land unreported.
@@ -305,16 +312,16 @@ provider-native builtin traffic is not kernel-executed.
 for auth), same `callId` / snapshot rules as today’s permission resume — but
 stop kind was `'gate'`, not `'tool'`. On live, `executeTool({ callId, decision:
 'approve' })` (see below). After settle, host continues the model turn the same
-way they do after today’s tool resume (`continueAfterTool` / new `runTurn` /
-live already open).
+way they do after today’s tool resume (a new `runTurn`; on live the session
+is already open).
 
 **Deny resume:** `resume: { granted: false }` (live: `decision: 'deny'` or
 `'abandon'`) settles **without** running the body: failure event, `post_tool`
 with `callNotStarted: true`, and (on live) one upstream tool response — same
 honesty as `pre.kind === 'deny'`.
 
-**Do not** reuse `ToolPause` or `tool.phase: 'pause'` or `stop.kind: 'tool'` for
-these. Those names are removed with the fiction.
+A gate stops with `stop.kind: 'gate'`, never `stop.kind: 'tool'`. The pause type
+and the pause tool phase were removed with the fiction.
 
 ### `awaiting_user_input` payload (frozen)
 
@@ -352,6 +359,7 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 | Tools done incl. awaiting; host UI may still be open | yes | yes (`completed` / …) | yes |
 | `stop.kind: 'gate'` | no | yes (`gate`) | yes — observe suspension |
 | Live interrupt ending cycle | yes | yes (`interrupted`) | yes |
+| Live reply withheld or refused | yes | yes (`filtered`) | yes |
 | Deny mid-batch | no (not ending) | no | no — batch continues |
 | Cancelled (abort affordance) | if ending | yes (`cancelled`) | yes |
 
@@ -372,6 +380,14 @@ OpenRouter, AI SDK, Gemini Live tool responses.
    every id is unknown. A wait that can never end — on the call itself, on a call that
    waits for this one, or on one that runs after it one at a time — fails the call
    (`wait_cycle`), and so does every call whose own wait is part of that loop.
+
+   A tool registered with `after: true` lets the model ask for this wait. Its input
+   gains `after`, a list of tool names. At `pre_tool` the kernel turns each name into
+   the ids of that tool's other calls in the step, joins them with `waitFor`, and takes
+   `after` out of the input before the body runs. A name with no call in the step fails
+   as `wait_unknown`. Outside a step, as in a live session, `after` waits on nothing.
+   `registerTool` refuses `after` on a tool with its own `after` input, or an input that
+   is not an object or a union of objects.
 2. On **gate**: emit gate wire for that call; **do not** start its body;
    **continue** siblings — a gate holds only its own call, and a sibling that
    gates waits too. After the batch, end with `done.stop.kind: 'gate'` +
@@ -426,15 +442,21 @@ Same names. Cycle state `idle` | `open` on the session.
 
 | Stage | Trigger | Site |
 | --- | --- | --- |
-| `pre_turn` | First ingress opening a cycle: first `sendText` / `sendVideo` / `sendAudio` / initial `input` after `idle`. Continuous audio: first chunk after idle only | Before socket write |
+| `pre_turn` | First ingress opening a cycle: first `sendText` / `sendVideo` / `sendAudio` / initial `input` after `idle`. Continuous audio: first chunk after idle only. Input sent during a cycle an interrupt ends: when it ends | Before socket write |
 | `pre_tool` / `post_tool` | Inside `executeTool` | Session execute API |
-| `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; before finalize / before yield `done` | `events()` outbound path |
+| `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; after the reply's final verdict; before yield `done` | `events()` outbound path |
 | `post_turn` | After that `done`; cycle → `idle` | Same |
+
+`generation_complete` is not a cycle boundary: the `done` goes to the host and the cycle stays open until the verdict on the reply. A reply the verdict withholds or refuses ends the cycle with `stop: { kind: 'filtered', native: 'egress' }`. A bare `interactionStatus: IDLE` after the reply's `turnComplete` ends nothing new: it sends no `done`.
 
 `sendContext` is not an ingress for this table: it opens no cycle, runs no `pre_turn`, and adds nothing to `StageContext.history`.
 
 **Barge-in / empty audio:** interrupt ends the cycle with `before_end` /
-`interrupted` / `post_turn`. Empty or zero-length audio chunks do **not** open
+`interrupted` / `post_turn`, also after `generation_complete`. The `turnComplete`
+that follows sends no `done`, only its `provider_checkpoint`, and ends no cycle: the
+reply already ended. Input sent during the interrupted cycle opens the next cycle
+as soon as the interrupt ends this one, so the reply to it runs in a cycle of its own.
+Empty or zero-length audio chunks do **not** open
 a cycle. After `post_turn`, the next non-empty ingress opens a new cycle.
 
 **StageContext.history (live):** seeded from `SessionRequest.history`, then
@@ -536,7 +558,7 @@ tool-request events.
 | Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
 | Abandon | The message walks away in its own turn request (`abandon`): the host settles each waiting call cancelled before the reply, and the model reads it. A call an earlier answer already settled (its client never heard) replays that settle instead |
 | Failed answer | A request that ends before the call it answers or walks away from settles puts the call back to wait (`createTheoremHandler`); the client leaves the gate to answer again. After the settle, the client keeps the result |
-| Studio steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
+| Studio steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/web/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
 ---
@@ -566,7 +588,7 @@ tool-request events.
 
 | Slice | Must fully cut over |
 | --- | --- |
-| **1 — Spine** | `TURN_STAGES`, `stage` events, `onStage` attach points, inject gate semantics, text maps, delete `onSteer`/barriers, cancelled `done`+`post_turn`, maxSteps inject reject, frozen types |
+| **1 — Spine** | `TURN_STAGES`, `stage` events, `onStage` attach points, inject gate semantics, text maps, delete the steer handler and barriers, cancelled `done`+`post_turn`, maxSteps inject reject, frozen types |
 | **2 — Tools** | Pipeline order, `preTool`, remove three old hooks, gate vs deny vs awaiting wire, `ask_user` awaiting payload, synthetic deny results, T2-before-post_tool, interface gated/awaiting split (text) |
 | **3 — Live + studio** | Live profile `allowSteering`, cycle machine, `executeTool`, live inject, studio/session inbox, react rename |
 
@@ -582,7 +604,7 @@ slice 1 alone is the product.
 | Pattern | Why |
 | --- | --- |
 | `done.stop.kind: 'tool'` meaning pause | Fake |
-| `tool.phase: 'pause'` / `ToolPause` for ask or confirm | Wrong layer / removed |
+| `tool.phase: 'pause'` or a pause type for ask or confirm | Wrong layer / removed |
 | Second provider result on same `call_id` | Invalid |
 | Silent ignore of invalid affordances | Use matrix + warning |
 | `executeTool` as a second event AsyncIterable | Mux spaghetti |

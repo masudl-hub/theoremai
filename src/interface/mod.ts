@@ -56,6 +56,7 @@ export {
   generationSelectEnabled,
   interfaceEffortOptions,
   interfaceModelOptions,
+  MODEL_SELECT_MIN_MODELS,
   modelSelectEnabled,
 } from './models.ts';
 export type {
@@ -66,6 +67,7 @@ export type {
 export {
   COMPOSER_PENDING_KINDS,
   cloneUserTurnDraft,
+  composerPendingMoves,
   composerPendingPreview,
   consumeNextComposerQueue,
   consumeNextComposerSteer,
@@ -98,7 +100,12 @@ export type { WordedStopKind } from './stop.ts';
 export { stopText, WORDED_STOP_KINDS } from './stop.ts';
 export type { SettledToolCallEvent } from './tool-calls.ts';
 export { argumentsSoFar, settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
-export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
+export {
+  promotedToolIdsFromEvents,
+  type ReplyCarried,
+  replyCarriedFromEvents,
+  toolSnapshotFromEvents,
+} from './tool-invoke.ts';
 export type { PromotedToolMedia } from './tool-media.ts';
 export {
   collectPromotedMediaFromToolOutput,
@@ -123,6 +130,7 @@ export type {
   TextProfileInterface,
   TranscriptBlock,
   TranscriptBlockKind,
+  TranscriptionProfileInterface,
   UserTurnDraft,
 } from './types.ts';
 export { streamThoughtsEnabled } from './types.ts';

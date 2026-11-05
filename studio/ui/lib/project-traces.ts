@@ -1,7 +1,12 @@
 import { resolveObservabilityPolicy } from '@theoremjs/agents';
-import type { TraceFeed } from '@theoremjs/react/client';
+import type { TraceFeed } from '@theoremjs/web/client';
 import type { StudioRunPayload } from '../../mod.ts';
-import { actingAsHeaders, type StudioActingAs } from '../../people.ts';
+import {
+  ACTING_AS_PARAM,
+  actingAsHeader,
+  actingAsHeaders,
+  type StudioActingAs,
+} from '../../people.ts';
 import { eachLine, NDJSON } from '../../stream-lines.ts';
 import { studioTraceLine } from '../../transport.ts';
 
@@ -49,6 +54,16 @@ function tracedFetch(traces: TraceFeed): typeof fetch {
  * trace panel reads them: the same panel a draft's run fills in the playground. Each run carries
  * who it acts as, so the project's tools act for that person.
  */
+/**
+ * A live call's socket on `endpoint`, carrying what a run's headers carry.
+ * why: a browser's `WebSocket` sends no headers.
+ */
+export function liveSocketAddress(endpoint: string, actingAs: StudioActingAs | undefined): string {
+  const address = new URL(endpoint.replace(/^http/, 'ws'));
+  if (actingAs) address.searchParams.set(ACTING_AS_PARAM, actingAsHeader(actingAs));
+  return address.href;
+}
+
 export function tracedTransport<T extends object>(
   make: (options: { endpoint: string; fetch: typeof fetch; headers: Record<string, string> }) => T,
   endpoint: string,

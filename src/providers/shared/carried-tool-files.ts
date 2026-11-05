@@ -38,14 +38,50 @@ export function withCarriedToolFiles(
       out.push(msg);
       continue;
     }
-    out.push({
-      ...msg,
-      parts: (msg.parts ?? []).map((part) =>
-        holds.has(part.type) ? part : carriedFileMarker(part),
-      ),
-    });
+    out.push(withMarkers(msg, (part) => holds.has(part.type)));
     carried.push(carriedFilesLead(msg), ...files);
   }
   flush();
+  return out;
+}
+
+/** The message with each part `stays` rejects swapped for its carried-file marker. */
+function withMarkers(
+  msg: TurnHistoryMessage,
+  stays: (part: InteractionPart) => boolean,
+): TurnHistoryMessage {
+  return {
+    ...msg,
+    parts: (msg.parts ?? []).map((part) => (stays(part) ? part : carriedFileMarker(part))),
+  };
+}
+
+const ASSISTANT_FILES_LEAD: InteractionPart = { type: 'text', text: 'Files the assistant sent:' };
+
+/**
+ * History for a wire whose assistant content holds only text. An assistant
+ * message's files leave a marker in their place and follow it in one user
+ * message, after the results of any calls it made.
+ */
+export function withCarriedAssistantFiles(
+  messages: readonly TurnHistoryMessage[],
+): TurnHistoryMessage[] {
+  const out: TurnHistoryMessage[] = [];
+  let carried: InteractionPart[] = [];
+  for (const msg of messages) {
+    if (msg.role !== 'tool' && carried.length > 0) {
+      out.push({ role: 'user', parts: carried });
+      carried = [];
+    }
+    const files =
+      msg.role === 'assistant' ? (msg.parts ?? []).filter((p) => p.type !== 'text') : [];
+    if (files.length === 0) {
+      out.push(msg);
+      continue;
+    }
+    out.push(withMarkers(msg, (part) => part.type === 'text'));
+    carried.push(ASSISTANT_FILES_LEAD, ...files);
+  }
+  if (carried.length > 0) out.push({ role: 'user', parts: carried });
   return out;
 }

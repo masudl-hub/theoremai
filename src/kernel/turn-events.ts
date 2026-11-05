@@ -163,8 +163,18 @@ true satisfies Equals<z.infer<typeof turnHistoryMessage>, TurnHistoryMessage>;
 /** The schema a history message parses against. */
 export const turnHistoryMessageSchema: z.ZodType<TurnHistoryMessage> = turnHistoryMessage;
 
+/**
+ * A named inject as it landed: the host's id for it and the messages it added to the conversation,
+ * after the `injected` guardrails, so a steer reads as the model read it.
+ */
+export interface InjectedMessages {
+  id: string;
+  messages: TurnHistoryMessage[];
+}
+
 /** Why a turn or live utterance ended. */
 export interface TurnStop {
+  /** Why the turn ended, on the done event: its stop.kind. */
   kind: TurnStopKind;
   native?: string;
 }
@@ -611,6 +621,8 @@ export interface TurnToolSnapshot {
   path?: string;
   sessionPermissions?: string[];
   wire: WireFunctionTool[];
+  /** The request has a background service, so `ask` tools offer the `background` argument. */
+  modelBackground?: boolean;
 }
 const turnToolSnapshot = z.object({
   builtins: z.array(z.string()),
@@ -620,6 +632,7 @@ const turnToolSnapshot = z.object({
   path: z.string().optional(),
   sessionPermissions: z.array(z.string()).optional(),
   wire: z.array(wireFunctionTool),
+  modelBackground: z.boolean().optional(),
 });
 true satisfies Equals<z.infer<typeof turnToolSnapshot>, TurnToolSnapshot>;
 /** The schema a tool snapshot parses against. */
@@ -731,10 +744,12 @@ export type ToolPhaseEvent = ToolPhaseBase &
         readBack?: string;
         parts?: InteractionPart[];
         activityPast?: string;
-        /** An agent tool's call: the called agent's own usage, which the caller's `done.tokens` includes. */
+        /** An agent tool's call: the called agent's own usage. The caller's `done.tokens` includes it, unless the call settled after `done`. */
         tokens?: TurnTokens;
       }
     | { phase: 'gate'; gate: ToolGate; readBack?: string }
+    /** The model reads `readBack` now and the call goes on; its real end reaches the host alone. */
+    | { phase: 'background'; readBack: string }
     | {
         phase: 'error';
         failure: ToolFailure;
@@ -780,6 +795,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     gate: toolGate,
     readBack: z.string().optional(),
   }),
+  z.object({ ...toolPhaseBase, phase: z.literal('background'), readBack: z.string() }),
   z.object({
     ...toolPhaseBase,
     phase: z.literal('error'),
@@ -845,6 +861,8 @@ export interface CompactionFailure {
   stop?: TurnStopKind;
   /** The error it reported, when it reported one. */
   error?: ErrorKind;
+  /** Why it failed, for the builder only: `forClient` strips it for a visitor. */
+  errorInternal?: string;
   /** It completed without a summary. */
   empty?: true;
   /** Nothing in `toCompact` was left for it to read, so it did not run. */
@@ -853,6 +871,7 @@ export interface CompactionFailure {
 const compactionFailure = z.object({
   stop: z.enum(TURN_STOP_KINDS).optional(),
   error: errorKindSchema.optional(),
+  errorInternal: z.string().optional(),
   empty: z.literal(true).optional(),
   unreadable: z.literal(true).optional(),
 });
@@ -894,16 +913,35 @@ const TOOL_SNAPSHOT_STOP_KINDS = [
   'gate',
 ] as const satisfies readonly ToolSnapshotStopKind[];
 
+/** One file a provider refused: what it was, and where the turn was carrying it. */
+export interface RefusedMedia {
+  mimeType: string;
+  from: 'input' | 'history' | 'tool';
+}
+
+/**
+ * The turn went on without files the provider refused. Set only when the same call, sent
+ * without them, was accepted: that is the proof the files were at fault.
+ */
+export interface MediaRefused {
+  dropped: RefusedMedia[];
+  /** The provider's own reason, for the builder only: `forClient` strips the whole report. */
+  said: string;
+}
+
 export interface DoneBase {
   providerState?: ProviderCheckpoint;
   /** The turn's summed usage (`sumTokens` over its `tokens` events). */
   tokens?: TurnTokens;
   /** The turn's root span as a W3C `traceparent`, for a later request's `links`. */
   traceparent?: string;
+  /** The model calls that count against `maxSteps` so far, those of `stepsTaken` included. */
+  steps?: number;
   compaction?: CompactionSignal;
   /** A user utterance interrupted an in-flight live response (barge-in). */
   interrupted?: boolean;
   interactionId?: string;
+  mediaRefused?: MediaRefused;
 }
 
 /**
@@ -968,6 +1006,11 @@ export type TurnEvent =
    * `attempt` counts the retries: 1 for the first, as the trace's `theorem.attempt.retry` does.
    */
   | { type: 'attempt'; attempt: number; reason: AttemptReason }
+  /**
+   * The message `input.lateResults` put in the conversation, role `user`. It enters a history built
+   * from events like any other message.
+   */
+  | { type: 'late_results'; text: string }
   | { type: 'media'; media: { mimeType: string; data: string } }
   | { type: 'grounding'; grounding: GroundingEvent }
   /** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
@@ -1002,8 +1045,8 @@ export type TurnEvent =
       stop?: TurnStop;
       /** Stage result fields the kernel dropped. */
       stageWarnings?: StageApplyWarning[];
-      /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage. */
-      injected?: { id: string }[];
+      /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage, each with the messages it added. */
+      injected?: InjectedMessages[];
       /**
        * An inject at this stage dropped a draft the user never got: of the reply text since the
        * turn began or its last `attempt`, only the first `released` characters stay the reply.
@@ -1095,9 +1138,18 @@ const doneBase = {
   type: z.literal('done'),
   tokens: turnTokens.optional(),
   traceparent: z.string().optional(),
+  steps: z.number().int().nonnegative().optional(),
   compaction: compactionSignal.optional(),
   interrupted: z.boolean().optional(),
   interactionId: z.string().optional(),
+  mediaRefused: z
+    .object({
+      dropped: z.array(
+        z.object({ mimeType: z.string(), from: z.enum(['input', 'history', 'tool']) }),
+      ),
+      said: z.string(),
+    })
+    .optional(),
 };
 const doneEvent = z.union([
   z.object({
@@ -1147,6 +1199,7 @@ const TURN_EVENTS = {
     attempt: z.number().int().positive(),
     reason: z.enum(['validation', 'egress']),
   }),
+  late_results: z.object({ type: z.literal('late_results'), text: z.string() }),
   media: z.object({
     type: z.literal('media'),
     media: z.object({ mimeType: z.string(), data: z.string() }),
@@ -1200,7 +1253,7 @@ const TURN_EVENTS = {
     stop: turnStop.optional(),
     stageWarnings: z.array(stageApplyWarning).optional(),
     injected: z
-      .array(z.object({ id: z.string().regex(/\S/) }))
+      .array(z.object({ id: z.string().regex(/\S/), messages: z.array(turnHistoryMessage) }))
       .min(1)
       .optional(),
     released: z.number().int().nonnegative().optional(),
@@ -1241,6 +1294,7 @@ const turnEvent = z.union([
     TURN_EVENTS.citation,
     TURN_EVENTS.compaction,
     TURN_EVENTS.evidence,
+    TURN_EVENTS.late_results,
     TURN_EVENTS.tokens,
     TURN_EVENTS.session,
     TURN_EVENTS.guardrail,

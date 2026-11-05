@@ -332,8 +332,8 @@ Deno.test('a result naming a tool the model can call is flagged, and only that t
   check(
     flagged.settlement.modelResult?.suspicious?.map(({ rule, signal }) => [rule, signal]),
     [
-      [DETECT_RULES.tool_instructions, 'tool_name'],
-      [DETECT_RULES.tool_instructions, 'tool_name'],
+      [DETECT_RULES.injection, 'tool_name'],
+      [DETECT_RULES.injection, 'tool_name'],
     ],
     'callable tool named',
   );

@@ -11,12 +11,15 @@ import { applyToolEvent, toolCallRanWith } from './tool-calls.ts';
 import type { ToolCall, TranscriptBlock, UserTurnDraft } from './types.ts';
 
 /**
- * The kernel sets `readBack` on every `complete` and `error` event, so a call without it did not
- * come from a run and has no text the model read.
+ * The kernel sets `readBack` on every `complete`, `error` and `background` event, so a call without
+ * it did not come from a run and has no text the model read.
  */
 function toolReadBack(call: ToolCall): string {
   const state = call.state;
-  if ((state?.phase !== 'complete' && state?.phase !== 'error') || state.readBack === undefined) {
+  if (
+    (state?.phase !== 'complete' && state?.phase !== 'error' && state?.phase !== 'background') ||
+    state.readBack === undefined
+  ) {
     throw new TheoremError(
       'request',
       `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -153,7 +156,9 @@ function appendToolDenialToHistory(
 /** `undefined` while the call is open. */
 function settledToolContent(call: ToolCall): string | undefined {
   const phase = call.state?.phase;
-  return phase === 'complete' || phase === 'error' ? toolReadBack(call) : undefined;
+  return phase === 'complete' || phase === 'error' || phase === 'background'
+    ? toolReadBack(call)
+    : undefined;
 }
 
 /**
@@ -239,6 +244,19 @@ function foldAssistantEvents(
       textBuf += event.text;
       continue;
     }
+    if (event.type === 'late_results') {
+      flushStep();
+      flushText();
+      next = [...next, { role: 'user', content: event.text }];
+      continue;
+    }
+    if (event.type === 'stage' && event.injected) {
+      // why: A steer is a message in the conversation, after what the reply said and did before it.
+      flushStep();
+      flushText();
+      next = [...next, ...event.injected.flatMap((inject) => inject.messages)];
+      continue;
+    }
     if (event.type === 'structured' && event.structured !== undefined) {
       flushStep();
       // why: The streamed text is this reply's JSON as the model wrote it; the structured output is the reply as kept.
@@ -291,6 +309,10 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
     }
     if (block.kind === 'text') {
       history = [...history, { role: 'assistant', content: block.text }];
+      continue;
+    }
+    if (block.kind === 'late-results') {
+      history = [...history, { role: 'user', content: block.text }];
       continue;
     }
     if (block.kind === 'structured') {

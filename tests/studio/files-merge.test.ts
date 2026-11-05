@@ -103,7 +103,7 @@ Deno.test('a setting the files added, among the others, leaves no edit here', ()
   const merge = mergedWithFiles(old, files, old);
   assertEquals(
     merge.workspace.toolSpecs.map((tool) => tool.activityFailed),
-    old.toolSpecs.map(() => "couldn't do it"),
+    old.toolSpecs.map((tool) => tool.activityFailed ?? "couldn't do it"),
   );
   assertEquals(merge.conflicts, []);
   assert(atStart(merge.workspace));
@@ -143,7 +143,15 @@ Deno.test("a setting both changed is a conflict: the builder's stands until they
   const merge = mergedWithFiles(edits, files, old);
   assertEquals(
     merge.conflicts.map(({ kind, key, path, mine, theirs }) => ({ kind, key, path, mine, theirs })),
-    [{ kind: 'agent', key, path: ['identity', 'system'], mine: 'Mine.', theirs: 'Theirs.' }],
+    [
+      {
+        kind: 'agent',
+        key,
+        path: ['identity', 'system'],
+        mine: 'Mine.',
+        theirs: 'Theirs.',
+      },
+    ],
   );
   assertEquals(first(merge.workspace).identity.system, 'Mine.');
   assertEquals(first(withFilesChosen(merge, [])).identity.system, 'Mine.');

@@ -11,10 +11,16 @@ import './ui/built/theme.css';
 
 export type {
   LiveCallOptions,
+  LiveConnection,
   PageTool,
   PageToolAnswer,
   PageTools,
-} from './client/live/live-page-tool.ts';
-export type { LiveConnection } from './client/live-client.ts';
+} from '@theoremjs/web/client';
+export {
+  type LiveCall,
+  type LiveCallInput,
+  useLiveCall,
+} from './components/live/use-live-call.ts';
+export { LiveCallTile, type LiveCallTileProps } from './ui/LiveCallTile.tsx';
 export type { LiveRunnerProps } from './ui/LiveRunner.tsx';
 export { LiveRunner } from './ui/LiveRunner.tsx';

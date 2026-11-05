@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { localBindingViolation, ollamaModelThinks } from '../../src/presets/local.ts';
+import { localBindingViolation, ollamaModelThinks } from '../../studio/cookbooks/providers.ts';
 
 // `capabilities` as Ollama 0.34.0 reports them from /api/show (04/10/2026): qwen2.5 lists
 // completion and tools; a thinking model adds `thinking`.

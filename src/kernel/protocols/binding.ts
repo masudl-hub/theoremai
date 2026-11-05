@@ -4,14 +4,30 @@ import { labelText } from '../../guardrails/labels.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import { KEY_SLOT_NAME, type KeySlot } from '../schema.ts';
 import type { Equals } from '../util/exact-type.ts';
+import { type ProviderLimits, providerLimitsSchema } from './limits.ts';
 import { type ModelProfileType, modelOptions, type Protocol } from './protocol.ts';
 import type { RegisteredProvider } from './provider.ts';
 
 /** A vault slot name. */
 export const keySlotSchema: z.ZodString = z.string().regex(KEY_SLOT_NAME);
 export const commonModelSettingsSchema: z.ZodObject<{
+  /**
+   * The token limit for one reply. Some providers never send it for speech, or for image without
+   * includeText.
+   */
   maxOutputTokens: z.ZodOptional<z.ZodNumber>;
+  /**
+   * How varied the model's wording is; higher is more random. Some providers never send it for
+   * speech, or for image without includeText.
+   */
   temperature: z.ZodOptional<z.ZodNumber>;
+  /**
+   * Named thinking levels. A turn picks one when allowEffortSelect is on. A provider refuses a
+   * level its model does not take. Speech ignores them, and so may an image profile without
+   * includeText.
+   *
+   * @catalog models.*.efforts.* The thinking level sent to the provider for this name.
+   */
   efforts: z.ZodOptional<
     z.ZodRecord<
       z.ZodString,
@@ -26,10 +42,24 @@ export const commonModelSettingsSchema: z.ZodObject<{
       }>
     >
   >;
+  /** The effort a turn gets when it doesn't pick one. */
   defaultEffort: z.ZodOptional<z.ZodString>;
+  /** Lets a turn pick an effort; needs two or more efforts. */
   allowEffortSelect: z.ZodOptional<z.ZodBoolean>;
+  /**
+   * Asks the model for summaries of its thinking, which not every model sends; with some providers,
+   * off only hides thoughts, and others ignore it.
+   */
   summaries: z.ZodOptional<z.ZodBoolean>;
+  /**
+   * The provider's own tools, such as Google Search, this model may use; each must be registered as
+   * a builtin tool and declared by the provider's adapter.
+   */
   builtInTools: z.ZodOptional<z.ZodArray<z.ZodString>>;
+  /**
+   * Summarises history past a threshold. A text agent can write the summary. Other types name a
+   * compaction profile.
+   */
   compaction: z.ZodOptional<z.ZodCustom<import('../types.ts').CompactionSpec>>;
 }> = z.strictObject({
   maxOutputTokens: z.number().int().positive().optional(),
@@ -52,20 +82,48 @@ const shared = commonModelSettingsSchema.shape;
 
 /** One entry under a profile's `models`: which protocol, which provider, which model, and its settings. */
 export interface ModelBinding extends z.infer<typeof commonModelSettingsSchema> {
+  /** The API shape this model is spoken to in. */
   protocol: string;
+  /**
+   * The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its
+   * registration supplies the endpoint and authentication.
+   */
   provider: string;
+  /**
+   * The model's id as the provider lists it, such as gemini-2.5-flash; sent on every call. The name
+   * this model has in the profile is its key in models.
+   */
   apiId: string;
+  /**
+   * The key slot this model's calls are signed with, instead of the provider's. Use it to bill one
+   * model to a different key. Absent: the provider's primary slot.
+   */
   keySlot?: string;
+  /**
+   * The key slot tried once after a rate limit or a busy model on the primary slot, instead of the
+   * provider's fallback. Must differ from the primary slot. Absent: the provider's fallback slot,
+   * if it has one.
+   */
   fallbackKeySlot?: string;
+  /**
+   * Settings only this model's protocol has, such as a task type or vector size. Each is checked
+   * when the profile loads. Any left out keep the provider's default.
+   */
   options?: JsonObject;
+  /**
+   * The points at which Theorem stops this model's calls. Each one left out is no limit, so the
+   * provider's own limits apply. A runTurn limits value overrides each field it sets.
+   */
+  limits?: ProviderLimits;
 }
 
 /** A decision profile's model: no generation settings, and a time limit. */
 export interface DecisionModelBinding
   extends Pick<
     ModelBinding,
-    'protocol' | 'provider' | 'apiId' | 'keySlot' | 'fallbackKeySlot' | 'options'
+    'protocol' | 'provider' | 'apiId' | 'keySlot' | 'fallbackKeySlot' | 'options' | 'limits'
   > {
+  /** How long a decision waits for its provider, in milliseconds. Omit for no timeout. */
   timeoutMs?: number;
 }
 
@@ -109,11 +167,15 @@ const modelBinding = z.strictObject({
   fallbackKeySlot: keySlotSchema
     .optional()
     // labels-exempt: builder field description, read by the studio and docs
-    .describe('The slot tried once when the first key is out of quota.'),
+    .describe('The slot tried once when the first key is out of quota, rate limited or busy.'),
   options: jsonObjectSchema
     .optional()
     // labels-exempt: builder field description, read by the studio and docs
     .describe("What this model's protocol takes beyond the shared settings."),
+  limits: providerLimitsSchema
+    .optional()
+    // labels-exempt: builder field description, read by the studio and docs
+    .describe("Theorem's cut-offs for this model's calls; each one left out is no limit."),
 });
 true satisfies Equals<z.infer<typeof modelBinding>, ModelBinding>;
 export const modelBindingSchema: z.ZodType<ModelBinding> = modelBinding;
@@ -126,6 +188,7 @@ const decisionModelBinding = modelBinding
     keySlot: true,
     fallbackKeySlot: true,
     options: true,
+    limits: true,
   })
   .extend({
     timeoutMs: z
@@ -177,6 +240,15 @@ export function protocolOf(
   binding: ModelBinding | DecisionModelBinding,
 ): Protocol {
   return bindingServe(provider, binding).protocol;
+}
+
+/** The `gen_ai.operation.name` of a call the binding makes for `profileType`. */
+export function operationNameOf(
+  provider: RegisteredProvider,
+  binding: ModelBinding | DecisionModelBinding,
+  profileType: ModelProfileType,
+): string | undefined {
+  return protocolOf(provider, binding).operationNames[profileType];
 }
 
 /**

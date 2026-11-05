@@ -6,7 +6,7 @@ import {
   DEMO_ALLOWED_HOSTS,
   DEMO_HTTP_SAMPLE_INPUT,
   demoToolSpecs,
-} from '../../studio/concierge-demo.ts';
+} from '../../studio/cookbooks/tools.ts';
 import { zodFromJsonSchema } from '../../studio/tool-schema.ts';
 
 const profile: TextProfile = {
@@ -14,7 +14,7 @@ const profile: TextProfile = {
   type: 'text',
   identity: { handle: 'concierge' },
   models: {
-    default: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' },
+    default: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test' },
   },
   defaultModel: 'default',
   tools: { allow: [] },

@@ -5,6 +5,7 @@ import {
   registerProfile,
   registerStructured,
   registerTool,
+  registerTools,
   resolveTurn,
   runSession,
   runTurn,
@@ -22,7 +23,7 @@ import type {
 } from '../src/kernel/types.ts';
 import { memorySink } from '../src/observability/trace.ts';
 import type { TraceRecord } from '../src/observability/trace-record.ts';
-import { registerGooglePreset } from '../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../studio/cookbooks/providers.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV, vaultEnv } from './host-env.ts';
 import { scriptProviderOptions } from './provider-options.ts';
 
@@ -36,7 +37,7 @@ console.log(
   `  OpenRouter Key: ${openRouterKey ? `Present (len=${openRouterKey.length})` : 'MISSING'}`,
 );
 console.log('════════════════════════════════════════════════════════════════════════\n');
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 registerTool({
   type: 'function',
   name: 'calculate_sum',
@@ -201,7 +202,7 @@ if (selected.has('text')) {
         identity: { handle: 'assistant', system: 'You are a concise AI assistant.' },
         models: {
           'openrouter/free': {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: OPENROUTER_TEXT_API_ID,
             efforts: { normal: 'none' },
@@ -234,7 +235,7 @@ if (selected.has('text')) {
         identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
         models: {
           'openrouter/free': {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: OPENROUTER_TEXT_API_ID,
             efforts: { normal: 'none' },
@@ -392,7 +393,7 @@ if (selected.has('image')) {
       if (projected.type !== 'image') throw new Error(`Expected image, got ${projected.type}`);
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'A small green bonsai tree on a white table.' } },
+          { profile: profile.id, input: { text: 'A small green fern on a white table.' } },
           scriptProviderOptions(profile, gateway(openRouterKey)),
           traceSink,
         ),
@@ -433,7 +434,7 @@ if (selected.has('image')) {
       registerProfile(profile);
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'A small green bonsai tree on a white table.' } },
+          { profile: profile.id, input: { text: 'A small green fern on a white table.' } },
           scriptProviderOptions(profile, geminiTransport),
           traceSink,
         ),
@@ -453,7 +454,7 @@ if (selected.has('speech')) {
         identity: { handle: 'speaker' },
         models: {
           fishTts: {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: 'fish-audio/s2.1-pro-free:free',
             efforts: { normal: 'none' },
@@ -464,15 +465,26 @@ if (selected.has('speech')) {
       registerProfile(profile);
       const projected = projectProfile(profile.id);
       if (projected.type !== 'speech') throw new Error(`Expected speech, got ${projected.type}`);
+      const before = traces.length;
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'Your bonsai needs water today.' } },
+          { profile: profile.id, input: { text: 'Your fern needs water today.' } },
           scriptProviderOptions(profile, gateway(openRouterKey)),
           traceSink,
         ),
       );
       assertClean(events);
       assertMedia(events, 'audio');
+      const record = traces.at(-1);
+      if (!record || traces.length <= before) throw new Error('missing speech trace record');
+      const call = record.spans.find((span) => span.kind === 'CLIENT');
+      const responseId = call?.attributes['gen_ai.response.id'];
+      if (typeof responseId !== 'string' || !responseId.startsWith('gen-')) {
+        throw new Error(
+          `expected gen_ai.response.id from X-Generation-Id, got ${JSON.stringify(responseId)}`,
+        );
+      }
+      console.log(`    Call response id: ${responseId}`);
     });
   } else {
     skipTest('OpenRouter Speech', `${OPENROUTER_ENV} missing`);
@@ -506,7 +518,7 @@ if (selected.has('speech')) {
         registerProfile(profile);
         const events = await collect(
           runTurn(
-            { profile: profile.id, input: { text: 'Your bonsai needs water today.' } },
+            { profile: profile.id, input: { text: 'Your fern needs water today.' } },
             scriptProviderOptions(profile, geminiTransport),
             traceSink,
           ),
@@ -540,7 +552,7 @@ if (selected.has('speech')) {
       registerProfile(profile);
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'Your bonsai needs water today.' } },
+          { profile: profile.id, input: { text: 'Your fern needs water today.' } },
           scriptProviderOptions(profile, geminiTransport),
           traceSink,
         ),

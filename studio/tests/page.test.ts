@@ -4,10 +4,29 @@ import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   compileStudio,
   createExampleDraft,
+  type OptionDraft,
   type StudioRunPayload,
   setProfileType,
 } from '../mod.ts';
 import { pageInputsOf, sentPageValues } from '../ui/lib/studio-page.ts';
+
+/** An option row: each choice a value, or a value and its description. */
+function option(
+  name: string,
+  choices: (string | [string, string])[],
+  { label = '', isShownInChat = true }: { label?: string; isShownInChat?: boolean } = {},
+): OptionDraft {
+  return {
+    key: `option-${name}`,
+    name,
+    label,
+    isShownInChat,
+    choices: choices.map((choice) => {
+      const [value, description] = typeof choice === 'string' ? [choice, ''] : choice;
+      return { key: `choice-${value}`, value, description };
+    }),
+  };
+}
 
 function payloadOf(draft: ReturnType<typeof createExampleDraft>): StudioRunPayload {
   const compiled = compileStudio(draft, ON_OWN_KEYS);
@@ -17,9 +36,9 @@ function payloadOf(draft: ReturnType<typeof createExampleDraft>): StudioRunPaylo
 
 function withPage(type: 'text' | 'live') {
   const draft = setProfileType(createExampleDraft(), type, TEST_KEYS);
+  draft.identity.options = [option('language', ['en', 'fr'])];
   draft.inputs = {
     ...draft.inputs,
-    slotsJson: '{"language":["en","fr"]}',
     contextFrom: ['client'],
     contextMaxChars: 2000,
   };
@@ -34,19 +53,74 @@ Deno.test('an agent that takes nothing from a page has no page inputs', () => {
   assertEquals(pageInputsOf(payloadOf(createExampleDraft())), null);
 });
 
-Deno.test('a slot sends its first value until one is picked, and a dropped value falls back', () => {
+Deno.test('a shown option sends its first value until one is picked, and a dropped value falls back', () => {
   const inputs = pageInputsOf(withPage('text').payload);
-  assertEquals(sentPageValues(inputs, { slots: {}, contextJson: '' }), {
-    slots: { language: 'en' },
+  assertEquals(sentPageValues(inputs, { options: {}, contextJson: '' }), {
+    options: { language: 'en' },
   });
-  const picked = { slots: { language: 'fr' }, contextJson: '{"page":"Checkout"}' };
+  const picked = {
+    options: { language: 'fr' },
+    contextJson: '{"page":"Checkout"}',
+  };
   assertEquals(sentPageValues(inputs, picked), {
-    slots: { language: 'fr' },
+    options: { language: 'fr' },
     context: { page: 'Checkout' },
   });
-  assertEquals(sentPageValues(inputs, { slots: { language: 'de' }, contextJson: '{' }), {
-    slots: { language: 'en' },
+  assertEquals(sentPageValues(inputs, { options: { language: 'de' }, contextJson: '{' }), {
+    options: { language: 'en' },
     contextError: 'Context must be JSON.',
+  });
+});
+
+Deno.test("code options send their first value until picked, and path goes as the turn's own", () => {
+  const draft = createExampleDraft();
+  draft.identity.options = [
+    option('path', ['web', 'voice'], { isShownInChat: false }),
+    option('plan', ['free', 'paid'], { isShownInChat: false }),
+  ];
+  const inputs = pageInputsOf(payloadOf(draft));
+  assertEquals(sentPageValues(inputs, { options: {}, contextJson: '' }).stated, {
+    path: 'web',
+    options: { plan: 'free' },
+  });
+  const picked = { options: { path: 'voice', plan: 'gone' }, contextJson: '' };
+  assertEquals(sentPageValues(inputs, picked).stated, {
+    path: 'voice',
+    options: { plan: 'free' },
+  });
+  assertEquals(
+    sentPageValues(pageInputsOf(payloadOf(createExampleDraft())), picked).stated,
+    undefined,
+  );
+});
+
+Deno.test('a labeled option compiles and still sends its choice values', () => {
+  const draft = setProfileType(createExampleDraft(), 'text', TEST_KEYS);
+  draft.identity.options = [
+    option(
+      'language',
+      [
+        ['en', 'English'],
+        ['fr', 'French'],
+      ],
+      { label: 'Language' },
+    ),
+  ];
+  const payload = payloadOf(draft);
+  const inputs = 'inputs' in payload.profile ? payload.profile.inputs : undefined;
+  const declared = inputs && 'options' in inputs ? inputs.options : undefined;
+  assertEquals(declared, {
+    language: {
+      label: 'Language',
+      choices: [
+        { value: 'en', description: 'English' },
+        { value: 'fr', description: 'French' },
+      ],
+    },
+  });
+  assertEquals(pageInputsOf(payload)?.person, { language: ['en', 'fr'] });
+  assertEquals(sentPageValues(pageInputsOf(payload), { options: {}, contextJson: '' }), {
+    options: { language: 'en' },
   });
 });
 

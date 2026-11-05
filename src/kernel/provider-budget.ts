@@ -25,6 +25,10 @@ function combinedSignal(signals: AbortSignal[]) {
   return { signal: controller.signal, dispose };
 }
 
+function over(value: number, limit: number | undefined): boolean {
+  return limit !== undefined && value > limit;
+}
+
 export class ProviderBudget {
   readonly controller = new AbortController();
   readonly signal: AbortSignal;
@@ -34,24 +38,26 @@ export class ProviderBudget {
   private stepBytes = 0;
   private stepEvents = 0;
   private calls = new Set<string>();
-  private deadline: number;
+  private deadline?: number;
   private releaseSignal: () => void;
 
   constructor(
     readonly limits: ProviderLimits,
     caller?: AbortSignal,
-    timeoutMs = limits.operationTimeoutMs,
+    timeoutMs: number | undefined = limits.operationTimeoutMs,
   ) {
     const effective = combinedSignal(
       caller ? [caller, this.controller.signal] : [this.controller.signal],
     );
     this.signal = effective.signal;
     this.releaseSignal = effective.dispose;
+    if (timeoutMs === undefined) return;
     this.startTimer(timeoutMs);
     this.deadline = performance.now() + timeoutMs;
   }
 
   resumeOperation(): void {
+    if (this.deadline === undefined) return;
     const remaining = this.deadline - performance.now();
     if (remaining <= 0) {
       this.controller.abort(new TheoremError('timeout', labelText('error.timeout')));
@@ -62,7 +68,8 @@ export class ProviderBudget {
 
   /** Milliseconds before the running timer ends the call. */
   timeLeft(): number {
-    return (this.timerDeadline ?? this.deadline) - performance.now();
+    const end = this.timerDeadline ?? this.deadline;
+    return end === undefined ? Number.POSITIVE_INFINITY : end - performance.now();
   }
 
   startTimer(ms: number): void {
@@ -91,7 +98,8 @@ export class ProviderBudget {
   }
 
   startLiveStep(): void {
-    if (this.timer === undefined) this.startTimer(this.limits.liveStepTimeoutMs);
+    const ms = this.limits.liveStepTimeoutMs;
+    if (this.timer === undefined && ms !== undefined) this.startTimer(ms);
   }
 
   fail(): never {
@@ -116,9 +124,9 @@ export class ProviderBudget {
     this.stepBytes += bytes;
     this.stepEvents++;
     if (
-      bytes > this.limits.maxEventBytes ||
-      this.stepBytes > this.limits.maxStepBytes ||
-      this.stepEvents > this.limits.maxStepEvents
+      over(bytes, this.limits.maxEventBytes) ||
+      over(this.stepBytes, this.limits.maxStepBytes) ||
+      over(this.stepEvents, this.limits.maxStepEvents)
     )
       this.fail();
   }
@@ -127,7 +135,7 @@ export class ProviderBudget {
     this.value(event);
     if (event.type === 'tool_call') this.calls.add(event.call.callId);
     if (event.type === 'tool_cancel') this.calls.delete(event.callId);
-    if (this.calls.size > this.limits.maxPendingToolCalls) this.fail();
+    if (over(this.calls.size, this.limits.maxPendingToolCalls)) this.fail();
   }
 
   resetStep(): void {
@@ -161,7 +169,7 @@ export class ProviderBudget {
               : data instanceof ArrayBuffer || ArrayBuffer.isView(data)
                 ? data.byteLength
                 : 0;
-        if (bytes <= this.limits.maxWireRecordBytes) return;
+        if (!over(bytes, this.limits.maxWireRecordBytes)) return;
         event.stopImmediatePropagation();
         try {
           this.fail();
@@ -190,9 +198,11 @@ export class ProviderBudget {
       }
       const reader = response.body.getReader();
       let responseBytes = 0;
-      const record = response.headers.get('content-type')?.includes('text/event-stream')
-        ? new SseRecordBudget(this)
-        : undefined;
+      const record =
+        this.limits.maxWireRecordBytes !== undefined &&
+        response.headers.get('content-type')?.includes('text/event-stream')
+          ? new SseRecordBudget(this)
+          : undefined;
       const abort = () => {
         void reader.cancel(signal.reason).catch(() => undefined);
       };
@@ -213,8 +223,8 @@ export class ProviderBudget {
             responseBytes += next.value.byteLength;
             this.wireBytes += next.value.byteLength;
             if (
-              responseBytes > this.limits.maxWireResponseBytes ||
-              this.wireBytes > this.limits.maxWireResponseBytes
+              over(responseBytes, this.limits.maxWireResponseBytes) ||
+              over(this.wireBytes, this.limits.maxWireResponseBytes)
             )
               this.fail();
             record?.accept(next.value);
@@ -254,7 +264,7 @@ class SseRecordBudget {
         this.emptyCR = false;
       }
       this.recordBytes++;
-      if (this.recordBytes > this.budget.limits.maxWireRecordBytes) this.budget.fail();
+      if (over(this.recordBytes, this.budget.limits.maxWireRecordBytes)) this.budget.fail();
       if (this.emptyCR) {
         this.recordBytes = 0;
         this.emptyCR = false;

@@ -1243,6 +1243,25 @@ Deno.test('the compactor keeps media it accepts', () => {
   assertEquals(history[0], { role: 'user', content: 'what is this?', parts: [png] });
   assertEquals(droppedMedia, 0);
 });
+Deno.test("a tool result's files reach the compactor in a user message after it", () => {
+  registerCompactionPair('compaction.reader.tool_files', BEFORE_SPEC, {
+    inputs: {
+      text: true,
+      attachments: { accept: ['image/png'] },
+      maxFiles: 5,
+      maxBytes: 1000000,
+      maxTurnBytes: 5000000,
+    },
+  });
+  const { history } = compactorHistory(
+    [{ role: 'tool', tool_call_id: 'c1', name: 'read_page', content: 'one swatch', parts: [png] }],
+    getProfile('compaction.reader.tool_files.compactor'),
+  );
+  assertEquals(history, [
+    { role: 'assistant', parts: [{ type: 'text', text: 'read_page returned: one swatch' }] },
+    { role: 'user', parts: [{ type: 'text', text: 'Files read_page returned:' }, png] },
+  ]);
+});
 Deno.test('a message with nothing the compactor can read is left out', () => {
   registerCompactionPair('compaction.reader.empty', BEFORE_SPEC);
   assertEquals(
@@ -1796,4 +1815,36 @@ Deno.test('a profile that compacts itself must be a text profile that takes text
     Error,
     'Profile compaction.self.no_text model m compaction: a profile that compacts itself must be a text profile that takes text',
   );
+});
+
+const LINK = {
+  traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+  kind: 'retry',
+} as const;
+
+Deno.test("a compaction's trace names its project and the trace it follows", async () => {
+  const speaker = registerCompactionPair('compaction.controls', AFTER_SPEC);
+  const records: TraceRecord[] = [];
+  await compactHistory(
+    {
+      profile: speaker,
+      history: [...OLD, ...RECENT],
+      tokens: 800,
+      projectId: 'p1',
+      conversationId: 'c1',
+      links: [LINK],
+    },
+    {
+      complete: () =>
+        compactorSays(
+          { type: 'text', text: 'Summary' },
+          { type: 'done', stop: { kind: 'completed' } },
+        )(),
+    },
+    catalogedSink(records),
+  );
+  const root = records[0]?.spans[0];
+  assertEquals(root?.attributes['theorem.project.id'], 'p1');
+  assertEquals(root?.attributes['gen_ai.conversation.id'], 'c1');
+  assertEquals(root?.links.length, 1);
 });

@@ -85,6 +85,7 @@ Deno.test('buildChatMessages wires multimodal user input with image, audio, and 
         { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' },
         { type: 'audio', mimeType: 'audio/wav', data: 'UklGRi===' },
         { type: 'audio', mimeType: 'audio/mp3', data: 'SUQzBA===' },
+        { type: 'video', mimeType: 'video/mp4', data: 'AAAAGGZ0' },
         { type: 'document', mimeType: 'application/pdf', data: 'JVBERi0=' },
       ],
     }),
@@ -94,6 +95,7 @@ Deno.test('buildChatMessages wires multimodal user input with image, audio, and 
     { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
     { type: 'input_audio', input_audio: { data: 'UklGRi===', format: 'wav' } },
     { type: 'input_audio', input_audio: { data: 'SUQzBA===', format: 'mp3' } },
+    { type: 'video_url', video_url: { url: 'data:video/mp4;base64,AAAAGGZ0' } },
     {
       type: 'file',
       file: { filename: 'document.bin', file_data: 'data:application/pdf;base64,JVBERi0=' },
@@ -106,6 +108,30 @@ Deno.test('buildChatMessages sends only the tool identity history carries', () =
   assertEquals(messages[0], { role: 'tool', content: '42' });
 });
 
+Deno.test('buildChatMessages sends an assistant image in a user message after it', () => {
+  const messages = buildChatMessages(
+    request({
+      input: [],
+      history: [
+        {
+          role: 'assistant',
+          content: 'Here it is.',
+          parts: [{ type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' }],
+        },
+      ],
+    }),
+  );
+  assertEquals(messages, [
+    { role: 'assistant', content: 'Here it is.\n[image: sent in the next message]' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Files the assistant sent:' },
+        { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,/9j/abc' } },
+      ],
+    },
+  ]);
+});
 Deno.test('buildChatMessages carries a tool result file to a user message after it', () => {
   const messages = buildChatMessages(
     request({

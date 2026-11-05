@@ -25,8 +25,13 @@ import type {
   TurnStopKind,
 } from './schema.ts';
 import type { StageHandler } from './stages.ts';
+import type { ToolBackgroundService } from './tools/background.ts';
 import type { GateDecision } from './tools/gate-answer.ts';
-import type { PageToolExecution, ToolExecutionCoordinator } from './tools/operation.ts';
+import type {
+  PageToolExecution,
+  ToolExecutionCoordinator,
+  ToolOperationOutcome,
+} from './tools/operation.ts';
 import type {
   AgentCall,
   AgentCallHook,
@@ -60,6 +65,7 @@ import type {
   CompactionSignal,
   DoneFields,
   GroundingEvent,
+  InjectedMessages,
   InteractionMediaPart,
   InteractionMediaRefPart,
   InteractionPart,
@@ -106,6 +112,7 @@ export type {
   FieldMeta,
   GroundingEvent,
   HostProfileToolsSpec,
+  InjectedMessages,
   InteractionMediaPart,
   InteractionMediaRefPart,
   InteractionPart,
@@ -192,20 +199,48 @@ export type ChatRole = 'system' | 'user' | 'assistant';
 
 /** Host strings (presets own the vocabularies); an unpinned value is the provider default. */
 export interface ProfileImageSpec {
+  /** The shape of generated images, such as 16:9. */
   aspectRatio?: string;
+  /** How detailed generated images are, such as 1K, 2K or 4K. */
   resolution?: string;
+  /**
+   * The file type of generated images; a provider that takes a fixed set of types may use png for
+   * any other.
+   */
   mimeType?: string;
+  /**
+   * How much effort the model spends on each image: auto, low, medium, or high. A provider that has
+   * no such setting refuses it.
+   */
   quality?: string;
+  /**
+   * The background of generated images: auto, transparent, or opaque. A provider that has no such
+   * setting refuses it.
+   */
   background?: string;
+  /** How many images one request makes, where the provider takes a count. */
   n?: number;
+  /** A seed for repeatable images, where the provider and the model honour it. */
   seed?: number;
+  /** Compression from 0 to 100 for jpeg and webp images, where the provider takes it. */
   outputCompression?: number;
+  /**
+   * Images sent with every turn, before the user's. Each is bytes (`data`) or a link (`uri`). Some
+   * providers take http(s) links only, and none with includeText.
+   */
   references?: Array<TurnBlob | TurnMediaRef>;
-  /** Also request interleaved text with the images (Google: text + image `response_format`). */
+  /**
+   * Whether the model may write text alongside its images; with some providers this also sends the
+   * system instruction and history.
+   *
+   * @remarks Also request interleaved text with the images (Google: text + image
+   * `response_format`).
+   */
   includeText?: boolean;
 }
 
 import type { DecisionModelBinding, ModelBinding } from './protocols/binding.ts';
+import type { ProviderHostOptions } from './protocols/runtime.ts';
 
 export type { DecisionModelBinding, ModelBinding };
 
@@ -234,40 +269,117 @@ export interface CompactionTriggerContext {
 /** When history compacts and how: the meter, the token budget, and the compactor. */
 export interface CompactionSpec {
   /**
-   * Token budget compared by the trigger (`compactAt * maxTokens`).
-   * Meaning depends on `meter`: history budget vs full-prompt input budget.
+   * The token budget compactAt is a fraction of.
+   *
+   * @remarks Token budget compared by the trigger (`compactAt * maxTokens`). Meaning depends on
+   * `meter`: history budget vs full-prompt input budget.
    */
   maxTokens: number;
-  /** Fraction of `maxTokens` at which compaction fires. Must be in (0, 1). */
+  /**
+   * The fraction of maxTokens, between 0 and 1, at which compaction starts, unless trigger decides.
+   *
+   * @remarks Fraction of `maxTokens` at which compaction fires. Must be in (0, 1).
+   */
   compactAt: number;
   /**
-   * Recent exchanges kept verbatim (an exchange is a user message and everything up to the
+   * How much recent history compaction keeps: a number of exchanges (1 or more), a fraction of
+   * maxTokens below compactAt, or 0 to compact it all.
+   *
+   * @remarks Recent exchanges kept verbatim (an exchange is a user message and everything up to the
    * next one). `≥ 1` = exchange count, `(0, 1)` = fraction of `maxTokens`, `0` = compact all.
    */
   previousExchanges: number;
   /**
-   * Profile id of the compaction agent. Must be registered before the owning profile.
-   * Omit it and the agent compacts its own history: the same instructions and model, no tools.
+   * The text profile that writes the summary; register it before this one. Leave it out and a text
+   * agent summarises its own history, with its own instructions and model and no tools. Its
+   * registered model binding selects the provider independently of the calling agent.
+   *
+   * @remarks Profile id of the compaction agent. Must be registered before the owning profile. Omit
+   * it and the agent compacts its own history: the same instructions and model, no tools.
    */
   profile?: ProfileId;
   /**
-   * When compaction runs relative to the primary turn.
+   * Whether the kernel compacts before the turn or tells the host to compact after it.
+   *
+   * @remarks When compaction runs relative to the primary turn.
    * - `'before'`: kernel compacts synchronously before the turn; user pays latency on this turn.
    * - `'after'`: kernel signals in the `done` event; host runs compaction asynchronously.
    */
   timing: CompactionTiming;
   /**
-   * Threshold meter. Defaults to `'history'`.
-   * Use `'input'` when the host prefers provider full-prompt usage (after
-   * subtracting a known baseline in `maxTokens` / `compactAt`).
+   * What the threshold counts.
+   *
+   * @remarks Threshold meter. Defaults to `'history'`. Use `'input'` when the host prefers provider
+   * full-prompt usage (after subtracting a known baseline in `maxTokens` / `compactAt`).
    */
   meter?: CompactionMeter;
-  /** Replaces the default `tokens > compactAt * maxTokens` check. */
+  /**
+   * Your function that decides when to compact, in place of compactAt and maxTokens.
+   *
+   * @remarks Replaces the default `tokens > compactAt * maxTokens` check.
+   */
   trigger?: (ctx: CompactionTriggerContext) => boolean | Promise<boolean>;
 }
 
+/** What every request that runs a model takes: how to stop it, and where its trace goes. */
+export interface RunControls {
+  /**
+   * Stops the run when it aborts, and cancels its provider call where the provider can.
+   *
+   * @remarks Stops the run when it aborts, and cancels in-flight provider HTTP where the adapter
+   * supports it.
+   */
+  signal?: AbortSignal;
+  /**
+   * Your own values, kept on the trace; Theorem does not read them.
+   *
+   * @remarks Host-owned metadata preserved on the run's trace records; the kernel does not
+   * interpret it.
+   */
+  metadata?: Record<string, unknown>;
+  /**
+   * The W3C traceparent of your span; the run's trace joins it as a child.
+   *
+   * @remarks W3C `traceparent` of the host span this run goes under. The run's root span joins that
+   * trace as its child; without it the run starts a new trace. A malformed value throws.
+   */
+  traceparent?: string;
+  /** Your project id, recorded on the trace. */
+  projectId?: string;
+  /**
+   * Your conversation id, recorded on the trace.
+   *
+   * @remarks Host conversation id, recorded as `gen_ai.conversation.id`.
+   */
+  conversationId?: string;
+  /**
+   * Earlier traces this run follows: a resume, a continue, or a retry.
+   *
+   * @remarks Earlier traces this run follows.
+   */
+  links?: TurnTraceLink[];
+}
+
+/** Which of the profile's models a run uses, and how hard it thinks. */
+export interface ModelChoice {
+  /**
+   * The model id the turn or session picks from the profile's models; refused unless the profile
+   * sets allowModelSelect.
+   *
+   * @remarks Selected model id when `profile.allowModelSelect` is true.
+   */
+  model?: ModelId;
+  /**
+   * The effort the turn or session picks from the model's efforts; refused unless the model sets
+   * allowEffortSelect.
+   *
+   * @remarks Selected effort alias when the binding has `allowEffortSelect`.
+   */
+  effort?: string;
+}
+
 /** `compactHistory` input, for `timing: 'after'`: the host passes back what `done.compaction` carried. */
-export interface CompactHistoryRequest {
+export interface CompactHistoryRequest extends RunControls {
   /** The profile whose model binding carries the `compaction` spec. */
   profile: ProfileId;
   /** That binding; defaults to the profile's `defaultModel`. */
@@ -275,14 +387,11 @@ export interface CompactHistoryRequest {
   history: TurnHistoryMessage[];
   /** `done.compaction.tokens`: a failed compactor drops `toCompact` only when this is over `maxTokens`. */
   tokens: number;
-  signal?: AbortSignal;
-  traceparent?: string;
-  conversationId?: string;
-  metadata?: Record<string, unknown>;
 }
 
 /** A structured-output schema given inline. */
 export interface StructuredSpec {
+  /** The JSON Schema a structured reply must follow, sent to the model as its response format. */
   jsonSchema: Record<string, unknown>;
 }
 
@@ -333,8 +442,8 @@ export interface AttachmentValidationIssue {
   fileName?: string;
 }
 
-/** Picks the structured-output schema by the value of a turn slot, with a fallback. */
-export interface StructuredBySlot {
+/** Picks the structured-output schema by the value of a turn's option, with a fallback. */
+export interface StructuredByOption {
   by: string;
   map: Record<string, string>;
   fallback: string;
@@ -351,7 +460,7 @@ export interface ValidationResult {
 /** A host function that checks one structured-output field. */
 export type ProfileValidator = (
   candidate: unknown,
-  slots?: Record<string, string>,
+  options?: Readonly<Record<string, string>>,
 ) => ValidationResult | Promise<ValidationResult>;
 
 /** A tool call the turn completed, as an item check reads it. */
@@ -363,7 +472,8 @@ export interface TurnToolResult {
 
 /** What an item check reads of the turn whose reply it is checking. */
 export interface ItemCheckTurn {
-  slots?: Record<string, string>;
+  /** The value of each option the turn set. */
+  options?: Readonly<Record<string, string>>;
   /** Every tool call the turn completed, in order, across its attempts. */
   toolResults: readonly TurnToolResult[];
 }
@@ -380,31 +490,77 @@ export type ProfileItemCheck = (
  * rewrite the refused items alone, then removes any that are refused again.
  */
 export interface ProfileItemRule {
+  /**
+   * Your check on one item, given what the tools of the turn returned (turn.toolResults); its error
+   * is the reason the model reads on a rewrite and the host reads on the removed item.
+   */
   check: ProfileItemCheck;
+  /**
+   * drop removes a refused item. fix first asks the model to rewrite the refused items alone, once
+   * and while retries remain, then removes any refused again. Removed items leave on the structured
+   * event as removed.
+   */
   onFail: 'drop' | 'fix';
 }
 
 /** Host validators a profile runs on its structured output. */
 export interface ProfileValidationSpec {
   /**
-   * Host domain validators keyed by dotted paths into structured output
-   * (e.g. `diagram.mermaid`). Presence/required is owned by the JSON Schema;
-   * these run only for required paths and for optional paths that are present.
+   * Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid; a
+   * path no structured schema reaches is refused when the profile registers.
+   *
+   * @remarks Host domain validators keyed by dotted paths into structured output (e.g.
+   * `diagram.mermaid`). Presence/required is owned by the JSON Schema; these run only for required
+   * paths and for optional paths that are present.
+   *
+   * @catalog outputs.validation.fields.* Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.
    */
   fields?: Record<string, ProfileValidator>;
-  /** Host checks on list items, keyed by the dotted path of a list in the structured output. */
+  /**
+   * Your checks on the items of a list, each keyed by the dotted path of that list in the
+   * structured reply, such as claims; a path no structured schema reaches as a list is refused when
+   * the profile registers.
+   *
+   * @remarks Host checks on list items, keyed by the dotted path of a list in the structured
+   * output.
+   *
+   * @catalog outputs.validation.items.* Your check on each item of this list. A refused item never fails the reply and the rest of the reply is kept.
+   */
   items?: Record<string, ProfileItemRule>;
+  /**
+   * How many times the model may rewrite a reply that fails your checks or the schema's required
+   * keys before it goes out as it is; under sse, an attempt that gets rewritten has already
+   * streamed. A rewrite of a blocked reply (guardrails.blockedReply) counts against this too.
+   */
   maxRetries?: number;
 }
 
 /** `voice` is the TTS voice id, not ingress audio (`inputs.voice`). */
 export interface ProfileSpeechSpec {
+  /**
+   * The voice the speech is read in, by the provider's own name for it; a turn's speech.voice
+   * replaces it.
+   */
   voice?: string;
-  /** How the script is delivered, in plain words: pace, mood, accent. Never read aloud. */
+  /**
+   * How the script is delivered, in plain words (pace, mood, accent); it is never read aloud, and a
+   * turn's speech.style replaces it. A model that takes no direction ignores it.
+   *
+   * @remarks How the script is delivered, in plain words: pace, mood, accent. Never read aloud.
+   */
   style?: string;
-  /** The speaking rate; 1 is the voice's own pace. */
+  /**
+   * The speaking rate, where 1 is the voice's own pace; a turn's speech.speed replaces it. A
+   * provider that has no rate refuses it or ignores it.
+   *
+   * @remarks The speaking rate; 1 is the voice's own pace.
+   */
   speed?: number;
-  /** A provider that cannot make the format refuses the turn. */
+  /**
+   * The audio encoding each turn's speech comes back in, and so what the host plays or stores.
+   *
+   * @remarks A provider that cannot make the format refuses the turn.
+   */
   format?: SpeechAudioFormat;
 }
 
@@ -413,10 +569,15 @@ export type TurnSpeech = Pick<ProfileSpeechSpec, 'voice' | 'style' | 'speed'>;
 
 /** Voice activity detection settings for a live session. */
 export interface LiveVadSpec {
+  /** Whether the user speaking interrupts the model's reply. */
   activityHandling?: LiveActivityHandling;
+  /** How readily the session decides the user has started speaking. */
   startSensitivity?: LiveStartSensitivity;
+  /** How readily the session decides the user has stopped speaking. */
   endSensitivity?: LiveEndSensitivity;
+  /** How long speech must last, in milliseconds, before it counts as the user starting to speak. */
   prefixPaddingMs?: number;
+  /** How long a silence, in milliseconds, ends the user's speech. */
   silenceDurationMs?: number;
 }
 
@@ -427,27 +588,39 @@ export interface LiveVadSpec {
  */
 export interface LiveContextCompressionSpec {
   /**
-   * Context tokens, counted before a turn, that start compression. A whole
-   * number above 0. Omit → provider default (Gemini: 80% of the model's context
-   * window).
+   * The context size, in tokens, that starts trimming.
+   *
+   * @remarks Context tokens, counted before a turn, that start compression. A whole number above 0.
+   * Omit → provider default (Gemini: 80% of the model's context window).
    */
   triggerTokens?: number;
-  /** Drops the oldest turns; the system instruction stays. Gemini's only mechanism. */
+  /**
+   * Trims by dropping the oldest turns; the system instruction stays.
+   *
+   * @remarks Drops the oldest turns; the system instruction stays. Gemini's only mechanism.
+   */
   slidingWindow: LiveSlidingWindowSpec;
 }
 
 /** Sliding-window context compression for a live session. */
 export interface LiveSlidingWindowSpec {
   /**
-   * Tokens to keep after compressing. A whole number above 0, below
-   * `triggerTokens`. Omit → provider default (Gemini: half of `triggerTokens`).
+   * The context size, in tokens, to trim down to; below the trigger.
+   *
+   * @remarks Tokens to keep after compressing. A whole number above 0, below `triggerTokens`. Omit
+   * → provider default (Gemini: half of `triggerTokens`).
    */
   targetTokens?: number;
 }
 
 /** Which sides of a live session are transcribed. */
 export interface LiveTranscriptionSpec {
+  /** Whether the user's speech is transcribed. */
   input?: boolean;
+  /**
+   * Whether the model's speech is transcribed; always on while a detector reads live_reply, since
+   * it reads the transcript.
+   */
   output?: boolean;
 }
 
@@ -457,40 +630,90 @@ export interface LiveTranscriptionSpec {
  * `LiveSession.sendAudio` / `sendVideo` / `sendText` channels.
  */
 export interface LiveIngressSpec {
-  /** Microphone PCM via `sendAudio`. Omit → enabled. */
+  /**
+   * Whether the session accepts microphone audio.
+   *
+   * @remarks Microphone PCM via `sendAudio`. Omit → enabled.
+   */
   audio?: boolean;
-  /** Webcam JPEG frames via `sendVideo`. Omit → enabled. */
+  /**
+   * Whether the session accepts camera frames.
+   *
+   * @remarks Webcam JPEG frames via `sendVideo`. Omit → enabled.
+   */
   video?: boolean;
-  /** Typed text via `sendText`. Omit → disabled (opt-in). */
+  /**
+   * Whether the session accepts typed text.
+   *
+   * @remarks Typed text via `sendText`. Omit → disabled (opt-in).
+   */
   text?: boolean;
 }
 
 /** The prompt a resumed call opens with, and how long away earns it. */
 export interface LiveResumedSpec {
+  /**
+   * A prompt the call sends itself when it resumes, so the agent says it is back. The visitor does
+   * not see it. It may use {name}, and is not sent when an option it prints is unset.
+   */
   prompt: string;
-  /** The shortest time away, in milliseconds, the agent remarks on. Omit → `DEFAULT_RESUMED_AFTER_MS`. */
+  /**
+   * The shortest time away, in milliseconds, that earns the prompt; a shorter drop resumes
+   * silently.
+   *
+   * @remarks The shortest time away, in milliseconds, the agent remarks on. Omit →
+   * `DEFAULT_RESUMED_AFTER_MS`.
+   */
   afterMs?: number;
 }
 
 /** The settings only a live profile has: ingress, voice, detection, windowing, transcription, and resumption. */
 export interface ProfileLiveSpec {
+  /** Which channels the session accepts from the user. */
   ingress?: LiveIngressSpec;
+  /** The voice the model speaks in. */
   voice?: string;
+  /** How the session detects when the user starts and stops speaking. */
   vad?: LiveVadSpec;
+  /**
+   * Whether the provider sends resume handles, which the host can pass to a new session to carry
+   * this one on.
+   */
   sessionResumption?: boolean;
-  /** A prompt the session sends itself when a call opens new, so the agent speaks first. Omit → the agent waits. */
+  /**
+   * A prompt the call sends itself when it opens new, so the agent speaks first. The visitor does
+   * not see it. It may use {name}, and is not sent when an option it prints is unset.
+   *
+   * @remarks A prompt the session sends itself when a call opens new, so the agent speaks first.
+   * Omit → the agent waits.
+   */
   greeting?: string;
-  /** What the agent is prompted with when a call resumes after the caller was away. Omit → a resumed call is silent. */
+  /**
+   * What happens when a call comes back after a drop. It needs live.sessionResumption.
+   *
+   * @remarks What the agent is prompted with when a call resumes after the caller was away. Omit →
+   * a resumed call is silent.
+   */
   resumed?: LiveResumedSpec;
-  /** Context window compression. Omit → none: the provider ends the session at its limit. */
+  /**
+   * Trims the session's context once it grows past the trigger.
+   *
+   * @remarks Context window compression. Omit → none: the provider ends the session at its limit.
+   */
   contextCompression?: LiveContextCompressionSpec;
+  /** Text transcripts of the session's speech. */
   transcription?: LiveTranscriptionSpec;
 }
 
 /** How a profile's reply streams. */
 export interface ProfileStreamingSpec {
+  /** Whether the reply reaches the host as the model writes it, or whole. */
   mode?: StreamMode;
-  /** When false, filter `thought` events from the turn stream. */
+  /**
+   * Whether the model's thinking reaches the host.
+   *
+   * @remarks When false, filter `thought` events from the turn stream.
+   */
   streamThoughts?: boolean;
 }
 
@@ -526,25 +749,98 @@ export interface ProfileModelFields {
   maxSteps?: number;
 }
 
+/** One value an option can take. `description` is what a picker shows beside it. */
+export interface OptionChoice {
+  /**
+   * The value the code sets, which `when` reads and {name} prints.
+   *
+   * @catalog inputs.options.*.choices.*.value The value the turn sends for this choice, which
+   * `when` reads and {name} prints.
+   */
+  value: string;
+  /**
+   * What this value means. It is never sent to the model.
+   *
+   * @catalog inputs.options.*.choices.*.description Visitor-facing blurb for this choice in the
+   * composer. Never substituted into prompts.
+   */
+  description?: string;
+}
+
+/** One named option: its `label` for a picker, and the values it can take. */
+export interface OptionDecl {
+  /**
+   * A person-readable title. Omit to show the option's name.
+   *
+   * @catalog inputs.options.*.label Visitor-facing title for this option in the composer (for
+   * example Source Bias). Omit to show the option's name.
+   */
+  label?: string;
+  /**
+   * The values this option can take.
+   *
+   * @catalog inputs.options.*.choices The values this option can take, each with an optional UI
+   * description.
+   */
+  choices: OptionChoice[];
+}
+
+/** A profile's options by name. Which object holds them says who drives them. */
+export type ProfileOptions = Readonly<Record<string, OptionDecl>>;
+
 /** What a profile accepts as input. */
 export interface ProfileInputsSpec {
+  /** Whether a turn may send text. */
   text?: boolean;
-  attachments?: { accept: string[] };
-  voice?: { accept: string[] };
+  /** Lets turns send files. */
+  attachments?: {
+    /**
+     * The file types a turn may send, where type/* matches a whole family; image profiles take only
+     * images, video, and PDF.
+     */
+    accept: string[];
+  };
+  /** Lets turns send voice clips. A transcription profile must set it. */
+  voice?: {
+    /** The audio types a voice clip may be; audio/* matches them all. */ accept: string[];
+  };
+  /** The most files and voice clips one turn or embedding request may send, counted together. */
   maxFiles?: number;
+  /** The largest file or clip, in bytes, a turn or embedding request may send inline. */
   maxBytes?: number;
+  /**
+   * The most bytes one turn or embedding request may send inline across all its files and clips.
+   */
   maxTurnBytes?: number;
+  /**
+   * Size limits by file type that replace maxBytes for those types.
+   *
+   * @catalog inputs.limitsByMime.* The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.
+   */
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, string[]>;
+  /**
+   * The options a person picks, each shown as a picker. A prompt reads one as "when reader is
+   * student: …" and prints it as {reader}.
+   *
+   * @remarks The options a person picks: a host shows each one as a picker.
+   * @catalog inputs.options.* { label?, choices: { value, description? }[] }. Value is what the turn sends and what {name} prints.
+   */
+  options?: ProfileOptions;
+  /**
+   * Lets the page or the host send the agent one package of things to know, read at the context
+   * boundary.
+   */
   context?: ProfileContextSpec;
 }
 
 /** What a live profile declares beside its ingress channels. */
-export type LiveInputsSpec = Pick<ProfileInputsSpec, 'slots' | 'context'>;
+export type LiveInputsSpec = Pick<ProfileInputsSpec, 'options' | 'context'>;
 
 /** Who may send a turn its context, and how much. */
 export interface ProfileContextSpec {
+  /** Who may send context; context from anyone else is refused. */
   from: ContextSender[];
+  /** The longest package, in characters of its JSON, each sender may send. */
   maxChars: number;
 }
 
@@ -553,8 +849,14 @@ export type TurnContext = Partial<Record<ContextSender, unknown>>;
 
 /** What a profile returns: its structured schema, validation, and streaming. */
 export interface ProfileOutputsSpec {
-  structured?: StructuredSchemaId | StructuredBySlot | null;
+  /**
+   * The registered JSON schema the reply must follow, which can vary by option; register it before
+   * the profile.
+   */
+  structured?: StructuredSchemaId | StructuredByOption | null;
+  /** Your checks on a structured reply, and how many rewrites a failure gets. */
   validation?: ProfileValidationSpec;
+  /** How the reply reaches the host, and whether its thinking does. */
   streaming?: ProfileStreamingSpec;
 }
 
@@ -563,7 +865,7 @@ export interface PrivateSystemPart {
   private: string;
 }
 
-/** One part of a system prompt: plain text or a part kept out of traces. */
+/** One part of a system prompt: shareable text, or private text a reply may not repeat. */
 export type SystemPart = string | PrivateSystemPart;
 
 /**
@@ -573,6 +875,12 @@ export type SystemPart = string | PrivateSystemPart;
  */
 export type SystemPrompt = string | readonly SystemPart[];
 
+/** One line of a profile's prompt: text, or parts kept together. A leading `when` decides it. */
+export type SystemLine = string | readonly SystemPart[];
+
+/** A profile's prompt: a string, or lines. Every line that fits is sent, a blank line apart. */
+export type ProfileSystem = string | readonly SystemLine[];
+
 /** A stretch of the system prompt as sent, and whether a reply may repeat it. */
 export interface SystemPiece {
   text: string;
@@ -581,9 +889,27 @@ export interface SystemPiece {
 
 /** A profile's handle and system prompt. */
 export interface ProfileIdentity {
+  /**
+   * The name hosts and users see for this agent, at most 32 characters; the model never sees it.
+   */
   handle: string;
-  system?: SystemPrompt;
-  systemByRole?: Record<string, SystemPrompt>;
+  /**
+   * The options the host's code sets on runTurn, which a person never sees. A line of
+   * identity.system reads one as "when plan is free: …" and prints it as {plan}. One named path
+   * holds the turn's path.
+   *
+   * @remarks The options the host's code states. A person never sees them.
+   * @catalog identity.options.* { label?, choices: { value, description? }[] }, the same shape as inputs.options.*.
+   */
+  options?: ProfileOptions;
+  /**
+   * The instruction the model gets, as one string or a list of lines; some providers send it for an
+   * image profile only with includeText on. A line that opens "when plan is free: …" goes only on
+   * turns where that fits, and every line that fits is sent, a blank line apart. A line can be a
+   * list of parts; mark what must not leak as { private: text }; only that is guarded. With none,
+   * the whole prompt is.
+   */
+  system?: ProfileSystem;
 }
 
 /** The fields every profile type shares. */
@@ -614,7 +940,12 @@ export type DecisionJson =
 
 /** What a decision profile accepts: JSON state up to a byte cap. */
 export interface DecisionInputsSpec {
+  /** A decision reads JSON state, passed on each call. */
   state: 'json';
+  /**
+   * The largest state, in bytes, a decision call may send; larger state is refused before it leaves
+   * your process.
+   */
   maxStateBytes?: number;
 }
 
@@ -633,7 +964,13 @@ export interface DecisionProfile {
   /** Exactly one model: a decision profile runs one model and never selects. */
   models: Record<ModelId, DecisionModelBinding>;
   inputs: DecisionInputsSpec;
-  decision: { contract: DecisionContractId };
+  decision: {
+    /**
+     * Your name for this decision, on its traces. Not sent to the model. Not checked against the
+     * questions.
+     */
+    contract: DecisionContractId;
+  };
   guardrails?: DecisionGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
   /** This profile's wording: replaces any label default, and any `overrideLabels` entry, for this profile. */
@@ -689,24 +1026,17 @@ export interface DecisionAsset {
 }
 
 /** A request to `runDecision`: the profile, the state to judge, and the questions to answer. */
-export interface DecisionRequest {
+export interface DecisionRequest extends RunControls {
   profile: ProfileId;
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
   /**
-   * Images by reference. Write a reference as a string where its image belongs, in `state`, in a
-   * question's instructions, or in its criteria; the provider puts the image there.
+   * Images by reference. Write a reference in a string where its image belongs, in `state`, in a
+   * question's instructions, or in its criteria, as the whole string or inside it; the model reads
+   * the image in its place, once for each use. Keys are never read. Only the images some string
+   * references are sent, so pick references that cannot occur in your text by accident.
    */
   assets?: Record<string, DecisionAsset>;
-  signal?: AbortSignal;
-  /** Host-owned metadata preserved on the decision's trace record; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this decision runs under. The `decide`
-   * root joins that trace as its child; without it the decision starts a new
-   * trace. A malformed value throws.
-   */
-  traceparent?: string;
 }
 
 /** The model's answer to one decision question. */
@@ -746,11 +1076,29 @@ export type EmbeddingInput = string | { parts: readonly EmbeddingPart[] };
 
 /** A profile's accepted embedding input kinds and limits. */
 export interface EmbeddingInputsSpec {
+  /** Whether a turn may send text. */
   text?: boolean;
-  attachments?: { accept: string[] };
+  /** Lets turns send files. */
+  attachments?: {
+    /**
+     * The file types a turn may send, where type/* matches a whole family; image profiles take only
+     * images, video, and PDF.
+     */
+    accept: string[];
+  };
+  /** The most files and voice clips one turn or embedding request may send, counted together. */
   maxFiles?: number;
+  /** The largest file or clip, in bytes, a turn or embedding request may send inline. */
   maxBytes?: number;
+  /**
+   * The most bytes one turn or embedding request may send inline across all its files and clips.
+   */
   maxTurnBytes?: number;
+  /**
+   * Size limits by file type that replace maxBytes for those types.
+   *
+   * @catalog inputs.limitsByMime.* The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.
+   */
   limitsByMime?: Record<string, number>;
 }
 
@@ -769,14 +1117,11 @@ export interface EmbeddingProfile extends Omit<ProfileCommon, 'identity' | 'outp
 export type EmbeddingTask = 'query' | 'document';
 
 /** A request to `runEmbedding`. */
-export interface EmbeddingRequest {
+export interface EmbeddingRequest extends RunControls {
   profile: ProfileId;
   model?: ModelId;
   input: EmbeddingInput | readonly EmbeddingInput[];
   task?: EmbeddingTask;
-  signal?: AbortSignal;
-  metadata?: Record<string, unknown>;
-  traceparent?: string;
 }
 
 /** One vector returned for one ordered embedding input. */
@@ -835,6 +1180,23 @@ export interface SpeechProfile extends Omit<ProfileCommon, 'identity'> {
   turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
+/** A transcription profile's inputs: voice clips within byte limits, and no text. */
+export type TranscriptionInputsSpec = Required<Pick<ProfileInputsSpec, 'voice'>> &
+  Pick<ProfileInputsSpec, 'maxFiles' | 'maxBytes' | 'maxTurnBytes' | 'limitsByMime'>;
+
+/**
+ * Speech to text: a voice clip in, what was said out as the turn's text. No tools, no system
+ * prompt, and no canary, because the model follows no instruction and has nothing of the profile's to leak.
+ */
+export interface TranscriptionProfile
+  extends Omit<ProfileCommon, 'identity' | 'outputs' | 'maxSteps'> {
+  type: 'transcription';
+  identity: Pick<ProfileIdentity, 'handle'>;
+  inputs: TranscriptionInputsSpec & { text: false };
+  outputs?: undefined;
+  maxSteps?: undefined;
+}
+
 /** A profile that holds a live audio session. */
 export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
@@ -866,6 +1228,7 @@ export type Profile =
   | TextProfile
   | ImageProfile
   | SpeechProfile
+  | TranscriptionProfile
   | LiveProfile
   | DecisionProfile
   | EmbeddingProfile
@@ -915,26 +1278,59 @@ export interface TurnRepairRequest {
   guidance?: string;
 }
 
-/** What the user sent for a turn: text, slots, attachments, voice, and history. */
+/** What the user sent for a turn: text, options, attachments, voice, and history. */
 export interface TurnInput {
+  /** The user's message. */
   text?: string;
-  role?: string;
-  slots?: Record<string, string>;
-  /** What the page or the host wants the model to know, by sender; the profile's `inputs.context` allows it. */
+  /**
+   * The value a person picked for each option in the profile's inputs.options; an option or a value
+   * the profile does not declare is refused.
+   *
+   * @remarks The value picked for each of the profile's `inputs.options`.
+   */
+  options?: Readonly<Record<string, string>>;
+  /**
+   * What the page (client) or the host (server) wants the model to know, as any JSON or text; a
+   * sender the profile's inputs.context does not list, or a package over its maxChars, is refused.
+   *
+   * @remarks What the page or the host wants the model to know, by sender; the profile's
+   * `inputs.context` allows it.
+   */
   context?: TurnContext;
+  /**
+   * Files sent with the turn, as bytes or as a provider file reference; each must pass the
+   * profile's inputs.attachments.
+   */
   attachments?: Array<TurnBlob | TurnMediaRef>;
+  /** Recorded speech sent with the turn; each must pass the profile's inputs.voice. */
   voice?: TurnBlob[];
+  /** The earlier messages of the conversation, when the host keeps them. */
   history?: TurnHistoryMessage[];
+  /**
+   * Background tool calls that settled after their turn, as the host stored them. The model reads
+   * each as a tool result, and this reply counts it as a remote read when the call was remote. Pass
+   * each one once: the turn emits it as a late_results event, so a history built from events holds
+   * it.
+   *
+   * @remarks Tool calls that settled after their turn, as the host stored them. Each counts as read
+   * in this reply.
+   */
+  lateResults?: ToolOperationOutcome[];
+  /** A reply your host rejected and why, so that the model writes it again. */
   repair?: TurnRepairRequest;
   /**
-   * Optional host-supplied history token count for `meter: 'history'`.
-   * When set, overrides the local history estimate. Not full-prompt API tokens.
+   * Your count of the history's tokens, used by compaction that meters history.
+   *
+   * @remarks Optional host-supplied history token count for `meter: 'history'`. When set, overrides
+   * the local history estimate. Not full-prompt API tokens.
    */
   historyTokens?: number;
   /**
-   * Optional host-supplied full-prompt input token count for `meter: 'input'`
-   * with `timing: 'before'` (typically the previous turn's `tokens.input`).
-   * Ignored when `meter` is `'history'`.
+   * Your count of the whole prompt's tokens, used by compaction that meters input before the call.
+   *
+   * @remarks Optional host-supplied full-prompt input token count for `meter: 'input'` with
+   * `timing: 'before'` (typically the previous turn's `tokens.input`). Ignored when `meter` is
+   * `'history'`.
    */
   inputTokens?: number;
 }
@@ -955,84 +1351,187 @@ export interface TurnTraceLink {
   stop?: TurnStopKind;
 }
 
-/** A request to `runTurn`: the profile, the input, and the host's hooks and keys. */
-export interface TurnRequest {
+/** What `runTurn` and `runSession` both take: an agent's profile, its model, and the host's hooks and keys. */
+export interface AgentRunRequest extends RunControls, ModelChoice {
+  /** Host-owned atomic tool claims and outcomes. Never sent to providers. */
   execution?: ToolExecutionCoordinator;
-  pageExecution?: PageToolExecution;
-  providerState?: ProviderCheckpoint;
-  profile: ProfileId;
-  projectId?: string;
   /**
-   * Sticky routing / cache session key for OpenRouter (`session_id`).
-   * Not the same as `projectId` or Gemini `previousInteractionId`.
+   * Host-issued service for tool calls that go on after their reply. It needs a coordinator with
+   * detach. Without it every tool runs inline.
    */
-  sessionId?: string;
-  /** Selected model id when `profile.allowModelSelect` is true. */
-  model?: ModelId;
-  /** Selected effort alias when the binding has `allowEffortSelect`. */
-  effort?: string;
+  background?: ToolBackgroundService;
+  /** Host-issued browser dispatch with a claimed operation and correlated result. */
+  pageExecution?: PageToolExecution;
+  /** Native provider state saved alongside portable history. */
+  providerState?: ProviderCheckpoint;
+  /** The id of the registered profile the turn or session runs. */
+  profile: ProfileId;
   /**
-   * Args for built-in tools on the chosen model's `builtInTools`, by tool id.
-   * Each is parsed by the schema the provider's adapter declares for that tool.
+   * Args for the provider's own tools on the chosen model's builtInTools, by tool id; each is
+   * checked by the schema the provider declares for that tool.
+   *
+   * @remarks Args for built-in tools on the chosen model's `builtInTools`, by tool id. Each is
+   * parsed by the schema the provider's adapter declares for that tool.
    */
   builtInArgs?: BuiltInArgs;
-  /** Host-provided dynamic system prompt combined with profile persona */
-  system?: SystemPrompt;
-  /** This turn's voice, style, and speed, over `profile.speech`. Speech profiles only. */
-  speech?: TurnSpeech;
-  sessionPermissions?: string[];
-  /** Host channel/path for catalog `paths` filtering. */
-  path?: string;
-  /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
   /**
-   * W3C `traceparent` of the host span this turn runs under. The turn's root
-   * span joins that trace as its child; without it the turn starts a new trace.
-   * A malformed value throws.
+   * An instruction for this request only, added to the profile's own.
+   *
+   * @remarks Host-provided dynamic system prompt combined with profile persona
    */
-  traceparent?: string;
-  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  links?: TurnTraceLink[];
+  system?: SystemPrompt;
+  /** The tools the user has already approved for this session. */
+  sessionPermissions?: string[];
   /**
-   * Opaque application context handed to tool `handler` / `preTool` and
-   * `tools.t1Policy` as `ctx.host`. The kernel never reads, logs, traces, or
-   * serializes it.
+   * The channel the turn or session comes from; only tools whose paths name it, or *, are offered.
+   *
+   * @remarks Host channel/path for catalog `paths` filtering.
+   */
+  path?: string;
+  /**
+   * The value the host's code sets for each option in the profile's identity.options but path; an
+   * option or a value the profile does not declare is refused.
+   *
+   * @remarks This run's value for each of `profile.identity.options` it sets; `path` is the run's
+   * own.
+   */
+  options?: Readonly<Record<string, string>>;
+  /**
+   * Your own context, handed to tool handlers as ctx.host; Theorem never reads or records it.
+   *
+   * @remarks Opaque application context handed to tool `handler` / `preTool` and `tools.t1Policy`
+   * as `ctx.host`. The kernel never reads, logs, traces, or serializes it.
    */
   host?: unknown;
   /**
-   * Optional abort signal. When aborted, THEOREM stops the turn and cancels
-   * in-flight provider HTTP where the adapter supports it.
+   * Where an HTTP or MCP tool gets the credential for its auth slot.
+   *
+   * @remarks Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs
+   * one.
    */
-  signal?: AbortSignal;
+  credentials?: ToolCredentialSource;
   /**
-   * Continue a prior resumeable stop. On text profiles the turn's user message
-   * is the continue instruction (no `input.text`); the host passes the partial
-   * reply as the last assistant message in `input.history`. Image and speech
-   * re-send the original request unchanged.
+   * Resolves the host name of a remote tool before each request; a name that resolves to a private
+   * address is refused.
+   *
+   * @remarks Resolves remote tool and OAuth host names before each request; a name that resolves to
+   * a private address is refused (see `fetchGuarded`).
+   */
+  resolveHost?: ResolveHost;
+  /**
+   * Sends each request a remote tool makes, once that request's network checks pass. A page whose
+   * tools cannot reach a host directly sends them through its own server here.
+   *
+   * @remarks Sends each request a remote tool makes (HTTP, MCP, a signed-in fetch, an image read),
+   * once that request's network checks pass. A page whose tools cannot reach a host directly sends
+   * them through its own server here. Default: the global `fetch`.
+   */
+  fetch?: typeof fetch;
+  /**
+   * Your function that sees each stage of a text turn or a live session, and can answer with what
+   * the stage allows.
+   *
+   * @remarks Text `runTurn` and `runSession` emit stages and apply the returned affordances. A
+   * session's is set once.
+   */
+  onStage?: StageHandler;
+  /**
+   * Runs before each agent tool call, to shape the request to the called agent or to refuse the
+   * call.
+   *
+   * @remarks Runs before each agent tool call in this run, and in the turns those calls run. Shape
+   * the called agent's request (history, model, provider) or refuse the call. Omit it: the agent
+   * runs on what the model sent.
+   */
+  onAgentCall?: AgentCallHook;
+}
+
+/** A request to `runTurn`: the shared controls and the turn's input. */
+export interface TurnRequest extends AgentRunRequest {
+  /**
+   * A session key that OpenRouter uses for routing and caching.
+   *
+   * @remarks Sticky routing / cache session key for OpenRouter (`session_id`). Not the same as
+   * `projectId` or Gemini `previousInteractionId`.
+   */
+  sessionId?: string;
+  /**
+   * This turn's voice, style, and speed; each one given replaces the profile's speech field of that
+   * name. Refused on a profile that is not speech.
+   *
+   * @remarks This turn's voice, style, and speed, over `profile.speech`. Speech profiles only.
+   */
+  speech?: TurnSpeech;
+  /**
+   * Continues a turn that stopped in a way the profile lets a turn continue.
+   *
+   * @remarks Continue a prior resumeable stop. On text profiles the turn's user message is the
+   * continue instruction (no `input.text`); the host passes the partial reply as the last assistant
+   * message in `input.history`. Image and speech re-send the original request unchanged.
    */
   continueFrom?: TurnContinueFrom;
   /**
-   * 1-based continue attempt when `continueFrom` is set.
-   * Compared to `profile.turnBehaviour.resumption.maxContinues` when that cap is set.
+   * Which continue attempt this is, from 1; checked against the maxContinues of the profile.
+   *
+   * @remarks 1-based continue attempt when `continueFrom` is set. Compared to
+   * `profile.turnBehaviour.resumption.maxContinues` when that cap is set.
    */
   continuation?: number;
+  /**
+   * Tools this reply already had when an earlier run of it paused; the turn opens with them on its
+   * list.
+   *
+   * @remarks Tools this reply already had when an earlier run of it paused. The turn opens with
+   * them on its list, so an answered call does not take back what the model loaded. An id
+   * `tools.allow` or the path does not grant is left out, as for `tools.t1Policy`.
+   */
+  promoted?: ToolId[];
+  /**
+   * Steps this reply already took when an earlier run of it paused; they count against maxSteps.
+   *
+   * @remarks Steps this reply already took when an earlier run of it paused. They count against
+   * `maxSteps`, so an answered call does not give the reply its steps back. Read `done.steps`.
+   */
+  stepsTaken?: number;
+  /**
+   * Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw ends
+   * the turn with that error.
+   *
+   * @remarks Reads each of this turn's events as it leaves `runTurn`, before the caller gets it.
+   * The app sets it in `TurnWiring.prepare` to act on a turn someone else runs, such as saving the
+   * reply when `done` arrives. A throw ends the turn with that error. `invokeTool` does not call
+   * it.
+   */
+  onEvent?: (event: TurnEvent) => void | Promise<void>;
+  /**
+   * Set on the turn TurnWiring.prepare is given for a held call that goes on once answered: no
+   * model runs, and input is the paused turn's.
+   *
+   * @remarks Set on the turn `TurnWiring.prepare` is given for a held call that goes on once
+   * answered. No model runs and `input` is the paused turn's, so it is not a new message.
+   */
+  answersHeldCall?: true;
+  /** What the user sent for the turn. */
   input?: TurnInput;
-  /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
-  credentials?: ToolCredentialSource;
+}
+
+/**
+ * How an application runs its turns: the one value its own call sites, its web handler and the
+ * studio all use, so they cannot run a turn differently. An app that calls `runTurn` itself
+ * writes `runTurn(await wiring.prepare(turn), wiring.provider)`.
+ */
+export interface TurnWiring {
+  /** Registers the application's profiles and tools. Called once, before the first turn. */
+  register?: () => void | Promise<void>;
+  /** The keys, network and limits each model call runs on. */
+  provider?: ProviderHostOptions;
   /**
-   * Resolves remote tool and OAuth host names before each request; a name that
-   * resolves to a private address is refused (see `fetchGuarded`).
+   * The turn the application runs, from the one it is given: the profile, the input with the
+   * conversation's history, and the application's context as `host`. Set what the application
+   * sets per turn, such as `system`, `credentials`, `onStage`, `onEvent`, `onAgentCall`, `path`
+   * and `metadata`. Text, image and speech turns run through it.
    */
-  resolveHost?: ResolveHost;
-  /** Text `runTurn` emits stages and applies the returned affordances. */
-  onStage?: StageHandler;
-  /**
-   * Runs before each agent tool call in this turn, and in the turns those
-   * calls run. Shape the called agent's request (history, model, provider) or
-   * refuse the call. Omit it: the agent runs on what the model sent.
-   */
-  onAgentCall?: AgentCallHook;
+  prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
 }
 
 /** A profile projected for a client, with its secrets and server-only fields removed. */
@@ -1076,6 +1575,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   execution?: ToolExecutionCoordinator;
   pageExecution?: PageToolExecution;
   transport: ProviderTransport;
+  /** The protocol's `gen_ai.operation.name` for this profile type; absent when no provider is registered for the binding. */
+  operationName?: string;
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
@@ -1094,6 +1595,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   canary: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
   resolvedSystem: readonly SystemPiece[];
+  /** Which of the profile's prompt lines fit this turn, by number from 1. */
+  systemLines: readonly number[];
   /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
   host?: unknown;
 }
@@ -1112,6 +1615,8 @@ export interface ModelRequest extends Omit<ProviderGenerationConfig, 'summaries'
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
+  /** Live: the fenced context the session opens with, seeded after `history` so it lands before any input. */
+  context?: string[];
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
   /** Host abort signal. */
@@ -1127,20 +1632,12 @@ export interface TurnModel {
  * Host request to open a long-lived live session (`runSession`).
  * Profile must be `type: 'live'`.
  */
-export interface SessionRequest {
-  providerState?: ProviderCheckpoint;
-  profile: ProfileId;
-  /** Host-built system prompt merged with profile identity.system. */
-  system?: SystemPrompt;
+export interface SessionRequest extends AgentRunRequest {
   /** Override `profile.live.voice` for this session. */
   voice?: string;
-  /** As `TurnRequest.builtInArgs`. */
-  builtInArgs?: BuiltInArgs;
-  path?: string;
-  sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
-  /** The value chosen for each of the profile's `inputs.slots`. */
-  slots?: Record<string, string>;
+  /** The value picked for each of the profile's `inputs.options`. */
+  inputOptions?: Record<string, string>;
   /** What the page and the host tell the agent as the call opens; `sendContext` replaces it later. */
   context?: TurnContext;
   /** How long the caller was away before this resume, in milliseconds. The session keeps no clock across calls. */
@@ -1155,38 +1652,6 @@ export interface SessionRequest {
    * `tools.allow`; ids outside it are refused.
    */
   snapshot?: TurnToolSnapshot;
-  signal?: AbortSignal;
-  /** Host-owned metadata preserved on every record the session writes. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this session runs under. The session's
-   * root span joins that trace as its child; without it the session starts a
-   * new trace. A malformed value throws.
-   */
-  traceparent?: string;
-  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  links?: TurnTraceLink[];
-  /** Immutable for the session; there is no `setOnStage`. */
-  onStage?: StageHandler;
-  /**
-   * As `TurnRequest.onAgentCall`, for the agent tools this session's calls run.
-   * Omit it: each agent runs on what the model sent, with the session's own
-   * provider options.
-   */
-  onAgentCall?: AgentCallHook;
-  /**
-   * Default credentials for `executeTool` (per-call args override). Without one, the
-   * session keeps keys typed at its sign-in gates in memory.
-   */
-  credentials?: ToolCredentialSource;
-  /**
-   * Resolves remote tool and OAuth host names before each request; a name that
-   * resolves to a private address is refused (see `fetchGuarded`).
-   */
-  resolveHost?: ResolveHost;
-  /** Opaque host slot for stages / tool execute (per-call args override). */
-  host?: unknown;
 }
 
 /**

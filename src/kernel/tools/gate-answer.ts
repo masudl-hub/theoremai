@@ -8,23 +8,24 @@ import type { InvokeToolResume, PageAnswer } from './types.ts';
 /** What a sign-in gate asks for, minus the challenge's OAuth details. */
 export type ToolGateAuth = Pick<ToolAuthChallenge, 'slot' | 'authType' | 'service'>;
 
-const DEFAULT_GATE_TTL_MS = 30 * 60 * 1000;
-
-/** A bad value is refused when `owner` is built, not when a gate expires. */
-export function resolveGateTtlMs(owner: string, gateTtlMs: number | undefined): number {
-  const ttl = gateTtlMs ?? DEFAULT_GATE_TTL_MS;
-  if (!Number.isFinite(ttl) || ttl <= 0) {
+/**
+ * A bad value is refused when `owner` is built, not when a gate expires. Unset, a gate waits until
+ * it is answered.
+ */
+export function resolveGateTtlMs(owner: string, gateTtlMs: number | undefined): number | undefined {
+  if (gateTtlMs === undefined) return undefined;
+  if (!Number.isFinite(gateTtlMs) || gateTtlMs <= 0) {
     throw new TheoremError(
       'config',
-      `${owner} gateTtlMs must be a positive number of milliseconds; got ${ttl}.`, // labels-exempt: builder config error at setup; no user sees it
+      `${owner} gateTtlMs must be a positive number of milliseconds; got ${gateTtlMs}.`, // labels-exempt: builder config error at setup; no user sees it
     );
   }
-  return ttl;
+  return gateTtlMs;
 }
 
-/** True when the gate has waited as long as its time limit. */
-export function gateExpired(createdAt: number, now: number, ttlMs: number): boolean {
-  return now - createdAt >= ttlMs;
+/** True when the gate has waited as long as its time limit. With no limit, never. */
+export function gateExpired(createdAt: number, now: number, ttlMs: number | undefined): boolean {
+  return ttlMs !== undefined && now - createdAt >= ttlMs;
 }
 
 /** How a user can answer a tool gate: approve it, deny it, or walk away. */

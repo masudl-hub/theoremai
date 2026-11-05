@@ -9,12 +9,14 @@ import type { ErrorKind } from '../../../guardrails/theorem-error.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TraceAttributes } from '../../../observability/trace-span.ts';
 import { waitDefault } from '../../../providers/shared/retry.ts';
+import { ANSWER_TOOL, answersByTool, withAnswerTool } from '../../answer-tool.ts';
 import { stepReplyMessages } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import {
   AUTO_CONTINUE_DELAY_MS,
+  cutOffRepairs,
   isFailedStopKind,
   profileAllowsInject,
   profileTurnResumption,
@@ -51,8 +53,15 @@ import type {
 import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
-import { applyStageInjects, recordReply } from './stages.ts';
-import { recordStepEvent, type StepExecutionState } from './state.ts';
+import {
+  canDropMedia,
+  dropMedia,
+  type RefusedMediaTry,
+  refusedReport,
+  restoreMedia,
+} from './refused-media.ts';
+import { applyStageInjects, recordReply, steersToLand } from './stages.ts';
+import { modelHistory, recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import {
   isWithheldOnBlock,
@@ -72,7 +81,7 @@ function generationForProviderStep(
   state: StepExecutionState,
   answerOnly: boolean,
 ): ResolvedGeneration {
-  const forStep = { ...generation, history: state.currentHistory };
+  const forStep = { ...generation, history: modelHistory(state) };
   if (!answerOnly) return forStep;
   return { ...forStep, builtins: [], tools: { ...generation.tools, wire: [] } };
 }
@@ -121,14 +130,19 @@ function startProviderCall(
   system: BoundSystem,
   state: StepExecutionState,
   answerOnly: boolean,
+  labels: Profile['labels'],
 ) {
   const usage = startCallUsage(system.text, {
-    history: state.currentHistory,
+    history: modelHistory(state),
     input: generation.input,
   });
   state.lastCall = usage;
   const genForStep = generationForProviderStep(generation, state, answerOnly);
-  const request = providerCompleteRequest(state.tools, genForStep, system.text);
+  const request = withAnswerTool(
+    providerCompleteRequest(state.tools, genForStep, system.text),
+    generation,
+    labels,
+  );
   addRequestUrls(state.givenUrls, request);
   addRequestDestinations(state.destinations, request, state.givenUrls.own);
   if (generation.canary && !state.canaryGiven) {
@@ -140,6 +154,7 @@ function startProviderCall(
     usage,
     binding: state.trace.binding,
     transport: genForStep.transport,
+    operation: genForStep.operationName,
     step: state.stepCount,
     attempt: state.trace.attempt,
   });
@@ -156,7 +171,7 @@ interface StepOutcome {
   /** Where that text begins in the attempt's reply, past the break that sets it apart. */
   replyAt?: number;
   latestStructured?: unknown;
-  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined };
+  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined; dropMedia?: true };
 }
 
 /**
@@ -190,6 +205,8 @@ interface CallTally {
   replied: boolean;
   /** Where the call's text begins in the attempt's reply (`StepExecutionState.replyText`). */
   replyAt?: number;
+  /** The provider reported the output limit, whatever stop outranks it after. */
+  cut: boolean;
 }
 
 /** Takes what an event says about the call itself. True when the event goes no further. */
@@ -210,6 +227,77 @@ function tallyCallEvent(
   return false;
 }
 
+/**
+ * The structured output the call gave through the answer tool, shown as the step's, with the answer
+ * tool's calls taken out of the step's calls. An answer ends the turn, so the step's other calls do
+ * not run, and the call that gave it completed.
+ */
+async function* showAnswer(
+  shown: StructuredDrafts,
+  tally: CallTally,
+  step: {
+    generation: ResolvedGeneration;
+    state: StepExecutionState;
+    control: OutboundStreamControl;
+    buffer: { holdLate: boolean; holdVisible: boolean };
+    call: ReturnType<typeof startProviderCall>['call'];
+  },
+): AsyncGenerator<TurnEvent> {
+  if (!answersByTool(step.generation)) return;
+  const answer = tally.calls.find((call) => call.name === ANSWER_TOOL && !call.failure);
+  tally.calls = answer ? [] : tally.calls.filter((call) => call.name !== ANSWER_TOOL);
+  if (!answer) return;
+  if (tally.stop?.kind === 'tool') {
+    tally.stop = { kind: 'completed' };
+    step.state.lastStop = tally.stop;
+  }
+  const event: TurnEventOf<'structured'> = { type: 'structured', structured: answer.arguments };
+  if (tallyCallEvent(event, tally, step.call)) return;
+  if (releasesNow(event, step.control, step.state, step.buffer)) yield* shown.show(event);
+}
+
+/**
+ * A tool call the output limit cut off, on a profile that repairs cuts (`cutOffRepairs`): its drafts,
+ * kept on the attempt for the repair. The call
+ * stops at `length`, and the failure its broken arguments gave is not the turn's.
+ *
+ * why: A protocol hands over a call whose arguments do not parse as a bare `bad_response`, and
+ * drops the call; the stream then stops it as a `provider_error`. Its drafts are what the model
+ * wrote, and the cut is why it broke.
+ */
+function keepCutOffCall(
+  tally: CallTally,
+  state: StepExecutionState,
+  control: OutboundStreamControl,
+  profile: Profile,
+): void {
+  if (!tally.cut || !control.toolDrafts || !cutOffRepairs(profile)) return;
+  const made = new Set(tally.calls.filter((call) => !call.failure).map((call) => call.callId));
+  const cut = [...control.toolDrafts].findLast(([id, draft]) => !made.has(id) && draft.text.trim());
+  if (!cut) return;
+  state.cutOffCall = cut[1];
+  tally.failures = tally.failures.filter((failure) => failure.errorKind !== 'bad_response');
+  tally.stop = { kind: 'length' };
+  state.lastStop = tally.stop;
+}
+
+/**
+ * A tool call's preview. The answer tool's streams as the structured reply's draft.
+ *
+ * why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
+ * as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
+ */
+async function* showToolDraft(
+  event: TurnEventOf<'tool_draft'>,
+  shown: StructuredDrafts,
+  generation: ResolvedGeneration,
+  buffer: { holdVisible: boolean },
+): AsyncGenerator<TurnEvent> {
+  if (buffer.holdVisible) return;
+  if (event.name === ANSWER_TOOL && answersByTool(generation)) yield* shown.draft(event.text);
+  else yield event;
+}
+
 /** What sets one model call's text apart from the reply text before it: a blank line. */
 const CALL_BREAK = '\n\n';
 
@@ -227,8 +315,8 @@ function withCallBreak(
 ): TurnEventOf<'text'> {
   if (tally.text) return event;
   const before = state.replyText;
-  const breaks =
-    before && generation.structured === null && !/\s$/.test(before) && !/^\s/.test(event.text);
+  const prose = generation.structured === null || answersByTool(generation);
+  const breaks = before && prose && !/\s$/.test(before) && !/^\s/.test(event.text);
   tally.replyAt = before.length + (breaks ? CALL_BREAK.length : 0);
   return breaks ? { ...event, text: `${CALL_BREAK}${event.text}` } : event;
 }
@@ -275,7 +363,8 @@ const PASSING_ERROR_KINDS: ReadonlySet<ErrorKind> = new Set([
  * A failure the same call would meet again is not sent again (`PASSING_ERROR_KINDS`).
  *
  * why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
- * nothing. A reply cut at `length` is not a failure: the same call would be cut at the same place.
+ * nothing. A reply cut at `length` is not sent again, since the same call would be cut at the same
+ * place: the attempt gate repairs it with guidance instead (`handleCutOffReply`).
  */
 function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepOutcome['resume'] {
   const { stop } = tally;
@@ -284,6 +373,27 @@ function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepO
   const failure = tally.failures[0];
   if (failure?.errorKind && !PASSING_ERROR_KINDS.has(failure.errorKind)) return undefined;
   return { stop, failure };
+}
+
+/**
+ * The re-send a refused call is due when it carried files.
+ *
+ * why: One file the provider cannot read refuses every call that replays it. Sent without
+ * the files, the call shows whether they were at fault; what it cost was one refused call.
+ */
+function mediaResumeOf(
+  state: StepExecutionState,
+  profile: Profile,
+  tally: CallTally,
+): StepOutcome['resume'] {
+  const { stop } = tally;
+  if (profile.type !== 'text' || state.triedWithoutMedia) return undefined;
+  if (tally.replied || tally.calls.length > 0 || !stop || !isFailedStopKind(stop.kind)) {
+    return undefined;
+  }
+  const failure = tally.failures[0];
+  if (failure?.errorKind !== 'unsupported' || !resendsFailedCall(profile, stop)) return undefined;
+  return canDropMedia(state) ? { stop, failure, dropMedia: true } : undefined;
 }
 
 /** Carries what the call's stream guards still hold into the turn's next call. */
@@ -317,8 +427,16 @@ async function* executeAutonomousStep(
     system,
     state,
     isAnswerOnlyStep(profile, generation, state.stepCount),
+    profile.labels,
   );
-  const tally: CallTally = { calls: [], reasoning: [], text: '', failures: [], replied: false };
+  const tally: CallTally = {
+    calls: [],
+    reasoning: [],
+    text: '',
+    failures: [],
+    replied: false,
+    cut: false,
+  };
   const control: OutboundStreamControl = {
     withholdVisible: false,
     ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
@@ -333,7 +451,7 @@ async function* executeAutonomousStep(
     canaryGiven: state.canaryGiven,
     ...(state.ownTools ? { ownTools: state.ownTools } : {}),
   };
-  const shown = new StructuredDrafts(seen);
+  const shown = new StructuredDrafts({ ...seen, generation });
 
   try {
     for await (const event of yieldProviderEvents({
@@ -344,6 +462,7 @@ async function* executeAutonomousStep(
       signal,
       control,
       tools: state.tools,
+      answerTool: answersByTool(generation),
     })) {
       if (observeCallEvent(usage, event)) continue;
       if (event.type === 'reasoning') {
@@ -353,18 +472,17 @@ async function* executeAutonomousStep(
       }
       if (event.type === 'done') {
         state.providerState = event.providerState;
+        tally.cut ||= event.stop.kind === 'length';
         tally.stop = event.stop;
         state.lastStop = event.stop;
         continue;
       }
       if (event.type === 'tool_draft') {
-        // why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
-        // as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
-        if (!buffer.holdVisible) yield event;
+        yield* showToolDraft(event, shown, generation, buffer);
         continue;
       }
       // why: The model's history keeps what it wrote; only the reply the host gets is set apart.
-      const next = event.type === 'text' ? withCallBreak(event, tally, state, genForStep) : event;
+      const next = event.type === 'text' ? withCallBreak(event, tally, state, generation) : event;
       if (tallyCallEvent(event, tally, call)) continue;
       if (!releasesNow(next, control, state, buffer)) continue;
       yield* shown.show(next);
@@ -377,8 +495,10 @@ async function* executeAutonomousStep(
   }
 
   yield* shown.end();
+  keepCutOffCall(tally, state, control, profile);
+  yield* showAnswer(shown, tally, { generation, state, control, buffer, call });
   keepStreamCarry(state, control);
-  const resume = resumeOf(args.mayResume, profile, tally);
+  const resume = resumeOf(args.mayResume, profile, tally) ?? mediaResumeOf(state, profile, tally);
   if (!resume) {
     for (const failure of tally.failures) {
       recordStepEvent(failure, state);
@@ -408,6 +528,8 @@ async function* executeAutonomousStep(
  * lists, having given no reply and no tool call, is sent again in the same turn
  * after a pause, up to `maxContinues` times a turn (once when the profile sets
  * none). The turn's history, its step count, and what it has read stay as they were.
+ * A call the provider refused while it carried files goes once more without them, and
+ * those files are reported as refused only if that call is accepted.
  */
 async function* executeResumedStep(
   args: Omit<Parameters<typeof executeAutonomousStep>[0], 'mayResume'>,
@@ -415,10 +537,30 @@ async function* executeResumedStep(
   buffer: { holdLate: boolean; holdVisible: boolean },
 ): AsyncGenerator<TurnEvent, StepOutcome> {
   const limit = profileTurnResumption(args.profile)?.maxContinues ?? 1;
+  let tried: RefusedMediaTry | undefined;
   for (;;) {
     const mayResume = args.profile.type === 'text' && state.resumes < limit;
     const outcome = yield* executeAutonomousStep({ ...args, mayResume }, state, buffer);
-    if (!outcome.resume) return outcome;
+    if (!outcome.resume) {
+      if (tried && state.lastStop && isFailedStopKind(state.lastStop.kind)) {
+        restoreMedia(state, tried);
+      } else if (tried) {
+        state.mediaRefused = refusedReport(tried);
+      }
+      return outcome;
+    }
+    if (outcome.resume.dropMedia) {
+      const said = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error ?? '';
+      state.triedWithoutMedia = true;
+      tried = dropMedia(state, said, args.profile.labels);
+      state.trace.root.event('theorem.step.media_refused', {
+        step: state.stepCount,
+        files: tried.dropped.length,
+        error: said,
+      });
+      state.lastStop = undefined;
+      continue;
+    }
     state.resumes += 1;
     const detail = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error;
     state.trace.root.event('theorem.step.resume', {
@@ -570,7 +712,7 @@ async function* handleModelCalls(
   profile: Profile,
   state: StepExecutionState,
   system: BoundSystem,
-  { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
+  { onStage, signal, credentials, resolveHost, fetch }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   const { calls: upstreamCalls, reasoning } = outcome;
   if (upstreamCalls.length > 0) recordReply(state, stepReply(outcome), outcome.replyAt);
@@ -633,6 +775,7 @@ async function* handleModelCalls(
       executeRegisteredTool({
         tools: state.tools,
         execution: generation.execution,
+        ...(state.background ? { background: state.background } : {}),
         invocation: {
           model: generation.model,
           input: generation.input,
@@ -651,6 +794,7 @@ async function* handleModelCalls(
           turn,
           credentials,
           resolveHost,
+          fetch,
           host: generation.host,
           resume: undefined,
           signal,
@@ -688,6 +832,19 @@ async function* handleModelCalls(
     if (outcome === 'stop_cancelled') cancelled = true;
     if (outcome === 'gated') gated = true;
   }
+  // why: Steers land once a step, after every call's own post_tool inject, so calls side by side never land one twice.
+  if (!cancelled && !gated && calls.length > 0) {
+    const steers = yield* steersToLand(
+      state,
+      profile,
+      'post_tool',
+      stages.injectWouldExceedMaxSteps,
+    );
+    if (steers) {
+      yield* applyStageInjects(state, 'post_tool', steers.units);
+      state.steers?.joined(steers.waiting);
+    }
+  }
   if (cancelled) return false;
   if (gated) {
     state.lastStop = { kind: 'gate' };
@@ -722,6 +879,10 @@ async function* executeAttempt(args: {
   // why: Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
   const holdVisible = validation !== undefined && generation.stream === false;
 
+  // why: A reply that spent its steps before it paused has no step left to read the answered call.
+  if (isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
+    state.lastStop = { kind: 'step_limit' };
+  }
   // why: Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start
   // of each attempt cycle.

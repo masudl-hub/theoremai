@@ -1,51 +1,48 @@
 /**
- * What the studio's page sends an agent: a value for each of its slots and its context
+ * What the studio's page sends an agent: a value for each of its options and its context
  * package. Kept in this tab beside the conversation, never in the profile.
  */
 
+import type { ProfileOptions } from '@theoremjs/agents';
+import type { StatedTurn } from '@theoremjs/web/client';
 import { useCallback, useSyncExternalStore } from 'react';
 import { type StudioRunPayload, studioPageTools } from '../../mod.ts';
 import { isRecord, session } from './studio-session.ts';
 
 const PAGE_PREFIX = 'theorem.studio.v2.page:';
 
-/** What the builder set: the value picked for each slot, and the context as typed. */
+/** What the builder set: the value picked for each option, and the context as typed. */
 export interface PageValues {
-  slots: Record<string, string>;
+  options: Record<string, string>;
   contextJson: string;
 }
 
 /** What the agent takes from a page. */
 export interface PageInputs {
-  slots: Record<string, readonly string[]>;
+  /** The options a person picks, by name, with their values. */
+  person: Record<string, readonly string[]>;
+  /** The options the host's code states, by name, with their values. */
+  code: Record<string, readonly string[]>;
   takesContext: boolean;
   /** The tools the page answers. Only a call asks the page. */
   pageTools: string[];
 }
 
-const NO_PAGE_VALUES: PageValues = { slots: {}, contextJson: '' };
+const NO_PAGE_VALUES: PageValues = { options: {}, contextJson: '' };
 
 /** The context a blank preview box suggests. */
 export const CONTEXT_PLACEHOLDER = `{
   "page": "Checkout"
 }`;
 
-/** The slots a draft's JSON declares so far: each name with a list of text. Anything else is left out. */
-export function draftSlots(slotsJson: string): Record<string, readonly string[]> {
-  try {
-    const typed: unknown = JSON.parse(slotsJson.trim() || '{}');
-    if (!isRecord(typed)) return {};
-    return Object.fromEntries(
-      Object.entries(typed).filter(
-        (entry): entry is [string, string[]] =>
-          Array.isArray(entry[1]) &&
-          entry[1].length > 0 &&
-          entry[1].every((value) => typeof value === 'string'),
-      ),
-    );
-  } catch {
-    return {};
-  }
+/** Each option's values, by name. */
+function namedValues(options: ProfileOptions | undefined): Record<string, readonly string[]> {
+  return Object.fromEntries(
+    Object.entries(options ?? {}).map(([name, decl]) => [
+      name,
+      decl.choices.map(({ value }) => value),
+    ]),
+  );
 }
 
 /** Why typed context is not sent, when it is not JSON. */
@@ -63,63 +60,91 @@ export function contextErrorOf(contextJson: string): string | undefined {
 /** What the compiled agent takes from a page, or null when it takes nothing. */
 export function pageInputsOf(payload: StudioRunPayload): PageInputs | null {
   const { profile } = payload;
-  if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding')
+  if (
+    profile.type === 'decision' ||
+    profile.type === 'host' ||
+    profile.type === 'embedding' ||
+    profile.type === 'speech' ||
+    profile.type === 'transcription'
+  ) {
     return null;
+  }
   const inputs = 'inputs' in profile ? profile.inputs : undefined;
-  const slots = inputs?.slots ?? {};
+  const person = namedValues(inputs?.options);
+  const code = namedValues(profile.identity.options);
   const takesContext = inputs?.context?.from.includes('client') ?? false;
   const pageTools = Object.keys(studioPageTools(payload));
-  if (!Object.keys(slots).length && !takesContext && !pageTools.length) return null;
-  return { slots, takesContext, pageTools };
+  const takesNothing = !Object.keys(person).length && !Object.keys(code).length && !takesContext;
+  if (takesNothing && !pageTools.length) return null;
+  return { person, code, takesContext, pageTools };
 }
 
-/** The value a slot sends: the one picked while the profile still lists it, else its first. */
-function slotValue(inputs: PageInputs, values: PageValues, name: string): string {
-  const allowed = inputs.slots[name] ?? [];
-  const picked = allowed.find((value) => value === values.slots[name]);
-  return picked ?? allowed.at(0) ?? '';
+/** The value a pick sends: the one picked while the profile still lists it, else its first. */
+function pickedValue(allowed: readonly string[], picked: string | undefined): string {
+  return allowed.find((value) => value === picked) ?? allowed.at(0) ?? '';
+}
+
+/** Each option's pick. */
+function picksOf(
+  declared: Record<string, readonly string[]>,
+  values: PageValues,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(declared).map(([name, allowed]) => [
+      name,
+      pickedValue(allowed, values.options[name]),
+    ]),
+  );
+}
+
+/** The turn's path and options as picked: the `path` option is the turn's own path. */
+function statedTurn(inputs: PageInputs, values: PageValues): StatedTurn | undefined {
+  if (!Object.keys(inputs.code).length) return undefined;
+  const { path, ...options } = picksOf(inputs.code, values);
+  return { ...(path === undefined ? {} : { path }), options };
 }
 
 /** What goes with a turn or a call. Context that is not JSON is not sent, and says why. */
 export function sentPageValues(
   inputs: PageInputs | null,
   values: PageValues,
-): { slots?: Record<string, string>; context?: unknown; contextError?: string } {
+): {
+  options?: Record<string, string>;
+  stated?: StatedTurn;
+  context?: unknown;
+  contextError?: string;
+} {
   if (!inputs) return {};
-  const names = Object.keys(inputs.slots);
-  const slots = names.length
-    ? Object.fromEntries(names.map((name) => [name, slotValue(inputs, values, name)]))
-    : undefined;
+  const options = Object.keys(inputs.person).length ? picksOf(inputs.person, values) : undefined;
+  const stated = statedTurn(inputs, values);
+  const sent = { options, ...(stated ? { stated } : {}) };
   const typed = inputs.takesContext ? values.contextJson.trim() : '';
-  if (!typed) return { slots };
+  if (!typed) return sent;
   const contextError = contextErrorOf(typed);
-  return contextError ? { slots, contextError } : { slots, context: JSON.parse(typed) as unknown };
+  return contextError
+    ? { ...sent, contextError }
+    : { ...sent, context: JSON.parse(typed) as unknown };
 }
 
 function loadPageValues(agentKey: string): PageValues {
   try {
     const kept: unknown = JSON.parse(session()?.getItem(`${PAGE_PREFIX}${agentKey}`) ?? 'null');
-    if (!isRecord(kept) || !isRecord(kept.slots) || typeof kept.contextJson !== 'string') {
+    if (!isRecord(kept) || !isRecord(kept.options) || typeof kept.contextJson !== 'string') {
       return NO_PAGE_VALUES;
     }
-    const slots = Object.fromEntries(
-      Object.entries(kept.slots).filter(
+    const options = Object.fromEntries(
+      Object.entries(kept.options).filter(
         (entry): entry is [string, string] => typeof entry[1] === 'string',
       ),
     );
-    return { slots, contextJson: kept.contextJson };
+    return { options, contextJson: kept.contextJson };
   } catch {
     return NO_PAGE_VALUES;
   }
 }
 
-/** Never throws: a full or blocked store keeps nothing. */
 function savePageValues(agentKey: string, values: PageValues): void {
-  try {
-    session()?.setItem(`${PAGE_PREFIX}${agentKey}`, JSON.stringify(values));
-  } catch {
-    // Nothing is kept.
-  }
+  session()?.setItem(`${PAGE_PREFIX}${agentKey}`, JSON.stringify(values));
 }
 
 /** Each agent's values as last read or set, so the editor and the preview show the same ones. */

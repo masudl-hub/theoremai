@@ -1,13 +1,27 @@
 import { type KeyVault, TheoremError, z } from '@theoremjs/agents';
-import { GEMINI_MODELS_URL } from '@theoremjs/agents/presets/google';
 import type { StudioBrowserRuntime } from './browser-transport.ts';
+import { GEMINI_MODELS_URL } from './cookbooks/providers.ts';
 
 /** Browser-only host configuration. Never part of a compiled profile or persisted run payload. */
 export interface StudioBrowserConnection {
   /** One vault for every provider; each model reads the slot it names. */
   vault: KeyVault;
   /** A local model that needs a token names a slot, like any other model. */
-  local: { baseUrl: string };
+  local: {
+    /**
+     * Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls
+     * it directly.
+     *
+     * @catalog local.baseUrl
+     */
+    baseUrl: string;
+  };
+  /**
+   * Whether tools that reach other hosts (HTTP and MCP) may run while a local model is in use.
+   * Off, a run with a local model reaches no host.
+   *
+   * @catalog studio.remoteTools
+   */
   remoteTools: boolean;
 }
 
@@ -84,7 +98,13 @@ export async function listLocalStudioModels(
 }
 
 /** The profile types a model runs for; a provider's list is filtered to the one being edited. */
-export type ListedProfileType = 'text' | 'image' | 'speech' | 'live' | 'embedding';
+export type ListedProfileType =
+  | 'text'
+  | 'image'
+  | 'speech'
+  | 'transcription'
+  | 'live'
+  | 'embedding';
 
 /** A model a provider lists, as the studio's picker shows it. */
 export interface ProviderModel {
@@ -114,12 +134,14 @@ export const KNOWN_OPENROUTER_EMBEDDING_MODELS: readonly ProviderModel[] = [
 
 /**
  * OpenRouter's `output_modalities` for each profile type: chat models for text, `/images` models
- * for image, `/audio/speech` models for speech. OpenRouter has no live models.
+ * for image, `/audio/speech` models for speech, `/audio/transcriptions` models for transcription.
+ * OpenRouter has no live models.
  */
 const OPENROUTER_OUTPUT: Record<ListedProfileType, string | undefined> = {
   text: 'text',
   image: 'image',
   speech: 'speech',
+  transcription: 'transcription',
   live: undefined,
   embedding: undefined,
 };

@@ -1,4 +1,3 @@
-import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@astryxdesign/core/Button';
 import {
   ChatComposer,
@@ -12,25 +11,29 @@ import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Kbd } from '@astryxdesign/core/Kbd';
-import { Selector } from '@astryxdesign/core/Selector';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
+import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
   IconAdjustmentsHorizontal,
+  IconArchive,
+  IconArrowBigRightLines,
   IconArrowDown,
   IconArrowUp,
   IconBrain,
   IconCornerDownLeft,
   IconInputAi,
+  IconListNumbers,
   IconMicrophone,
   IconPaperclip,
   IconPencil,
   IconPlayerRecordFilled,
   IconSend,
   IconStack2,
+  IconSteeringWheel,
   IconX,
 } from '@tabler/icons-react';
 import { attachmentIssueText, type LabelOverrides, labelText } from '@theoremjs/agents';
@@ -40,6 +43,7 @@ import {
   type ComposerPendingMessage,
   type ComposerProfileInterface,
   type ComposerRunPhase,
+  composerPendingMoves,
   composerPendingPreview,
   effortSelectEnabled,
   interfaceEffortOptions,
@@ -47,6 +51,16 @@ import {
   type LiveProfileInterface,
   modelSelectEnabled,
 } from '@theoremjs/agents/interface';
+import type { ClientFailure } from '@theoremjs/web/client';
+import {
+  type ComposerDrawerSummary,
+  type ComposerHint as ComposerHintData,
+  composerActionState,
+  composerDrawerSummary,
+  isStashShortcut,
+  resolveComposerHint,
+  STASH_SHORTCUT,
+} from '@theoremjs/web/client';
 import {
   type ChangeEvent,
   type ReactNode,
@@ -57,29 +71,31 @@ import {
   useState,
 } from 'react';
 import { stageComposerFiles } from '../client/composer-attachments.ts';
-import { type ComposerDrawerSummary, composerDrawerSummary } from '../client/composer-drawer.ts';
-import {
-  type ComposerHint as ComposerHintData,
-  isStashShortcut,
-  resolveComposerHint,
-  STASH_SHORTCUT,
-} from '../client/composer-hints.ts';
-import { composerActionState } from '../client/composer-primary.ts';
-import type { ClientFailure } from '../client/failure.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
+import { ComposerControls, ComposerSelector } from './ComposerControls.tsx';
 import { composerDrawerLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { VoiceNote } from './VoiceNote.tsx';
 
 const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
-/** A slot the profile declares: its allowed values, the one chosen, and how to choose another. */
+/** An option the profile declares: its allowed values, the one chosen, and how to choose another. */
 /** The effort selector's icon. The studio's Agents list shows the same one. */
 export const EFFORT_ICON = IconBrain;
 
-export type SlotChoices = {
-  declared: Readonly<Record<string, readonly string[]>>;
+export type OptionChoiceView = {
+  value: string;
+  description?: string;
+};
+
+export type OptionDeclView = {
+  label?: string;
+  choices: readonly OptionChoiceView[];
+};
+
+export type OptionChoices = {
+  declared: Readonly<Record<string, OptionDeclView>>;
   values: Readonly<Record<string, string>>;
   onChange: (name: string, value: string) => void;
 };
@@ -107,9 +123,11 @@ export type ChatComposerBarProps = {
   onSubmit: () => void;
   onStop: () => void;
   onMenuAction: (action: ComposerMenuAction) => void;
-  onGenerationChange: (next: { modelId: string; effort?: string }) => void;
-  /** The profile's `inputs.slots` with the value chosen for each; one selector per slot, beside the model's. */
-  slotChoices?: SlotChoices;
+  onGenerationChange?: (next: { modelId: string; effort?: string }) => void;
+  /** Stands in for the model and effort selectors, for a bar whose choices are not one chat's. */
+  generationSelect?: ReactNode;
+  /** The profile's `inputs.options` with the value chosen for each; one selector per option, beside the model's. */
+  optionChoices?: OptionChoices;
   onPendingMove: (id: string, direction: 'up' | 'down') => void;
   onPendingRemove: (id: string) => void;
   onPendingQueue: (id: string) => void;
@@ -138,26 +156,37 @@ export type LiveComposerBarProps = Omit<
 const isImage = (file: File) => file.type.startsWith('image/');
 const anyFile = () => true;
 
-/** Object URLs for the files `keep` (a module-level predicate) accepts, revoked when the files change. */
+/**
+ * Object URLs for the files `keep` (a module-level predicate) accepts, revoked when the files change.
+ * why: Each URL is made in the effect that revokes it, so a remount (strict mode, a moved subtree)
+ * makes fresh ones instead of keeping revoked ones; until the effect runs the files have none.
+ */
 function useObjectUrls(
   files: readonly File[],
   keep: (file: File) => boolean,
 ): (string | undefined)[] {
-  const urls = useMemo(
-    () => files.map((file) => (keep(file) ? URL.createObjectURL(file) : undefined)),
-    [files, keep],
-  );
-  useEffect(
-    () => () => {
+  const [made, setMade] = useState<{ files: readonly File[]; urls: (string | undefined)[] }>();
+  useEffect(() => {
+    const urls = files.map((file) => (keep(file) ? URL.createObjectURL(file) : undefined));
+    setMade({ files, urls });
+    return () => {
       for (const url of urls) if (url) URL.revokeObjectURL(url);
-    },
-    [urls],
-  );
-  return urls;
+    };
+  }, [files, keep]);
+  return made?.files === files ? made.urls : [];
 }
+
+/** Each way to send, by the same icon in the send menu and on a waiting message. */
+const SEND_ICON: Record<ComposerMenuAction, typeof IconX> = {
+  queue: IconListNumbers,
+  steer: IconSteeringWheel,
+  send_now: IconArrowBigRightLines,
+  stash: IconArchive,
+};
 
 function PendingRow(props: {
   message: ComposerPendingMessage;
+  moves: { up: boolean; down: boolean };
   onMove: ChatComposerBarProps['onPendingMove'];
   onRemove: ChatComposerBarProps['onPendingRemove'];
   onQueue: ChatComposerBarProps['onPendingQueue'];
@@ -173,13 +202,19 @@ function PendingRow(props: {
   const moveUp = t('@theorem.composer.pending.move_up');
   const moveDown = t('@theorem.composer.pending.move_down');
   const remove = t('@theorem.composer.pending.remove');
+  const Kind = SEND_ICON[message.kind];
   return (
     <HStack gap={1} align="center" width="100%">
-      <Badge
-        variant={message.kind === 'steer' ? 'info' : 'neutral'}
-        label={t(`@theorem.composer.pending.${message.kind}`)}
-      />
-      <StackItem size="fill">
+      <HoverTip content={t(`@theorem.composer.pending.${message.kind}.description`)}>
+        <Token
+          label={t(`@theorem.composer.pending.${message.kind}`)}
+          isLabelHidden
+          color={message.kind === 'steer' ? 'blue' : 'default'}
+          icon={<Kind size={14} />}
+        />
+      </HoverTip>
+      {/* why: A zero basis keeps the text out of the row's width, so it truncates before the actions instead of widening the drawer. */}
+      <StackItem size="fill" style={{ width: 0 }}>
         <Text size="sm" maxLines={1} hasTruncateTooltip>
           {composerPendingPreview(message)}
         </Text>
@@ -211,22 +246,26 @@ function PendingRow(props: {
           icon={icon(IconSend)}
           onClick={() => props.onSendNow(message.id)}
         />
-        <IconButton
-          label={moveUp}
-          tooltip={moveUp}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconArrowUp)}
-          onClick={() => props.onMove(message.id, 'up')}
-        />
-        <IconButton
-          label={moveDown}
-          tooltip={moveDown}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconArrowDown)}
-          onClick={() => props.onMove(message.id, 'down')}
-        />
+        {props.moves.up ? (
+          <IconButton
+            label={moveUp}
+            tooltip={moveUp}
+            size="sm"
+            variant="ghost"
+            icon={icon(IconArrowUp)}
+            onClick={() => props.onMove(message.id, 'up')}
+          />
+        ) : null}
+        {props.moves.down ? (
+          <IconButton
+            label={moveDown}
+            tooltip={moveDown}
+            size="sm"
+            variant="ghost"
+            icon={icon(IconArrowDown)}
+            onClick={() => props.onMove(message.id, 'down')}
+          />
+        ) : null}
         <IconButton
           label={remove}
           tooltip={remove}
@@ -244,7 +283,7 @@ type ModelOption = ReturnType<typeof interfaceModelOptions>[number];
 type EffortOption = ReturnType<typeof interfaceEffortOptions>[number];
 
 /** The model and effort choices this profile offers; efforts only for a chosen model. */
-function generationOptions(iface: ComposerProfileInterface, selectedModel?: string) {
+export function generationOptions(iface: ComposerProfileInterface, selectedModel?: string) {
   const models = modelSelectEnabled(iface) ? interfaceModelOptions(iface) : [];
   const efforts =
     selectedModel && effortSelectEnabled(iface, selectedModel)
@@ -262,7 +301,7 @@ function ModelSelector(props: {
 }) {
   if (props.models.length === 0) return null;
   return (
-    <Selector
+    <ComposerSelector
       label={props.label}
       isLabelHidden
       size="sm"
@@ -290,7 +329,7 @@ function EffortSelector(props: {
 }) {
   if (props.efforts.length === 0) return null;
   return (
-    <Selector
+    <ComposerSelector
       label={props.label}
       isLabelHidden
       size="sm"
@@ -305,45 +344,72 @@ function EffortSelector(props: {
   );
 }
 
-function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
+function OptionSelectors(props: { choices?: OptionChoices; isDisabled: boolean }) {
   if (!props.choices) return null;
   const { declared, values, onChange } = props.choices;
-  return Object.entries(declared).map(([name, allowed]) => (
-    <Selector
-      key={name}
-      label={name}
-      isLabelHidden
-      size="sm"
-      variant="ghost"
-      startIcon={<IconAdjustmentsHorizontal size={14} />}
-      placement="above"
-      isDisabled={props.isDisabled}
-      value={values[name] ?? ''}
-      options={allowed.map((value) => ({ value, label: value }))}
-      onChange={(value) => onChange(name, value)}
-    />
-  ));
+  return Object.entries(declared).map(([name, decl]) => {
+    // why: Group title belongs in the open menu (section heading), not beside the
+    // closed trigger — same chrome as Model/Effort. Descriptions stay Astryx
+    // secondary + one-line ellipsis; wrap would blow the composer dropdown open.
+    const title = decl.label?.trim() || name;
+    const choices = decl.choices.map((choice) => ({
+      value: choice.value,
+      label: choice.value,
+      description: choice.description,
+    }));
+    return (
+      <ComposerSelector
+        key={name}
+        label={title}
+        isLabelHidden
+        size="sm"
+        variant="ghost"
+        startIcon={<IconAdjustmentsHorizontal size={14} />}
+        placement="above"
+        isDisabled={props.isDisabled}
+        value={values[name] ?? ''}
+        options={[{ type: 'section', title, options: choices }]}
+        onChange={(value) => onChange(name, value)}
+      />
+    );
+  });
 }
 
 function GenerationSelect(props: {
   iface: ComposerProfileInterface;
-  slotChoices?: SlotChoices;
+  optionChoices?: OptionChoices;
   selectedModel?: string;
   selectedEffort?: string;
   isDisabled: boolean;
   onChange: ChatComposerBarProps['onGenerationChange'];
+  control?: ReactNode;
 }) {
   const { models, efforts } = generationOptions(props.iface, props.selectedModel);
-  const slotCount = Object.keys(props.slotChoices?.declared ?? {}).length;
-  if (models.length + efforts.length + slotCount === 0) return null;
+  const optionCount = Object.keys(props.optionChoices?.declared ?? {}).length;
+  // invariant: What the controls show; when it changes they unfold and measure again.
+  const fit = JSON.stringify([
+    props.control
+      ? null
+      : [models.length, efforts.length, props.selectedModel, props.selectedEffort],
+    props.optionChoices?.values,
+    optionCount,
+  ]);
+  if (props.control)
+    return (
+      <ComposerControls fit={fit}>
+        {props.control}
+        <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
+      </ComposerControls>
+    );
+  if (models.length + efforts.length + optionCount === 0) return null;
   return (
-    <HStack gap={1}>
+    <ComposerControls fit={fit}>
       <ModelSelector
         label={labelText('composer.model', {}, props.iface.labels)}
         models={models}
         value={props.selectedModel}
         isDisabled={props.isDisabled}
-        onChange={(modelId) => props.onChange({ modelId })}
+        onChange={(modelId) => props.onChange?.({ modelId })}
       />
       <EffortSelector
         label={labelText('composer.effort', {}, props.iface.labels)}
@@ -351,11 +417,11 @@ function GenerationSelect(props: {
         value={props.selectedEffort}
         isDisabled={props.isDisabled}
         onChange={(effort) => {
-          if (props.selectedModel) props.onChange({ modelId: props.selectedModel, effort });
+          if (props.selectedModel) props.onChange?.({ modelId: props.selectedModel, effort });
         }}
       />
-      <SlotSelectors choices={props.slotChoices} isDisabled={props.isDisabled} />
-    </HStack>
+      <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
+    </ComposerControls>
   );
 }
 
@@ -385,7 +451,7 @@ function PendingDrawer(props: {
   otherFiles: readonly StagedFile[];
   voiceFiles: readonly File[];
   voiceUrls: readonly (string | undefined)[];
-  pendingActions: Omit<Parameters<typeof PendingRow>[0], 'message'>;
+  pendingActions: Omit<Parameters<typeof PendingRow>[0], 'message' | 'moves'>;
   onAttachmentRemove: (index: number) => void;
   onVoiceRemove: () => void;
 }) {
@@ -394,7 +460,12 @@ function PendingDrawer(props: {
     <ChatComposerDrawer count={props.summary.count} label={composerDrawerLabel(t, props.summary)}>
       <VStack gap={2} width="100%">
         {props.messages.map((message) => (
-          <PendingRow key={message.id} message={message} {...props.pendingActions} />
+          <PendingRow
+            key={message.id}
+            message={message}
+            moves={composerPendingMoves(props.messages, message.id)}
+            {...props.pendingActions}
+          />
         ))}
         {props.imageFiles.length + props.voiceFiles.length > 0 ? (
           <HStack gap={2} wrap="wrap" vAlign="center">
@@ -407,14 +478,18 @@ function PendingDrawer(props: {
                 onRemove={() => props.onAttachmentRemove(index)}
               />
             ))}
-            {props.voiceFiles.map((file, index) => (
-              <VoiceNote
-                key={`voice:${file.name}`}
-                src={props.voiceUrls[index] ?? ''}
-                mimeType={file.type || undefined}
-                onRemove={props.onVoiceRemove}
-              />
-            ))}
+            {props.voiceFiles.map((file, index) => {
+              const src = props.voiceUrls[index];
+              // why: An empty src makes the browser fetch the page again; a note draws once it has its URL.
+              return src === undefined ? null : (
+                <VoiceNote
+                  key={`voice:${file.name}`}
+                  src={src}
+                  mimeType={file.type || undefined}
+                  onRemove={props.onVoiceRemove}
+                />
+              );
+            })}
           </HStack>
         ) : null}
         {props.otherFiles.length > 0 ? (
@@ -491,13 +566,17 @@ function SendMenu({
       }}
       hasChevron={false}
       placement="above"
-      items={actions.map((action) => ({
-        id: action,
-        label: t(`@theorem.composer.menu.${action}`),
-        description: t(`@theorem.composer.menu.${action}.description`),
-        ...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
-        onClick: () => onAction(action),
-      }))}
+      items={actions.map((action) => {
+        const Glyph = SEND_ICON[action];
+        return {
+          id: action,
+          label: t(`@theorem.composer.menu.${action}`),
+          description: t(`@theorem.composer.menu.${action}.description`),
+          icon: <Glyph size={16} />,
+          ...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
+          onClick: () => onAction(action),
+        };
+      })}
     />
   );
 }
@@ -546,8 +625,8 @@ function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly Fi
     preview: previews[index],
   }));
   return {
-    imageFiles: staged.filter((entry) => entry.preview !== undefined),
-    otherFiles: staged.filter((entry) => entry.preview === undefined),
+    imageFiles: staged.filter((entry) => isImage(entry.file)),
+    otherFiles: staged.filter((entry) => !isImage(entry.file)),
     voiceUrls,
   };
 }
@@ -777,11 +856,12 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
       footerActions={
         <GenerationSelect
           iface={iface}
-          slotChoices={props.slotChoices}
+          optionChoices={props.optionChoices}
           selectedModel={props.selectedModel}
           selectedEffort={props.selectedEffort}
           isDisabled={phase === 'streaming'}
           onChange={props.onGenerationChange}
+          control={props.generationSelect}
         />
       }
       // why: Astryx: sendActions render to the left of the send button, at size="md".

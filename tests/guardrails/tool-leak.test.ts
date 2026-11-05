@@ -100,7 +100,7 @@ Deno.test("a profile's own tools are its tools' names and their parameters at an
     type: 'function',
     name: 'get_weather',
     description: 'Weather.',
-    access: 'read',
+    access: 'read-only',
     input: z.object({
       city: z.string(),
       when: z.object({ day: z.string() }),

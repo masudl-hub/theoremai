@@ -10,6 +10,7 @@ import { labelText } from '../../../guardrails/labels.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import { nestedTurnModel, resolveRegisteredTurnModel } from '../../provider-dispatch.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
+import { profileAllowsInject } from '../../stop.ts';
 import {
   type AgentCaller,
   type AgentRun,
@@ -17,6 +18,7 @@ import {
   agentToolOutputOf,
   splitHostInput,
 } from '../../tools/agent.ts';
+import type { SteerQueue } from '../../tools/steer.ts';
 import type { AgentCallRequest, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelBinding,
@@ -42,6 +44,7 @@ type RunNestedTurn = (args: {
   provider: TurnModel;
   parent: SpanHandle;
   agentDepth: number;
+  steers?: SteerQueue;
 }) => AsyncGenerator<TurnEvent>;
 
 /**
@@ -62,7 +65,19 @@ function createAgentCaller(args: {
   const calls = new Map<string, number>();
   const { registry, req } = args;
   return {
-    async *run({ tool, callId, input, caller, span, signal }): AsyncGenerator<TurnEvent, AgentRun> {
+    takesSteers(tool) {
+      const profile = registry.profiles.find(tool.profile);
+      return profile !== undefined && profileAllowsInject(profile);
+    },
+    async *run({
+      tool,
+      callId,
+      input,
+      caller,
+      span,
+      signal,
+      steers,
+    }): AsyncGenerator<TurnEvent, AgentRun> {
       const labels = caller.labels;
       const settled = (code: string, kind: ToolFailure['kind'], message: string): AgentRun => ({
         failure: { code, kind, message },
@@ -114,9 +129,8 @@ function createAgentCaller(args: {
       }
 
       const { speech, ...sent } = modelInput;
-      const events: TurnEvent[] = [];
-      try {
-        for await (const event of args.runNested({
+      const events = yield* nestedEvents(
+        args.runNested({
           req: {
             ...(speech ? { speech } : {}),
             ...fields,
@@ -130,21 +144,33 @@ function createAgentCaller(args: {
           provider,
           parent: span,
           agentDepth: args.depth + 1,
-        })) {
-          events.push(event);
-          yield event;
-        }
-      } catch (err) {
-        // why: A turn refused before it starts (a file the agent does not take) throws; the caller's model reads it like any other failed call.
-        if (!(err instanceof TheoremError) || NESTED_THROWS.has(err.kind) || isAbortError(err)) {
-          throw err;
-        }
-        events.push(toErrorEvent(err));
-      }
+          ...(steers ? { steers } : {}),
+        }),
+      );
       throwIfAborted(signal);
       return agentRunOf(events, tool.name, tool.profile, labels);
     },
   };
+}
+
+/** Relays an agent's turn and keeps its events; a turn refused before it starts ends in its error event. */
+async function* nestedEvents(
+  turn: AsyncGenerator<TurnEvent>,
+): AsyncGenerator<TurnEvent, TurnEvent[]> {
+  const events: TurnEvent[] = [];
+  try {
+    for await (const event of turn) {
+      events.push(event);
+      yield event;
+    }
+  } catch (err) {
+    // why: A turn refused before it starts (a file the agent does not take) throws; the caller's model reads it like any other failed call.
+    if (!(err instanceof TheoremError) || NESTED_THROWS.has(err.kind) || isAbortError(err)) {
+      throw err;
+    }
+    events.push(toErrorEvent(err));
+  }
+  return events;
 }
 
 /** The provider an agent's turn runs on: the host's for this call, else the caller's, else the registry's. */

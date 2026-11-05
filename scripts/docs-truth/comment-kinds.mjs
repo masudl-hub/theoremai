@@ -13,8 +13,8 @@
  */
 import { execFileSync } from 'node:child_process';
 
-const SCAN = ['src', 'react/src', 'scripts', 'tests', 'mod.ts'];
-const KIND_ROOTS = /^(src|react\/src)\/|^mod\.ts$/;
+const SCAN = ['src', 'react/src', 'web/src', 'scripts', 'tests', 'mod.ts'];
+const KIND_ROOTS = /^(src|react\/src|web\/src)\/|^mod\.ts$/;
 const TAG =
   /^(why|invariant|probed \d{4}-\d{2}-\d{2}|licen[cs]e|labels-exempt|labels-exempt-file)\s*:/;
 const SUPPRESSION =

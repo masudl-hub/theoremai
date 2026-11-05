@@ -5,7 +5,7 @@
  */
 import { type ProfileDefinition, TheoremError, z } from '@theoremjs/agents';
 import type { EmbeddingProfileDefinition } from '@theoremjs/agents/kernel';
-import { embedBodySchema, embedRequest, readBody } from '@theoremjs/react/server';
+import { embedBodySchema, embedRequest, readBody } from '@theoremjs/web/server';
 import { runStudioEmbedding } from '../runtime.ts';
 import { defineDraft } from '../runtime-scope.ts';
 import type { LentRuntime } from './draft-handler.ts';

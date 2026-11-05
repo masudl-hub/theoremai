@@ -36,6 +36,7 @@ export function transcriptBlockCopyText(t: LabelText, block: TranscriptBlock): s
     case 'error':
       return block.message;
     case 'guardrail':
+    case 'late-results':
     case 'turn-done':
       return '';
   }

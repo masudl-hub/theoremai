@@ -1,6 +1,9 @@
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import type { InteractionPart, TurnHistoryMessage } from '../../../src/kernel/types.ts';
-import { withCarriedToolFiles } from '../../../src/providers/shared/carried-tool-files.ts';
+import {
+  withCarriedAssistantFiles,
+  withCarriedToolFiles,
+} from '../../../src/providers/shared/carried-tool-files.ts';
 
 const TEXT_ONLY: ReadonlySet<InteractionPart['type']> = new Set(['text']);
 const PDF: InteractionPart = { type: 'document', mimeType: 'application/pdf', data: 'JVBERi0=' };
@@ -63,4 +66,48 @@ Deno.test('the files of a run of tool results follow the whole run, each led by 
     { type: 'text', text: 'Files from a tool result:' },
     PHOTO,
   ]);
+});
+
+Deno.test("an assistant message's files follow it in a user message", () => {
+  assertEquals(
+    withCarriedAssistantFiles([
+      { role: 'assistant', content: 'Here is your plant.', parts: [PHOTO] },
+      { role: 'user', content: 'thanks' },
+    ]),
+    [
+      {
+        role: 'assistant',
+        content: 'Here is your plant.',
+        parts: [{ type: 'text', text: '[image: sent in the next message]' }],
+      },
+      { role: 'user', parts: [{ type: 'text', text: 'Files the assistant sent:' }, PHOTO] },
+      { role: 'user', content: 'thanks' },
+    ],
+  );
+});
+
+Deno.test("an assistant message's files follow the results of the calls it made", () => {
+  const call = { id: 'c1', type: 'function' as const, function: { name: 'read', arguments: '{}' } };
+  assertEquals(
+    withCarriedAssistantFiles([
+      { role: 'assistant', parts: [PHOTO], tool_calls: [call] },
+      { role: 'tool', name: 'read', tool_call_id: 'c1', content: 'ok' },
+    ]),
+    [
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', text: '[image: sent in the next message]' }],
+        tool_calls: [call],
+      },
+      { role: 'tool', name: 'read', tool_call_id: 'c1', content: 'ok' },
+      { role: 'user', parts: [{ type: 'text', text: 'Files the assistant sent:' }, PHOTO] },
+    ],
+  );
+});
+
+Deno.test('assistant messages with only text are returned as they came', () => {
+  const history: TurnHistoryMessage[] = [
+    { role: 'assistant', content: 'hi', parts: [{ type: 'text', text: 'more' }] },
+  ];
+  assertEquals(withCarriedAssistantFiles(history), history);
 });

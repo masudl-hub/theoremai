@@ -53,6 +53,8 @@ export interface StudioPeopleOffer {
 
 /** The header each run carries the builder's pick in. No header is no one. */
 export const ACTING_AS_HEADER = 'x-theorem-studio-acting-as';
+/** The pick on a live socket's address: a browser's `WebSocket` sends no headers. */
+export const ACTING_AS_PARAM = 'acting-as';
 
 /** The session a run acting as no one is in. */
 export const NO_ONE_SESSION = 'theorem-studio-local';
@@ -92,7 +94,8 @@ export type ReadActingAs =
 
 /** Reads a run's pick and checks its place is one the setup offers. */
 export function readActingAs(request: Request, people: StudioPeople | undefined): ReadActingAs {
-  const sent = request.headers.get(ACTING_AS_HEADER);
+  const sent =
+    request.headers.get(ACTING_AS_HEADER) ?? new URL(request.url).searchParams.get(ACTING_AS_PARAM);
   if (sent === null) return { ok: true, actingAs: undefined };
   let value: unknown;
   try {

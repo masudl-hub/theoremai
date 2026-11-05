@@ -70,7 +70,7 @@ export interface StudioHost {
   onReport?: (report: StudioReport | null) => void;
   /**
    * True when the host's page has a door to Settings (`SettingsRailButton`). The screen then
-   * shows Settings when asked, and Keys are there and not in the editor's header.
+   * shows Settings when asked, and Keys are there and not above the providers list.
    */
   hasSettings?: boolean;
   /**

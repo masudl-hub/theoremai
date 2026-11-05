@@ -11,8 +11,8 @@ Deno.test('a refusal with nothing more to say has no lines', () => {
 });
 
 Deno.test('edits that did not load as edited are named on one line', () => {
-  assertEquals(refusalLines(refusal('differs', ['bonsai.thinker', 'search_places'])), [
-    'Not loading as edited: bonsai.thinker, search_places.',
+  assertEquals(refusalLines(refusal('differs', ['garden.thinker', 'search_places'])), [
+    'Not loading as edited: garden.thinker, search_places.',
   ]);
 });
 

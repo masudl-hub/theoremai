@@ -127,7 +127,7 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
       ...profile('openrouter-decision'),
       models: {
         span: {
-          protocol: 'systemOne',
+          protocol: 'openRouterDecisions',
           provider: 'openrouter',
           apiId: 'respan/span-01-lite:free',
         },
@@ -218,7 +218,7 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
   clearProfiles();
   registerProfile(profile());
   for (const [status, code, kind] of [
-    [400, 'invalid_request', 'request'],
+    [400, 'unsupported', 'unsupported'],
     [401, 'authentication', 'auth'],
     [403, 'permission', 'auth'],
     [429, 'rate_limited', 'rate_limit'],
@@ -226,6 +226,7 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
     [504, 'timeout', 'timeout'],
     [524, 'timeout', 'timeout'],
     [500, 'unavailable', 'unavailable'],
+    [503, 'busy', 'busy'],
   ] as const) {
     const error = await assertRejects(
       () =>
@@ -387,6 +388,46 @@ Deno.test('decision bindings reject retry and inert turn settings', async () => 
     );
   }
 });
+Deno.test('decision probabilities may be off by their rounding, and no more', async () => {
+  clearProfiles();
+  registerProfile(profile());
+  const reply = (probabilities: Record<string, number>) => () =>
+    Promise.resolve(
+      Response.json({
+        model: 'jev-1.13.0',
+        answers: {
+          next: { type: 'choice', choice: 'ask_user', confidence: 0.5, probabilities },
+          risk: {
+            type: 'score',
+            score: 1,
+            confidence: 0.8,
+            legend: { 0: 'low', 1: 'high' },
+            probabilities: { 0: 0.1, 1: 0.9 },
+          },
+        },
+      }),
+    );
+  const rounded = await runDecision(request(), {
+    vault: { slot_a: 'test-key' },
+    fetch: reply({ ask_user: 0.495, execute: 0.495 }),
+  });
+  assertEquals(rounded.answers.next, {
+    type: 'choice',
+    choice: 'ask_user',
+    confidence: 0.5,
+    probabilities: { ask_user: 0.495, execute: 0.495 },
+  });
+  await assertRejects(
+    () =>
+      runDecision(request(), {
+        vault: { slot_a: 'test-key' },
+        fetch: reply({ ask_user: 0.49, execute: 0.49 }),
+      }),
+    DecisionError,
+    'must sum to one',
+  );
+});
+
 Deno.test('decision response rejects incomplete legends and ignores invalid usage', async () => {
   clearProfiles();
   registerProfile(profile());
@@ -529,7 +570,11 @@ Deno.test('decision profile rejects model-selection fields', () => {
   }
 });
 Deno.test('decision profile rejects turn inputs', () => {
-  for (const inputs of [{ text: true }, { slots: { tone: ['plain'] } }, { maxFiles: 1 }]) {
+  for (const inputs of [
+    { text: true },
+    { options: { tone: { choices: [{ value: 'plain' }] } } },
+    { maxFiles: 1 },
+  ]) {
     assertRejects(
       () =>
         Promise.resolve().then(() =>
@@ -775,6 +820,27 @@ const boxReply = (box: unknown) =>
     }),
   );
 
+Deno.test('a decision sends only the images its state and questions reference', async () => {
+  clearProfiles();
+  const disclosed: unknown[] = [];
+  registerProfile(boxProfile('box-unused', (assets) => disclosed.push(assets)));
+  const unused = { mimeType: 'image/png', data: 'AAAA' } as const;
+  const request = boxRequest('box-unused');
+  let sent: Record<string, unknown> = {};
+  await runDecision(
+    { ...request, assets: { ...request.assets, 'img-unused': unused } },
+    {
+      vault: { slot_a: 'test-key' },
+      fetch: (_url, init) => {
+        sent = JSON.parse(String(init?.body)).assets;
+        return boxReply({ top: 0.1, bottom: 0.5, left: 0.2, right: 0.6 });
+      },
+    },
+  );
+  assertEquals(Object.keys(sent), ['img-1']);
+  assertEquals(Object.keys(disclosed[0] as object), ['img-1']);
+});
+
 Deno.test('a box decision sends its image, shows the hook the image, and keeps bytes out of the trace', async () => {
   clearProfiles();
   const disclosed: unknown[] = [];
@@ -891,4 +957,27 @@ Deno.test('a box image the request does not hold, or on another question, makes 
       DecisionError,
       'neither a held image',
     );
+});
+
+const LINK = {
+  traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+  kind: 'retry',
+} as const;
+
+Deno.test("a decision's trace names its project, its conversation, and the trace it follows", async () => {
+  clearProfiles();
+  registerProfile(boxProfile('box-controls'));
+  const records: TraceRecord[] = [];
+  await runDecision(
+    { ...boxRequest('box-controls'), projectId: 'p1', conversationId: 'c1', links: [LINK] },
+    {
+      vault: { slot_a: 'test-key' },
+      sink: memorySink(records),
+      fetch: () => boxReply({ top: 0.1, bottom: 0.5, left: 0.2, right: 0.6 }),
+    },
+  );
+  const root = records[0]?.spans[0];
+  assertEquals(root?.attributes['theorem.project.id'], 'p1');
+  assertEquals(root?.attributes['gen_ai.conversation.id'], 'c1');
+  assertEquals(root?.links.length, 1);
 });

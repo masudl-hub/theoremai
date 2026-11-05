@@ -29,9 +29,10 @@ import {
   type JsonObject,
   mimeAllowed,
   type ProfileItemRule,
+  type ProviderLimits,
   profileTypesForField,
 } from '@theoremjs/agents/kernel';
-import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
+import { resolveObservabilityPolicy, type ScrubSwitch } from '@theoremjs/agents/observability';
 import {
   type CompactionMeter,
   type CompactionTiming,
@@ -73,14 +74,36 @@ export type StudioTurnProfileType = Exclude<StudioProfileType, 'decision' | 'hos
 
 export const STUDIO_PROFILE_TYPES: readonly StudioProfileType[] = PROFILE_TYPES;
 
+/** One value an option can take, and what the page says about it. */
+export interface OptionChoiceDraft {
+  key: string;
+  value: string;
+  description: string;
+}
+
+/**
+ * One named option: what lines of the prompt read and print, the page's label for it, and its
+ * values. Shown in chat, a person picks it and it compiles to `inputs.options`; otherwise the
+ * host's code states it and it compiles to `identity.options`.
+ */
+export interface OptionDraft {
+  key: string;
+  name: string;
+  label: string;
+  isShownInChat: boolean;
+  choices: OptionChoiceDraft[];
+}
+
 export interface IdentityDraft {
   agentId: string;
   profileType: StudioProfileType | '';
   handle: string;
-  /** Private sections are wrapped as `{private: …}`. Unused on speech, which has no system channel. */
+  /**
+   * The whole prompt as typed: a blank line starts a new line, and private sections are wrapped as
+   * `{private: …}`. Unused on speech, which has no system channel.
+   */
   system: string;
-  /** Other instructions by the role a turn names, as a JSON object of strings (with `{private: …}` sections) or parts; blank omits it. */
-  systemByRoleJson: string;
+  options: OptionDraft[];
 }
 
 export interface ModelsDraft {
@@ -114,6 +137,8 @@ export interface ModelBindingDraft {
   options: JsonObject;
   /** Decision request timeout; `null` uses the studio timeout. */
   timeoutMs: number | null;
+  /** Theorem's cut-offs for its calls; one `null` or absent is no limit. */
+  limits?: { [K in keyof ProviderLimits]?: number | null };
   efforts: EffortDraft[];
   defaultEffort: string;
   allowEffortSelect: boolean;
@@ -139,6 +164,27 @@ export interface ModelBindingDraft {
   /** The workspace agent that writes the summary, by key; `''` or absent: this agent. */
   compactWith?: string;
 }
+
+/** A model's limits, in the kernel's order, with each row's label and units. */
+export const MODEL_LIMITS = [
+  { name: 'operationTimeoutMs', label: 'Call timeout', units: 'ms', isTimer: true },
+  { name: 'connectTimeoutMs', label: 'Connect timeout', units: 'ms', isTimer: true },
+  { name: 'liveStepTimeoutMs', label: 'Live step timeout', units: 'ms', isTimer: true },
+  { name: 'maxWireRecordBytes', label: 'Wire record', units: 'bytes', isTimer: false },
+  { name: 'maxWireResponseBytes', label: 'Wire response', units: 'bytes', isTimer: false },
+  { name: 'maxEventBytes', label: 'Event', units: 'bytes', isTimer: false },
+  { name: 'maxStepBytes', label: 'Step', units: 'bytes', isTimer: false },
+  { name: 'maxStepEvents', label: 'Step events', units: 'events', isTimer: false },
+  { name: 'maxPendingToolCalls', label: 'Tool calls', units: 'calls', isTimer: false },
+] as const satisfies readonly {
+  name: keyof ProviderLimits;
+  label: string;
+  units: string;
+  isTimer: boolean;
+}[];
+
+/** The longest a timer runs: the most a JavaScript timer takes, in ms. */
+export const TIMER_MAX_MS = 2_147_483_647;
 
 /** Where compaction starts when a builder turns it on; every number stays theirs to change. */
 export const COMPACTION_DRAFT_DEFAULTS = {
@@ -166,20 +212,25 @@ export interface InputsDraft {
   maxFiles: number | null;
   maxBytes: number | null;
   maxTurnBytes: number | null;
-  /** Size limits by file type, as a JSON object of byte counts; blank omits it. */
-  limitsByMimeJson: string;
-  /** Named choices a turn can make, as a JSON object of value lists; blank omits it. */
-  slotsJson: string;
+  /** The largest file of each type (or `type/*` family), in bytes, in place of `maxBytes`. */
+  limitsByMime: Record<string, number>;
   /** Who may send the agent context; none omits `inputs.context`. */
   contextFrom: ContextSender[];
   /** The longest context package from each sender, in characters of JSON. */
   contextMaxChars: number | null;
 }
 
+/** The reply shapes an option's value picks; any other value takes the outputs' own schema. */
+export interface OptionShapesDraft {
+  option: string;
+  shapes: { choice: string; schemaId: string; schemaJson: string }[];
+}
+
 export interface OutputsDraft {
   mode: 'text' | 'structured';
   schemaId: string;
   schemaJson: string;
+  byOption?: OptionShapesDraft;
   /** `''` omits it (kernel default: SSE). */
   streamMode: '' | StreamMode;
   streamThoughts: boolean;
@@ -288,9 +339,9 @@ export interface ObservabilityDraft {
     guardrailMatchPreview: boolean;
   };
   scrub: {
-    sensitive: boolean;
-    injection: boolean;
-    canary: boolean;
+    sensitive: ScrubSwitch;
+    injection: ScrubSwitch;
+    canary: ScrubSwitch;
   };
   retainForDays: number | null;
   rotateAfterMiB: number | null;
@@ -362,18 +413,37 @@ export interface DecisionCriterionDraft {
 
 export interface DecisionQuestionDraft {
   key: string;
+  /** The question's name. Its answer comes back under it. */
   id: string;
+  /** The kind of answer the question takes. */
   type: DecisionQuestionType;
+  /**
+   * What to ask about the state. Name a state field in backticks, such as `photo`, and one of the
+   * decision's images by its reference, such as <ginger>. A box names what to find and the image it
+   * is in, such as the ginger in `photo`.
+   */
   instructions: string;
   /** A score's levels run from 0 at the top. */
-  criteria: DecisionCriterionDraft[] /** A box's image: one of the decision's images, such as `<ghs02>`, or a state field. Unset, the instructions say. */;
+  criteria: DecisionCriterionDraft[];
+  /**
+   * The image a box is in: one of the decision's images, such as <ghs02>, or a state field its
+   * instructions name, such as `photo`. The model is told it in the instructions.
+   *
+   * @remarks A box's image: one of the decision's images, such as `<ghs02>`, or a state field.
+   * Unset, the instructions say.
+   */
   image?: string;
 }
 
-/** A picture every decision sends, which the questions write as its name in angle brackets. */
+/** A picture a decision can send, which the questions write as its name in angle brackets. */
 export interface DecisionImageDraft {
   key: string;
-  /** The reference without its brackets: `ghs02` is written `<ghs02>`. */
+  /**
+   * The reference a question writes, without its angle brackets: ghs02 is written <ghs02>.
+   * Lowercase letters, digits and _.
+   *
+   * @remarks The reference without its brackets: `ghs02` is written `<ghs02>`.
+   */
   name: string;
   mimeType: string;
   data: string;
@@ -385,6 +455,13 @@ export interface DecisionDraft {
   /** `null` is the studio's most. */
   maxStateBytes: number | null;
   questions: DecisionQuestionDraft[];
+  /** The application builds the questions for each decision, with the builder the setup's `questions` names. The draft holds none. */
+  questionsBuilt?: true;
+  /**
+   * Pictures a decision can send. Write one's reference, such as <ghs02>, in the state or a
+   * question, and the model reads the picture there; a picture nothing references is not sent. A
+   * PNG or JPEG.
+   */
   images: DecisionImageDraft[];
 }
 
@@ -424,7 +501,17 @@ export interface StudioDraft {
 }
 
 export function draftKey(
-  prefix: 'agent' | 'model' | 'tool' | 'question' | 'criterion' | 'reference' | 'image',
+  prefix:
+    | 'agent'
+    | 'entry'
+    | 'model'
+    | 'tool'
+    | 'question'
+    | 'criterion'
+    | 'reference'
+    | 'image'
+    | 'option'
+    | 'choice',
 ): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -433,7 +520,7 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
   return {
     key: draftKey('model'),
     modelId: 'fast',
-    protocol: 'openRouter',
+    protocol: 'openRouterOpenAi',
     provider: 'openrouter',
     apiId: '',
     options: {},
@@ -537,9 +624,9 @@ function defaultObservability(): ObservabilityDraft {
     sampleRate: resolved.sampleRate,
     include: { ...resolved.include },
     scrub: {
-      sensitive: Boolean(resolved.scrub.sensitive),
-      injection: Boolean(resolved.scrub.injection),
-      canary: Boolean(resolved.scrub.canary),
+      sensitive: resolved.scrub.sensitive,
+      injection: resolved.scrub.injection,
+      canary: resolved.scrub.canary,
     },
     retainForDays: null,
     rotateAfterMiB: null,
@@ -662,6 +749,30 @@ export function newDecisionImage(
   return { key: draftKey('image'), name, ...image };
 }
 
+export function newOption(): OptionDraft {
+  return { key: draftKey('option'), name: '', label: '', isShownInChat: false, choices: [] };
+}
+
+/** One row per value, each keeping the row its value already had. */
+export function optionChoices(
+  values: readonly string[],
+  current: readonly OptionChoiceDraft[],
+): OptionChoiceDraft[] {
+  return values.map(
+    (value) =>
+      current.find((choice) => choice.value === value) ?? {
+        key: draftKey('choice'),
+        value,
+        description: '',
+      },
+  );
+}
+
+/** One blank row: an option, a level, or a criterion. */
+export function newCriterion(): DecisionCriterionDraft {
+  return { key: draftKey('criterion'), label: '', text: '' };
+}
+
 /** The rows a question of `type` starts with: two options, two levels, or none. */
 export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[] {
   if (type === 'noul' || type === 'box') return [];
@@ -685,7 +796,13 @@ export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[
  */
 export function createBlankDraft(): StudioDraft {
   return {
-    identity: { agentId: '', profileType: '', handle: '', system: '', systemByRoleJson: '' },
+    identity: {
+      agentId: '',
+      profileType: '',
+      handle: '',
+      system: '',
+      options: [],
+    },
     included: ['observability', 'labels'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],
@@ -699,8 +816,7 @@ export function createBlankDraft(): StudioDraft {
       maxFiles: null,
       maxBytes: null,
       maxTurnBytes: null,
-      limitsByMimeJson: '',
-      slotsJson: '',
+      limitsByMime: {},
       contextFrom: [],
       contextMaxChars: null,
     },
@@ -796,6 +912,27 @@ export function draftAllows(draft: StudioDraft, path: string): boolean {
   return type !== '' && profileTypesForField(path).includes(type);
 }
 
+/**
+ * Why `tool` never loads on this draft: the studio can't write a T1 policy, so a T2 tool loads
+ * only through the T2 loader. In a workspace every agent shows the whole library, so `allowed`
+ * says which tools this agent runs: the rest are not its to load.
+ */
+export function loadTierWarning(
+  draft: StudioDraft,
+  tool: Pick<ToolSpecDraft, 'key' | 'loadTier'>,
+  allowed?: readonly string[],
+): string | undefined {
+  if (allowed && !allowed.includes(tool.key)) return undefined;
+  if (
+    tool.loadTier === 'T2' &&
+    draftAllows(draft, 'tools.t2Loader') &&
+    !draft.tools.t2Loader.trim()
+  ) {
+    return 'No T2 loader is set under Tools, so this tool never loads.';
+  }
+  return undefined;
+}
+
 /** A canary is bound into a system prompt while `canary_leak` reads somewhere. */
 export function plantsCanary(draft: StudioDraft): boolean {
   return draftAllows(draft, 'identity.system') && detects(draft.guardrails.detect, 'canary_leak');
@@ -826,6 +963,16 @@ function imageInputs(inputs: InputsDraft): InputsDraft {
       mimeAllowed(IMAGE_ATTACHMENT_ACCEPT_MIMES, rule),
     ),
     voiceAccept: [],
+  };
+}
+
+/** Inputs a transcription profile can take: a voice clip and nothing else. */
+function transcriptionInputs(inputs: InputsDraft): InputsDraft {
+  return {
+    ...inputs,
+    text: false,
+    attachmentsAccept: [],
+    voiceAccept: inputs.voiceAccept.length ? inputs.voiceAccept : ['audio/*'],
   };
 }
 
@@ -906,7 +1053,7 @@ export function freeName(
 
 /**
  * Bindings whose model the kernel says can't serve the new type are dropped, and so are those
- * `keys` list only for another type; if none remain, a new one starts where `keys` start one. Model select turns off below two bindings. Other sections and
+ * `keys` list only for another type; if none remain, a new one starts where `keys` start one. Other sections and
  * `included` are kept, so a facet the type lacks comes back when switching back. A host runs no
  * model, so it keeps the bindings for the way back.
  */
@@ -939,7 +1086,12 @@ export function setProfileType(
     modelBindings.some((binding) => isGoogleRoute(modelRoute(draft.providers, type, binding)));
   return {
     ...retyped,
-    inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,
+    inputs:
+      type === 'image'
+        ? imageInputs(draft.inputs)
+        : type === 'transcription'
+          ? transcriptionInputs(draft.inputs)
+          : draft.inputs,
     ...(voiceless ? { speech: { ...draft.speech, voice: GOOGLE_STARTING_VOICE } } : {}),
     models: {
       ...draft.models,
@@ -957,6 +1109,7 @@ const MODEL_PROFILE_TYPES: readonly ModelProfileType[] = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
 ];

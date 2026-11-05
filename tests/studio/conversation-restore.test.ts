@@ -1,11 +1,5 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
 import type { ModelRequest, TurnModel } from '../../mod.ts';
-import { isUnknownConversation } from '../../react/src/client/transport.ts';
-import {
-  createSealedConversationStore,
-  unknownConversation,
-} from '../../react/src/server/conversation-store.ts';
-import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
 import type { TranscriptBlock } from '../../src/interface/mod.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
@@ -18,6 +12,12 @@ import {
 import { streamStudioTurn } from '../../studio/runtime.ts';
 import { ndjsonEventStream } from '../../studio/server/draft-replies.ts';
 import { createStudioTransport } from '../../studio/transport.ts';
+import { isUnknownConversation } from '../../web/src/client/transport.ts';
+import {
+  createSealedConversationStore,
+  unknownConversation,
+} from '../../web/src/server/conversation-store.ts';
+import { createMemorySteerInbox } from '../../web/src/server/steer-inbox.ts';
 
 function concierge() {
   const compiled = compileWorkspace(workspaceFromDraft(createExampleDraft()), ON_OWN_KEYS);

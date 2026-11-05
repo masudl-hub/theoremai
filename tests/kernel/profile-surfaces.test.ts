@@ -7,7 +7,7 @@ import { stubProfile } from '../fixtures/profiles.ts';
 const TEXT_TOOLS = { allow: ['lookup'], t2Loader: 'lookup' };
 const TEXT_INPUTS = { text: false };
 function textProfile(): Profile {
-  const base = stubProfile({ protocol: 'openRouter', provider: 'openrouter', role: 'text' });
+  const base = stubProfile({ protocol: 'openRouterOpenAi', provider: 'openrouter', role: 'text' });
   if (base.type !== 'text') throw new Error('stubProfile role text');
   return { ...base, tools: TEXT_TOOLS, inputs: TEXT_INPUTS };
 }
@@ -21,7 +21,11 @@ function liveProfile(): Profile {
   if (base.type !== 'live') throw new Error('stubProfile role live');
   return { ...base, tools: { allow: ['live-tool'] } };
 }
-const speech = stubProfile({ protocol: 'openRouter', provider: 'openrouter', role: 'speech' });
+const speech = stubProfile({
+  protocol: 'openRouterOpenAi',
+  provider: 'openrouter',
+  role: 'speech',
+});
 const host: Profile = { type: 'host', id: 'host-test', tools: { allow: ['host-tool'] } };
 const decision: Profile = {
   type: 'decision',

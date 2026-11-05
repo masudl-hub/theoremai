@@ -5,8 +5,23 @@ does not own a database, does not read trace-related environment variables for
 destinations, and never lets tracing fail a turn. Hosts that need a signal when
 sinks die set `TraceSink.onError` or `observability.onWriteError`.
 
-Registered model turns use the normalized `chat` operation; live responses use
-`generate_content`. The provider name is the registered provider instance ID.
+Each model call, embedding call, and decision has the `gen_ai.operation.name`
+that its protocol states for the profile type (`operationNames`). Its span is
+named `<operation> <apiId>`. The first-party protocols state these names:
+
+| Protocol | Profile types | Operation |
+| --- | --- | --- |
+| `openAi`, `openRouterOpenAi` | `text` | `chat` |
+| `openAi`, `openRouterOpenAi` | `speech` | `generate_content` |
+| `geminiInteractions` | `text`, `image`, `speech` | `generate_content` |
+| `geminiLive` | `live` | `generate_content` |
+| `openRouterImages` | `image` | `generate_content` |
+| `openRouterTranscriptions` | `transcription` | `transcribe` |
+| `geminiEmbeddings`, `openRouterEmbeddings`, `ollamaEmbeddings` | `embedding` | `embeddings` |
+| `openRouterDecisions`, `systemOne` | `decision` | `decide` |
+
+A call has no operation name when its profile was registered without a provider
+registry. The provider name is the registered provider instance ID.
 Native finish values on turns use `gen_ai.response.finish_reasons` rather than a
 vendor-specific status attribute. Credential values resolved by an adapter are removed
 at the upstream tap boundary before the existing trace scrub and content-hash policy.
@@ -32,7 +47,7 @@ at the upstream tap boundary before the existing trace scrub and content-hash po
 | `src/observability/trace-sink.ts` | `TraceSink` contract (type-only) |
 | `src/observability/trace.ts` | `memorySink`, `noopSink`, `writeTrace` |
 | `src/observability/jsonl.ts` | `jsonlSink` (daily rotating JSONL files; its own export) |
-| `src/observability/trace-span.ts` | Span builder (`startTrace`), content markers, `traceparent` helpers |
+| `src/observability/trace-span.ts` | Span builder (`startTrace`), content markers, `traceparent` helpers, `recordRoot` |
 | `src/observability/trace-record.ts` | `TraceRecord` shape, `buildRecord` (scrub + include), `contentOf`, `inlineContent` |
 | `src/observability/otlp.ts` | `toOtlpJson` (records → OTLP/JSON request) |
 | `src/observability/openinference.ts` | `withOpenInference` (opt-in viewer attributes; its own export) |
@@ -114,8 +129,8 @@ debug-off switch.
 
 | Switch | Cleans with |
 | --- | --- |
-| `sensitive` | `ids`, `financial`, `network`, `credentials`, and every detector of the host's own |
-| `injection` | `injection` and `tool_instructions` |
+| `sensitive` | `ids`, `financial`, `network`, `credentials`, and every detector of the host's own; not `email`, `phone`, or `bank_account`, which a turn flags by default and a trace keeps |
+| `injection` | `injection`, with the orders to the agent it reads in what a tool returns |
 | `canary` | The canaries bound in the record |
 
 Each switch is a `ScrubSwitch` and says whose patterns clean the trace, apart
@@ -153,7 +168,7 @@ for await (const event of runTurn(request, provider)) {
 
 | API | Role |
 | --- | --- |
-| `registerTraceDestination(id, sink)` | Register a `TraceSink` under a non-empty id; anything without a `write` function throws `config` |
+| `registerTraceDestination(id, sink)` | Register a `TraceSink` under a non-empty id, which a profile names in `observability.writeTo`; anything without a `write` function throws `config` |
 | `getTraceDestination` / `requireTraceDestination` | Lookup (throws `TheoremError` if unregistered) |
 | `listTraceDestinationIds` / `clearTraceDestinations` | Introspection / tests |
 
@@ -226,13 +241,15 @@ carry text inline: `buildRecord` resolves every content marker once, under
 | --- | --- |
 | `$content` (messages, instructions, tool arguments and results, reasoning, exception text) | Scrubbed text in `content`, referenced as `{ content_sha256 }` |
 | `$bytes` (media) | `content_sha256` over the raw bytes and `bytes` length; bytes never stored. Text that is not base64 is hashed as text and marked `invalid_base64` |
-| `$json` (upstream rows, wire bodies) | Media hashed, canaries removed, text scrubbed, every string equal to a recorded text replaced by `{ content_sha256 }`; the result stored in `content`, referenced as `{ json_sha256 }` |
+| `$json` (upstream rows, wire bodies) | Media and thought signatures hashed, canaries removed, text scrubbed, every string equal to a recorded text replaced by `{ content_sha256 }`; the result stored in `content`, referenced as `{ json_sha256 }` |
 
 - Credential headers are recorded as `[redacted]`; every other header is kept.
 - With `scrub.canary` on for Theorem's side, every canary bound in the record
   (the turn's and any nested turn's) is removed from stored text.
 - A hash identifies the text *after* scrub, so original bytes are unrecoverable
   when scrub is on.
+- Scrub leaves email addresses, phone numbers, and bank account numbers in
+  stored text ([Scrub](#scrub)).
 - The root records the policy it was written under:
   `theorem.record.include` and `theorem.record.scrub` list the enabled flags,
   so a missing field reads as "not recorded", never as "did not happen".
@@ -281,6 +298,12 @@ by `traceId` / `parentSpanId`; resume and continuation edges are span links. A
 record is self-contained (`content` holds every hash its spans reference);
 sinks may deduplicate across records by hash.
 
+`recordRoot(record)` is the record's root: the span no other span in the record
+parents. It is not always parentless: a turn the host ran under its own span,
+or a judge call under its trial span, hangs under a span another record holds.
+Eval cost, judge traceparents, and Studio's replay all find a record's root
+through it.
+
 A tool call a service refused for access outside its declared scopes carries a
 `theorem.auth.scope_refused` event on its `execute_tool` span: the credential
 slot, the scopes the service asked for and the scopes the tool declares.
@@ -295,7 +318,7 @@ A reference says how to read it:
 
 | Key | Names | In `content` |
 | --- | --- | --- |
-| `content_sha256` on a text reference | Scrubbed text | Yes |
+| `content_sha256` on a text reference | Scrubbed text, with any email address, phone number, or bank account number kept | Yes |
 | `json_sha256` | Scrubbed JSON, its own strings interned as text references | Yes, as JSON text |
 | `content_sha256` on a blob (beside `bytes`) | The raw bytes | No — bytes are never stored |
 
@@ -307,10 +330,6 @@ and beside other keys a parsed object merges under them; a blob keeps its hash.
 
 A failed span's `error.type` is its error kind: a provider too busy for the call
 is `busy`, one that is down is `unavailable`.
-
-The full span catalogue — every attribute, event, status rule, and stop kind,
-drawn in twelve worked traces including a Live voice session — is
-[the worked example](../proposals/otel-turn-traces-example.md).
 
 ## Trace catalog
 
@@ -478,12 +497,13 @@ from that table, not from a span's `llm.cost.total`.
 | `JsonlSinkOptions` (from `@theoremjs/agents/observability/jsonl`) | type |
 | `writeTrace` | function |
 | `buildRecord`, `contentOf`, `inlineContent` | function |
+| `traceRecordSchema`, `TRACE_VERSION` | const |
 | `toOtlpJson` | function |
 | `withOpenInference` (from `@theoremjs/agents/observability/openinference`) | function |
 | `phoenixAnnotations` (from `@theoremjs/agents/observability/phoenix`) | function |
 | `PhoenixSpanAnnotation` (from `@theoremjs/agents/observability/phoenix`) | type |
 | `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` | type |
-| `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `readTraceparent` | function |
+| `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `readTraceparent`, `recordRoot` | function |
 | `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination` | function |
 | `listTraceDestinationIds`, `clearTraceDestinations` | function |
 | `isTraceSink` | function |

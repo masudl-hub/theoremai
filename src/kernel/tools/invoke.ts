@@ -14,14 +14,21 @@ import {
   startTrace,
   type TraceAttributes,
 } from '../../observability/trace-span.ts';
+import { detachedTrace } from '../engine/background.ts';
 import { invokeAgentCaller } from '../engine/runner/mod.ts';
 import { inStep, runSideBySide, stepOrder } from '../engine/runner/step-order.ts';
 import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
-import { endThrownSpan, optional, traceLinks } from '../engine/turn-trace.ts';
+import { endThrownSpan, runIdentity, traceLinks } from '../engine/turn-trace.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { pickModel } from '../registry/resolve.ts';
 import { turnDoneOf } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
+import type { AgentCaller } from './agent.ts';
+import {
+  assertBackgroundCoordinator,
+  planDetach,
+  type ToolBackgroundSupport,
+} from './background.ts';
 import { coordinateTool } from './coordinate.ts';
 import {
   failedActivity,
@@ -83,7 +90,11 @@ async function* invokeInTrace(
   spanName: string,
   sinkOverride: TraceSink | undefined,
   run: {
-    events: (tree: TraceTree, canaries: string[]) => AsyncGenerator<TurnEvent>;
+    events: (
+      tree: TraceTree,
+      canaries: string[],
+      background: ToolBackgroundSupport | undefined,
+    ) => AsyncGenerator<TurnEvent>;
     ended?: (tree: TraceTree) => void;
     failed: (tree: TraceTree, err: unknown) => void;
   },
@@ -97,7 +108,7 @@ async function* invokeInTrace(
   const tree = startTrace(spanName, {
     attributes: {
       'gen_ai.agent.name': request.profile,
-      ...optional('gen_ai.conversation.id', request.conversationId),
+      ...runIdentity(request),
     },
     links: traceLinks(request.links),
     ...(request.traceparent ? { traceparent: request.traceparent } : {}),
@@ -106,12 +117,34 @@ async function* invokeInTrace(
   const canaries: string[] = [];
   try {
     const labels = known?.labels;
-    for await (const event of run.events(tree, canaries)) {
-      // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
-      yield projectGuardrailTurnEvent(
+    // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
+    const project = (event: TurnEvent) =>
+      projectGuardrailTurnEvent(
         withPublicLabels(event, labels),
         policy.include.guardrailMatchPreview,
       );
+    const { background: service } = request;
+    const background = service && {
+      service,
+      project,
+      openTrace: () =>
+        detachedTrace({
+          traceparent: tree.root.traceparent(),
+          write: (spans) =>
+            writeTrace(
+              sink,
+              buildRecord({
+                spans,
+                policy,
+                canaries,
+                ...(request.metadata ? { metadata: request.metadata } : {}),
+              }),
+              policy,
+            ),
+        }),
+    };
+    for await (const event of run.events(tree, canaries, background)) {
+      yield project(event);
     }
     run.ended?.(tree);
   } catch (err) {
@@ -150,6 +183,7 @@ async function invokeSnapshot(
   registry: KernelRegistry,
   request: InvokeToolRequest | InvokeToolStepRequest,
 ): Promise<{ profile: Profile; snapshot: TurnToolSnapshot }> {
+  assertBackgroundCoordinator(request.background, request.execution);
   const profile = registry.profiles.get(request.profile);
   const snapshot = request.snapshot
     ? cloneTurnToolSnapshot(request.snapshot)
@@ -191,7 +225,7 @@ function startInvoke(
     return tree.root;
   };
   const events = invokeInTrace(registry, invoke, toolSpanName(invoke.name), sinkOverride, {
-    events: (tree, canaries) =>
+    events: (tree, canaries, background) =>
       invokeTraced(
         registry,
         invoke,
@@ -200,6 +234,7 @@ function startInvoke(
         failCallBeforeTool(openSpan(tree), invoke, callId),
         tree.root.traceparent(),
         canaries,
+        background,
       ),
     failed: (tree, err) =>
       failCallBeforeTool(
@@ -263,7 +298,7 @@ function startInvokeStep(
     };
   });
   const events = invokeInTrace(registry, request, `tool_step ${request.profile}`, sinkOverride, {
-    events: (tree, canaries) =>
+    events: (tree, canaries, background) =>
       invokeStepTraced(
         registry,
         request,
@@ -271,6 +306,7 @@ function startInvokeStep(
         (name, attributes) => tree.root.child(name, { attributes }),
         tree.root.traceparent(),
         canaries,
+        background,
       ),
     ended: (tree) => tree.root.end({ code: 'OK' }),
     failed: (tree, err) => {
@@ -291,6 +327,7 @@ async function* invokeStepTraced(
   openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
   traceparent: string,
   canaries: string[],
+  background: ToolBackgroundSupport | undefined,
 ): AsyncGenerator<TurnEvent> {
   const { profile, snapshot } = await invokeSnapshot(registry, request);
   const stepId = crypto.randomUUID();
@@ -330,6 +367,7 @@ async function* invokeStepTraced(
             openSpan,
             failCallBeforeTool(openSpan, invoke, callId),
             canaries,
+            background,
             step,
           ),
         ),
@@ -356,6 +394,7 @@ async function* invokeTraced(
   failBeforeTool: (end: ToolCallEnd) => void,
   traceparent: string,
   canaries: string[],
+  background: ToolBackgroundSupport | undefined,
 ): AsyncGenerator<TurnEvent> {
   const { profile, snapshot } = await invokeSnapshot(registry, request);
 
@@ -378,6 +417,7 @@ async function* invokeTraced(
       openSpan,
       failBeforeTool,
       canaries,
+      background,
     );
     gated = settlement.gated !== undefined;
   } catch (err) {
@@ -393,7 +433,7 @@ async function* invokeTraced(
 }
 
 /** The step a call runs in: the calls `pre_tool` sees and the wait its `waitFor` holds on. */
-type InvokeStep = Pick<ToolStageSupport, 'stepCalls' | 'wait'>;
+type InvokeStep = Pick<ToolStageSupport, 'stepCalls' | 'wait' | 'bodyEnded' | 'spent' | 'steers'>;
 
 /** One call, coordinated: replayed when its operation already ran, else executed. */
 function runCall(
@@ -405,12 +445,24 @@ function runCall(
   openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
   failBeforeTool: (end: ToolCallEnd) => void,
   canaries: string[],
+  background: ToolBackgroundSupport | undefined,
   step?: InvokeStep,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  const operationId = request.operationId ?? crypto.randomUUID();
+  const tool = registry.tools.get(request.name);
+  const agents = invokeAgentCaller(registry, request, canaries);
+  const detach = planDetach({
+    tool,
+    input: request.input,
+    support: background,
+    agents,
+    base: { name: request.name, callId, operationId },
+    labels: profile.labels,
+  });
   return coordinateTool(
     request.execution,
     {
-      operationId: request.operationId ?? crypto.randomUUID(),
+      operationId,
       callId,
       profileId: profile.id,
       toolId: request.name,
@@ -426,18 +478,23 @@ function runCall(
       },
     },
     request.signal,
-    (beginBody) =>
+    (beginBody, hooks) =>
       invokePrepared(
         registry,
-        request,
+        { ...request, ...(hooks.signal ? { signal: hooks.signal } : {}) },
         profile,
         snapshot,
         callId,
-        openSpan,
+        detach?.trace.open ?? openSpan,
         failBeforeTool,
-        canaries,
+        agents,
         beginBody,
-        step,
+        {
+          ...step,
+          ...(hooks.bodyEnded ? { bodyEnded: hooks.bodyEnded } : {}),
+          ...(hooks.spent ? { spent: hooks.spent } : {}),
+          ...(hooks.steers ? { steers: hooks.steers } : {}),
+        },
       ),
     (outcome) =>
       authorizeToolReplay({
@@ -448,6 +505,7 @@ function runCall(
         resume: request.resume,
         snapshot,
       }),
+    detach,
   );
 }
 
@@ -459,7 +517,7 @@ async function* invokePrepared(
   callId: string,
   openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
   failBeforeTool: (end: ToolCallEnd) => void,
-  canaries: string[],
+  agents: AgentCaller,
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
   step?: InvokeStep,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
@@ -483,7 +541,7 @@ async function* invokePrepared(
   return yield* executeRegisteredTool({
     tools: registry.tools,
     beginBody,
-    agents: invokeAgentCaller(registry, request, canaries),
+    agents,
     profile,
     name: request.name,
     input: request.input,
@@ -493,6 +551,7 @@ async function* invokePrepared(
       sessionPermissions: request.sessionPermissions,
       credentials: request.credentials,
       resolveHost: request.resolveHost,
+      fetch: request.fetch,
       path: request.path,
       signal: request.signal,
       resume: request.resume,

@@ -1,8 +1,13 @@
 import type { z } from 'zod';
 import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
 import { detectProblem } from '../../guardrails/detectors.ts';
-import { TheoremError } from '../../guardrails/error.ts';
-import { type LabelOverrides, labelText, validateLabelOverrides } from '../../guardrails/labels.ts';
+import { errorKind, TheoremError } from '../../guardrails/error.ts';
+import {
+  HOST_LABEL_KEYS,
+  type LabelOverrides,
+  labelText,
+  validateLabelOverrides,
+} from '../../guardrails/labels.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplySpec,
@@ -24,16 +29,18 @@ import {
 import type { ProviderRegistry } from '../protocols/provider.ts';
 import {
   CONTEXT_SENDERS,
+  CONTINUE_STOP_KINDS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   PROFILE_FIELDS,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
   PROFILE_TYPES,
   type ProfileType,
+  profileFieldProblems,
   THINKING_LEVELS,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
-import { assertSystemPrompt } from '../system-parts.ts';
+import { assertSystemLines, systemLinesProblem } from '../system-lines.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
 import type {
@@ -64,24 +71,56 @@ import type {
   ProfileValidationSpec,
   SpeechProfile,
   TextProfile,
+  TranscriptionInputsSpec,
+  TranscriptionProfile,
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
+import { optionValues, profileOption } from './options.ts';
 import type { SchemaRegistry } from './schemas.ts';
 import { soleModelId } from './sole-model.ts';
 
 /** Not shared by host profiles, which invoke tools without a model turn. */
 export type ProfileDefinitionBase = {
+  /**
+   * The name this profile is registered and looked up by, at most 64 characters; registering the
+   * same id again replaces it.
+   */
   id: Profile['id'];
+  /** The agent's display name and the system instruction it is given. */
   identity: ProfileIdentity;
+  /**
+   * The trained AI systems that turn input into results. Each entry binds a local name to an
+   * upstream model and its call settings.
+   *
+   * @catalog models.* One model: how to reach it and the settings sent with it.
+   */
   models: Record<ModelId, ModelBinding>;
+  /** Who holds the conversation a saved provider state continues. */
   providerContinuation?: import('../checkpoint.ts').ProviderContinuationPolicy;
+  /** The model a turn gets when it doesn't pick one. */
   defaultModel?: ModelId;
+  /** Lets a turn name the model it runs on; a name the profile does not declare is refused. */
   allowModelSelect?: boolean;
+  /**
+   * The most model calls one turn may make while using tools, counted afresh for each rewrite; 1
+   * runs the tools asked for but never sends their results back. Live sessions ignore it.
+   */
   maxSteps?: number;
+  /** The shape of the reply, how it is checked, and how it streams. */
   outputs?: ProfileOutputsSpec;
+  /**
+   * Theorem checks what enters or leaves an agent’s context and generation against built-in or
+   * custom rules at each configured boundary.
+   */
   guardrails?: ProfileGuardrailsSpec;
+  /** Where this profile's traces go and what they keep. */
   observability?: ProfileObservabilitySpec;
+  /**
+   * This profile's own wording for error lines, notices, and notes to the model, by labels key.
+   *
+   * @catalog labels.* The wording for this labels key; canary.bind_note must keep its {canary} placeholder.
+   */
   labels?: LabelOverrides;
 };
 
@@ -90,68 +129,196 @@ export type EmbeddingProfileDefinition = Omit<
   ProfileDefinitionBase,
   'identity' | 'outputs' | 'maxSteps'
 > & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'embedding';
+  /** The agent's display name and the system instruction it is given. */
   identity: Pick<ProfileIdentity, 'handle'>;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: EmbeddingProfile['inputs'];
 };
 
 /** What a host writes to define a text profile. */
 export type TextProfileDefinition = ProfileDefinitionBase & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'text';
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: ProfileToolsSpec;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: ProfileInputsSpec;
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   */
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
 /** What a host writes to define an image profile. */
 export type ImageProfileDefinition = ProfileDefinitionBase & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'image';
+  /**
+   * How the images this profile generates are shaped and made: size, format, quality and
+   * references. Each setting is sent only where the provider has it; one it lacks is refused or
+   * ignored, as that setting says.
+   */
   image: NonNullable<ImageProfile['image']>;
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: ProfileToolsSpec;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: ImageInputsSpec;
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   */
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
 /** What a host writes to define a speech profile. */
 export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity'> & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'speech';
+  /** The agent's display name and the system instruction it is given. */
   identity: SpeechProfile['identity'];
+  /**
+   * How the profile's speech sounds and is delivered: voice, style, speed and audio format. A turn
+   * may replace voice, style and speed for that turn.
+   */
   speech: NonNullable<SpeechProfile['speech']>;
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   */
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
+/** What a host writes to define a transcription profile. */
+export type TranscriptionProfileDefinition = Omit<
+  ProfileDefinitionBase,
+  'identity' | 'outputs' | 'maxSteps'
+> & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
+  type: 'transcription';
+  /** The agent's display name and the system instruction it is given. */
+  identity: TranscriptionProfile['identity'];
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
+  inputs: TranscriptionInputsSpec & {
+    /** Whether a turn may send text. */ text?: false;
+  };
+};
+
 /** What a host writes to define a live profile. */
-export type LiveProfileDefinition = ProfileDefinitionBase & {
+export type LiveProfileDefinition = Omit<ProfileDefinitionBase, 'maxSteps'> & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'live';
+  /**
+   * How a realtime voice and video session runs: what it accepts from the user, the voice it
+   * answers in, when it hears the user start and stop, and how it resumes and trims its context.
+   */
   live: NonNullable<LiveProfile['live']>;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs?: LiveProfile['inputs'];
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: LiveProfileToolsSpec;
-  /** Inject gate only — resumption is `live.sessionResumption`. */
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   *
+   * @remarks Inject gate only — resumption is `live.sessionResumption`.
+   */
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 };
 
 /** What a host writes to define a decision profile. */
 export type DecisionProfileDefinition = {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'decision';
+  /**
+   * The name this profile is registered and looked up by, at most 64 characters; registering the
+   * same id again replaces it.
+   */
   id: Profile['id'];
+  /** The agent's display name and the system instruction it is given. */
   identity: Pick<ProfileIdentity, 'handle'>;
-  /** Exactly one model. */
+  /**
+   * The trained AI systems that turn input into results. Each entry binds a local name to an
+   * upstream model and its call settings.
+   *
+   * @remarks Exactly one model.
+   * @catalog models.* One model: how to reach it and the settings sent with it.
+   */
   models: Record<ModelId, DecisionModelBinding>;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: DecisionProfile['inputs'];
+  /** Names the host decision this profile makes. */
   decision: DecisionProfile['decision'];
+  /**
+   * Theorem checks what enters or leaves an agent’s context and generation against built-in or
+   * custom rules at each configured boundary.
+   */
   guardrails?: DecisionGuardrailsSpec;
+  /** Where this profile's traces go and what they keep. */
   observability?: ProfileObservabilitySpec;
+  /**
+   * This profile's own wording for error lines, notices, and notes to the model, by labels key.
+   *
+   * @catalog labels.* The wording for this labels key; canary.bind_note must keep its {canary} placeholder.
+   */
   labels?: LabelOverrides;
 };
 
 /** What a host writes to define a host profile, which runs tools and no model. */
 export type HostProfileDefinition = {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'host';
+  /**
+   * The name this profile is registered and looked up by, at most 64 characters; registering the
+   * same id again replaces it.
+   */
   id: Profile['id'];
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: HostProfileToolsSpec;
-  /** Only the guards that fire on the `invokeTool` path. */
+  /**
+   * Theorem checks what enters or leaves an agent’s context and generation against built-in or
+   * custom rules at each configured boundary.
+   *
+   * @remarks Only the guards that fire on the `invokeTool` path.
+   */
   guardrails?: HostGuardrailsSpec;
+  /** Where this profile's traces go and what they keep. */
   observability?: ProfileObservabilitySpec;
+  /**
+   * This profile's own wording for error lines, notices, and notes to the model, by labels key.
+   *
+   * @catalog labels.* The wording for this labels key; canary.bind_note must keep its {canary} placeholder.
+   */
   labels?: LabelOverrides;
 };
 
@@ -162,6 +329,7 @@ export type ProfileDefinition =
   | SpeechProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
+  | TranscriptionProfileDefinition
   | EmbeddingProfileDefinition
   | HostProfileDefinition;
 
@@ -195,6 +363,32 @@ function defineEmbeddingProfile(input: EmbeddingProfileDefinition): EmbeddingPro
   };
 }
 
+function defineTranscriptionProfile(input: TranscriptionProfileDefinition): TranscriptionProfile {
+  assertModelsNonEmpty(input.id, input.models);
+  assertGuardrails(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
+  assertObservability(input.id, input.observability);
+  for (const [modelId, binding] of Object.entries(input.models))
+    assertModelBinding(input.id, modelId, binding);
+  if ('text' in input.inputs && input.inputs.text !== false) {
+    throw new TheoremError(
+      'config',
+      `Profile ${input.id}: a transcription takes a voice clip, so inputs.text must be false`, // labels-exempt: developer config error
+    );
+  }
+  return {
+    type: 'transcription',
+    id: input.id,
+    identity: { handle: input.identity.handle },
+    ...profileModelFields(input),
+    providerContinuation: undefined,
+    maxSteps: undefined,
+    inputs: { ...input.inputs, text: false },
+    guardrails: input.guardrails,
+    observability: input.observability,
+    labels: input.labels,
+  };
+}
+
 function assertBindingData(
   profileId: string,
   modelId: string,
@@ -220,7 +414,7 @@ function validateDecisionBinding(
     throw new TheoremError(
       'config',
       // labels-exempt: developer contract / internal diagnostic
-      `Profile ${profileId} model '${modelId}': decision retry configuration is unsupported; POSTs are never retried`,
+      `Profile ${profileId} model '${modelId}': a decision binding takes no retry; a decision retries only a transient failure, by the kernel's rule`,
     );
   }
   if (
@@ -385,7 +579,7 @@ function assertContinueKindList(
       throw new TheoremError(
         'config',
         `Profile ${profileId}: turnBehaviour.resumption.${path} may only include ContinueStopKind ` + // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-          `(length | stream_incomplete | provider_error); got '${kind}'`,
+          `(${CONTINUE_STOP_KINDS.join(' | ')}); got '${kind}'`,
       );
     }
   }
@@ -479,7 +673,7 @@ function assertRequiredFields(input: ProfileDefinition): void {
   }
 }
 
-/** `inputs` is optional on a live profile only, where it holds slots and context and nothing else. */
+/** `inputs` is optional on a live profile only, where it holds options and context and nothing else. */
 function assertInputsSet(input: ProfileDefinition): void {
   const { id, type } = input;
   if (type === 'live' || !profileTypesForField('inputs').includes(type)) return;
@@ -505,7 +699,10 @@ function assertTurnBehaviour(
   profileId: string,
   input: Exclude<
     ProfileDefinition,
-    HostProfileDefinition | DecisionProfileDefinition | EmbeddingProfileDefinition
+    | HostProfileDefinition
+    | DecisionProfileDefinition
+    | EmbeddingProfileDefinition
+    | TranscriptionProfileDefinition
   >,
 ): void {
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
@@ -593,7 +790,7 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
       throw err;
     }
     const message = err instanceof Error ? err.message : String(err);
-    throw new TheoremError('config', `Profile ${profileId}: ${message}`);
+    throw new TheoremError(errorKind(err), `Profile ${profileId}: ${message}`, { cause: err });
   }
 }
 
@@ -602,22 +799,29 @@ function assertIdentitySystem(input: ProfileDefinition): void {
     input.type === 'host' ||
     input.type === 'decision' ||
     input.type === 'speech' ||
+    input.type === 'transcription' ||
     input.type === 'embedding'
   )
     return;
-  const { system, systemByRole } = input.identity;
-  if (system !== undefined) assertSystemPrompt(system, `Profile ${input.id} identity.system`);
-  for (const [role, prompt] of Object.entries(systemByRole ?? {})) {
-    assertSystemPrompt(prompt, `Profile ${input.id} identity.systemByRole.${role}`);
-  }
+  const { options, system } = input.identity;
+  const prompt = system ?? '';
+  assertSystemLines(prompt, `Profile ${input.id} identity.system`);
+  const problem = systemLinesProblem(prompt, options, input.inputs?.options);
+  if (problem) throw new TheoremError('config', `Profile ${input.id} identity.system: ${problem}`); // labels-exempt: developer contract error
 }
 
-/** Validate a definition and return the profile; throws on a malformed one. */
+/**
+ * Checks a profile and returns it; a field the profile type cannot take is a config error.
+ *
+ * @remarks Validate a definition and return the profile; throws on a malformed one.
+ */
 function defineProfile(input: TextProfileDefinition): TextProfile;
 /** Validate an image definition and return the profile. */
 function defineProfile(input: ImageProfileDefinition): ImageProfile;
 /** Validate a speech definition and return the profile. */
 function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
+/** Validate a transcription definition and return the profile. */
+function defineProfile(input: TranscriptionProfileDefinition): TranscriptionProfile;
 /** Validate a live definition and return the profile. */
 function defineProfile(input: LiveProfileDefinition): LiveProfile;
 /** Validate a decision definition and return the profile. */
@@ -634,6 +838,15 @@ function defineProfile(
 function defineProfile(input: ProfileDefinition): Profile;
 /** Validate any definition and return the profile. */
 function defineProfile(input: ProfileDefinition): Profile {
+  const profile = validatedProfile(input);
+  const [problem] = profileFieldProblems(input);
+  if (problem) {
+    throw new TheoremError('config', `Profile ${input.id}: ${problem.path} ${problem.message}`); // labels-exempt: developer contract / internal diagnostic
+  }
+  return profile;
+}
+
+function validatedProfile(input: ProfileDefinition): Profile {
   assertProfileShape(input);
   for (const field of ['key', 'fallbackKey', 'protocol', 'provider'])
     if (field in input)
@@ -646,6 +859,14 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertRequiredFields(input);
   assertNameLengths(input);
   if (input.labels) validateLabelOverrides(input.labels, `Profile ${input.id}`);
+  for (const key of HOST_LABEL_KEYS) {
+    if (input.labels?.[key] !== undefined) {
+      throw new TheoremError(
+        'config',
+        `Profile ${input.id}: labels '${key}' is a host line, which a profile cannot change; set it with overrideLabels`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
   assertIdentitySystem(input);
   assertDetect(input);
   if (input.type === 'host') {
@@ -656,6 +877,9 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   if (input.type === 'embedding') {
     return defineEmbeddingProfile(input);
+  }
+  if (input.type === 'transcription') {
+    return defineTranscriptionProfile(input);
   }
   assertModelsNonEmpty(input.id, input.models);
   assertTurnBehaviour(input.id, input);
@@ -671,8 +895,8 @@ function defineProfile(input: ProfileDefinition): Profile {
       ? { handle: input.identity.handle }
       : {
           handle: input.identity.handle,
+          options: input.identity.options,
           system: input.identity.system,
-          systemByRole: input.identity.systemByRole,
         };
   const guardrails = input.guardrails;
   const observability = input.observability;
@@ -752,7 +976,7 @@ function defineProfile(input: ProfileDefinition): Profile {
       throw new TheoremError('config', `Unknown profile type '${String(_exhaustive)}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
-  assertStructuredSlot(profile);
+  assertStructuredOption(profile);
   assertMaxSteps(profile);
   assertAnswerStep(profile);
   return profile;
@@ -778,23 +1002,24 @@ function assertAnswerStep(profile: ModelProfile): void {
   );
 }
 
-/** A turn can pass no value outside the slot's choices, so any other mapped key is dead. */
-function assertStructuredSlot(profile: ModelProfile): void {
+/** A turn can pass no value outside the option's choices, so any other mapped key is dead. */
+function assertStructuredOption(profile: ModelProfile): void {
   if (profile.type === 'live') return;
   const structured = profile.outputs?.structured;
   if (!structured || typeof structured === 'string') return;
-  const choices = profileInputs(profile)?.slots?.[structured.by];
-  if (!choices) {
+  const decl = profileOption(profile, structured.by);
+  if (!decl) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not a slot in inputs.slots`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not one of the profile's options`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
+  const choices = optionValues(decl);
   const unknown = Object.keys(structured.map).filter((value) => !choices.includes(value));
   if (unknown.length) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id}: outputs.structured.map maps ${unknown.join(', ')}, not a choice of slot '${structured.by}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: outputs.structured.map maps ${unknown.join(', ')}, not a choice of option '${structured.by}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -891,9 +1116,6 @@ function assertCompactionSpec(
   const tag = `Profile ${owner.id} model ${modelId} compaction`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   assertCompactionBudget(tag, spec);
   assertCompactionRetain(tag, spec);
-  if (spec.meter != null && spec.meter !== 'history' && spec.meter !== 'input') {
-    throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
   if (spec.profile === undefined) {
     if (owner.type !== 'text' || owner.inputs.text === false) {
       throw new TheoremError(
@@ -996,7 +1218,7 @@ function assertModelBuiltInTools(tools: ToolRegistry, profile: ModelProfile): vo
   }
 }
 
-/** The schema ids `outputs.structured` can pick, by slot and fallback. */
+/** The schema ids `outputs.structured` can pick, by option and fallback. */
 function structuredIds(profile: ModelProfile): string[] {
   const structured = profile.type === 'text' ? profile.outputs?.structured : undefined;
   if (!structured) return [];

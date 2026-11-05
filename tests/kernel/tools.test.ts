@@ -248,6 +248,43 @@ Deno.test('preTool confirmation resumes after granted', async () => {
     'preflight cleared',
   );
 });
+Deno.test('a granted confirmation answers the host pre_tool confirm too', async () => {
+  const onStage: StageHandler = (ctx) =>
+    ctx.stage === 'pre_tool' ? { confirm: { summary: 'The host asks.' } } : undefined;
+  const call = { profile: 'preflight_confirm_bot', name: 'preflight_confirm_tool', input: {} };
+  const paused = await invokeRegisteredTool({ ...call, onStage });
+  assertEquals(gateOf(lastTool(paused, 'preflight_confirm_tool'))?.kind, 'confirmation');
+  const resumed = await invokeRegisteredTool({
+    ...call,
+    onStage,
+    resume: { granted: true, gateKind: 'confirmation' },
+  });
+  assertEquals(lastTool(resumed, 'preflight_confirm_tool')?.phase, 'complete');
+});
+Deno.test('a granted permission leaves the host pre_tool confirm to ask', async () => {
+  const onStage: StageHandler = (ctx) =>
+    ctx.stage === 'pre_tool' ? { confirm: { summary: 'The host asks.' } } : undefined;
+  const resumed = await invokeRegisteredTool({
+    profile: 'always_confirm_probe',
+    name: 'always_confirm_tool',
+    input: {},
+    onStage,
+    resume: { granted: true, gateKind: 'permission' },
+  });
+  assertEquals(gateOf(lastTool(resumed, 'always_confirm_tool'))?.kind, 'confirmation');
+});
+Deno.test('pre_tool reads a call as approved after its permission or a confirmation, not a sign-in', async () => {
+  const seen: (true | undefined)[] = [];
+  const onStage: StageHandler = (ctx) => {
+    if (ctx.stage === 'pre_tool') seen.push(ctx.approved);
+    return undefined;
+  };
+  const call = { profile: 'always_confirm_probe', name: 'always_confirm_tool', input: {}, onStage };
+  for (const gateKind of ['permission', 'confirmation', 'auth'] as const) {
+    await invokeRegisteredTool({ ...call, resume: { granted: true, gateKind } });
+  }
+  assertEquals(seen, [true, true, undefined]);
+});
 Deno.test('preTool deny settles modelResult + post_tool callNotStarted', async () => {
   registerProfile(
     defineProfile({
@@ -536,6 +573,42 @@ Deno.test('t2Loader function promotes T2 ids from { loaded }', async () => {
   });
   const complete = lastTool(events, 'load_tools');
   assertEquals(outputOf(complete), { loaded: ['record_lookup'] });
+});
+Deno.test('a turn opens with the T2 tools it is told the reply already had', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'turn_promoted_probe',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const listed: string[][] = [];
+  const model: TurnModel = {
+    complete: (req) =>
+      (async function* () {
+        listed.push((req.wireTools ?? []).map((tool) => tool.name));
+        yield { type: 'text' as const, text: 'done' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+  const asks = [undefined, ['record_lookup'], ['load_tools', 'not_allowed', 'record_lookup']];
+  for (const promoted of asks) {
+    const turn = runTurn(
+      { profile: 'turn_promoted_probe', input: { text: 'x' }, ...(promoted ? { promoted } : {}) },
+      model,
+    );
+    for await (const _ of turn);
+  }
+  assertEquals(listed, [
+    ['load_tools'],
+    ['load_tools', 'record_lookup'],
+    ['load_tools', 'record_lookup'],
+  ]);
 });
 Deno.test('loader promote rejects non-T2 tool ids', () => {
   registerProfile(

@@ -1,5 +1,5 @@
 import { redactDetectors } from '../guardrails/detect-at.ts';
-import { SENSITIVE_GROUPS } from '../guardrails/sensitive-groups.ts';
+import { SCRUBBED_GROUPS } from '../guardrails/sensitive-groups.ts';
 
 /** What stands in for a credential's value wherever one is shown. */
 export const MASK = '••••';
@@ -179,7 +179,7 @@ export function scrubText(text: string, known: readonly [string, string][]): str
   for (const [name, value] of known) {
     if (value.length >= SCRUB_MIN) out = out.replaceAll(value, `[secret ${name}]`);
   }
-  return redactDetectors(out, SENSITIVE_GROUPS);
+  return redactDetectors(out, SCRUBBED_GROUPS);
 }
 
 /** Known secret values worth scrubbing: trimmed, long enough, longest first. */

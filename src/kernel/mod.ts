@@ -4,6 +4,7 @@
  * @module
  */
 
+export { ANSWER_TOOL } from './answer-tool.ts';
 export * from './auth/mod.ts';
 export type {
   ProviderCheckpoint,
@@ -101,7 +102,7 @@ export {
   modelBindingSchema,
 } from './protocols/binding.ts';
 export type { ProviderLimits } from './protocols/limits.ts';
-export { providerLimitsSchema, resolveProviderLimits } from './protocols/limits.ts';
+export { providerLimitsSchema } from './protocols/limits.ts';
 export type { EstimatedCost, ModelPrice, PriceTable, Rates } from './protocols/prices.ts';
 export { costFromPrices } from './protocols/prices.ts';
 export type {
@@ -151,11 +152,12 @@ export {
 } from './protocols/provider.ts';
 export type {
   CallSetup,
+  KeyCheck,
   OpenWebSocket,
   ProtocolCall,
   ProviderHostOptions,
 } from './protocols/runtime.ts';
-export { callProtocol, plainWebSocket } from './protocols/runtime.ts';
+export { callProtocol, checkKey, plainWebSocket } from './protocols/runtime.ts';
 export type { MediaInputChannel } from './registry/catalog.ts';
 export {
   clampThinkingLevel,
@@ -169,6 +171,7 @@ export {
 } from './registry/catalog.ts';
 export type { KernelRegistry } from './registry/kernel-registry.ts';
 export { createKernelRegistry } from './registry/kernel-registry.ts';
+export { optionsProblem, optionValues } from './registry/options.ts';
 export type {
   DecisionProfileDefinition,
   EmbeddingProfileDefinition,
@@ -180,11 +183,13 @@ export type {
   ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
+  TranscriptionProfileDefinition,
 } from './registry/profiles.ts';
 export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
 export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
 export type { SchemaRegistry } from './registry/schemas.ts';
 export { createSchemaRegistry } from './registry/schemas.ts';
+export { resolveTurnSystemPrompt } from './registry/system-prompt.ts';
 export type { CredentialContext, CredentialResolver, KeyCredential } from './registry/vault.ts';
 export type {
   AuthUnauthenticatedPolicy,
@@ -289,9 +294,18 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
+export { systemLinesProblem } from './system-lines.ts';
 export { systemPromptProblem } from './system-parts.ts';
 export { activityLabelProblem } from './tools/activity-label.ts';
 export { agentToolInputFor, agentToolOutput } from './tools/agent.ts';
+export type {
+  ToolBackground,
+  ToolBackgroundCall,
+  ToolBackgroundHandle,
+  ToolBackgroundService,
+  ToolBackgroundSettled,
+  ToolSteerReceipt,
+} from './tools/background.ts';
 export {
   type AnsweredGate,
   answerGatedCall,
@@ -314,6 +328,7 @@ export type {
 } from './tools/mod.ts';
 export {
   askUserTool,
+  assertToolSettings,
   authorizeToolReplay,
   coerceToolResultParts,
   createToolRegistry,
@@ -325,6 +340,7 @@ export {
   isUnsupportedMcpProtocolError,
   leanToolResultData,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   projectForModel,
@@ -333,6 +349,7 @@ export {
   withCredentialQuery,
 } from './tools/mod.ts';
 export type {
+  BackgroundToolEvent,
   BeginToolOperationResult,
   PageToolDispatch,
   PageToolExecution,
@@ -342,12 +359,14 @@ export type {
   ToolOperationClaim,
   ToolOperationIdentity,
   ToolOperationOutcome,
+  ToolOperationReply,
   ToolOperationUncertainty,
 } from './tools/operation.ts';
 export {
   savedToolInvocationSchema,
   toolInvocationHash,
   toolOperationOutcomeSchema,
+  toolOperationReplySchema,
 } from './tools/operation.ts';
 export { jsonSchemaFromZod } from './tools/schema.ts';
 export { CredentialRefusedError } from './tools/signed-in-fetch.ts';

@@ -176,7 +176,8 @@ function textPart(text: string): InteractionPart {
 /**
  * `toCompact` as the compactor reads it: media its profile does not accept is
  * left out, and tool calls and results become the assistant's text, so no
- * provider needs the tools declared to read them.
+ * provider needs the tools declared to read them. A result's files follow it
+ * in a user message.
  */
 export function compactorHistory(
   toCompact: readonly TurnHistoryMessage[],
@@ -204,9 +205,18 @@ export function compactorHistory(
         role: 'assistant',
         parts: [
           textPart(labelText('compaction.tool_result', { tool: tool ?? '', result }, labels)),
-          ...parts,
         ],
       });
+      // why: Chat Completions takes only text in assistant content, and endpoints that enforce it refuse the call.
+      if (parts.length > 0) {
+        history.push({
+          role: 'user',
+          parts: [
+            textPart(labelText('compaction.tool_files', { tool: tool ?? '' }, labels)),
+            ...parts,
+          ],
+        });
+      }
       continue;
     }
     const calls = (message.tool_calls ?? []).map((call) =>

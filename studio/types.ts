@@ -1,3 +1,4 @@
+import type { ToolBackground } from '@theoremjs/agents/kernel';
 import {
   type AuthUnauthenticatedPolicy,
   type CustomToolType,
@@ -38,9 +39,18 @@ export type StudioToolSpecSeed = {
   activityPast?: string;
   activityFailed?: string;
   request?: string;
+  /**
+   * What a function tool returns in the studio, unless a demo handler has its name.
+   *
+   * @catalog studio.stubOutput
+   */
   stubOutputJson?: string;
   /** A function tool the page answers; the studio's page answers with the stub. */
   answeredBy?: 'page';
+  /** The model can name tools of its step that finish before this one starts. */
+  after?: boolean;
+  /** When the model gets its reply while the body goes on. */
+  background?: ToolBackground;
   endpoint?: string;
   method?: HttpMethod;
   headersJson?: string;
@@ -49,10 +59,23 @@ export type StudioToolSpecSeed = {
   bodyParam?: string;
   serverUrl?: string;
   mcpToolName?: string;
+  /** An HTTP or MCP tool's most response bytes read; `null` or absent: no limit. */
+  maxResponseBytes?: number | null;
+  /** An MCP tool's session idle time, in ms; `null` or absent: no limit. */
+  sessionIdleMs?: number | null;
+  /** An MCP tool's most sessions; `null` or absent: no limit. */
+  sessionMax?: number | null;
   /** An agent tool's agent, by its workspace key. */
   agentKey?: string;
+  /** A decision agent that filters this tool's output at `post_tool`, by its workspace key. */
+  stageAgentKey?: string;
   /** An agent tool's calls in one turn of its caller; `null` or absent: no cap but max steps. */
   maxCallsPerTurn?: number | null;
+  /**
+   * The kind of credential the tool expects, or none.
+   *
+   * @catalog studio.authType
+   */
   authType?: StudioAuthType;
   authSlot?: string;
   authService?: string;

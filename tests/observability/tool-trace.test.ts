@@ -24,6 +24,7 @@ import { asProtocolEvent } from '../../src/providers/shared/protocol-events.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
 import { lastOf, rawCallsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const PROFILE = 'tool_trace_probe';
@@ -145,7 +146,7 @@ registerProfile(
       ],
     },
     inputs: { text: true },
-    guardrails: { quota: { perDay: 10_000 } },
+    guardrails: { quota: { perDay: 10_000 }, detect: TAKE_OUT_INBOUND },
   }),
 );
 
@@ -571,6 +572,7 @@ Deno.test('a host invoke writes its own record, rooted under the host span', asy
         resume: { granted: true },
         traceparent: formatTraceparent(HOST_TRACE, HOST_SPAN),
         conversationId: 'conv_1',
+        projectId: 'proj_1',
         metadata: { user: 'u_1' },
       },
       catalogedSink(into),
@@ -584,6 +586,7 @@ Deno.test('a host invoke writes its own record, rooted under the host span', asy
   assertEquals([root?.traceId, root?.parentSpanId], [HOST_TRACE, HOST_SPAN]);
   assertEquals(root?.attributes['gen_ai.agent.name'], PROFILE);
   assertEquals(root?.attributes['gen_ai.conversation.id'], 'conv_1');
+  assertEquals(root?.attributes['theorem.project.id'], 'proj_1');
   assertEquals(root?.attributes['theorem.tool.approved'], true);
   assertEquals(root?.attributes['theorem.tool.outcome'], 'ok');
   assertEquals(

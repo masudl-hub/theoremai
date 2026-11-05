@@ -23,7 +23,8 @@ const SCAN_ROOTS = [
   'react/src/client',
   'react/src/components',
   'react/src/hooks',
-  'react/src/server',
+  'web/src/client',
+  'web/src/server',
 ];
 const AUTO_SKIP = new Set(['src/guardrails/labels.ts']);
 

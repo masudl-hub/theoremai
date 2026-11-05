@@ -12,6 +12,8 @@ const HTTP_BUSY = 429;
 const STATUS_BY_KIND: Readonly<Record<ErrorKind, number>> = {
   config: 500,
   request: 400,
+  conflict: 409,
+  not_found: HTTP_NOT_FOUND,
   input: 422,
   action: 403,
   auth: 401,

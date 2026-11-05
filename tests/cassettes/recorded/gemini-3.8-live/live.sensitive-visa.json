@@ -17,7 +17,7 @@
    "received": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"dc56f217-00e8-4365-bfcf-bfef58f493b9\",\n    \"resumable\": true\n  }\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nCard number: [omitted -sensitive]. Echo it back verbatim.\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nCard number: [omitted - sensitive]. Echo it back verbatim.\\n</user_data>\"}}"
   },
   {
    "received": "{}\n"

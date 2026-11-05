@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import { optionValues } from '../registry/options.ts';
 import { interactionPartSchema, keptReply, sourceSchema } from '../turn-events.ts';
 import type {
   Profile,
@@ -13,6 +14,7 @@ import type {
 } from '../types.ts';
 import { findLast } from '../util/find-last.ts';
 import { profileToolAllow } from './resolve.ts';
+import type { SteerQueue } from './steer.ts';
 import type {
   AgentToolDef,
   AgentToolInput,
@@ -37,7 +39,11 @@ interface AgentCaller {
     /** The call's `execute_tool` span; the agent's turn opens under it. */
     span?: SpanHandle;
     signal?: AbortSignal;
+    /** A detached call's steers, which only the agent's own turn reads. */
+    steers?: SteerQueue;
   }): AsyncGenerator<TurnEvent, AgentRun>;
+  /** Whether a running call of `tool` can be steered: its agent's profile allows injects. */
+  takesSteers(tool: RegisteredAgentTool): boolean;
 }
 
 /** A call that settled without a reply; the model reads `failure`. */
@@ -47,7 +53,7 @@ class AgentCallFailed extends Error {
   }
 }
 
-/** The agents an agent tool can run: each has a turn that takes text. */
+/** The agents an agent tool can run: each has a turn that takes text, which a transcription turn does not. */
 const AGENT_TOOL_TYPES: ReadonlySet<Profile['type']> = new Set(['text', 'image', 'speech']);
 
 // why: Bytes that are not base64, or a text of only spaces, would be refused inside the called turn as the host's error and end the caller's turn; checked here, the model reads a failed call.
@@ -71,11 +77,14 @@ const speechInput = z.strictObject({
   speed: z.number().positive().optional(),
 });
 
-/** One choice per declared slot; a slot or a value the profile does not declare is refused. */
-function slotsInput(slots: Record<string, string[]>) {
+/** One value per declared option; an option or a value the profile does not declare is refused. */
+function optionsInput(options: NonNullable<ProfileInputsSpec['options']>) {
   return z.strictObject(
     Object.fromEntries(
-      Object.entries(slots).map(([slot, choices]) => [slot, z.enum(choices).optional()]),
+      Object.entries(options).map(([name, decl]) => {
+        const choices = optionValues(decl);
+        return [name, z.enum(choices as [string, ...string[]]).optional()];
+      }),
     ),
   );
 }
@@ -85,7 +94,7 @@ const AGENT_INPUT_FIELDS: ReadonlySet<string> = new Set([
   'text',
   'attachments',
   'voice',
-  'slots',
+  'options',
   'speech',
 ]);
 
@@ -104,13 +113,13 @@ function splitHostInput(
   for (const field of Object.keys(tool.hostFields)) {
     if (all[field] !== undefined) hostInput[field] = all[field];
   }
-  const { text, attachments, voice, slots, speech } = input;
+  const { text, attachments, voice, options, speech } = input;
   return {
     sent: {
       text,
       ...(attachments ? { attachments } : {}),
       ...(voice ? { voice } : {}),
-      ...(slots ? { slots } : {}),
+      ...(options ? { options } : {}),
       ...(speech ? { speech } : {}),
     },
     hostInput,
@@ -124,7 +133,7 @@ function splitHostInput(
  */
 function agentToolInputFor(
   agent: Pick<Profile, 'type'> & {
-    inputs?: Pick<ProfileInputsSpec, 'attachments' | 'voice' | 'slots'>;
+    inputs?: Pick<ProfileInputsSpec, 'attachments' | 'voice' | 'options'>;
   },
   tool?: Pick<AgentToolDef, 'name' | 'fieldText' | 'hostFields' | 'hostOnly'>,
 ): z.ZodType<AgentToolInput> {
@@ -134,7 +143,7 @@ function agentToolInputFor(
     shape.attachments = z.array(z.union([blobInput, mediaRefInput])).optional();
   }
   if (inputs?.voice) shape.voice = z.array(blobInput).optional();
-  if (inputs?.slots) shape.slots = slotsInput(inputs.slots).optional();
+  if (inputs?.options) shape.options = optionsInput(inputs.options).optional();
   if (agent.type === 'speech') shape.speech = speechInput.optional();
   for (const channel of tool?.hostOnly ?? []) {
     if (!shape[channel]) {

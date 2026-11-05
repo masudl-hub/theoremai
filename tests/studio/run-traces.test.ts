@@ -13,11 +13,6 @@ import {
   registerTraceDestination,
   type TraceRecord,
 } from '../../mod.ts';
-import {
-  createDecisionTransport,
-  failedDecisionTraces,
-} from '../../react/src/client/decision-transport.ts';
-import { createEmbeddingTransport } from '../../react/src/client/embedding-transport.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import {
   createStudioHandler,
@@ -29,6 +24,8 @@ import {
   withJsonTraces,
   withRunTraces,
 } from '../../studio/server/run-traces.ts';
+import { createDecisionTransport, failedTraces } from '../../web/src/client/decision-transport.ts';
+import { createEmbeddingTransport } from '../../web/src/client/embedding-transport.ts';
 
 const HOST = '127.0.0.1:4983';
 const BASE = `http://${HOST}/api/studio`;
@@ -86,7 +83,7 @@ registerProfile({
   observability: { writeTo: 'bench-store' },
   identity: { handle: 'Bench', system: 'You reply.' },
   inputs: { text: true },
-  models: { main: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test/model' } },
+  models: { main: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test/model' } },
   tools: { allow: [] },
 });
 
@@ -163,6 +160,22 @@ Deno.test("a chat turn's trace reaches the page behind its events, ahead of the 
   assertEquals(types.filter((type) => type === 'trace').length, 1);
   assertEquals(types.slice(-3), ['conversation', 'trace', 'error']);
   assertEquals(stored, []);
+});
+
+Deno.test("each turn's trace names its conversation, the same id turn after turn", async () => {
+  const hello = { messages: [{ role: 'user', parts: [{ type: 'text', text: 'hello' }] }] };
+  const idOf = (sent: Line[]) => {
+    const trace = JSON.stringify(sent.find((line) => line.type === 'trace')?.record);
+    return /"gen_ai\.conversation\.id":"([^"]+)"/.exec(trace)?.[1];
+  };
+  const first = await lines('bench-chat/turn', { input: hello });
+  const ref = (first.find((line) => line.type === 'conversation') as { ref?: string } | undefined)
+    ?.ref;
+  const second = await lines('bench-chat/turn', { input: hello, conversation: ref });
+  assertEquals(typeof idOf(first), 'string');
+  assertEquals(idOf(second), idOf(first));
+  const other = await lines('bench-chat/turn', { input: hello });
+  assertEquals(idOf(other) === idOf(first), false);
 });
 
 Deno.test('a stream that ends in a failure sends its trace ahead of it, so the page reads it', async () => {
@@ -250,8 +263,8 @@ Deno.test("a failed decision's trace reaches the page on the failure thrown for 
     fetch: (input, init) => serve(new Request(input, init)),
   });
   const failure = await assertRejects(() => transport.decide({ note: 'one' }));
-  assertEquals(failedDecisionTraces(failure), [record]);
-  assertEquals(failedDecisionTraces(new Error('unrelated')), []);
+  assertEquals(failedTraces(failure), [record]);
+  assertEquals(failedTraces(new Error('unrelated')), []);
 });
 
 Deno.test("a failed embedding's trace reaches the page on the failure thrown for it", async () => {
@@ -266,5 +279,5 @@ Deno.test("a failed embedding's trace reaches the page on the failure thrown for
     fetch: (input, init) => serve(new Request(input, init)),
   });
   const failure = await assertRejects(() => transport.embed(['one']));
-  assertEquals(failedDecisionTraces(failure), [record]);
+  assertEquals(failedTraces(failure), [record]);
 });

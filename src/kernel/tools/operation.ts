@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicError, TheoremError } from '../../guardrails/error.ts';
+import { type ErrorKind, TheoremError } from '../../guardrails/error.ts';
 import { errorKindSchema, guardrailHit, provenance } from '../../guardrails/event-schemas.ts';
 import { type JsonObject, type JsonValue, jsonObjectSchema, jsonValueSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
@@ -45,6 +45,16 @@ export interface PageToolExecution {
   dispatch(claim: ToolOperationClaim, signal?: AbortSignal): Promise<PageToolDispatch>;
 }
 
+export type BackgroundToolEvent = TurnEventOf<'tool'> & {
+  tool: Extract<TurnEventOf<'tool'>['tool'], { phase: 'background' }>;
+};
+
+/** What the model reads when a call goes on after its turn. */
+export interface ToolOperationReply {
+  event: BackgroundToolEvent;
+  replay: { modelResult: ModelToolResult };
+}
+
 export interface ToolOperationOutcome {
   event: TerminalToolEvent;
   effects: 'not_started' | 'completed' | 'unknown';
@@ -68,23 +78,51 @@ export type ToolOperationUncertainty =
 export type BeginToolOperationResult =
   | { kind: 'acquired'; claimToken: string }
   | { kind: 'settled'; outcome: ToolOperationOutcome }
+  | { kind: 'background'; reply: ToolOperationReply }
   | { kind: 'running' }
   | { kind: 'uncertain' };
 
 export interface ToolExecutionCoordinator {
+  /**
+   * The most bytes, as UTF-8 JSON, it keeps for one outcome. Unset, it keeps any size. The kernel
+   * settles a larger result as the call's `result_too_large` failure, so a call that ran is never
+   * left unresolved by its size.
+   */
+  readonly maxOutcomeBytes?: number;
   lookup(
     operation: ToolOperationIdentity,
   ): Promise<Exclude<BeginToolOperationResult, { kind: 'acquired' }> | undefined>;
   begin(operation: ToolOperationIdentity): Promise<BeginToolOperationResult>;
+  /**
+   * Keeps the reply the model reads for a call that goes on after its turn. The claim stays held
+   * for `settle` or `markUncertain`. A coordinator without it cannot take a background service.
+   */
+  detach?(claim: ToolOperationClaim, reply: ToolOperationReply): Promise<void>;
   settle(claim: ToolOperationClaim, outcome: ToolOperationOutcome): Promise<void>;
   settleNotStarted(operation: ToolOperationIdentity, outcome: ToolOperationOutcome): Promise<void>;
   markUncertain(claim: ToolOperationClaim, reason: ToolOperationUncertainty): Promise<void>;
 }
 
-export function operationUnavailable(): TheoremError {
-  const error = new TheoremError('unavailable', '');
-  error.message = publicError(error);
-  return error;
+/** A coordinator, a page dispatch or the kernel broke the tool-operation contract. */
+export function operationBroken(reason: string): TheoremError {
+  return new TheoremError('internal', reason);
+}
+
+/** The user reads that the action is unresolved; the builder reads why, under the kind of what happened. */
+export function unresolvedOperation(
+  kind: ErrorKind,
+  reason: string,
+  cause?: unknown,
+): TheoremError {
+  return new TheoremError(kind, reason, { copy: { key: 'tool.execution_uncertain' }, cause });
+}
+
+/** The host asked to run an operation that is still running or uncertain, so the host settles it first. */
+export function heldOperation(state: 'running' | 'uncertain'): TheoremError {
+  return unresolvedOperation(
+    'conflict',
+    `The tool operation is ${state}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
 }
 
 export async function toolInvocationHash(value: unknown): Promise<string> {
@@ -116,20 +154,31 @@ const terminalSchema = TURN_EVENT_SCHEMAS.tool.transform((event, ctx) => {
   return z.NEVER;
 });
 
+const modelResultSchema = z.strictObject({
+  finding: z.string(),
+  data: jsonValueSchema.optional(),
+  parts: z.array(interactionPartSchema).optional(),
+  modelText: z.string().optional(),
+  provenance: provenance.optional(),
+  suspicious: z.array(guardrailHit).optional(),
+});
+
+const backgroundSchema = TURN_EVENT_SCHEMAS.tool.transform((event, ctx) => {
+  if (event.tool.phase === 'background') return { ...event, tool: event.tool };
+  ctx.addIssue({ code: 'custom' });
+  return z.NEVER;
+});
+
+export const toolOperationReplySchema: z.ZodType<ToolOperationReply> = z.strictObject({
+  event: backgroundSchema,
+  replay: z.strictObject({ modelResult: modelResultSchema }),
+});
+
 export const toolOperationOutcomeSchema: z.ZodType<ToolOperationOutcome> = z.strictObject({
   event: terminalSchema,
   effects: z.enum(['not_started', 'completed', 'unknown']),
   replay: z.strictObject({
-    modelResult: z
-      .strictObject({
-        finding: z.string(),
-        data: jsonValueSchema.optional(),
-        parts: z.array(interactionPartSchema).optional(),
-        modelText: z.string().optional(),
-        provenance: provenance.optional(),
-        suspicious: z.array(guardrailHit).optional(),
-      })
-      .optional(),
+    modelResult: modelResultSchema.optional(),
     outputRaw: jsonValueSchema.optional(),
     failure: z
       .strictObject({
@@ -160,18 +209,22 @@ export function operationWireValue(value: unknown): JsonValue {
   const ancestors = new Set<object>();
   const normalize = (item: unknown): unknown => {
     if (!item || typeof item !== 'object') return item;
-    if (ancestors.has(item)) throw operationUnavailable();
+    if (ancestors.has(item)) throw operationBroken('Tool operation value has a cycle'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const prototype = Object.getPrototypeOf(item);
     if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) {
-      throw operationUnavailable();
+      throw operationBroken('Tool operation value holds an object that is not plain data'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    if (Object.hasOwn(item, '__proto__')) throw operationUnavailable();
+    if (Object.hasOwn(item, '__proto__')) {
+      throw operationBroken('Tool operation value has an own __proto__ key'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
     ancestors.add(item);
     try {
       if (Array.isArray(item)) return item.map(normalize);
       const entries = Object.entries(Object.getOwnPropertyDescriptors(item));
-      if (entries.some(([, descriptor]) => descriptor.get || descriptor.set))
-        throw operationUnavailable();
+      const accessor = entries.find(([, descriptor]) => descriptor.get || descriptor.set);
+      if (accessor) {
+        throw operationBroken(`Tool operation value has a getter or setter at '${accessor[0]}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
       return Object.fromEntries(
         entries
           .filter(([, descriptor]) => descriptor.enumerable && descriptor.value !== undefined)

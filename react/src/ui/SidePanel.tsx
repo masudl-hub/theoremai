@@ -8,6 +8,7 @@ import {
   type UseResizableSingleConfig,
   useResizable,
 } from '@astryxdesign/core/Resizable';
+import { percent, pixel } from '@astryxdesign/core/Resizable/utils';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
@@ -18,12 +19,12 @@ import { type ReactNode, type RefObject, useCallback, useId, useState } from 're
 /**
  * `useResizable` sizing for side panels: a third of the layout (pass the
  * Layout as `containerRef` so the percentages resolve), dragged between a
- * readable minimum and half.
+ * readable minimum and half, or the minimum when half is less.
  */
 const SIDE_PANEL_SIZING = {
   defaultSize: '33%',
   minSize: 280,
-  maxSize: '50%',
+  maxSize: percent(50, { min: pixel(280) }),
 } as const satisfies UseResizableSingleConfig;
 
 /** Whether a side panel is wide enough for two readable columns: twice its minimum. */
@@ -85,17 +86,20 @@ export function SidePanelToggle({
   panelId,
   open,
   onToggle,
+  size,
 }: {
   labels: SidePanelLabels;
   icon: ReactNode;
   panelId: string;
   open: boolean;
   onToggle: () => void;
+  size?: 'sm';
 }) {
   const action = open ? labels.hide : labels.show;
   return (
     <IconButton
       label={action}
+      size={size}
       tooltip={action}
       variant={open ? 'secondary' : 'ghost'}
       aria-expanded={open}
@@ -129,20 +133,28 @@ export type SidePanelProps = {
 };
 
 /** Page corners like the host's raised panels, no border or shadow; the card fill, so surface-filled cards read on it. */
-export const RAISED = {
+const RAISED = {
   background: 'var(--theorem-pane-background, var(--color-background-card))',
   borderRadius: 'var(--radius-page)',
   overflow: 'hidden',
 };
 
-/** A docked panel's inset: 12px off the outer edge, 16px off the bottom (the page inset). */
+/** A raised panel's inset: 12px off the page's edges. */
 export const PANEL_EDGE = 3;
-export const PANEL_BOTTOM = 4;
 
-/** The raised card every docked panel and the content beside one share. */
+/**
+ * A raised pane's gap from the page's end or bottom edge: `--theorem-pane-edge` where a host
+ * sets it (0 where the host already insets its page), else `spacing`.
+ */
+export function paneEdge(spacing: typeof PANEL_EDGE): string {
+  return `var(--theorem-pane-edge, var(--spacing-${String(spacing)}))`;
+}
+
+/** The raised card every pane, docked panel and console shares, inset the same from top and bottom. */
 export function PanelBody({
   padding,
   inset = 'end',
+  isScrollable = false,
   className,
   children,
 }: {
@@ -150,9 +162,10 @@ export function PanelBody({
   /**
    * `end` insets the trailing edge (a panel docked there, or the content
    * filling beside a start panel). `start` insets the leading edge. `beside`
-   * insets both.
+   * and `all` inset both.
    */
-  inset?: 'end' | 'start' | 'beside';
+  inset?: 'end' | 'start' | 'beside' | 'all';
+  isScrollable?: boolean;
   className?: string;
   children?: ReactNode;
 }) {
@@ -161,10 +174,18 @@ export function PanelBody({
       height="100%"
       className={className}
       paddingInlineStart={inset === 'end' ? undefined : PANEL_EDGE}
-      paddingInlineEnd={inset === 'start' ? undefined : PANEL_EDGE}
-      paddingBlockEnd={PANEL_BOTTOM}
+      paddingBlockStart={PANEL_EDGE}
+      style={{
+        paddingInlineEnd: inset === 'start' ? undefined : paneEdge(PANEL_EDGE),
+        paddingBlockEnd: paneEdge(PANEL_EDGE),
+      }}
     >
-      <Card variant="transparent" height="100%" padding={padding} style={RAISED}>
+      <Card
+        variant="transparent"
+        height="100%"
+        padding={padding}
+        style={isScrollable ? { ...RAISED, overflowY: 'auto' } : RAISED}
+      >
         {children}
       </Card>
     </VStack>
@@ -278,13 +299,11 @@ export function RaisedPane({
       header={header}
       content={
         <LayoutContent padding={0} isScrollable={false}>
-          <VStack height="100%" padding={3}>
-            <Card variant="transparent" height="100%" padding={0} style={RAISED}>
-              <div id={id} ref={ref} style={{ height: '100%' }}>
-                {children(isSidePanelWide(width))}
-              </div>
-            </Card>
-          </VStack>
+          <PanelBody inset="all" padding={0}>
+            <div id={id} ref={ref} style={{ height: '100%' }}>
+              {children(isSidePanelWide(width))}
+            </div>
+          </PanelBody>
         </LayoutContent>
       }
     />

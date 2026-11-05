@@ -14,6 +14,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconBiohazard,
   IconBraces,
@@ -59,23 +60,27 @@ const BOUNDARY_ICONS: Record<ProbeBoundary, typeof IconUser> = {
   system: IconFileText,
   tool_result_local: IconTool,
   tool_result_remote: IconWorld,
+  tool_failure: IconAlertTriangle,
   tool_arguments: IconBraces,
   reply: IconMessage,
   thought: IconBrain,
 };
 
 /** One text sent, and what came back: each boundary's answer, or why there is none. */
-type Sent = {
+type Sent = Outcome & {
   id: number;
   text: string;
-  answers?: GuardrailProbeAnswer[];
-  error?: string;
 };
 
-type Outcome = Pick<Sent, 'answers' | 'error'>;
+/** What came back for one text: each boundary's answer, or why there is none. */
+export type Outcome = { answers?: GuardrailProbeAnswer[]; error?: string };
 
 /** Sends `text` across the draft's boundaries; given `only`, read with that detector alone. */
-async function sendProbe(payload: StudioRunPayload, text: string, only?: string): Promise<Outcome> {
+export async function sendProbe(
+  payload: StudioRunPayload,
+  text: string,
+  only?: string,
+): Promise<Outcome> {
   try {
     const response = await fetch(`${screenEndpoint()}/probe`, {
       method: 'POST',
@@ -113,7 +118,7 @@ function StatusToken({ status, count }: { status: ProbeStatus; count?: number })
 }
 
 /** What one boundary's guardrails did, and whether its turn was tainted by what it read. */
-function Verdict({ answer }: { answer: GuardrailProbeAnswer }) {
+export function Verdict({ answer }: { answer: GuardrailProbeAnswer }) {
   return (
     <HStack gap={1} wrap="wrap">
       <StatusToken status={answer.status} />
@@ -492,9 +497,12 @@ function AnswerHead({
 export function GuardrailTester({
   payload,
   isWide,
+  aside,
 }: {
   payload: StudioRunPayload;
   isWide: boolean;
+  /** A control for the title's end, such as a switch to another view. */
+  aside?: ReactNode;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -560,7 +568,12 @@ export function GuardrailTester({
   const probe = text.trim();
   const overview = (
     <VStack gap={5} padding={4}>
-      <Text weight="semibold">Test guardrails</Text>
+      <HStack gap={3} align="center">
+        <StackItem size="fill">
+          <Text weight="semibold">Test guardrails</Text>
+        </StackItem>
+        {aside}
+      </HStack>
       <VStack gap={3}>
         <ExampleRow
           isShown={examples}

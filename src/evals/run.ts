@@ -9,7 +9,7 @@ import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
 import { memorySink, writeTrace } from '../observability/trace.ts';
 import type { TraceRecord } from '../observability/trace-record.ts';
 import type { TraceSink } from '../observability/trace-sink.ts';
-import type { TraceClock, TraceSpan } from '../observability/trace-span.ts';
+import { recordRoot, type TraceClock, type TraceSpan } from '../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
 import { attachmentData } from './attachments.ts';
 import { modelCalls, spanDurationMs } from './graders/shared.ts';
@@ -176,14 +176,6 @@ interface Grading {
   clock?: TraceClock;
   trialSpans: TraceSpan[];
   signal?: AbortSignal;
-}
-
-/** The record's root: the span no other span in it parents (a judge call's root has the trial span above it). */
-function recordRoot(record: TraceRecord): TraceSpan | undefined {
-  const ids = new Set(record.spans.map((span) => span.spanId));
-  return record.spans.find(
-    (span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId),
-  );
 }
 
 function recordCost(record: TraceRecord): { usd?: number; whole: boolean } {

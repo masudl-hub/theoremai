@@ -12,8 +12,12 @@ export type { ErrorCopies, ErrorCopy };
 export const ERROR_KINDS = [
   /** The profile, tool, or schema is set up wrong. */
   'config',
-  /** The host called THEOREM wrongly. */
+  /** The host called Theorem wrongly. */
   'request',
+  /** The call conflicts with the state it acts on, such as an operation that is still running or not settled. */
+  'conflict',
+  /** Something the call names by id is not there, such as a conversation the store no longer holds. */
+  'not_found',
   /** The user sent input the profile does not accept. */
   'input',
   /** The user asked for something the profile does not allow. */
@@ -34,7 +38,7 @@ export const ERROR_KINDS = [
   'network',
   /** The model took longer than the host allowed. */
   'timeout',
-  /** THEOREM or the provider held the reply back. */
+  /** Theorem or the provider held the reply back. */
   'safety',
   /** A guardrail or host policy stopped one of the agent's steps. */
   'blocked',
@@ -44,7 +48,7 @@ export const ERROR_KINDS = [
   'failed',
   /** The user or host stopped the turn. */
   'cancelled',
-  /** A THEOREM invariant broke. */
+  /** A Theorem invariant broke. */
   'internal',
 ] as const;
 
@@ -57,7 +61,11 @@ export interface TheoremErrorOptions extends ErrorOptions {
   copy?: ErrorCopies;
 }
 
-/** An error that carries a `kind`, from which hosts choose a status and the user's wording. */
+/**
+ * The error Theorem throws; its kind tells your host which status and wording to use.
+ *
+ * @remarks An error that carries a `kind`, from which hosts choose a status and the user's wording.
+ */
 export class TheoremError extends Error {
   readonly kind: ErrorKind;
   readonly copy?: ErrorCopies;

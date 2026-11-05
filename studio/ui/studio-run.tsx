@@ -1,79 +1,36 @@
-import { Button } from '@astryxdesign/core/Button';
 import { Icon } from '@astryxdesign/core/Icon';
-import { Popover } from '@astryxdesign/core/Popover';
-import { IconActivity, IconKey } from '@tabler/icons-react';
+import { IconKey } from '@tabler/icons-react';
 import type { ModelBinding } from '@theoremjs/agents';
-import { TheoremThemeProvider, TracePlacement } from '@theoremjs/react/ui';
-import { useState, useSyncExternalStore } from 'react';
+import { PaneState, TheoremThemeProvider, TracePlacement } from '@theoremjs/react/ui';
+import { useEffect, useMemo, useState } from 'react';
 import { studioKeySlots } from '../browser.ts';
 import {
   modelRoute,
   modelSlots,
   onStudioLocal,
+  readStudioRunIdFromUrl,
   STUDIO_PROVIDERS,
+  type StudioRunCredentials,
   type StudioRunPayload,
+  withStudioRunCredentials,
 } from '../mod.ts';
 import { recordsTraces } from './lib/project-traces.ts';
+import { askRunKeys, type RunKeys } from './lib/run-keys.ts';
 import { ProjectContext } from './lib/studio-project.ts';
 import type { StudioRunOpened } from './lib/studio-run-open.ts';
-import { StudioKeys, useStudioConnection } from './studio-connection.tsx';
+import { useStudioConnection } from './studio-connection.tsx';
 import type { StudioSupplies } from './studio-host.ts';
 import { StudioRunner } from './studio-runner.tsx';
+import { usePhone } from './use-phone.ts';
 import './studio-run.css';
+import { TraceButton } from './trace-button.tsx';
 
 /** A model binding as the connection reads it. */
 type ConnectionModel = Parameters<typeof useStudioConnection>[0][number];
 
-/** The width below which these controls keep only their icon. */
-const PHONE = '(width < 768px)';
-
-function usePhone() {
-  return useSyncExternalStore(
-    (change) => {
-      const query = globalThis.matchMedia(PHONE);
-      query.addEventListener('change', change);
-      return () => {
-        query.removeEventListener('change', change);
-      };
-    },
-    () => globalThis.matchMedia(PHONE).matches,
-    () => false,
-  );
-}
-
 /** The name the page and the document title use. A host has no handle: it's named by its id. */
 export function studioRunTitle(payload: StudioRunPayload): string {
   return 'identity' in payload.profile ? payload.profile.identity.handle : payload.agentId;
-}
-
-/** `payload` with each `from` slot, on its agent and the agents it calls, renamed to `to`. */
-function withRenamedSlot(current: StudioRunPayload, from: string, to: string): StudioRunPayload {
-  const rename = <T extends { keySlot?: string; fallbackKeySlot?: string }>(value: T): T => ({
-    ...value,
-    ...(value.keySlot === from ? { keySlot: to } : {}),
-    ...(value.fallbackKeySlot === from ? { fallbackKeySlot: to } : {}),
-  });
-  const renamed = (profile: StudioRunPayload['profile']): StudioRunPayload['profile'] =>
-    profile.type === 'host'
-      ? profile
-      : {
-          ...profile,
-          models: Object.fromEntries(
-            Object.entries<ModelBinding>(profile.models).map(([id, model]) => [id, rename(model)]),
-          ),
-        };
-  return {
-    ...current,
-    profile: renamed(current.profile),
-    ...(current.dependencies
-      ? {
-          dependencies: current.dependencies.map((dependency) => ({
-            ...dependency,
-            profile: renamed(dependency.profile),
-          })),
-        }
-      : {}),
-  };
 }
 
 /** The providers a run's models name: the ones its agent compiled with, else the studio's own. */
@@ -81,65 +38,9 @@ function providersOf(payload: StudioRunPayload) {
   return payload.providers ?? STUDIO_PROVIDERS;
 }
 
-/** `payload` with `slot` as the key of each model that reads none, unless it is a host. */
-function withAddedSlot(current: StudioRunPayload, slot: string): StudioRunPayload {
-  if (current.profile.type === 'host') return current;
-  return {
-    ...current,
-    profile: {
-      ...current.profile,
-      models: Object.fromEntries(
-        Object.entries<ModelBinding>(current.profile.models).map(([id, binding]) => [
-          id,
-          modelSlots(providersOf(current), binding).keySlot
-            ? binding
-            : { ...binding, keySlot: slot },
-        ]),
-      ),
-    },
-  };
-}
-
-/** The Keys button and the popover it opens. */
-function KeysPopover({
-  connection,
-  isOpen,
-  onOpenChange,
-  onAddSlot,
-  onRenameSlot,
-  phone,
-}: {
-  connection: ReturnType<typeof useStudioConnection>;
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
-  onAddSlot: (slot: string) => void;
-  onRenameSlot: (from: string, to: string) => void;
-  phone: boolean;
-}) {
-  return (
-    <Popover
-      label="Keys"
-      placement="below"
-      alignment="end"
-      width={360}
-      isOpen={isOpen}
-      onOpenChange={onOpenChange}
-      content={
-        <StudioKeys connection={connection} onAddSlot={onAddSlot} onRenameSlot={onRenameSlot} />
-      }
-    >
-      <Button
-        label="Keys"
-        isIconOnly={phone}
-        icon={<Icon icon={IconKey} size="sm" />}
-        aria-pressed={isOpen}
-      />
-    </Popover>
-  );
-}
-
 /**
- * An agent opened in a tab of its own: the runner fills the page, with View trace and Keys above it.
+ * An agent opened in a tab of its own: the runner fills the page, with View trace above it.
+ * Its keys come from the studio tab that opened it.
  * `opened` is what `openStudioRun` returned for this tab.
  */
 export function StudioRunScreen({
@@ -150,7 +51,14 @@ export function StudioRunScreen({
   /** What the page gives the run, as it gives the studio. */
   supplies?: StudioSupplies;
 }) {
-  const [payload, setPayload] = useState(opened.payload);
+  const fromStudio = useFromStudio(opened.masked);
+  const payload = useMemo(
+    () =>
+      fromStudio.tools
+        ? withStudioRunCredentials(opened.payload, fromStudio.tools)
+        : opened.payload,
+    [opened.payload, fromStudio.tools],
+  );
   // The agent and the agents it calls each read their own key slots.
   const profiles = [
     payload.profile,
@@ -182,15 +90,19 @@ export function StudioRunScreen({
     ],
     supplies,
   );
-  const [keysOpen, setKeysOpen] = useState(payload.connectionMode === 'byok');
+  const needsKeys = !opened.project && payload.connectionMode === 'byok';
+  const { setVault } = connection;
+  useEffect(() => {
+    if (needsKeys && fromStudio.keys) setVault(fromStudio.keys);
+  }, [needsKeys, fromStudio.keys, setVault]);
+  const isGone = fromStudio.gone && (needsKeys || opened.masked);
+  // why: a tool called before its credentials arrive would go out with them masked.
+  const isWaiting = opened.masked && !fromStudio.tools && !fromStudio.gone;
   const traced = recordsTraces(payload);
   const [traceOpen, setTraceOpen] = useState(false);
   const phone = usePhone();
   const { mode, runtime } = connection;
   const title = studioRunTitle(payload);
-  const renameSlot = (from: string, to: string) => {
-    setPayload((current) => withRenamedSlot(current, from, to));
-  };
 
   return (
     <TheoremThemeProvider mode="dark">
@@ -200,41 +112,69 @@ export function StudioRunScreen({
         <div className="run-page">
           <div className="run-controls">
             {traced ? (
-              <Button
-                label={traceOpen ? 'Hide trace' : 'View trace'}
+              <TraceButton
+                open={traceOpen}
                 isIconOnly={phone}
-                icon={<Icon icon={IconActivity} size="sm" />}
-                aria-pressed={traceOpen}
-                onClick={() => {
+                onToggle={() => {
                   setTraceOpen((open) => !open);
                 }}
               />
             ) : null}
-            <KeysPopover
-              connection={connection}
-              isOpen={keysOpen}
-              onOpenChange={setKeysOpen}
-              onAddSlot={(slot) => {
-                setPayload((current) => withAddedSlot(current, slot));
-              }}
-              onRenameSlot={renameSlot}
-              phone={phone}
-            />
           </div>
-          <ProjectContext.Provider value={opened.project}>
-            <StudioRunner
-              key={mode}
-              payload={payload}
-              mode={mode}
-              runtime={runtime}
-              trace={traced ? traceOpen : undefined}
-              flush
-              columns
-              className="run-chat"
+          {isGone ? (
+            <PaneState
+              icon={<Icon icon={IconKey} size="lg" color="secondary" />}
+              title="Open the agent from the studio again"
+              description="This tab takes its keys and its tools' credentials from the studio tab that opened it, and that tab no longer holds them: it was closed, reloaded, or left the studio. Open the agent in a new tab from the studio again."
             />
-          </ProjectContext.Provider>
+          ) : isWaiting ? null : (
+            <ProjectContext.Provider value={opened.project}>
+              <StudioRunner
+                key={mode}
+                payload={payload}
+                runtime={runtime}
+                trace={traced ? traceOpen : undefined}
+                flush
+                columns
+                className="run-chat"
+              />
+            </ProjectContext.Provider>
+          )}
         </div>
       </TracePlacement>
     </TheoremThemeProvider>
   );
+}
+
+/**
+ * What the studio tab that opened this one answers: its keys, and the credentials the kept copy of
+ * this run masked. `gone` when no studio tab holds them for it.
+ */
+function useFromStudio(masked: boolean): {
+  keys?: RunKeys;
+  tools?: StudioRunCredentials;
+  gone: boolean;
+} {
+  const [answer, setAnswer] = useState<{ keys: RunKeys; tools: StudioRunCredentials }>();
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    const run = readStudioRunIdFromUrl();
+    const stop = run
+      ? askRunKeys(
+          run,
+          (keys, tools) => {
+            setAnswer({ keys, tools });
+          },
+          () => {
+            setGone(true);
+          },
+        )
+      : null;
+    if (!stop) {
+      setGone(true);
+      return;
+    }
+    return stop;
+  }, []);
+  return { ...answer, tools: masked ? answer?.tools : undefined, gone };
 }

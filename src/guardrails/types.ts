@@ -45,21 +45,31 @@ export const SEVERITIES = ['info', 'low', 'medium', 'high'] as const;
 export type Severity = (typeof SEVERITIES)[number];
 
 /** What follows a blocked reply: the model rewrites it, or the user reads a refusal. */
-export const BLOCKED_REPLY_ON_BLOCK = ['retry', 'refuse'] as const;
+export const BLOCKED_REPLY_ON_BLOCK = [
+  /** The model reads why and rewrites the reply, up to maxRetries times; once retries run out, the reply is withheld and the turn ends with a safety error. Live never rewrites: it withholds at once. */
+  'retry',
+  /** The user sees the egress.refusal wording in place of the reply, and the turn ends. */
+  'refuse',
+] as const;
 /** One of {@linkcode BLOCKED_REPLY_ON_BLOCK}. */
 export type BlockedReplyOnBlock = (typeof BLOCKED_REPLY_ON_BLOCK)[number];
 
 /** What happens once a detector blocks a reply. */
 export interface BlockedReplySpec {
   /**
-   * `retry` (the default) tells the model what blocked the reply and has it write another;
-   * `refuse` sends the user the labels' `egress.refusal` in its place, or ends the part
-   * they already have with `egress.refusal_cut`.
+   * Whether the model gets to rewrite a reply a guardrail blocked, or the user gets a refusal in
+   * its place.
+   *
+   * @remarks `retry` (the default) tells the model what blocked the reply and has it write another;
+   * `refuse` sends the user the labels' `egress.refusal` in its place, or ends the part they
+   * already have with `egress.refusal_cut`.
    */
   onBlock?: BlockedReplyOnBlock;
   /**
-   * Under `retry`, how many times the model may rewrite a blocked reply (default 1). Once they
-   * are spent the reply is withheld and the turn ends in a `safety` error.
+   * How many times the model may rewrite a blocked reply. Live ignores it.
+   *
+   * @remarks Under `retry`, how many times the model may rewrite a blocked reply (default 1). Once
+   * they are spent the reply is withheld and the turn ends in a `safety` error.
    */
   maxRetries?: number;
 }
@@ -135,12 +145,26 @@ export const ADVISORY_LEVELS = ['none', 'elevated', 'high'] as const;
 export type AdvisoryLevel = (typeof ADVISORY_LEVELS)[number];
 
 /** Which tool access levels refuse to run once a turn has read untrusted content. */
-export const TAINT_GATES = ['off', 'destructive', 'write'] as const;
+export const TAINT_GATES = [
+  /** None; risky calls are only logged. */
+  'off',
+  /** Destructive calls. */
+  'destructive',
+  /** Read-write and destructive calls. */
+  'write',
+] as const;
 /** One of {@linkcode TAINT_GATES}. */
 export type TaintGate = (typeof TAINT_GATES)[number];
 
 /** What happens to a tool call that sends to a destination only remote content named. */
-export const DESTINATION_GATES = ['off', 'confirm', 'block'] as const;
+export const DESTINATION_GATES = [
+  /** The call runs; it is only logged. */
+  'off',
+  /** The call waits for the user to approve it; an approval runs it. */
+  'confirm',
+  /** The call is refused, and the model is told why. */
+  'block',
+] as const;
 /** One of {@linkcode DESTINATION_GATES}. */
 export type DestinationGate = (typeof DESTINATION_GATES)[number];
 
@@ -158,11 +182,20 @@ export type DestinationGate = (typeof DESTINATION_GATES)[number];
  */
 export interface TaintGuardrailSpec {
   /**
-   * Stated as a capability threshold rather than a list of tool `access` values so
-   * the guardrail vocabulary stays independent of the tool registry; the kernel
-   * maps a tool's declared access onto it.
+   * Which tool calls are refused, by each tool's access, once the turn has read a remote tool's
+   * result.
+   *
+   * @remarks Stated as a capability threshold rather than a list of tool `access` values so the
+   * guardrail vocabulary stays independent of the tool registry; the kernel maps a tool's declared
+   * access onto it.
    */
   afterRemoteRead?: TaintGate;
+  /**
+   * What happens to a tool call, read-only ones too, that sends to an email address, a link's host
+   * or a bank account number (IBAN) that only the running text of a remote tool's result named. One
+   * the user, the system prompt, or a local tool gave passes, and so does one that is a whole field
+   * of the result.
+   */
   remoteDestination?: DestinationGate;
 }
 
@@ -185,7 +218,7 @@ export interface GuardrailContext {
    */
   privateSystem?: readonly string[];
   role?: string;
-  slots?: Record<string, string>;
+  options?: Readonly<Record<string, string>>;
   /** Set on tool-shaped stages; absent for user and system text. */
   provenance?: Provenance;
   /**
@@ -213,12 +246,24 @@ export interface OutboundPayload {
 
 /** Which hosts and networks a tool's requests may reach. */
 export interface NetworkGuardrailSpec {
-  /** Allows localhost, loopback, and private subnets (local dev and testing). Default false. */
+  /**
+   * Lets tools reach localhost and private network addresses, for local development.
+   *
+   * @remarks Allows localhost, loopback, and private subnets (local dev and testing). Default
+   * false.
+   */
   allowPrivateNetworks?: boolean;
-  /** Hostnames or IP addresses permitted regardless of private subnet status. */
+  /**
+   * Hostnames tools may reach even when they resolve to a private address; public hosts don't need
+   * listing. Names are resolved only when the host passes resolveHost.
+   *
+   * @remarks Hostnames or IP addresses permitted regardless of private subnet status.
+   */
   allowedHosts?: string[];
   /**
-   * Allowed URL schemes. Defaults to `['https']`, or `['http', 'https']` when
+   * The URL schemes tools may use.
+   *
+   * @remarks Allowed URL schemes. Defaults to `['https']`, or `['http', 'https']` when
    * `allowPrivateNetworks` is set.
    */
   allowedSchemes?: string[];
@@ -226,24 +271,44 @@ export interface NetworkGuardrailSpec {
 
 /** Optional daily turn quota consumed by host HTTP middleware. */
 export interface QuotaGuardrailSpec {
+  /**
+   * Turns each client IP may run on this profile per UTC day, one at a time; counts live in the
+   * process, and a loopback caller is not counted.
+   */
   perDay: number;
 }
 
 /** The guardrails a profile turns on, each with its own settings. */
 export interface ProfileGuardrailsSpec {
-  /** Omitted means quota enforcement is not configured. */
+  /**
+   * A daily turn limit. Your server enforces it with takeSlot.
+   *
+   * @remarks Omitted means quota enforcement is not configured.
+   */
   quota?: QuotaGuardrailSpec;
   /**
-   * What the kernel does when a detector finds a match, per boundary: one action
-   * for everything, or a rule for the detectors it names. Anything left out keeps
-   * its default (`DETECT_DEFAULTS`). A canary is bound into the system prompt
-   * while `canary_leak` is above `ignore` somewhere; the note that binds it is
-   * the labels' `canary.bind_note` (the profile's `labels` may replace it).
+   * What a guardrail does when a detector matches. One action covers every detector; an object sets
+   * each detector (or one of your own) apart. Absent: each detector keeps its default action.
+   *
+   * @remarks What the kernel does when a detector finds a match, per boundary: one action for
+   * everything, or a rule for the detectors it names. Anything left out keeps its default
+   * (`DETECT_DEFAULTS`). A canary is bound into the system prompt while `canary_leak` is above
+   * `ignore` somewhere; the note that binds it is the labels' `canary.bind_note` (the profile's
+   * `labels` may replace it).
+   *
+   * @catalog guardrails.detect.* Your own detector, keyed with a dot: acme.codenames. No default action.
    */
   detect?: DetectSpec;
-  /** What happens once a reply is blocked. Left out, the model rewrites it once. */
+  /**
+   * How a reply a guardrail blocked is handled: the model rewrites it, or the user gets a refusal,
+   * and how many rewrites it gets.
+   *
+   * @remarks What happens once a reply is blocked. Left out, the model rewrites it once.
+   */
   blockedReply?: BlockedReplySpec;
+  /** Addresses HTTP and MCP tools may reach. */
   network?: NetworkGuardrailSpec;
+  /** Tool limits after a remote read. */
   taint?: TaintGuardrailSpec;
 }
 
@@ -267,7 +332,11 @@ export type DecisionDisclosureEnforcer = (
  * decision registry rejects every inherited field as inert in this release.
  */
 export interface DecisionGuardrailsSpec extends Partial<ProfileGuardrailsSpec> {
-  disclosure?: { enforce: DecisionDisclosureEnforcer };
+  /** Your check on the state before a decision sends it to the model. */
+  disclosure?: {
+    /** Your function that allows or blocks the state before it is sent. */
+    enforce: DecisionDisclosureEnforcer;
+  };
 }
 
 /** The guardrail field names a `host` profile may set. */

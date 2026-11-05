@@ -30,7 +30,11 @@ import type {
   TurnRequest,
 } from './types.ts';
 
-/** Register or replace a tool in the default scope. */
+/**
+ * Stores a tool under its name, so that a profile can list it in tools.allow.
+ *
+ * @remarks Register or replace a tool in the default scope.
+ */
 function registerTool<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut> {
   return scope.tools.register(def);
 }
@@ -65,7 +69,11 @@ function resetTools(): void {
   scope.tools.reset();
 }
 
-/** Define, validate, and register a profile in the default scope. */
+/**
+ * Stores a profile under its id, so that a request can name it.
+ *
+ * @remarks Define, validate, and register a profile in the default scope.
+ */
 function registerProfile(profile: Profile | ProfileDefinition): void {
   scope.profiles.register(profile);
 }
@@ -95,7 +103,11 @@ function clearProfiles(): void {
   scope.profiles.clear();
 }
 
-/** Register a structured-output schema in the default scope under `id`. */
+/**
+ * Stores a JSON Schema under an id, so that a profile can name it in outputs.structured.
+ *
+ * @remarks Register a structured-output schema in the default scope under `id`.
+ */
 function registerStructured(id: string, spec: StructuredSpec): void {
   scope.schemas.register(id, spec);
 }
@@ -105,7 +117,11 @@ function getStructured(id: string): StructuredSpec {
   return scope.schemas.get(id);
 }
 
-/** Run one turn of a profile in the default scope, streaming its events. */
+/**
+ * Runs one turn of a text, image, or speech profile and yields its events.
+ *
+ * @remarks Run one turn of a profile in the default scope, streaming its events.
+ */
 function runTurn(
   req: TurnRequest,
   options: ProviderHostOptions = {},
@@ -114,7 +130,11 @@ function runTurn(
   return scope.runTurn(req, options, sinkOverride);
 }
 
-/** Open a live session for a live profile in the default scope. */
+/**
+ * Runs a realtime voice or video session of a live profile.
+ *
+ * @remarks Open a live session for a live profile in the default scope.
+ */
 function runSession(
   req: SessionRequest,
   options: RunSessionOptions,
@@ -123,7 +143,12 @@ function runSession(
   return scope.runSession(req, options, sinkOverride);
 }
 
-/** Compact a conversation history with the model, or `undefined` when there is nothing to compact. */
+/**
+ * Shortens a conversation history with the compaction the profile sets.
+ *
+ * @remarks Compact a conversation history with the model, or `undefined` when there is nothing to
+ * compact.
+ */
 function compactHistory(
   req: CompactHistoryRequest,
   options: ProviderHostOptions = {},
@@ -132,7 +157,11 @@ function compactHistory(
   return scope.compactHistory(req, options, sinkOverride);
 }
 
-/** Run a held tool call in the default scope, streaming the events of the turn it resumes. */
+/**
+ * Runs one registered tool through a profile, with no model.
+ *
+ * @remarks Run a held tool call in the default scope, streaming the events of the turn it resumes.
+ */
 function invokeTool(
   request: InvokeToolRequest,
   sinkOverride?: TraceSink,
@@ -148,7 +177,12 @@ function invokeToolStep(
   return scope.invokeToolStep(request, sinkOverride);
 }
 
-/** Run one tool call in the default scope to its end: how it settled, with every event it emitted. */
+/**
+ * Runs one registered tool through a profile, with no model, and returns how the call settled.
+ *
+ * @remarks Run one tool call in the default scope to its end: how it settled, with every event it
+ * emitted.
+ */
 function runTool(request: InvokeToolRequest, sinkOverride?: TraceSink): Promise<ToolCallResult> {
   return scope.runTool(request, sinkOverride);
 }
@@ -173,7 +207,11 @@ function projectProfile(id: string): ProjectedProfile {
   return scope.projectProfile(id);
 }
 
-/** Answer a decision request with the profile's model in the default scope. */
+/**
+ * Asks a decision profile its questions about your JSON state and returns checked answers.
+ *
+ * @remarks Answer a decision request with the profile's model in the default scope.
+ */
 function runDecision(
   request: DecisionRequest,
   options: RunDecisionOptions,
@@ -218,7 +256,11 @@ export {
   runTurn,
 };
 
-/** Registers a provider in the default scope, with this project's connection and key slots. */
+/**
+ * Registers a provider instance before profiles reference its ID.
+ *
+ * @remarks Registers a provider in the default scope, with this project's connection and key slots.
+ */
 export function registerProvider<C, K>(
   provider: Provider<C, K>,
   registration?: Registration<C>,

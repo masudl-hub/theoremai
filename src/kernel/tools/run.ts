@@ -8,8 +8,11 @@ import { labelText } from '../../guardrails/labels.ts';
 import type { ToolPhaseEvent, TurnEvent, TurnEventOf } from '../turn-events.ts';
 import type { StartedInvoke, StartedStep } from './invoke.ts';
 
-/** The phase a call ends on: it completed, a gate held it, or it failed. */
-export type SettledToolCall = Extract<ToolPhaseEvent, { phase: 'complete' | 'gate' | 'error' }> & {
+/** The phase a call ends on: it completed, a gate held it, it failed, or it went on in the background. */
+export type SettledToolCall = Extract<
+  ToolPhaseEvent,
+  { phase: 'complete' | 'gate' | 'error' | 'background' }
+> & {
   /** Kernel-issued identity; a gate's resume carries it. */
   operationId?: string;
 };
@@ -24,7 +27,12 @@ export type ToolCallResult = SettledToolCall & {
 export type ToolStepCallResult = ToolCallResult & { index: number };
 
 function isSettled(tool: TurnEventOf<'tool'>['tool']): tool is SettledToolCall {
-  return tool.phase === 'complete' || tool.phase === 'gate' || tool.phase === 'error';
+  return (
+    tool.phase === 'complete' ||
+    tool.phase === 'gate' ||
+    tool.phase === 'error' ||
+    tool.phase === 'background'
+  );
 }
 
 /** One call's end as its events arrive. */

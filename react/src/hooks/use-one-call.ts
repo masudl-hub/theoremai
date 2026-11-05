@@ -1,8 +1,7 @@
 import type { TraceRecord } from '@theoremjs/agents';
+import type { TraceFeed } from '@theoremjs/web/client';
+import { type ClientFailure, clientFailure, failedTraces } from '@theoremjs/web/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { failedTraces } from '../client/decision-transport.ts';
-import { type ClientFailure, clientFailure } from '../client/failure.ts';
-import type { TraceFeed } from '../client/trace-feed.ts';
 
 /** A profile that answers in one call: a decision or an embedding. */
 export type OneCallTransport = { traces?: TraceFeed };

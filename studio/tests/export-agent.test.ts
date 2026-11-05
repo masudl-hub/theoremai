@@ -9,7 +9,7 @@ import {
   compileWorkspace,
   createBlankDraft,
   createExampleDraft,
-  createSpanExampleDraft,
+  createPageReaderExampleDraft,
   defaultToolSpec,
   type StudioWorkspace,
   setProfileType,
@@ -81,10 +81,10 @@ Deno.test('an export is every agent, then the route and chat for the one being c
 });
 
 Deno.test('a decision exports its questions with its profile, and a decision route', () => {
-  const workspace = compiled(workspaceFromDraft(createSpanExampleDraft()));
-  const [span] = workspace.agents;
-  assert(span);
-  const files = exportFiles(workspace, span);
+  const workspace = compiled(workspaceFromDraft(createPageReaderExampleDraft()));
+  const [reader] = workspace.agents;
+  assert(reader);
+  const files = exportFiles(workspace, reader);
   assertEquals(files.map((file) => file.path).slice(-2), ['route.ts', 'AgentDecision.tsx']);
   const route = files.find((file) => file.path === 'route.ts')?.code ?? '';
   assertMatch(route, /import \{ profile, questions \} from/);
@@ -94,11 +94,11 @@ Deno.test('a decision exports its questions with its profile, and a decision rou
 });
 
 Deno.test('an embedding exports an embedding route and its inputs-and-vectors component, not a chat', () => {
-  const workspace = compiled(workspaceFromDraft(createSpanExampleDraft()));
-  const [span] = workspace.agents;
-  assert(span);
+  const workspace = compiled(workspaceFromDraft(createPageReaderExampleDraft()));
+  const [reader] = workspace.agents;
+  assert(reader);
   const embedder = {
-    ...span,
+    ...reader,
     agentId: 'docs.embeddings',
     questions: undefined,
     profile: {
@@ -107,7 +107,7 @@ Deno.test('an embedding exports an embedding route and its inputs-and-vectors co
       identity: { handle: 'Docs embeddings' },
       inputs: { text: true },
       models: {
-        gemma: { protocol: 'ollamaEmbedding', provider: 'local', apiId: 'embeddinggemma' },
+        gemma: { protocol: 'ollamaEmbeddings', provider: 'local', apiId: 'embeddinggemma' },
       },
     },
   };
@@ -138,10 +138,26 @@ Deno.test('an exported chat passes a value per slot and its context, and the rou
   const blank = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   const draft = {
     ...blank,
-    identity: { ...blank.identity, agentId: 'travel.guide', handle: 'guide' },
+    identity: {
+      ...blank.identity,
+      agentId: 'travel.guide',
+      handle: 'guide',
+      options: [
+        {
+          key: 'option-language',
+          name: 'language',
+          label: '',
+          isShownInChat: true,
+          choices: ['en', 'fr'].map((value) => ({
+            key: `choice-${value}`,
+            value,
+            description: '',
+          })),
+        },
+      ],
+    },
     inputs: {
       ...blank.inputs,
-      slotsJson: '{"language":["en","fr"]}',
       contextFrom: ['client' as const, 'server' as const],
       contextMaxChars: 2000,
     },
@@ -151,7 +167,7 @@ Deno.test('an exported chat passes a value per slot and its context, and the rou
   assert(only);
   const files = exportFiles(workspace, only);
   const chat = files.find((file) => file.path === 'AgentChat.tsx')?.code ?? '';
-  assertMatch(chat, /\/\/ language: en \| fr\n\s+slots=\{\{ "language": "en" \}\}/);
+  assertMatch(chat, /\/\/ language: en \| fr\n\s+options=\{\{ "language": "en" \}\}/);
   assertMatch(chat, /context=\{\{\}\}/);
   assertMatch(
     files.find((file) => file.path === 'route.ts')?.code ?? '',

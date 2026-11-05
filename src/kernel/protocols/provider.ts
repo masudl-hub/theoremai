@@ -108,6 +108,12 @@ export interface ProviderDefinition<C = unknown, K = unknown> {
   /** Only where the API reports no cost. */
   prices?: PriceTable;
   serves(connection: C): Serve<K>[];
+  /**
+   * How to ask the provider whether it takes a key: a GET to `path` on where it serves `protocol`,
+   * signed as a call is. It must answer 2xx for a key that works and 400, 401 or 403 for one
+   * that does not. `checkKey` sends it.
+   */
+  check?: { protocol: Protocol; path: string };
 }
 
 /** A provider as defined; register it to use it. */
@@ -120,7 +126,11 @@ const providerShape = z.object({
   traceName: z.string().min(1).optional(),
 });
 
-/** Defines a provider. Nothing in it can change a request or read a reply. */
+/**
+ * Validates a provider definition and supplies its typed model helper.
+ *
+ * @remarks Defines a provider. Nothing in it can change a request or read a reply.
+ */
 export function defineProvider<C = undefined, K = undefined>(
   definition: ProviderDefinition<C, K>,
 ): Provider<C, K> {
@@ -189,7 +199,11 @@ export interface ProviderRegistry {
   protocols(): Protocol[];
 }
 
-function served(provider: { id: string; serves: readonly Serve[] }, protocol: string): Serve {
+/** Where a provider serves a protocol; a config error when it does not. */
+export function served(
+  provider: { id: string; serves: readonly Serve[] },
+  protocol: string,
+): Serve {
   const serve = provider.serves.find((entry) => entry.protocol.id === protocol);
   if (!serve)
     throw new TheoremError(

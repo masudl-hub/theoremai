@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Docs-truth gate — first step of `npm run lint`. Installed by prepare / hooks:install.
+# Docs-truth gate on the tree being committed. Installed by prepare / hooks:install.
 set -e
 cd "$(git rev-parse --show-toplevel)"
-npm run lint:docs
+./scripts/hooks/lint-tree.sh "$(git write-tree)" 'npm run lint:docs'

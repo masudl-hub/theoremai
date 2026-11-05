@@ -33,7 +33,7 @@ import { boundaryNote, type LeakScope } from './egress.ts';
 import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { createEgressStream, type EgressStream, loadEgressAutomata } from './egress-stream.ts';
 import { type GivenUrls, imageLeakSpans, linkLeakSpans } from './egress-urls.ts';
-import { CANARY_HIT, PROMPT_ECHO_HIT } from './hits.ts';
+import { CANARY_HIT } from './hits.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
 import { promptEchoHoldFrom, promptEchoRanges, promptEchoScanFrom } from './prompt-echo.ts';
 import { DETECT_RULES } from './rules.ts';
@@ -50,6 +50,7 @@ const OMIT_KEYS = {
 const IMAGE_HIT: GuardrailHit = { rule: DETECT_RULES.ungiven_images, severity: 'high' };
 const LINK_HIT: GuardrailHit = { rule: DETECT_RULES.ungiven_links, severity: 'high' };
 const MARKER_HIT: GuardrailHit = { rule: DETECT_RULES.marker_leak, severity: 'high' };
+const PROMPT_ECHO_HIT: GuardrailHit = { rule: DETECT_RULES.prompt_leak, severity: 'high' };
 
 /** A leak the guard replaces with its kind's placeholder. */
 interface Omission {

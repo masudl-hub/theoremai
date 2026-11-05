@@ -44,6 +44,19 @@ const modelBinding = z.object({
       meter: z.enum(COMPACTION_METERS).optional(),
     })
     .optional(),
+  limits: z
+    .object({
+      operationTimeoutMs: z.number().optional(),
+      connectTimeoutMs: z.number().optional(),
+      liveStepTimeoutMs: z.number().optional(),
+      maxWireRecordBytes: z.number().optional(),
+      maxWireResponseBytes: z.number().optional(),
+      maxEventBytes: z.number().optional(),
+      maxStepBytes: z.number().optional(),
+      maxStepEvents: z.number().optional(),
+      maxPendingToolCalls: z.number().optional(),
+    })
+    .optional(),
 });
 
 const outputs = z.object({
@@ -111,6 +124,19 @@ const observability = z.object({
   hasOnWriteError: z.boolean(),
 });
 
+const profileOptions = z.record(
+  z.string(),
+  z.object({
+    label: z.string().optional(),
+    choices: z.array(
+      z.object({
+        value: z.string(),
+        description: z.string().optional(),
+      }),
+    ),
+  }),
+);
+
 const inputs = z.object({
   text: z.boolean(),
   attachments: z.object({ accept: z.array(z.string()), acceptAttr: z.string() }).nullable(),
@@ -119,7 +145,7 @@ const inputs = z.object({
   maxBytes: z.number().optional(),
   maxTurnBytes: z.number().optional(),
   limitsByMime: z.record(z.string(), z.number()).optional(),
-  slots: z.record(z.string(), z.array(z.string())).optional(),
+  options: profileOptions.optional(),
   context: z.object({ from: z.array(z.enum(CONTEXT_SENDERS)), maxChars: z.number() }).optional(),
 });
 
@@ -154,18 +180,20 @@ const common = {
   observability: observability.optional(),
 };
 
-const systemPrompt = z.union([
+const systemPart = z.union([z.string(), z.strictObject({ private: z.string().min(1) })]);
+
+const profileSystem = z.union([
   z.string(),
   z
-    .array(z.union([z.string(), z.strictObject({ private: z.string().min(1) })]))
+    .array(z.union([z.string(), z.array(systemPart).readonly()]))
     .min(1)
     .readonly(),
 ]);
 
 const identity = z.object({
   handle: z.string(),
-  system: systemPrompt.optional(),
-  systemByRole: z.record(z.string(), systemPrompt).optional(),
+  options: profileOptions.optional(),
+  system: profileSystem.optional(),
 });
 
 const profileInterface = z.discriminatedUnion('type', [
@@ -217,6 +245,15 @@ const profileInterface = z.discriminatedUnion('type', [
   }),
   z.object({
     ...common,
+    type: z.literal('transcription'),
+    identity: z.object({ handle: z.string() }),
+    maxSteps: z.undefined().optional(),
+    outputs: outputs.optional(),
+    inputs,
+    canStop: z.literal(true),
+  }),
+  z.object({
+    ...common,
     type: z.literal('speech'),
     identity: z.object({ handle: z.string() }),
     outputs: outputs.optional(),
@@ -234,7 +271,7 @@ const profileInterface = z.discriminatedUnion('type', [
     ...common,
     type: z.literal('live'),
     identity,
-    inputs: inputs.pick({ slots: true, context: true }).optional(),
+    inputs: inputs.pick({ options: true, context: true }).optional(),
     live: z.object({
       ingress: z
         .object({

@@ -56,7 +56,7 @@ export interface SettingOrigin {
   /** The keys that lead to the setting: `['models', 'fast', 'apiId']`. Empty for the whole profile or tool. */
   path: string[];
   kind: 'code' | 'constant' | 'spread' | 'twice' | 'unfound';
-  /** What the file says there, on one line: `bonsaiInputs()`. */
+  /** What the file says there, on one line: `gardenInputs()`. */
   text?: string;
   /** Where it says it: the path and the one-based line. */
   file?: string;

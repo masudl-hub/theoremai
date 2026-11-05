@@ -177,6 +177,20 @@ function moveComposerPendingWithinKind(
   return [...byKind.steer, ...byKind.queue, ...byKind.stash];
 }
 
+/**
+ * Which ways the message with this id can move: a move stays among the messages of its kind, so a
+ * message can go up only past one of its kind before it, and down only past one after it.
+ */
+function composerPendingMoves(
+  messages: readonly ComposerPendingMessage[],
+  id: string,
+): { up: boolean; down: boolean } {
+  const message = messages.find((m) => m.id === id);
+  const sameKind = message ? messages.filter((m) => m.kind === message.kind) : [];
+  const index = sameKind.findIndex((m) => m.id === id);
+  return { up: index > 0, down: index >= 0 && index < sameKind.length - 1 };
+}
+
 /** One steer per safe boundary: call once per `onStage` inject site. */
 function consumeNextComposerSteer(messages: readonly ComposerPendingMessage[]): {
   message: ComposerPendingMessage | null;
@@ -224,6 +238,7 @@ function promoteComposerPendingKind(
 
 export {
   cloneUserTurnDraft,
+  composerPendingMoves,
   composerPendingPreview,
   consumeNextComposerQueue,
   consumeNextComposerSteer,

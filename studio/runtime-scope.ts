@@ -11,8 +11,10 @@ import {
   type Profile,
   type ProfileDefinition,
   type Provider,
+  type RegisteredProvider,
   type ResolveHost,
   TheoremError,
+  type ToolBackgroundService,
   type ToolExecutionCoordinator,
 } from '@theoremjs/agents';
 import {
@@ -36,11 +38,20 @@ export interface StudioProviderOptions extends ProviderHostOptions {
 }
 
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
+import { resolveDraftItemCheck } from './cookbooks/checks.ts';
 import { lentCompression, runtimeNetwork, type StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
 import { localProviderAddress, registerStudioProvider, STUDIO_PROVIDERS } from './providers.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { registerDefined, type StudioToolHandlers } from './tools.ts';
+
+/**
+ * A detached call's service for a run whose session lives as long as the work does: the studio's
+ * own server, or the page's tab.
+ * why: the session keeps each call's state and end, and a conversation read shows them, so a late
+ * event has nowhere else to go.
+ */
+export const STUDIO_BACKGROUND: ToolBackgroundService = { detached() {}, event() {} };
 
 /** What a run holds besides what it runs on. */
 export interface StudioRuntimeBase {
@@ -48,11 +59,15 @@ export interface StudioRuntimeBase {
   providerDefinitions?: readonly Provider[];
   execution?: ToolExecutionCoordinator;
   pageExecution?: import('@theoremjs/agents').PageToolExecution;
+  /** Without it every tool runs inline, whatever its `background` setting. */
+  background?: ToolBackgroundService;
   providers?: StudioProviderOptions;
   hostOptions?: (profile: Profile, model?: string) => ProviderHostOptions;
   /** Answers every model call with a scripted model, in place of the profile's provider. */
   provider?: (profile: Profile, model?: string) => TurnModel;
   resolveHost?: ResolveHost;
+  /** Sends each tool request once the run's network checks pass; the run's `fetch`. */
+  fetch?: typeof fetch;
   remoteTools?: boolean;
   /** Handlers the host runs for function tools, by name. A tool with none answers with its stub. */
   toolHandlers?: StudioToolHandlers;
@@ -60,6 +75,8 @@ export interface StudioRuntimeBase {
   onAgentCall?: (
     call: AgentCall,
   ) => { refuse: string } | undefined | Promise<{ refuse: string } | undefined>;
+  /** Before a tool's reader reads each passage: throw to stop it, and the model reads the output whole. */
+  onReaderCall?: () => void | Promise<void>;
 }
 
 /** A run, and what it runs on: a run on lent keys carries the keys it is held to. */
@@ -85,6 +102,7 @@ function scriptedProvider(id: string, protocolId: string, model: TurnModel): Pro
     name: 'Scripted',
     description: 'Answers with the events a scripted model gives.',
     endpoints: { text: '/', image: '/', speech: '/' },
+    operationNames: { text: 'chat', image: 'generate_content', speech: 'generate_content' },
     options: z.record(z.string(), z.json()),
     create: (context) => ({
       async *complete(request) {
@@ -212,12 +230,42 @@ function runtimeGuardrails<G extends { network?: unknown }>(
   }
 }
 
+function withDraftItemChecks<D extends ProfileDefinition>(def: D): D {
+  if (def.type !== 'text') return def;
+  const outputs = def.outputs;
+  const validation = outputs?.validation;
+  const items = validation?.items;
+  if (!outputs || !validation || !items) return def;
+  const resolved = Object.fromEntries(
+    Object.entries(items).map(([list, rule]) => [
+      list,
+      {
+        ...rule,
+        check: typeof rule.check === 'function' ? rule.check : resolveDraftItemCheck(def.id, list),
+      },
+    ]),
+  );
+  return {
+    ...def,
+    outputs: {
+      ...outputs,
+      validation: { ...validation, items: resolved },
+    },
+  };
+}
+
 function runtimeProfileDefinition(
   def: ProfileDefinition,
   runtime: StudioRuntime,
 ): ProfileDefinition {
-  // A speech, decision, or embedding profile calls no tools: no network or taint hold governs it.
-  if (def.type === 'speech' || def.type === 'decision' || def.type === 'embedding') return def;
+  // A speech, transcription, decision, or embedding profile calls no tools: no network or taint hold governs it.
+  if (
+    def.type === 'speech' ||
+    def.type === 'transcription' ||
+    def.type === 'decision' ||
+    def.type === 'embedding'
+  )
+    return def;
   // A host runs one tool per call, so a turn never reads before it acts; the kernel refuses taint there.
   if (def.type === 'host') {
     return {
@@ -225,10 +273,10 @@ function runtimeProfileDefinition(
       guardrails: runtimeGuardrails(def.guardrails ?? {}, runtime),
     };
   }
-  return {
+  return withDraftItemChecks({
     ...withLentCompression(def, runtime),
     guardrails: withHeldTaint(runtimeGuardrails(def.guardrails ?? {}, runtime), runtime),
-  };
+  });
 }
 
 /** A Live profile on lent keys runs with the compression sizes the editor shows for them. */
@@ -382,6 +430,8 @@ export interface StudioDependency {
   profile: ProfileDefinition;
   customTools: readonly ToolRegistration[];
   structured?: StructuredRegistration;
+  /** Handlers for custom tools without a stub, by name. */
+  toolHandlers?: StudioToolHandlers;
 }
 
 /**
@@ -416,22 +466,35 @@ export async function studioScope(
 /**
  * A new scope holding drafts as written, the last one returned: no runtime
  * rewrites their guardrails or checks their model bindings. For a run that
- * calls no model and reaches no host. Never cache or share it.
+ * calls no model and reaches no host. Never cache or share it. `providers` are the project's: a
+ * draft's model names them, and they stand over a studio provider of the same id.
  */
-export async function writtenScope(drafts: readonly StudioDependency[]): Promise<{
+export async function writtenScope(
+  drafts: readonly StudioDependency[],
+  providers: readonly RegisteredProvider[] = [],
+): Promise<{
   scope: KernelScope;
   profile: Profile | undefined;
 }> {
   const scope = createKernelScope();
   registerRuntimeProviders(scope);
+  for (const { definition, id, connection, keySlot, fallbackKeySlot } of providers) {
+    scope.providers.replace(definition as Provider, {
+      id,
+      connection,
+      ...(keySlot ? { keySlot } : {}),
+      ...(fallbackKeySlot ? { fallbackKeySlot } : {}),
+    });
+  }
   let profile: Profile | undefined;
   for (const draft of drafts) {
     await refuseSlowSchemaPatterns(draft.customTools);
     profile = registerDefined(
       scope,
-      defineDraft(await withCompiledPatterns(draft.profile)),
+      defineDraft(withDraftItemChecks(await withCompiledPatterns(draft.profile))),
       draft.customTools,
       draft.structured,
+      draft.toolHandlers,
     );
   }
   return { scope, profile };

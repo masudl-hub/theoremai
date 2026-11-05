@@ -1,7 +1,6 @@
-import { refuseOverlong } from '../../guardrails/detect-at.ts';
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
-import { protocolOf } from '../protocols/binding.ts';
+import { operationNameOf, protocolOf } from '../protocols/binding.ts';
 import type { EmbeddingModelLimits } from '../protocols/protocol.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
 import { guardedCall } from '../provider-runtime.ts';
@@ -19,6 +18,7 @@ import type {
   ModelBinding,
 } from '../types.ts';
 import { tracedCall } from './call-trace.ts';
+import { runIdentity } from './turn-trace.ts';
 
 export interface RunEmbeddingOptions extends ProviderHostOptions {
   sink?: TraceSink;
@@ -84,7 +84,6 @@ function validateInputs(
     const files: AttachmentFacts[] = [];
     for (const part of parts) {
       if (part.type === 'text') {
-        refuseOverlong(part.text, 'embedding input');
         if (!rules.text)
           throw new TheoremError(
             'unsupported',
@@ -144,19 +143,22 @@ export async function runEmbeddingInRegistry(
   const call = guardedCall(provider, binding, 'embedding', options, {
     ...(request.signal ? { signal: request.signal } : {}),
   });
+  const operation = operationNameOf(provider, binding, 'embedding');
   return await tracedCall(
     {
-      name: `embed ${binding.apiId}`,
+      name: operation ? `${operation} ${binding.apiId}` : binding.apiId,
       attributes: {
-        'gen_ai.operation.name': 'embeddings',
+        ...(operation ? { 'gen_ai.operation.name': operation } : {}),
         'gen_ai.provider.name': binding.provider,
         'gen_ai.agent.name': profile.id,
+        ...runIdentity(request),
         'gen_ai.request.model': binding.apiId,
         'theorem.model.id': modelId,
         'theorem.embedding.inputs': inputs.length,
         ...(request.task ? { 'theorem.embedding.task': request.task } : {}),
       },
       traceparent: request.traceparent,
+      links: request.links,
       metadata: request.metadata,
       writer: {
         override: options.sink,

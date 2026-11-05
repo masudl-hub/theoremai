@@ -2,14 +2,18 @@ import { Button } from '@astryxdesign/core/Button';
 import { Card } from '@astryxdesign/core/Card';
 import { Center } from '@astryxdesign/core/Center';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { useResizable } from '@astryxdesign/core/Resizable';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
+import { percent, pixel } from '@astryxdesign/core/Resizable/utils';
 import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
+import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
+import { IconCode, IconEye } from '@tabler/icons-react';
+import type { HttpOptions } from '@theoremjs/web/client';
 import {
   Children,
   type CSSProperties,
@@ -20,12 +24,19 @@ import {
   use,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react';
-import type { HttpOptions } from '../client/transport.ts';
 import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
-import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
+import {
+  PANEL_EDGE,
+  PanelBody,
+  PanelScroll,
+  paneEdge,
+  SidePanel,
+  SidePanelHeader,
+} from './SidePanel.tsx';
 import { textRows } from './StateFields.tsx';
 import { type TraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import { CONSOLE_CARD } from './trace-patterns.tsx';
@@ -121,27 +132,36 @@ function ConsoleSingle({
   maxWidth: string;
   children: ReactNode;
 }) {
+  const column = (
+    <Center axis="horizontal" width="100%" minHeight="100%">
+      <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
+        {children}
+      </VStack>
+    </Center>
+  );
+  if (!flush)
+    return (
+      <PanelBody inset="all" padding={0} isScrollable>
+        {column}
+      </PanelBody>
+    );
+  // why: A flush page is already the raised panel, so it takes no block inset of its own.
   return (
-    <VStack height="100%" paddingInline={3} style={flush ? FLUSH_CARD : undefined}>
-      <Card
-        variant="transparent"
-        height="100%"
-        padding={0}
-        style={flush ? { overflowY: 'auto' } : { ...RAISED, overflowY: 'auto' }}
-      >
-        <Center axis="horizontal" width="100%" minHeight="100%">
-          <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
-            {children}
-          </VStack>
-        </Center>
+    <VStack
+      height="100%"
+      paddingInlineStart={PANEL_EDGE}
+      style={{ ...FLUSH_CARD, paddingInlineEnd: paneEdge(PANEL_EDGE) }}
+    >
+      <Card variant="transparent" height="100%" padding={0} style={{ overflowY: 'auto' }}>
+        {column}
       </Card>
     </VStack>
   );
 }
 
 /**
- * A console's page, for decisions and hosts alike: the trace's toggle in the
- * header, and one raised panel, flush with the host's, scrolling inside.
+ * A console's page, for decisions and hosts alike: the trace toggle floats over
+ * the content (same as chat), and one raised panel scrolls inside.
  */
 export function ConsoleFrame({
   inspector,
@@ -154,16 +174,17 @@ export function ConsoleFrame({
   children,
 }: ConsoleFrameProps) {
   const layoutRef = useRef<HTMLDivElement | null>(null);
+  const header = inspector.toggle ? (
+    <SidePanelHeader floating>{inspector.toggle}</SidePanelHeader>
+  ) : undefined;
   return (
     <WithTrace inspector={inspector}>
       <Layout
         ref={layoutRef}
         height="fill"
         className={className}
-        style={style}
-        header={
-          inspector.toggle ? <SidePanelHeader>{inspector.toggle}</SidePanelHeader> : undefined
-        }
+        style={{ position: 'relative', ...style }}
+        header={header}
         content={
           <LayoutContent padding={0} isScrollable={false}>
             <ConsoleBody
@@ -201,7 +222,7 @@ function ConsoleBody({
   const paired = columns && drawn > 1;
   if (paired && !narrow) {
     return (
-      <ConsoleColumns requestLabel={requestLabel} basisWidth={layoutRef.current?.clientWidth ?? 0}>
+      <ConsoleColumns requestLabel={requestLabel} layoutRef={layoutRef}>
         {children}
       </ConsoleColumns>
     );
@@ -221,12 +242,12 @@ function ConsoleBody({
  */
 function ConsoleColumns({
   requestLabel = 'Request',
-  basisWidth,
+  layoutRef,
   children,
 }: {
   requestLabel?: string;
-  /** The outer layout's width. The pair is not measurable on this first render. */
-  basisWidth: number;
+  /** The outer layout, measured once when the pair first draws. The pair is not measurable yet. */
+  layoutRef: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
   const t = useLabels();
@@ -236,10 +257,13 @@ function ConsoleColumns({
   // reflowing the request. This layout is already on screen, so the first
   // width is two fifths of it. 70% leaves the response a readable share, and a
   // percentage maximum follows the pair when the trace opens.
+  // why: Read once. Reading layout on every render forces a reflow of each streamed event's commit.
+  const [basisWidth] = useState(() => layoutRef.current?.clientWidth ?? 0);
   const requestPanel = useResizable({
     defaultSize: basisWidth > 0 ? Math.round(basisWidth * 0.4) : '40%',
     minSize: 280,
-    maxSize: '70%',
+    // why: In a narrow pair 70% is below the minimum; the maximum never is.
+    maxSize: percent(70, { min: pixel(280) }),
     containerRef: pairRef,
   });
   const [request, response] = Children.toArray(children);
@@ -338,17 +362,28 @@ export type ConsoleView = 'fields' | 'json';
 
 export type RequestCardProps = {
   title: string;
-  /** The view shown: fields only while the request parses. */
-  view: ConsoleView;
-  hasFields: boolean;
-  onView: (next: ConsoleView) => void;
   /** Runs on ⌘/Ctrl+Enter anywhere in the card. */
   onRun: () => void;
   children: ReactNode;
-};
+} & (
+  | {
+      /** The view shown: fields only while the request parses. */
+      view: ConsoleView;
+      hasFields: boolean;
+      onView: (next: ConsoleView) => void;
+      actions?: never;
+    }
+  | {
+      view?: never;
+      hasFields?: never;
+      onView?: never;
+      /** In the Fields/JSON switch's place, for a request that has no JSON of its own. */
+      actions?: ReactNode;
+    }
+);
 
 /** The request's card: its heading with the Fields/JSON switch, then the request and its run bar. */
-export function RequestCard({ title, view, hasFields, onView, onRun, children }: RequestCardProps) {
+export function RequestCard({ title, onRun, children, ...heading }: RequestCardProps) {
   const t = useLabels();
   const framed = use(ConsoleChrome);
   const body = (
@@ -357,21 +392,23 @@ export function RequestCard({ title, view, hasFields, onView, onRun, children }:
         <Text type="supporting" color="secondary" as="h3">
           {title}
         </Text>
-        <SegmentedControl
-          label={t('@theorem.decision.view')}
-          size="sm"
-          value={view}
-          onChange={(next) => {
-            onView(next === 'json' ? 'json' : 'fields');
-          }}
-        >
-          <SegmentedControlItem
-            value="fields"
-            label={t('@theorem.decision.fields')}
-            isDisabled={!hasFields}
+        {heading.onView ? (
+          <ToggleButton
+            label={t('@theorem.data.json')}
+            tooltip={t(heading.view === 'json' ? '@theorem.decision.fields' : '@theorem.data.json')}
+            size="sm"
+            isIconOnly
+            isDisabled={!heading.hasFields}
+            icon={<Icon icon={IconEye} size="sm" />}
+            pressedIcon={<Icon icon={IconCode} size="sm" />}
+            isPressed={heading.view === 'json'}
+            onPressedChange={(isJson) => {
+              heading.onView(isJson ? 'json' : 'fields');
+            }}
           />
-          <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
-        </SegmentedControl>
+        ) : (
+          heading.actions
+        )}
       </HStack>
       {children}
     </VStack>

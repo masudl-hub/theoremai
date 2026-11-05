@@ -3,13 +3,14 @@ import { sumTokens } from '../../kernel/engine/usage.ts';
 import type { ProviderHostOptions } from '../../kernel/protocols/runtime.ts';
 import { isModelProfile, requireModelProfile } from '../../kernel/registry/resolve.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
-import type { ModelProfile, TurnRequest, TurnTokens } from '../../kernel/types.ts';
+import type { ModelProfile, TurnRequest, TurnTokens, TurnWiring } from '../../kernel/types.ts';
 import { createCliTraceCapture, printTestEvent, printTraceRecord } from '../event-log.ts';
 import {
   buildCustomTurnRequest,
   type MatrixOptions,
   synthesizeMatrixCombos,
 } from '../matrix/synthesizer.ts';
+import { preparedRequest } from '../setup.ts';
 
 export interface TestRunResult {
   passed: boolean;
@@ -44,6 +45,7 @@ function printTestHeader(req: TurnRequest, testName: string): void {
 }
 
 interface CliTestOptions {
+  prepare?: TurnWiring['prepare'];
   verbose?: boolean;
   trace?: boolean;
   traceDir?: string;
@@ -99,11 +101,12 @@ export async function executeSingleTest(
   try {
     if (!provider) {
       throw new Error(
-        'Theorem CLI does not create providers or read keys. Pass an explicit ProviderHostOptions from the host app.',
+        'Theorem CLI does not create providers or read keys. Pass --setup <file> to run on the provider your setup file wires, or an explicit ProviderHostOptions from the host app.',
       );
     }
     const traceCapture = cliOptions.trace ? createCliTraceCapture(cliOptions.traceDir) : undefined;
-    for await (const event of runTurn(req, provider, traceCapture?.sink)) {
+    const turn = await preparedRequest(cliOptions.prepare, req);
+    for await (const event of runTurn(turn, provider, traceCapture?.sink)) {
       processTestEvent(event, acc, cliOptions);
     }
     if (cliOptions.trace) {
@@ -203,6 +206,7 @@ export async function testProfileCommand(
     all?: boolean;
     matrix?: boolean;
     provider?: ProviderHostOptions;
+    prepare?: TurnWiring['prepare'];
     verbose?: boolean;
     trace?: boolean;
     traceDir?: string;
@@ -214,6 +218,7 @@ export async function testProfileCommand(
   }
 
   const cliOptions: CliTestOptions = {
+    prepare: options.prepare,
     verbose: options.verbose,
     trace: options.trace,
     traceDir: options.traceDir,

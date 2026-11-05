@@ -1,6 +1,7 @@
 /**
- * One real call to a draft tool, from the server, which reaches public hosts only: the editor's
- * Test and th30's `test` action both go through here.
+ * One real call to a draft tool, from the server, which reaches public hosts only, or on a project
+ * what the agent's network guardrail allows: the editor's Test and th30's `test` action both go
+ * through here.
  */
 import { HTTP_METHODS } from '@theoremjs/agents';
 import { draftNetwork } from '../../compile.ts';
@@ -19,6 +20,8 @@ export interface ProbeResult {
   status?: number;
   statusText?: string;
   error?: string;
+  /** Why it got no answer: `ssrf_blocked` when the network guard refused the address. */
+  code?: string;
   preview?: string;
   elapsedMs?: number;
   tools?: string[];

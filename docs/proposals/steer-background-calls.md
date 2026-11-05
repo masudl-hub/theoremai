@@ -1,6 +1,6 @@
 # Steer a background call: tell a running agent tool something new
 
-**Status:** building. Masud chose this option on 2026-11-04. The kernel part is built on branch 0.3.3, with its tests in `tests/kernel/steer-background-calls.test.ts`; it is not yet in a release.
+**Status:** built. It is on branch 0.3.3, with its tests in `tests/kernel/steer-background-calls.test.ts`. The contract is [Background tool calls](../contracts/kernel.md#background-tool-calls). This document keeps the reasons. Masud chose this option on 2026-11-04.
 
 **Reader:** a Theorem maintainer, Masud, and the Bonsai team.
 **Job:** say how a host gives a detached agent tool call a new message while it runs.

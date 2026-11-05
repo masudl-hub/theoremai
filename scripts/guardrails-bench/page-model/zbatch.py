@@ -5,6 +5,7 @@ import numpy as np
 K=os.path.expanduser('~/Development/.guardrail-data/kaggle')
 A,B=(sys.argv[1:3]+['hz-small','t22n'])[:2] if len(sys.argv)<3 else sys.argv[1:3]
 def path(m,s):
+    if m[0]=='r': return f"{K}/k-{m}/out/out/{s}-{m}.json"  # retrain arms, scored on the Mac
     if s in('full','bsbtest','bspp'): return f"{K}/{dict(t='k-t22s',u='k-u22s',m='k-m22s',f='k-m22s')[m[0]] if m[0] in 'tumf' else 'k-bspp' if s=='bspp' else 'k-full'}/out/out/{s}-{m}.json"
     return f"{K}/{dict(t='k-t22',u='k-u22',m='k-m22',f='k-m22').get(m[0],'k-diag')}/out/out/{s}-{m}.json"
 lg=lambda p:np.log(np.clip(p,1e-7,1-1e-7)/(1-np.clip(p,1e-7,1-1e-7)))

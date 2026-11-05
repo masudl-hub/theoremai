@@ -18,7 +18,8 @@ The repo has ownership and freshness checks for contracts, the root README, and 
   - a watched section does not change when its watched files do;
   - an entry point's export is missing from the Exported API table of its owning doc, the table names a name that nothing exports, or the README's Public Entrypoints table differs from `deno.json` (export drift);
   - a README table, field path or example no longer matches the code (`tests/docs/readme.test.ts`);
-  - a user-facing string in the kernel, guardrails, interface, or headless react code is not in the labels (copy lint).
+  - a user-facing string in the kernel, guardrails, interface, or headless react code is not in the labels (copy lint);
+  - a proposal's status line is missing, says `proposal` while an entry's `realizes` names it, or says `building` or `built` while no entry does (proposal status). When you build from a proposal, change its status and add it to the `realizes` of the entry whose doc says what shipped.
 - `docs/DOCS_TRUTH.md` describes the rules. Read it before you add or move a doc.
 
 When you add a doc, add its entry to `docs/_map.mjs` in the same change. When you move code between owners, move the ownership. Never silence the lint with a comment edit. A comment-only edit counts as a change, so the lint cannot tell you did not revise the text. Revise the text.

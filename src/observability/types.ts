@@ -39,7 +39,7 @@ export type ScrubSwitch = boolean | { theorem?: boolean; host?: boolean };
 export interface TraceScrubSpec {
   /** The data detectors (`ids`, `financial`, `network`, `credentials`) and the host's own. Default: true. */
   sensitive?: ScrubSwitch;
-  /** `injection` and `tool_instructions`. Default: true. */
+  /** `injection`, with the orders to the agent it finds in what a tool returns. Default: true. */
   injection?: ScrubSwitch;
   /** Never persist the canary token. It is Theorem's alone, so the host side adds nothing. Default: true. */
   canary?: ScrubSwitch;

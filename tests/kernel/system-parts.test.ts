@@ -91,16 +91,11 @@ function textProfile(id: string, identity: object) {
   });
 }
 
-Deno.test('defineProfile rejects a malformed identity.system or systemByRole entry', () => {
+Deno.test('defineProfile rejects a malformed identity.system', () => {
   assertThrows(
-    () => textProfile('parts_bad_system', { system: [{ private: '' }] }),
+    () => textProfile('parts_bad_system', { system: [[{ private: '' }]] }),
     TheoremError,
-    'Profile parts_bad_system identity.system[0].private must not be empty',
-  );
-  assertThrows(
-    () => textProfile('parts_bad_role', { systemByRole: { editor: [] } }),
-    TheoremError,
-    'Profile parts_bad_role identity.systemByRole.editor must not be an empty array',
+    'Profile parts_bad_system identity.system[0][0].private must not be empty',
   );
 });
 
@@ -134,7 +129,7 @@ Deno.test("marks apply per source: a { private } part in the turn's prompt leave
 Deno.test("marks apply per source: the profile's marks leave an unmarked turn prompt private", () => {
   registerProfile(
     textProfile('parts_profile_marked', {
-      system: ['Greet with "hello". ', { private: 'Never discount.' }],
+      system: [['Greet with "hello". ', { private: 'Never discount.' }]],
     }),
   );
   const { generation } = resolveTurn({
@@ -145,23 +140,6 @@ Deno.test("marks apply per source: the profile's marks leave an unmarked turn pr
   assertEquals(boundSystem(generation.resolvedSystem).private, [
     'Never discount.\n\nTurn context.',
   ]);
-});
-
-Deno.test('a systemByRole entry takes parts like identity.system', () => {
-  registerProfile(
-    textProfile('parts_role', {
-      system: 'Base.',
-      systemByRole: { editor: ['Edit politely. ', { private: 'Editor key.' }] },
-    }),
-  );
-  const { generation } = resolveTurn({
-    profile: 'parts_role',
-    input: { text: 'hi', role: 'editor' },
-  });
-  assertEquals(boundSystem(generation.resolvedSystem), {
-    text: 'Edit politely. Editor key.',
-    private: ['Editor key.'],
-  });
 });
 
 Deno.test('the turn prompt is sanitized part by part, keeping its marks', () => {

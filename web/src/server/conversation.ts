@@ -41,6 +41,8 @@ import {
   historyFromTranscriptBlocks,
   type PendingAttachment,
   prepareUserTurn,
+  type ReplyCarried,
+  replyCarriedFromEvents,
   settlesToolCall,
   streamThoughtsEnabled,
   type TranscriptBlock,
@@ -53,6 +55,7 @@ import type {
   ConversationLine,
   ConversationView,
   EncodedBlob,
+  StatedTurn,
   TheoremTurnInput,
 } from '../client/transport.ts';
 import {
@@ -290,9 +293,14 @@ function refLine(opened: OpenedConversation, posted?: 'posted'): ConversationLin
 /** One model run of a reply: the kernel's turn input, the checkpoint it continues, and the generation. */
 export type ReplyTurn = {
   input: TurnInput;
+  /** The stored conversation's id; a run with no conversation has none. */
+  conversationId?: string;
   providerState?: ProviderCheckpoint;
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
+  /** The tools and steps the reply had when it paused, for a reply that goes on. */
+  carried?: ReplyCarried;
 };
 
 /** What a reply's model run takes from the host. */
@@ -310,6 +318,8 @@ export type ReplyRunner = {
   ): Promise<TurnHistoryMessage[] | undefined>;
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
+  carried?: ReplyCarried;
   signal: AbortSignal;
 };
 
@@ -371,7 +381,7 @@ function committed(
 function pausedOn(
   conversation: StoredConversation,
   reply: Reply,
-  runner: Pick<ReplyRunner, 'model' | 'effort'>,
+  runner: Pick<ReplyRunner, 'model' | 'effort' | 'stated'>,
 ): StoredConversation {
   const paused: PausedReply = {
     events: reply.events,
@@ -381,6 +391,7 @@ function pausedOn(
     endedAt: Date.now(),
     ...(runner.model ? { model: runner.model } : {}),
     ...(runner.effort ? { effort: runner.effort } : {}),
+    ...(runner.stated ? { stated: runner.stated } : {}),
   };
   return { ...conversation, ...metered(conversation, reply.events), paused };
 }
@@ -441,9 +452,12 @@ async function* runReply(
   try {
     const events = runner.run({
       input,
+      conversationId: conversation.id,
       providerState: conversation.providerState,
       model: runner.model,
       effort: runner.effort,
+      ...(runner.stated ? { stated: runner.stated } : {}),
+      ...(runner.carried ? { carried: runner.carried } : {}),
     });
     for await (const event of events) {
       reply.events.push(event);
@@ -516,7 +530,7 @@ export type PostedMessage = {
   /** The message's blocks (`prepareUserTurn`), with their media inline. */
   blocks: TranscriptBlock[];
   media: UserTurnHistoryMedia;
-  /** The kernel input without history: the message's text as the transcript shows it, its media, slots, and context. */
+  /** The kernel input without history: the message's text as the transcript shows it, its media, options, and context. */
   input: TurnInput;
 };
 
@@ -600,8 +614,7 @@ function requireWalkAway(
 /** Refuses an answer to a call the paused reply is not waiting on, by call id and operation. */
 function requireWaitingOn(conversation: StoredConversation, reference: GateReference): void {
   if (waitingOn(conversation, reference)) return;
-  // labels-exempt: internal diagnostic; the user reads the copy key's wording
-  throw new TheoremError('request', `the reply is not waiting on ${reference.callId}`, {
+  throw new TheoremError('request', labelText('session.gate_expired'), {
     copy: { key: 'session.gate_expired' },
   });
 }
@@ -755,7 +768,13 @@ export async function* answerReply(args: {
     host,
     { ...opened, conversation: waiting },
     reply,
-    { ...runner, model: runner.model ?? paused.model, effort: runner.effort ?? paused.effort },
+    {
+      ...runner,
+      model: runner.model ?? paused.model,
+      effort: runner.effort ?? paused.effort,
+      ...(paused.stated ? { stated: paused.stated } : {}),
+      carried: replyCarriedFromEvents(reply.events),
+    },
     {
       history: replyHistory(reply),
       ...(waiting.inputTokens === undefined ? {} : { inputTokens: waiting.inputTokens }),
@@ -797,7 +816,8 @@ export async function rewindConversation(args: {
   }
   const transcript = conversation.transcript.slice(0, at + 1);
   return save(host, opened, {
-    version: 1,
+    version: 2,
+    id: conversation.id,
     transcript,
     history: historyFromTranscriptBlocks(transcript),
   });

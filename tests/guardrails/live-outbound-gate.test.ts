@@ -432,7 +432,8 @@ Deno.test('processLiveOutboundBatch withholds a canary spoken with separators ac
 });
 
 Deno.test('processLiveOutboundBatch withholds a canary spoken across frames with its audio', async () => {
-  const canary = mintCanary();
+  // why: a minted canary can make the words before it an opening, and then more is held.
+  const canary = FIXED_CANARY;
   const s = await session(canary);
   const half = CANARY_OPENING;
   // Only what could start the leak is held, with the audio behind it.

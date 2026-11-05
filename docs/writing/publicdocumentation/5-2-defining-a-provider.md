@@ -12,7 +12,7 @@ Theorem ships with four pre-defined providers exported from `@theoremjs/agents`:
 
 | Provider Export | Default ID | Target Infrastructure | Default Auth Signer | Pre-Configured Protocols |
 | :--- | :--- | :--- | :--- | :--- |
-| **`openRouterProvider`** | `'openrouter'` | OpenRouter cloud aggregator (`https://openrouter.ai/api/v1`). | `bearer()` | `openRouterOpenAi`, `openRouterImages`, `openRouterEmbeddings`, `openRouterDecisions` |
+| **`openRouterProvider`** | `'openrouter'` | OpenRouter cloud aggregator (`https://openrouter.ai/api/v1`). | `bearer()` | `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, `openRouterEmbeddings`, `openRouterDecisions` |
 | **`geminiProvider`** | `'gemini'` | Google AI Studio (`https://generativelanguage.googleapis.com`). | `header('x-goog-api-key')` *(Live: `query('key')`)* | `geminiInteractions`, `geminiEmbeddings`, `geminiLive` |
 | **`localProvider`** | `'local'` | Self-hosted servers (Ollama, vLLM, llama.cpp, LM Studio). | `bearer()` *(key optional)* | `openAi`, `ollamaEmbeddings` |
 | **`typesafeProvider`** | `'typesafe'` | TypeSafe System One decision evaluation (`https://api.typesafe.ai/v1`). | `bearer()` | `systemOne` |

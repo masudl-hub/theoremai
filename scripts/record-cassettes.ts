@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-net --allow-env --allow-sys
 
 /**
- * Records the cassettes tests/cassettes/replay.test.ts replays. Each recording
+ * Records the cassettes tests/cassettes/replay.*.test.ts replay. Each recording
  * is replayed at once and kept only when it replays to the same outcome.
  *
  *   deno task cassettes:record [--model <apiId>,…] [--only <text>] [--missing] [--stale]

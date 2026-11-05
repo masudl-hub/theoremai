@@ -1,10 +1,5 @@
 import { mintCanary } from '../../src/guardrails/canary.ts';
-import {
-  DETECTORS,
-  type Detector,
-  type DetectorRule,
-  type DetectSpec,
-} from '../../src/guardrails/detectors.ts';
+import { DETECTORS, type Detector, type DetectSpec } from '../../src/guardrails/detectors.ts';
 import { loadEgressAutomata } from '../../src/guardrails/egress-stream.ts';
 import { labelDefault } from '../../src/guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
@@ -50,11 +45,11 @@ const LEAKS: Record<Leaked, { text: string; omitted?: string }> = {
 function only(
   detector: Detector,
   action: 'ignore' | 'flag' | 'redact' | 'block',
-): Partial<Record<Detector, DetectorRule>> {
-  const spec: Partial<Record<Detector, DetectorRule>> = {};
+): Exclude<DetectSpec, string> {
+  const spec: Record<string, unknown> = {};
   for (const other of DETECTORS) spec[other] = { at: { thought: 'ignore' } };
   spec[detector] = { at: { thought: action } };
-  return spec;
+  return spec as Exclude<DetectSpec, string>;
 }
 
 /** A thought streamed through the guard a profile with `detect` gets: what is shown, the rules found, and the guard. */
@@ -96,7 +91,7 @@ Deno.test('a leak set to redact is omitted from the thought and reported', async
       const read = await think(only(detector, 'redact'), chunks(text, size));
       assertEquals([detector, size, read.rules], [detector, size, [DETECT_RULES[detector]]]);
       assertEquals([detector, read.shown === text], [detector, false]);
-      assertEquals([detector, read.shown.includes('attacker.io')], [detector, false]);
+      assertEquals([detector, /attacker\.io/.test(read.shown)], [detector, false]);
       assertEquals([detector, read.shown.includes(canary)], [detector, false]);
       assertEquals([detector, read.shown.includes(ECHO)], [detector, false]);
       assertEquals([detector, read.shown.includes('<user_data>')], [detector, false]);

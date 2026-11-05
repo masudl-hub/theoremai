@@ -11,3 +11,13 @@ export type LiveToolGatePrompt = {
 
 /** The user's answer to a live gate, or `withdrawn`: the model cancelled the call, so nothing is asked. */
 export type LiveGateAnswer = ToolGateResolution | 'withdrawn';
+
+/**
+ * What the host sends for a gate: a refusal, or an approval (with the key the user typed at a
+ * sign-in gate), or `withdrawn` when the model cancelled the call. `continueGatedToolInvocation`
+ * turns the user's answer into one.
+ */
+export type LiveGateReply =
+  | { decision: 'deny' }
+  | { decision: 'approve'; secret?: string }
+  | 'withdrawn';

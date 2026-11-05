@@ -110,12 +110,12 @@ Deno.test('a definition must be an object with an id and a known type', () => {
   }
   check(
     said(textProfile({ type: 'video' })),
-    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
+    'Profile p: type must be one of text, image, speech, transcription, live, decision, embedding, host',
     'unknown type',
   );
   check(
     said(textProfile({ type: undefined })),
-    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
+    'Profile p: type must be one of text, image, speech, transcription, live, decision, embedding, host',
     'no type',
   );
 });
@@ -269,11 +269,13 @@ Deno.test('resumption lists name only continue stop kinds', () => {
   for (const path of ['allowContinue', 'autoContinue']) {
     check(
       said(resumption({ [path]: ['length', 'nope'] })),
-      `Profile p: turnBehaviour.resumption.${path} may only include ContinueStopKind (length | stream_incomplete | provider_error); got 'nope'`,
+      `Profile p: turnBehaviour.resumption.${path} may only include ContinueStopKind (length | stream_incomplete | provider_error | answer_missing); got 'nope'`,
       path,
     );
     check(
-      said(resumption({ [path]: ['length', 'stream_incomplete', 'provider_error'] })),
+      said(
+        resumption({ [path]: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'] }),
+      ),
       'defined',
       `${path} ok`,
     );
@@ -607,7 +609,11 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
   check(run(compaction({ meter: 'history' })), 'registered', 'meter history');
   check(run(compaction({ meter: 'input' })), 'registered', 'meter input');
   check(run(compaction({ meter: null })), 'registered', 'meter null');
-  check(run(compaction({ meter: 'tokens' })), `${at}: meter must be 'history' or 'input'`, 'meter');
+  check(
+    run(compaction({ meter: 'tokens' })),
+    `Profile p: models.m.compaction.meter "tokens" is not one of 'history', 'input'.`,
+    'meter',
+  );
   check(run(compaction({ maxTokens: 0 })), `${at}: maxTokens must be > 0`, 'maxTokens 0');
   check(run(compaction({ maxTokens: 1 })), 'registered', 'maxTokens 1');
   for (const bad of [0, 1, -0.5, 1.5]) {
@@ -645,7 +651,7 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
     'unregistered compactor',
   );
   check(
-    run(compaction({}), [textProfile({ id: 'summariser', inputs: { text: false, slots: {} } })]),
+    run(compaction({}), [textProfile({ id: 'summariser', inputs: { text: false, options: {} } })]),
     `${at}: compaction profile 'summariser' must be a text profile that takes text`,
     'compactor that takes no text',
   );
@@ -653,18 +659,21 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
 Deno.test('a structured output maps only the choices of an existing slot', () => {
   const structured = (by: string, map: Loose) =>
     textProfile({
-      inputs: { text: true, slots: { mood: ['happy', 'sad'] } },
+      inputs: {
+        text: true,
+        options: { mood: { choices: [{ value: 'happy' }, { value: 'sad' }] } },
+      },
       outputs: { structured: { by, map } },
     });
   check(said(structured('mood', { happy: {} })), 'defined', 'valid');
   check(
     said(structured('tone', { happy: {} })),
-    "Profile p: outputs.structured.by 'tone' is not a slot in inputs.slots",
+    "Profile p: outputs.structured.by 'tone' is not one of the profile's options",
     'unknown slot',
   );
   check(
     said(structured('mood', { happy: {}, angry: {}, bored: {} })),
-    "Profile p: outputs.structured.map maps angry, bored, not a choice of slot 'mood'",
+    "Profile p: outputs.structured.map maps angry, bored, not a choice of option 'mood'",
     'unknown choices',
   );
   check(
@@ -843,6 +852,7 @@ Deno.test('a field the type may carry only as its off value names that value', (
         models: {
           m: { ...BINDING, protocol: 'geminiLive' },
         },
+        maxSteps: undefined,
         inputs: { text: true },
       }),
     ).startsWith("Profile p: type 'live' must not set inputs.text — "),
@@ -910,6 +920,11 @@ Deno.test('a cache needs openrouter, a live profile needs a channel, a label key
     said(textProfile({ labels: { nope: 'x' } })),
     "Profile p: unknown labels key 'nope'",
     'labels key',
+  );
+  check(
+    said(textProfile({ labels: { 'provider.duplicate_call': 'x' } })),
+    "Profile p: labels 'provider.duplicate_call' is a host line, which a profile cannot change; set it with overrideLabels",
+    'host label',
   );
 });
 Deno.test('a compaction profile must be a text profile', () => {
@@ -1052,7 +1067,10 @@ Deno.test('a structured profile registers only after its schemas, and its checks
     saidAtRegistration(definition, (_tools, schemas) => schemas.register('answer', answer));
   const pass = () => ({ isValid: true });
   const withOutputs = (outputs: Loose) =>
-    textProfile({ inputs: { text: true, slots: { mode: ['a', 'b'] } }, outputs });
+    textProfile({
+      inputs: { text: true, options: { mode: { choices: [{ value: 'a' }, { value: 'b' }] } } },
+      outputs,
+    });
   check(reg(withOutputs({ structured: 'answer' })), 'registered', 'registered schema');
   check(
     reg(withOutputs({ structured: 'missing' })),

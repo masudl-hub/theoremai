@@ -12,7 +12,12 @@ import {
   inspectToolArguments,
   toolCallEvent,
 } from '../../guardrails/tool-result.ts';
-import type { Provenance, ResolvedGuardrailPolicy, ToolOrigin } from '../../guardrails/types.ts';
+import type {
+  GuardrailHit,
+  Provenance,
+  ResolvedGuardrailPolicy,
+  ToolOrigin,
+} from '../../guardrails/types.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
 import {
   recordToolCheck,
@@ -20,6 +25,7 @@ import {
   type ToolCallEnd,
   type ToolOutcome,
 } from '../engine/tool-trace.ts';
+import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
 import { isAwaitingUserInput, type Source } from '../turn-events.ts';
@@ -27,6 +33,7 @@ import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '..
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
 import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
+import { planDetach, splitBackground, type ToolBackgroundSupport } from './background.ts';
 import { coordinateTool } from './coordinate.ts';
 import {
   dispatchToolBody,
@@ -116,7 +123,7 @@ export {
 
 import { UncheckedOutput } from './unchecked-output.ts';
 
-function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
+export function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
   if (tool.type === 'agent') return agentToolOrigin(tools.findProfile(tool.profile));
   if (tool.type === 'http') return 'http';
   if (tool.type === 'mcp') return 'mcp';
@@ -1147,6 +1154,7 @@ async function* settleBodyOutcome(args: {
 
 interface RegisteredToolCall {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundSupport;
   invocation?: unknown;
   onDispatch?: () => void;
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>;
@@ -1285,10 +1293,18 @@ export async function* executeRegisteredTool(
     ...args,
     ctx: { ...args.ctx, operationId: args.ctx.operationId ?? crypto.randomUUID() },
   };
+  const operationId = args.ctx.operationId ?? crypto.randomUUID();
+  const detach = planDetach({
+    tool: args.tools.get(args.name),
+    input: args.input,
+    support: args.background,
+    base: { name: args.name, callId: args.callId, operationId },
+    labels: args.profile.labels,
+  });
   return yield* coordinateTool(
     args.execution,
     {
-      operationId: args.ctx.operationId ?? crypto.randomUUID(),
+      operationId,
       callId: args.callId,
       profileId: args.profile.id,
       toolId: args.name,
@@ -1300,9 +1316,12 @@ export async function* executeRegisteredTool(
       context: args.invocation,
     },
     args.ctx.signal,
-    (beginBody) =>
+    (beginBody, hooks) =>
       executeTracedTool({
         ...args,
+        ...(detach ? { openSpan: detach.trace.open } : {}),
+        ctx: { ...args.ctx, signal: hooks.signal },
+        ...(args.stages ? { stages: { ...args.stages, ...hooks } } : {}),
         beginBody: async (input) => {
           const claim = (await beginBody?.(input)) ?? (await args.beginBody?.(input));
           args.onDispatch?.();
@@ -1318,6 +1337,7 @@ export async function* executeRegisteredTool(
         resume: args.ctx.resume,
         snapshot: args.snapshot,
       }),
+    detach,
   );
 }
 
@@ -1371,7 +1391,8 @@ async function* runRegisteredTool(
   args: RegisteredToolCall,
   tool: RegisteredTool | undefined,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { profile, name, input, callId, ctx, snapshot, stages } = args;
+  const { profile, name, callId, ctx, snapshot, stages } = args;
+  const { input } = splitBackground(tool?.type === 'builtin' ? undefined : tool, args.input);
   const safeInput = plainToolInput(input);
   const operationId = ctx.operationId ?? crypto.randomUUID();
   const base = {
@@ -1594,6 +1615,7 @@ async function* executeAgentTool(args: {
     });
     // why: A retry throws away the reply drafted so far; the drafts stop there, and the output arrives whole.
     let retried = false;
+    const seen: TurnEvent[] = [];
     for (;;) {
       const next = await run.next();
       if (next.done) {
@@ -1603,6 +1625,12 @@ async function* executeAgentTool(args: {
         return;
       }
       const event = next.value;
+      if (event.type === 'tokens' || event.type === 'tool') {
+        seen.push(event);
+        const spent = sumTurnTokens(seen);
+        // why: A stopped agent throws before it returns its usage.
+        if (spent) args.stages?.spent?.(spent);
+      }
       if (event.type === 'attempt') retried = true;
       if (event.type === 'text' || event.type === 'structured_draft') {
         if (!retried) yield { kind: 'draft', text: event.text };
@@ -1748,16 +1776,23 @@ function* guardFailure(
     yield { type: 'guardrail', guardrail: checked.event };
   }
   const message = checked.text ?? labelText('detect.output_blocked', {}, guard.labels);
-  return { modelResult: yield* reportFailure({ ...failure, message }, guard) };
+  return {
+    modelResult: yield* reportFailure({ ...failure, message }, guard, checked.suspicious),
+  };
 }
 
-/** A failure framed for the model in the kernel's own words, fenced and labelled like any result. */
+/**
+ * A failure framed for the model in the kernel's own words, fenced and labelled like any result.
+ * `suspicious` is what `injection` found in a remote failure's message, which raises taint as a
+ * result's does.
+ */
 function* reportFailure(
   failure: ToolFailure,
   guard: GuardInputs,
+  suspicious?: GuardrailHit[],
 ): Generator<TurnEvent, ModelToolResult> {
   const framed = frameToolFailure(failure);
-  return (yield* readBack(framed, guard, undefined)) ?? framed;
+  return (yield* readBack(framed, guard, undefined, suspicious)) ?? framed;
 }
 
 /** A result read at `tool_output_<kind>`. A blocked one settles as a failed call the model is told about. */
@@ -1792,6 +1827,7 @@ function* readBack(
   result: ModelToolResult,
   guard: GuardInputs,
   boundary: ToolBoundary | undefined,
+  carried?: GuardrailHit[],
 ): Generator<TurnEvent, ModelToolResult | undefined> {
   const { provenance, span } = guard;
   const start = performance.now();
@@ -1803,6 +1839,7 @@ function* readBack(
     boundary,
     guard.callableTools,
     guard.labels,
+    carried,
   );
   recordToolCheck(span, 'tool_result', performance.now() - start, guarded.event);
   if (guarded.event) {

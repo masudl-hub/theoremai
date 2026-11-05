@@ -1759,14 +1759,14 @@
               "action": "flag",
               "hits": [
                 {
-                  "rule": "detect.tool_instructions",
+                  "rule": "detect.injection",
                   "severity": "medium",
                   "signal": "order",
                   "start": 7750,
                   "end": 7768
                 },
                 {
-                  "rule": "detect.tool_instructions",
+                  "rule": "detect.injection",
                   "severity": "medium",
                   "signal": "order",
                   "start": 7769,

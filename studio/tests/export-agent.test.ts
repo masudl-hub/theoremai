@@ -138,14 +138,16 @@ Deno.test('an exported chat passes a value per slot and its context, and the rou
   const blank = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   const draft = {
     ...blank,
-    identity: { ...blank.identity, agentId: 'travel.guide', handle: 'guide' },
-    inputs: {
-      ...blank.inputs,
-      slots: [
+    identity: {
+      ...blank.identity,
+      agentId: 'travel.guide',
+      handle: 'guide',
+      options: [
         {
-          key: 'slot-language',
+          key: 'option-language',
           name: 'language',
           label: '',
+          isShownInChat: true,
           choices: ['en', 'fr'].map((value) => ({
             key: `choice-${value}`,
             value,
@@ -153,6 +155,9 @@ Deno.test('an exported chat passes a value per slot and its context, and the rou
           })),
         },
       ],
+    },
+    inputs: {
+      ...blank.inputs,
       contextFrom: ['client' as const, 'server' as const],
       contextMaxChars: 2000,
     },
@@ -162,7 +167,7 @@ Deno.test('an exported chat passes a value per slot and its context, and the rou
   assert(only);
   const files = exportFiles(workspace, only);
   const chat = files.find((file) => file.path === 'AgentChat.tsx')?.code ?? '';
-  assertMatch(chat, /\/\/ language: en \| fr\n\s+slots=\{\{ "language": "en" \}\}/);
+  assertMatch(chat, /\/\/ language: en \| fr\n\s+options=\{\{ "language": "en" \}\}/);
   assertMatch(chat, /context=\{\{\}\}/);
   assertMatch(
     files.find((file) => file.path === 'route.ts')?.code ?? '',

@@ -1,5 +1,6 @@
-import { assert, assertEquals, assertNotEquals, assertThrows } from '@std/assert';
+import { assert, assertEquals, assertNotEquals, assertRejects, assertThrows } from '@std/assert';
 import { TheoremError } from '../../mod.ts';
+import { sessionStateStore } from '../../web/src/server/session-authority.ts';
 import {
   createMemorySessionStore,
   emptySessionState,
@@ -48,16 +49,25 @@ Deno.test('memory capacity can evict an absolutely expired gate but preserves un
   assertEquals(await store.load('expired'), undefined);
 });
 
-Deno.test('memory store rejects authority beyond its finite limits without altering saved state', async () => {
-  const store = createMemorySessionStore({ sessionLimits: { maxGates: 1 } });
-  const first = emptySessionState();
-  first.gates.first = { ...gate(Date.now()), operationId: 'first' };
-  const written = await store.compareAndSwap('bounded', null, first);
-  assert(written.written);
-  const second = structuredClone(first);
-  second.gates.second = { ...gate(Date.now()), operationId: 'second' };
-  assertThrows(() => store.compareAndSwap('bounded', written.revision, second), TheoremError);
-  assertEquals((await store.load('bounded'))?.state, first);
+Deno.test('a session fits by dropping settled results, never gates, and refuses open work that does not fit', async () => {
+  const memory = createMemorySessionStore({
+    capacity: { maxStateBytes: 4096, maxOutcomeBytes: 1024 },
+  });
+  const sessions = sessionStateStore(memory, 30 * 60_000, 86_400_000);
+  await sessions.mutate('bounded', (state) => {
+    state.gates.call = gate(Date.now());
+  });
+  const refused = await assertRejects(
+    () =>
+      sessions.mutate('bounded', (state) => {
+        for (const id of ['a', 'b', 'c', 'd'])
+          state.gates[id] = { ...gate(Date.now()), operationId: id };
+      }),
+    TheoremError,
+    "the store's maxStateBytes of 4096",
+  );
+  assertEquals(refused.copy, { key: 'session.full' });
+  assertEquals(Object.keys((await memory.load('bounded'))?.state.gates ?? {}), ['call']);
 });
 
 for (const backend of ['memory', 'sqlite'] as const) {
@@ -127,6 +137,21 @@ Deno.test('memory session store issues a fresh revision after idle expiration', 
   const recreated = await store.compareAndSwap('idle', null, emptySessionState());
   assert(recreated.written);
   assertNotEquals(first.revision, recreated.revision);
+});
+
+Deno.test('a memory store with no limits keeps every session, however old', async () => {
+  const store = createMemorySessionStore();
+  assert((await store.compareAndSwap('first', null, emptySessionState())).written);
+  for (let index = 0; index < 10_001; index += 1) {
+    assert((await store.compareAndSwap(`session-${index}`, null, emptySessionState())).written);
+  }
+  const now = Date.now;
+  Date.now = () => now() + 365 * 86_400_000;
+  try {
+    assert(await store.load('first'));
+  } finally {
+    Date.now = now;
+  }
 });
 
 Deno.test('session state rejects unsupported versions and overlapping authority records', () => {

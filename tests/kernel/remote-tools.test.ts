@@ -318,6 +318,47 @@ Deno.test('Declarative HTTP Tool executes successfully with auth header and para
     globalThis.fetch = originalFetch;
   }
 });
+Deno.test("Declarative HTTP Tool sends its request through the run's fetch", async () => {
+  resetTools();
+  registerTool({
+    name: 'fetch_user_profile',
+    description: 'Fetch user profile by id',
+    type: 'http',
+    endpoint: 'https://api.example.com/users/{id}',
+    method: 'GET',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({ id: z.string() }),
+    output: z.object({ id: z.string(), name: z.string() }),
+    mapping: { pathParams: ['id'] },
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.reject(new Error('the global fetch was used'))) as typeof fetch;
+  const sent: string[] = [];
+  const runFetch = ((input: string | URL | Request) => {
+    sent.push(input.toString());
+    return Promise.resolve(Response.json({ id: 'usr_123', name: 'Alice' }));
+  }) as typeof fetch;
+  try {
+    const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'fetch_user_profile',
+      input: { id: 'usr_123' },
+      callId: 'call_run_fetch',
+      ctx: { fetch: runFetch },
+    });
+    let next = await exec.next();
+    while (!next.done) next = await exec.next();
+    assertEquals(sent, ['https://api.example.com/users/usr_123']);
+    assertEquals((next.value.outputRaw as { name: string }).name, 'Alice');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 Deno.test('Declarative HTTP Tool fails when required path param is missing', async () => {
   resetTools();
   registerTool({
@@ -765,7 +806,7 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     assertEquals(toolEventsOf(httpErr.events, 'error')[0]?.failure?.code, 'mcp_http_500');
     assertEquals(
       toolEventsOf(httpErr.events, 'error')[0]?.failure?.message,
-      `MCP server error HTTP 500: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
+      `MCP server error HTTP 500 from mcp.linear.app: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
     );
     globalThis.fetch = (() =>
       Promise.resolve(

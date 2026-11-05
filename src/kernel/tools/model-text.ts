@@ -16,12 +16,19 @@ export function formatToolResult(result: ModelToolResult): string {
   return redactDetectors(composeToolText(result.finding, result.data), UNPROFILED_DETECTORS);
 }
 
+const FAILURE_OPEN = 'Tool error (';
+
+/** Whether a tool message is a failure the kernel framed, not what the tool returned. */
+export function isFramedToolFailure(content: string): boolean {
+  return content.startsWith(FAILURE_OPEN);
+}
+
 /** A failure as the kernel reports it to the model. The message is used as given. */
 export function frameToolFailure(
   failure: Pick<ToolFailure, 'code' | 'message' | 'details'>,
 ): ModelToolResult {
   return {
-    finding: `Tool error (${failure.code}): ${failure.message}`,
+    finding: `${FAILURE_OPEN}${failure.code}): ${failure.message}`,
     // why: The finding already says the code and message; only details are new.
     ...(failure.details !== undefined ? { data: { details: failure.details } } : {}),
   };

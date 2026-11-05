@@ -2,8 +2,11 @@
 
 import { assertEquals, assertThrows } from '@std/assert';
 import { labelText, TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
-import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
-import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
+import {
+  applyLiveTurnToolEvent,
+  type LiveActiveTool,
+  nextActiveTool,
+} from '../../react/src/client/live/apply-live-turn-tool-event.ts';
 import {
   float32Rms,
   float32RmsToLevel,
@@ -12,6 +15,7 @@ import {
 } from '../../web/src/client/audio-level.ts';
 import { clientFailure } from '../../web/src/client/failure.ts';
 import { pageToolMismatch } from '../../web/src/client/live/live-page-tool.ts';
+import { runLiveToolCall } from '../../web/src/client/live/run-live-tool-call.ts';
 import { LiveSessionClient, type LiveSocket } from '../../web/src/client/live-client.ts';
 import { isPermissionDeniedError } from '../../web/src/client/live-errors.ts';
 import {
@@ -228,6 +232,27 @@ Deno.test('downsampleAndConvertToInt16 converts sample rates and round-trips wit
   assertEquals(Math.abs(recoveredFloat32[1] - float32[1]) < 0.001, true);
 });
 
+Deno.test('a live tool keeps its activity label through its later phases', () => {
+  let shown: LiveActiveTool | null = null;
+  const args = {
+    gateCallId: undefined,
+    withdrawGate: () => {},
+    clearInterim: () => {},
+    clearActiveTool: () => {},
+    reportFailure: () => {},
+    setActiveTool: (tool: LiveActiveTool) => {
+      shown = nextActiveTool(shown, tool);
+    },
+  };
+  const base = { name: 'search_web', callId: 'call-1', operationId: 'call-1', at: 0 } as const;
+  applyLiveTurnToolEvent(
+    { type: 'tool', tool: { ...base, phase: 'running', activity: 'Searching the web' } },
+    args,
+  );
+  applyLiveTurnToolEvent({ type: 'tool', tool: { ...base, phase: 'progress', data: {} } }, args);
+  assertEquals(shown, { name: 'search_web', activity: 'Searching the web' });
+});
+
 function liveToolFailure(event: TurnEvent) {
   const reported: unknown[] = [];
   applyLiveTurnToolEvent(event, {
@@ -325,9 +350,7 @@ Deno.test('a live call the model withdrew at its gate sends nothing more', async
     toolArgs: {},
     callId: 'call-gated',
     operationId: 'call-gated',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve('withdrawn'),
+    onGate: () => Promise.resolve('withdrawn'),
   });
   assertEquals(sent, [{ callId: 'call-gated', operationId: 'call-gated' }]);
 });
@@ -340,9 +363,7 @@ Deno.test('a live deny goes to the session, which settles the call; nothing else
     toolArgs: {},
     callId: 'call-gated',
     operationId: 'call-gated',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
+    onGate: () => Promise.resolve({ decision: 'deny' }),
   });
   assertEquals(sent, [
     { callId: 'call-gated', operationId: 'call-gated' },
@@ -373,9 +394,7 @@ Deno.test('a page tool answers its call with the page output; any other call run
       toolArgs: { target: 'pricing' },
       callId,
       operationId: callId,
-      sessionPermissions: [],
-      setSessionPermissions: () => {},
-      waitForGateDecision: () => Promise.resolve('withdrawn'),
+      onGate: () => Promise.resolve('withdrawn'),
     });
   await call('highlight', 'call-page');
   await call('lookup', 'call-relay');
@@ -539,15 +558,14 @@ function liveHarness() {
   };
 }
 
-Deno.test('a call opens with its slots, context, and host message; a changed context follows once', async () => {
+Deno.test('a call opens with its options, context, and host message; a changed context follows once', async () => {
   const live = liveHarness();
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     openMessage: { type: 'draft' },
-    slots: { language: 'fr' },
+    options: { language: 'fr' },
     context: { page: '/docs' },
     voiceIngress: false,
-    onToolCall: async () => {},
   });
   try {
     await client.connect();
@@ -564,13 +582,34 @@ Deno.test('a call opens with its slots, context, and host message; a changed con
     assertEquals(socket.sent, [
       {
         type: 'open',
-        slots: { language: 'fr' },
+        options: { language: 'fr' },
         context: { page: '/pricing' },
         host: { type: 'draft' },
       },
       { type: 'text', text: 'hello' },
       { type: 'context', context: { page: '/pricing', cart: 2 } },
     ]);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
+Deno.test('a video frame goes to the open call; a muted call says so', async () => {
+  const live = liveHarness();
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    openMessage: { type: 'draft' },
+    voiceIngress: false,
+  });
+  try {
+    await client.connect();
+    const [socket] = live.sockets;
+    await live.ready(socket);
+    client.sendVideo('frame');
+    assertEquals(socket.sent.at(-1), { type: 'video', data: 'frame', mimeType: 'image/jpeg' });
+    assertEquals(client.toggleMute(), true);
+    assertEquals(client.toggleMute(), false);
   } finally {
     client.disconnect();
     live.restore();
@@ -585,7 +624,6 @@ Deno.test('a dropped call with a resumption handle reconnects, and reports the t
     context: { page: '/docs' },
     voiceIngress: false,
     onStatusChange: (status) => void statuses.push(status),
-    onToolCall: async () => {},
   });
   try {
     await client.connect();
@@ -639,7 +677,6 @@ Deno.test('a call the provider ends at its limit is taken up again when it has a
     voiceIngress: false,
     onStatusChange: (status) => void statuses.push(status),
     onSessionEnded: () => void ended++,
-    onToolCall: async () => {},
   });
   try {
     await client.connect();
@@ -659,28 +696,60 @@ Deno.test('a call the provider ends at its limit is taken up again when it has a
   }
 });
 
-Deno.test('a changed slot takes an open call up again with it; with no handle the next call has it', async () => {
+Deno.test('a changed pick takes an open call up again with the lines it chooses', async () => {
   const live = liveHarness();
   const statuses: string[] = [];
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     voiceIngress: false,
-    slots: { language: 'en' },
+    stated: { options: { plan: 'free' } },
     onStatusChange: (status) => void statuses.push(status),
-    onToolCall: async () => {},
+  });
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0], [handleEvent('handle-1')]);
+    assertEquals(live.sockets[0].sent, [{ type: 'open', stated: { options: { plan: 'free' } } }]);
+    client.setStated({ options: { plan: 'free' } });
+    assertEquals(statuses.at(-1), 'listening');
+    client.setStated({ options: { plan: 'paid' } });
+    assertEquals(statuses.at(-1), 'reconnecting');
+    live.fire(500);
+    await Promise.resolve();
+    await live.ready(live.sockets[1]);
+    assertEquals(live.sockets[1].sent, [
+      {
+        type: 'open',
+        stated: { options: { plan: 'paid' } },
+        resume: { providerState: checkpointFixture, awayMs: 0 },
+      },
+    ]);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
+Deno.test('a changed option takes an open call up again with it; with no handle the next call has it', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    options: { language: 'en' },
+    onStatusChange: (status) => void statuses.push(status),
   });
   try {
     await client.connect();
     await live.ready(live.sockets[0]);
-    client.setSlots({ language: 'fr' });
+    client.setOptions({ language: 'fr' });
     assertEquals(statuses, ['connecting', 'listening']);
 
     await client.connect();
     await live.ready(live.sockets[1], [handleEvent('handle-1')]);
-    assertEquals(live.sockets[1].sent, [{ type: 'open', slots: { language: 'fr' } }]);
-    client.setSlots({ language: 'fr' });
+    assertEquals(live.sockets[1].sent, [{ type: 'open', options: { language: 'fr' } }]);
+    client.setOptions({ language: 'fr' });
     assertEquals(statuses.at(-1), 'listening');
-    client.setSlots({ language: 'en' });
+    client.setOptions({ language: 'en' });
     assertEquals(statuses.at(-1), 'reconnecting');
     live.fire(500);
     await Promise.resolve();
@@ -688,7 +757,7 @@ Deno.test('a changed slot takes an open call up again with it; with no handle th
     assertEquals(live.sockets[2].sent, [
       {
         type: 'open',
-        slots: { language: 'en' },
+        options: { language: 'en' },
         resume: { providerState: checkpointFixture, awayMs: 0 },
       },
     ]);
@@ -707,7 +776,6 @@ Deno.test('a drop with no handle, or after the session ended, ends the call; fiv
     voiceIngress: false,
     onStatusChange: (status: string) => void statuses.push(status),
     onError: (err: Error) => void errors.push(err instanceof TheoremError ? err.kind : 'other'),
-    onToolCall: async () => {},
   };
   const client = new LiveSessionClient(options);
   try {
@@ -747,7 +815,6 @@ Deno.test('the call after one that could not reconnect takes it up again; a refu
     createSocket: live.createSocket,
     voiceIngress: false,
     onStatusChange: (status) => void statuses.push(status),
-    onToolCall: async () => {},
   });
   /** The open socket drops, and all five tries to reconnect fail. */
   const lose = async (open: number) => {
@@ -789,15 +856,19 @@ Deno.test('a relay reads the open message into the session request, with the hos
   const open = parseLiveOpenMessage(
     JSON.stringify({
       type: 'open',
-      slots: { language: 'fr' },
+      options: { language: 'fr' },
       context: { page: '/docs' },
+      model: 'free',
+      effort: 'deep',
       resume: { providerState: checkpointFixture, awayMs: 4200 },
       host: { type: 'draft' },
     }),
   );
   assertEquals(liveSessionOpen(open, { tier: 'pro' }), {
-    slots: { language: 'fr' },
+    inputOptions: { language: 'fr' },
     context: { client: { page: '/docs' }, server: { tier: 'pro' } },
+    model: 'free',
+    effort: 'deep',
     providerState: checkpointFixture,
     awayMs: 4200,
   });
@@ -807,7 +878,7 @@ Deno.test('a relay reads the open message into the session request, with the hos
     '{"type":"text","text":"hi"}',
     '{"type":"open","resume":{"handle":"","awayMs":0}}',
     '{"type":"open","resume":{"handle":"h","awayMs":-1}}',
-    '{"type":"open","slots":{"language":2}}',
+    '{"type":"open","options":{"language":2}}',
   ]) {
     assertEquals(assertThrows(() => parseLiveOpenMessage(bad), TheoremError).kind, 'request');
   }
@@ -826,7 +897,6 @@ Deno.test('a live reconnect sends portable history alongside its checkpoint and 
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     voiceIngress: false,
-    onToolCall: async () => {},
   });
   const history = [
     { role: 'user' as const, content: 'remember this' },
@@ -874,9 +944,7 @@ Deno.test('a refused live permission gate never invokes page code', async () => 
     toolArgs: {},
     callId: 'call',
     operationId: 'issued',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
+    onGate: () => Promise.resolve({ decision: 'deny' }),
   });
   assertEquals(effects, 0);
   assertEquals(sent, [
@@ -913,11 +981,9 @@ Deno.test('a live page callback follows approval and a claimed dispatch grant', 
     toolArgs: {},
     callId: 'call',
     operationId: 'issued',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => {
+    onGate: () => {
       order.push('approval');
-      return Promise.resolve({ action: 'allow' });
+      return Promise.resolve({ decision: 'approve' });
     },
   });
   assertEquals(order, ['relay:1:check', 'approval', 'relay:2:approve', 'page', 'relay:3:result']);
@@ -945,9 +1011,7 @@ Deno.test('an old page gate cannot execute a browser callback', async () => {
     toolArgs: {},
     callId: 'c',
     operationId: 'o',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve('withdrawn'),
+    onGate: () => Promise.resolve('withdrawn'),
   });
   assertEquals(effects, 0);
   assertEquals(sent, [
@@ -981,12 +1045,10 @@ Deno.test('live approval shows the prepared arguments that its later dispatch ex
     toolArgs: { recipient: 'original' },
     callId: 'call',
     operationId: 'operation',
-    sessionPermissions: [],
-    setSessionPermissions() {},
-    waitForGateDecision: (prompt) => {
+    onGate: (prompt) => {
       assertEquals(prompt.input, { recipient: 'approved' });
       assertEquals(effects, 0);
-      return Promise.resolve({ action: 'allow' });
+      return Promise.resolve({ decision: 'approve' });
     },
     pageTools: {
       write: (input) => {
@@ -997,4 +1059,66 @@ Deno.test('live approval shows the prepared arguments that its later dispatch ex
     },
   });
   assertEquals(effects, 1);
+});
+
+Deno.test('a page call with no handler is answered at once with no answer, so nothing waits on it', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: (args) => {
+      sent.push(args);
+      return Promise.resolve(
+        sent.length === 1
+          ? { status: 'dispatched', grantId: 'grant', arguments: {} }
+          : { status: 'settled' },
+      );
+    },
+    pageTools: {},
+    name: 'highlight',
+    toolArgs: {},
+    callId: 'c',
+    operationId: 'o',
+  });
+  assertEquals(sent, [
+    { callId: 'c', operationId: 'o' },
+    { callId: 'c', operationId: 'o', grantId: 'grant', unanswered: true },
+  ]);
+});
+
+Deno.test('a page tool that throws answers with no answer', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: (args) => {
+      sent.push(args);
+      return Promise.resolve(
+        sent.length === 1
+          ? { status: 'dispatched', grantId: 'grant', arguments: {} }
+          : { status: 'settled' },
+      );
+    },
+    pageTools: {
+      highlight: () => {
+        throw new Error('no such block');
+      },
+    },
+    name: 'highlight',
+    toolArgs: {},
+    callId: 'c',
+    operationId: 'o',
+  });
+  assertEquals(sent.at(-1), { callId: 'c', operationId: 'o', grantId: 'grant', unanswered: true });
+});
+
+Deno.test('with no onGate, a gate is refused rather than left open', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: gatedRelay(sent),
+    name: 'lookup',
+    toolArgs: {},
+    callId: 'call-gated',
+    operationId: 'call-gated',
+  });
+  assertEquals(sent, [
+    { callId: 'call-gated', operationId: 'call-gated' },
+    { callId: 'call-gated', operationId: 'call-gated', decision: 'deny' },
+  ]);
 });

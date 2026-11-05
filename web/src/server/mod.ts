@@ -9,8 +9,10 @@
 export { theoremHostCallRequestSchema } from '../client/host-transport.ts';
 export type { LiveClientMessage, LiveOpenMessage } from '../client/live-messages.ts';
 export {
+  type StatedTurn,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
+  theoremNotifyRequestSchema,
   theoremReplaySchema,
   theoremRewindRequestSchema,
   theoremStartRequestSchema,
@@ -80,6 +82,7 @@ export {
   theoremSessionId,
 } from './handler.ts';
 export { createTheoremMcpHandler, type TheoremMcpHandlerOptions } from './mcp-handler.ts';
+export { createMemoryNotifier, type TheoremNotifier } from './notifier.ts';
 export {
   createMemoryPageToolBroker,
   type PageToolBroker,
@@ -95,8 +98,7 @@ export {
   type SessionBoundaryOptions,
   type TheoremSessionBoundary,
 } from './session-boundary.ts';
-export type { TheoremSessionLimits } from './session-limits.ts';
-export { resolveSessionLimits } from './session-limits.ts';
+export type { TheoremSessionCapacity } from './session-limits.ts';
 export {
   createMemorySessionStore,
   DEFAULT_OPERATION_RETENTION_MS,

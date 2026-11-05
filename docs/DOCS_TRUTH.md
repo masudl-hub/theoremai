@@ -43,6 +43,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | README claims | The README's profile-type and provider tables equal the registered first-party providers and the protocols they serve. Each profile field path in its prose is a full catalog key. The host-profile guardrail line equals `HOST_GUARDRAIL_FIELDS`. Its `ts` examples type-check as one program (`tests/docs/readme.test.ts`) |
 | Copy lint | A string literal of ≥3 alphabetic words in `src/kernel` / `src/guardrails` / `src/interface` headless `react/src` (`client`, `components`, `hooks`), or `web/src` (`client`, `server`) fails outside `src/guardrails/labels.ts` (`copy-lint.mjs`). `react/src/ui` owns its wording and is not scanned. `// labels-exempt: <reason>` goes on the string line, or above it in the same statement; `labels-exempt-file: <reason>` goes in the first 40 lines of a non-runtime fixture module |
 | Release notes | `docs/releases/v<version>.md` exists for the `package.json` version. Every `docs/releases/v*.md` opens with `# v<version>`, then has the `##` sections Summary, What's New, What's Fixed, Breaking Changes, and Notes, in that order. No section is empty (`None.` when there is nothing) and no notes link a pull request (`release-notes.mjs`) |
+| Proposal status | The third line of every `docs/proposals/*.md` opens `**Status:** proposal.`, `building.`, `built.`, or `historical.`, then says what that means for the doc. A graph entry names each proposal its doc realizes in `realizes`. A realized proposal cannot say `proposal`, and a `building` or `built` proposal must be realized by an entry, so the doc that says what shipped is named. Both sides are declared; the check infers nothing from the code (`proposals.mjs`) |
 
 ## Package vs repo documentation
 
@@ -92,11 +93,11 @@ The `web-package` entry monitors `web/src/` and `web/package.json` the same way.
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
 | `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `web/` and `react/` each via its own `tsc`, since each builds against the kernel as the `@theoremjs/agents` package), and the tests, run once with coverage for fallow (`lint:fallow`, last) |
-| CI | `lint` job: `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, `lint:biome`, `lint:ast-grep`. `check` job: typechecks, `verify:publish`, studio tests, then `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`), which runs the test suite once with coverage |
+| CI | `lint` job: `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, `lint:biome`, `lint:ast-grep`. `check` job: typechecks, `verify:publish`, studio tests. `test-types` job: typechecks the test files once. `test` jobs: three shards (`scripts/test-shard.mjs`) run the suite unchecked, each writing its coverage as lcov. `fallow` job: joins the shards' lcov (`scripts/coverage.sh <lcov>...`), then `fallow:audit` (`FALLOW_AUDIT_BASE=origin/<base>`) |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit` against the branch's upstream, or `FALLOW_AUDIT_BASE` (uses the generated coverage report when present) |
 
-`lint:fallow` runs the test suite once, in parallel, with coverage (`npm run coverage`), then `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`) against it. `lint:fallow:deep` runs full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
+`lint:fallow` runs the test suite once, in parallel, with coverage (`npm run coverage`), then `fallow:audit`: `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`) against it. `lint:fallow:deep` runs full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
 
 Fallow: `docs/_map.mjs` is listed under `dynamicallyLoaded` in `.fallowrc.jsonc`
 (docs-truth imports it at runtime; static analysis cannot see the edge).

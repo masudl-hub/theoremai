@@ -1,15 +1,11 @@
 import { assertEquals } from '@std/assert';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
-  clearStaleStudioRuns,
   compileStudio,
   createExampleDraft,
-  keptStudioRunIds,
   type StudioRunPayload,
-  saveStudioRunPayload,
   studioInterface,
   studioRunDefines,
-  studioRunPayloadKey,
 } from '../../studio/mod.ts';
 
 function exampleRun(): StudioRunPayload {
@@ -71,48 +67,4 @@ Deno.test('a run whose called agent no longer defines does not define', () => {
     ],
   } as unknown as StudioRunPayload;
   assertEquals(studioRunDefines(kept), false);
-});
-
-function memoryStorage(): Storage {
-  const map = new Map<string, string>();
-  return {
-    get length() {
-      return map.size;
-    },
-    clear() {
-      map.clear();
-    },
-    getItem(key: string) {
-      return map.get(key) ?? null;
-    },
-    key(index: number) {
-      return [...map.keys()][index] ?? null;
-    },
-    removeItem(key: string) {
-      map.delete(key);
-    },
-    setItem(key: string, value: string) {
-      map.set(key, value);
-    },
-  };
-}
-
-Deno.test('clearing stale runs keeps only the runs this package defines', () => {
-  const store = memoryStorage();
-  const run = exampleRun();
-  saveStudioRunPayload(run, 'current', store);
-  saveStudioRunPayload(
-    {
-      ...run,
-      profile: { ...run.profile, guardrails: { egress: { checks: true } } },
-    } as unknown as StudioRunPayload,
-    'old-shape',
-    store,
-  );
-  store.setItem(studioRunPayloadKey('unindexed'), '{"agentId":"x"}');
-  store.setItem(studioRunPayloadKey('unreadable'), 'not json');
-
-  clearStaleStudioRuns(store);
-
-  assertEquals(keptStudioRunIds(store), ['current']);
 });

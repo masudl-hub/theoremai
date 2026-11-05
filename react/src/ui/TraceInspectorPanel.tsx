@@ -1,6 +1,5 @@
 import { Icon } from '@astryxdesign/core/Icon';
-import { IconButton } from '@astryxdesign/core/IconButton';
-import { IconActivity, IconDownload } from '@tabler/icons-react';
+import { IconActivity } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
 import type { ProfileObservabilityView } from '@theoremjs/agents/interface';
 import type { TraceFeed } from '@theoremjs/web/client';
@@ -19,7 +18,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useTraceRecords } from '../hooks/use-trace-records.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
   InPlace,
@@ -68,18 +66,18 @@ export function TracePlacement({
 
 function TraceView({
   id,
-  header,
+  toggle,
   traces,
 }: {
   id: string;
-  header: ReactNode;
+  toggle: ReactNode;
   traces: TraceFeed | undefined;
 }) {
   return (
-    <RaisedPane id={id} header={header}>
+    <RaisedPane id={id}>
       {(isWide) => (
-        <Suspense fallback={null}>
-          <TraceFeedBody traces={traces} isWide={isWide} />
+        <Suspense fallback={<SidePanelHeader floating>{toggle}</SidePanelHeader>}>
+          <TraceFeedBody traces={traces} isWide={isWide} end={toggle} />
         </Suspense>
       )}
     </RaisedPane>
@@ -113,92 +111,50 @@ export function useTraceInspector(
   if (iface.observability?.record !== true)
     return { toggle: null, view: null, labels, offered: false };
   const isOpen = open ?? own;
-  const toggle =
+  const toggleOf = (size?: 'sm') =>
     open === undefined ? (
       <SidePanelToggle
         labels={labels}
         icon={<Icon icon={IconActivity} />}
         panelId={id}
         open={isOpen}
+        size={size}
         onToggle={() => setOwn((value) => !value)}
       />
     ) : null;
-  const view = isOpen ? openTrace(placement === 'panel', id, traces, toggle) : null;
+  const toggle = toggleOf();
+  const view = isOpen ? openTrace(placement === 'panel', id, traces, toggleOf('sm')) : null;
   return { toggle, view, labels, offered: true };
 }
 
-/** The open trace: filling the host's docked panel, or as its own panel; Download, then the toggle, on top. */
+/** The open trace: filling the host's docked panel, or as its own panel; the toggle sits in its top row. */
 function openTrace(
   docked: boolean,
   id: string,
   traces: TraceFeed | undefined,
   toggle: ReactNode,
 ): ReactNode {
-  const header = (
-    <SidePanelHeader floating>
-      <TraceDownload traces={traces} />
-      {toggle}
-    </SidePanelHeader>
-  );
-  if (docked) return <TraceFill id={id} header={header} traces={traces} />;
-  return <TraceView id={id} header={header} traces={traces} />;
+  if (docked) return <TraceFill id={id} toggle={toggle} traces={traces} />;
+  return <TraceView id={id} toggle={toggle} traces={traces} />;
 }
 
 /** The trace body, filling the docked panel. The panel supplies the raised card. */
 function TraceFill({
   id,
-  header,
+  toggle,
   traces,
 }: {
   id: string;
-  header: ReactNode;
+  toggle: ReactNode;
   traces: TraceFeed | undefined;
 }) {
   const { ref, width } = useWidth();
   return (
     <div id={id} ref={ref} style={{ height: '100%', position: 'relative' }}>
-      {header}
-      <Suspense fallback={null}>
-        <TraceFeedBody traces={traces} isWide={isSidePanelWide(width)} />
+      <Suspense fallback={<SidePanelHeader floating>{toggle}</SidePanelHeader>}>
+        <TraceFeedBody traces={traces} isWide={isSidePanelWide(width)} end={toggle} />
       </Suspense>
     </div>
-  );
-}
-
-/** The agent the records ran, which names their file. */
-function tracedAgent(records: readonly TraceRecord[]): string {
-  for (const record of records) {
-    for (const span of record.spans) {
-      const name = span.attributes['gen_ai.agent.name'];
-      if (typeof name === 'string' && name) return name;
-    }
-  }
-  return 'trace';
-}
-
-/** Saves the records on screen as `<agent>-<time>.trace.json`, the file the studio imports. */
-function TraceDownload({ traces }: { traces: TraceFeed | undefined }) {
-  const t = useLabels();
-  const records = useTraceRecords(traces);
-  if (records.length === 0) return null;
-  const label = t('@theorem.panel.trace.download');
-  return (
-    <IconButton
-      label={label}
-      variant="ghost"
-      tooltip={label}
-      icon={<Icon icon={IconDownload} size="sm" />}
-      onClick={() => {
-        const stamp = new Date().toISOString().replaceAll(':', '-').slice(0, 19);
-        const file = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(file);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${tracedAgent(records)}-${stamp}.trace.json`;
-        link.click();
-        URL.revokeObjectURL(url);
-      }}
-    />
   );
 }
 

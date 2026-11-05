@@ -46,7 +46,7 @@ The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `
 To show the screen in your app, also install `@theoremjs/react` at the same version, and React 19 and the design packages at the versions `@theoremjs/react` lists in `peerDependencies`:
 
 ```bash
-npm install @theoremjs/react react react-dom @astryxdesign/core@0.7.4 @astryxdesign/theme-neutral@0.7.4 @stylexjs/stylex@0.19.0
+npm install @theoremjs/react react react-dom @astryxdesign/core@0.7.7 @astryxdesign/theme-neutral@0.7.7 @stylexjs/stylex@0.19.0
 ```
 
 ## Open your project
@@ -60,7 +60,7 @@ The command starts two servers that only this machine reaches: your project's se
 Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`.
 
 ```text
-theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet]
+theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet] [--offline] [--verbose]
 ```
 
 | Option | What it does |
@@ -69,7 +69,26 @@ theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] 
 | `--editor <command>` | The editor the studio opens a line of your files in. Default: `$VISUAL` or `$EDITOR` when it opens a window, else `code`. |
 | `--deno-config <file>` | The Deno config your project loads with. Default: the `deno.json` or `deno.jsonc` in the folder you ran the command in, else the studio's. |
 | `--no-watch` | Do not watch the files the setup reads. The studio reads them again when you come back to it. |
-| `--quiet` | Do not print what the project has to look at. Without it, the command prints each problem, difference and unregistered profile or tool the page flags, when the project opens and when the list changes. A project with nothing to look at prints `theorem studio: nothing to look at`. |
+| `--quiet` | Print nothing about the project. Without it, the command prints what loaded (the setup, its entry, each agent with its type and providers, the tools by kind), then each problem, difference and unregistered profile or tool the page flags, when the project opens and when the list changes, then one line for each provider's key, then one line for each run that fails and each error the page meets. A line that repeats the one before is printed once. A project with nothing to look at prints `theorem studio: nothing to look at`. |
+| `--offline` | Do not check the keys. Without it, the command sends each provider its models use one request, the `check` its definition declares, and prints whether the key works, is refused, is empty, or could not be checked. It never prints a key. |
+| `--verbose` | Also print a line for every run, as it answers. Without it, only a run that fails prints, with what it said. |
+
+### Reading an open studio
+
+Two more commands read a studio that is open on your project. They change nothing, so you, a script or a coding agent can run them at any time from another terminal:
+
+```text
+theorem-studio status [setup]
+theorem-studio errors [setup] [--follow]
+```
+
+| Command | What it prints |
+| --- | --- |
+| `status` | Where the studio is open, what it loaded, what each key check said, and what to look at now. |
+| `errors` | Every event the studio printed about the project (what to look at, each key that does not work, each run that fails, each error the page meets), each with its time. A run that ends well is not kept. |
+| `errors --follow` | The same, then each new event as it comes, until the studio stops. |
+
+With several setups open, name the one to read. The `agents` command runs the same commands through the studio you installed: `npx agents studio status`.
 
 ### The app's entry
 
@@ -93,6 +112,8 @@ export const theorem: TurnWiring = {
 | `prepare(turn)` | Gives it each text, image and speech turn, and runs the turn it returns: add the system prompt, history, credentials or `onStage` your app adds. The studio keeps the profile and the context the run was given. |
 
 The studio's chat keeps its own conversation and never writes to your app's stores. `prepare` can change the history it is given.
+
+The studio loads your entry in the environment you start it in. If the entry reads its keys as it loads, from `Deno.env` or a file an environment variable names, set them on the command that starts the studio, as you do for your app: `OPENAI_API_KEY=… theorem-studio`.
 
 ### What a setup file exports
 
@@ -168,18 +189,21 @@ import '@astryxdesign/core/astryx.css';
 import '@theoremjs/studio/ui/built/theme.css';
 import '@theoremjs/studio/ui/motion.css';
 
+// In the browser, before the first render: it reads this tab's kept workspace.
+const opened = await openStudio();
+
 export function Studio() {
   return (
     <Theme theme={theoremStudioTheme} mode="dark">
       <LayerProvider>
-        <StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.1' }} />
+        <StudioScreen opened={opened} host={{ kernelVersion: '0.3.3' }} />
       </LayerProvider>
     </Theme>
   );
 }
 ```
 
-Render it in the browser only. `openStudio()` reads the tab's kept workspace, so it does not run on a server.
+Render it in the browser only. `openStudio()` reads the tab's kept workspace from the browser, so it does not run on a server. It returns a promise: await it before the first render.
 
 `host` tells the screen about your page:
 
@@ -218,7 +242,7 @@ The handler takes a Web `Request` and returns a `Response`. It serves no project
 Without lent keys, the handler answers three requests:
 
 - the guardrail probe, on a scripted model, so no model is called;
-- the key test, for a key the builder types;
+- the key test: one request to the check the key's provider declares (`checkKey`), to public hosts only;
 - the tool connection test, which reaches public hosts only.
 
 Drafts then run in the browser, on the builder's own keys.
@@ -258,7 +282,7 @@ const studio = createStudioDraftHandler({
 ```
 
 ```tsx
-<StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.1', lentKeys: keys }} />
+<StudioScreen opened={opened} host={{ kernelVersion: '0.3.3', lentKeys: keys }} />
 ```
 
 `hostOptions` gets each draft's profile. The draft names its own key slots, so fill the slots its models name. A decision or embedding whose vault holds no key is refused with `auth`.
@@ -298,18 +322,18 @@ Use these when you build on the studio's draft yourself: compile it, export it a
 | Export | Purpose |
 | --- | --- |
 | `StudioDraft`, `createBlankDraft()`, `createExampleDraft()`, `COOKBOOKS` | Editable profile draft; blank, the travel concierge, or the canonical cookbook catalog (`research`, `concierge`, `architect`, `live-concierge`, `decision`, `gemini-embedding-2`, `narrator`, `console`) |
-| `createResearchWorkspace()`, `addResearchExample()`, `createResearchScoutDraft()`, `createPageReaderExampleDraft()`, `cookbookOpening()`, `openingFromRecords()` | The lead system cookbook: `research.scout` (OpenRouter `google/gemini-3.8-flash`, streamed thoughts, prose reply, liquid tool labels; no attachment accept list and no effort select — Goals examples turn those on) linked to `research.pagereader` (Jev decision profile that filters page passages at `post_tool`). `cookbookOpening('research')` projects its recorded `.trace.json` with the same helpers Replay exchange and Continue live use |
+| `createResearchWorkspace()`, `addResearchExample()`, `createResearchScoutDraft()`, `createPageReaderExampleDraft()`, `cookbookOpening()`, `openingFromRecords()` | The lead system cookbook: `research.scout` (OpenRouter `openrouter/free` by default, Gemini `gemini-3.8-flash` on `geminiInteractions` to pick, streamed thoughts, prose reply, liquid tool labels; no attachment accept list and no effort select — Goals examples turn those on) linked to `research.pagereader` (Jev decision profile that filters page passages at `post_tool`). `cookbookOpening('research')` projects its recorded `.trace.json` with the same helpers Replay exchange and Continue live use |
 | `projectProfileSlice()`, `projectToolSlice()`, `stitchCookbook()`, `resolveCookbookSlice()` | Project or stitch individual profile facets, tool sub-objects (`auth`, `mapping`, `labels`), or full runnable programs from `COOKBOOKS` |
 | `GOOGLE_BUILTIN_TOOLS`, `OPENROUTER_BUILTIN_TOOLS`, `GOOGLE_SPEECH_VOICES`, `googleBindingViolation()`, `localBindingViolation()`, `ollamaModelThinks()` | Provider and model cookbooks: hosted builtin tool definitions, provider media/voice vocabularies, and model binding checks |
 | `createDecisionExampleDraft()`, `decisionExampleDraft(images?)`, `DECISION_EXAMPLE_STATE`, `decisionExampleAssets()` | The Pantry cookbook (`COOKBOOKS.decision`, agent `pantry.jev`): Jev 1.14 asked about a pantry shelf, with box, Number and Choice questions. Its four pictures ship with it, and load only when the example is made, so `createDecisionExampleDraft` and `decisionExampleAssets` return a promise; `decisionExampleDraft` is the same draft with the pictures it is given, none by default, for a page that only shows its shape. The ginger, the colour chart and the flag are the decision's own; a decision sends each one its state or questions name. Each box question names the image it reads: the Ginger and Union Jack questions read `photo`, and the chart question reads `<apple_ripeness>`. The run tab starts with the shelf in its state. Each is written as its reference, such as `<ginger>`, in the state or in the questions. The shelf and ginger photos are CC0 and the flag is public domain, all from Wikimedia Commons. The colour chart was drawn for the example |
-| `createLiveExampleDraft()`, `createNarratorExampleDraft()`, `createConsoleExampleDraft()`, `createArchitectWorkspace()` | The other examples: the concierge as a live agent, a speech narrator, a host tool console, and a code architect that calls the narrator through an agent tool |
+| `createLiveExampleDraft()`, `createGeminiEmbeddingExampleDraft()`, `createNarratorExampleDraft()`, `createConsoleExampleDraft()`, `createArchitectWorkspace()` | The other examples: the concierge as a live agent, a multimodal embedding profile on Gemini Embeddings 2's free preview model that takes every file type it does, a speech narrator, a host tool console, and a code architect that calls the narrator through an agent tool |
 | `setProfileType()`, `includeFacet()`, `excludeFacet()`, `newModelBinding()`, `newToolSpec()` | Draft edits that keep it consistent with `PROFILE_GRAPH` |
 | `studioTree()`, `studioNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |
 | `compileStudio()` | Draft → profile definition, custom tools, structured schema; or issues keyed by node |
 | `studioSource()` | Compiled draft as a TypeScript module (`registerTool`, `defineProfile`, `registerProfile`) |
 | `LentKeys`, `LentHolds`, `StudioRunsOn`, `ON_OWN_KEYS`, `modelBindingViolation()` | What a studio runs on: a page's lent keys (which models, built-ins, and decision sizes they allow, and what runs on them keep to whatever a profile says), or the builder's own keys or machine, where a profile runs as written |
 | `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
-| run-payload helpers, `studioRunDefines()`, `clearStaleStudioRuns()` | Handoff of a compiled draft to the run tab, whether a kept run still defines on this package, and clearing the ones that do not |
+| `maskedStudioRun()`, `studioRunCredentials()`, `withStudioRunCredentials()`, `readStudioRunIdFromUrl()`, `studioRunDefines()` | Handoff of a compiled draft to the run tab: the copy the browser keeps has its tools' credentials masked, and the run tab gets them back from the studio tab that opened it. `studioRunDefines()` says whether a kept run still defines on this package |
 | `createStudioTransport()`, `studioInterface()` | The run tab's transport for a compiled draft; its `traces` feed receives the records each run writes |
 | `runGuardrailProbes()`, `runGuardrailProbe()`, `probeDraft()`, `PROBE_BOUNDARIES`, `PROBE_BOUNDARY_NOTES`, `PROBE_STATUSES` | Test a draft's guardrails: send one text across every boundary, or across one, on a scripted model. Each boundary answers with a status (passed, flagged, redacted, or blocked), whether its turn was tainted by a remote read, the guardrail events, what went on past the boundary, and the turn's trace records. No model or host is called. Each boundary's note says what crosses it, when the kernel reads it and what the kernel does there |
 | `PROBE_BATTERY` | Hard texts to probe with: disguised attacks and harmless texts that look like attacks, each with the boundary it crosses and whether a guardrail should act on it |

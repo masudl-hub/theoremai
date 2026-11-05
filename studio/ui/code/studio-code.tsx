@@ -90,16 +90,8 @@ export function StudioCode({ text, hold, isReadOnly = false, issues, onApply }: 
       // Colour only, until the visitor types. The typechecker is a compiler in
       // a worker, so it stays out of this import.
       await import('monaco-editor/languages/definitions/typescript/register');
-      const editorWorker = (await import('monaco-editor/editor/editor.worker?worker')).default;
-      (self as MonacoHost).MonacoEnvironment = {
-        getWorker() {
-          return new editorWorker();
-        },
-      };
+      await monaco.serveMonacoWorkers();
       if (life.disposed || !host.isConnected) return;
-      const dark =
-        document.documentElement.dataset.theme === 'dark' ||
-        globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
       const uri = monaco.Uri.parse('file:///agent.ts');
       monaco.editor.getModel(uri)?.dispose();
       const model = monaco.editor.createModel(printed.current, 'typescript', uri);
@@ -107,7 +99,7 @@ export function StudioCode({ text, hold, isReadOnly = false, issues, onApply }: 
         model,
         readOnly: readOnly.current,
         language: 'typescript',
-        theme: dark ? 'vs-dark' : 'vs',
+        theme: monaco.studioMonacoTheme(),
         minimap: { enabled: false },
         fontSize: 13,
         wordWrap: 'on',
@@ -240,13 +232,6 @@ export function StudioCode({ text, hold, isReadOnly = false, issues, onApply }: 
   }, [issues]);
 
   return <div ref={node} className="studio-fill" />;
-}
-
-/** `self` in the browser, which Monaco reads for its workers. */
-interface MonacoHost {
-  MonacoEnvironment?: {
-    getWorker(workerId: string, label: string): Worker;
-  };
 }
 
 function marker(

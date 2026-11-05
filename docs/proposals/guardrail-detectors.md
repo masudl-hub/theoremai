@@ -1,9 +1,8 @@
 # Guardrail detectors: one standard for everything the kernel finds in text
 
-**Status:** proposal. Rewritten 5 Oct 2026 with Masud. It replaces the first
-version of this file, whose steps 1 to 4 are built (section 11). Section 12
-lists what is decided and section 13 what is still open. Nothing new is built
-until Masud agrees the whole doc.
+**Status:** built. Rewritten 5 Oct 2026 with Masud. It replaces the first
+version of this file. The build order of section 11 is done. Section 12
+lists what is decided and section 13 what is still open.
 
 ## 1. The standard
 

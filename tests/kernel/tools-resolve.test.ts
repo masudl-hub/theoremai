@@ -102,7 +102,13 @@ function registryWith(): ToolRegistry {
 const tools = registryWith();
 
 function textProfile(allow: string[], extra: Record<string, unknown> = {}): Profile {
-  return as<Profile>({ id: 'p', type: 'text', tools: { allow, ...extra }, models: {} });
+  return as<Profile>({
+    id: 'p',
+    type: 'text',
+    identity: { handle: 'p' },
+    tools: { allow, ...extra },
+    models: {},
+  });
 }
 
 function modelProfile(
@@ -114,6 +120,7 @@ function modelProfile(
   return as<Profile>({
     id: 'p',
     type,
+    identity: { handle: 'p' },
     tools: { allow, ...extra },
     models: { m: builtInTools ? { builtInTools } : {} },
   });
@@ -352,6 +359,145 @@ Deno.test('initialBuiltins keeps builtins that are T0, or any tier for live, min
   check(initialBuiltins(tools, as<Profile>({ type: 'text' }), ['ca', 'cb']), [], 'T2 not initial');
 });
 
+Deno.test('resolveTurnTools refuses a tool whose path the profile does not list', () => {
+  const declared = as<Profile>({
+    id: 'p',
+    type: 'text',
+    identity: { handle: 'p', options: { path: { choices: [{ value: 'web' }] } } },
+    tools: { allow: ['f1'] },
+    models: {},
+  });
+  const offPath = createToolRegistry();
+  offPath.register({
+    type: 'function',
+    name: 'f1',
+    description: 'f1 description',
+    category: 'test',
+    access: 'read-only',
+    paths: ['fax'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: inputSchema,
+    output: z.object({}),
+    handler: () => ({}),
+  });
+  try {
+    resolveTurnTools(offPath, declared, req(), undefined);
+    throw new Error('expected a refusal');
+  } catch (err) {
+    check(
+      (err as Error).message,
+      'Profile p: Tool f1 lists path "fax", which is not one of web.',
+      'refusal',
+    );
+    check(err instanceof TheoremError, true, 'kind');
+  }
+});
+
+Deno.test('resolveTurnTools checks tool paths for text, image and live profiles alike', () => {
+  const offPath = createToolRegistry();
+  offPath.register({
+    type: 'function',
+    name: 'f1',
+    description: 'f1 description',
+    category: 'test',
+    access: 'read-only',
+    paths: ['fax'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: inputSchema,
+    output: z.object({}),
+    handler: () => ({}),
+  });
+  for (const type of ['text', 'image', 'live'] as const) {
+    const declared = as<Profile>({
+      id: type,
+      type,
+      identity: { handle: type, options: { path: { choices: [{ value: 'web' }] } } },
+      tools: { allow: ['f1', 'not_registered'] },
+      models: {},
+    });
+    try {
+      resolveTurnTools(offPath, declared, req(), undefined);
+      throw new Error(`expected a refusal for ${type}`);
+    } catch (err) {
+      check(
+        (err as Error).message,
+        `Profile ${type}: Tool f1 lists path "fax", which is not one of web.`,
+        type,
+      );
+    }
+  }
+});
+
+Deno.test('resolveTurnTools accepts a T2 loader that never detaches, and refuses one that can', () => {
+  const loaders = createToolRegistry();
+  const loader = (name: string, background?: 'never' | 'always') =>
+    loaders.register({
+      type: 'function',
+      name,
+      description: `${name} description`,
+      category: 'test',
+      access: 'read-only',
+      paths: ['*'],
+      loadTier: 'T0',
+      permission: 'auto',
+      input: inputSchema,
+      output: z.object({}),
+      handler: () => ({}),
+      ...(background ? { background } : {}),
+    });
+  loader('plain');
+  loader('never_detaches', 'never');
+  loader('detaches', 'always');
+  for (const name of ['plain', 'never_detaches']) {
+    check(
+      resolveTurnTools(loaders, textProfile([name], { t2Loader: name }), req(), undefined).gated,
+      [name],
+      name,
+    );
+  }
+  try {
+    resolveTurnTools(
+      loaders,
+      textProfile(['detaches'], { t2Loader: 'detaches' }),
+      req(),
+      undefined,
+    );
+    throw new Error('expected a refusal');
+  } catch (err) {
+    check(
+      (err as Error).message,
+      "Profile p: tools.t2Loader 'detaches' sets background, and a loader cannot detach",
+      'detaching loader',
+    );
+  }
+});
+
+Deno.test('resolveTurnTools resolves no model builtins for an embedding profile', () => {
+  const embedding = as<Profile>({
+    id: 'e',
+    type: 'embedding',
+    models: { m: { builtInTools: ['b0'] } },
+  });
+  check(resolveTurnTools(tools, embedding, req(), 'm' as ModelId).gated, [], 'embedding');
+});
+
+Deno.test('a turn with a background service marks its snapshot, and a clone keeps the mark', () => {
+  const profile = modelProfile('text', ['f0']);
+  const state = resolveTurnTools(
+    tools,
+    profile,
+    req(undefined, { background: {} }),
+    'm' as ModelId,
+  );
+  check(state.modelBackground, true, 'marked');
+  check(cloneTurnToolSnapshot(state).modelBackground, true, 'clone keeps it');
+  const plain = resolveTurnTools(tools, profile, req(), 'm' as ModelId);
+  check('modelBackground' in plain, false, 'unmarked');
+  check('modelBackground' in cloneTurnToolSnapshot(plain), false, 'clone stays unmarked');
+});
+
 Deno.test('resolveTurnTools gates custom then model builtins and derives builtins, visible, executable, and wire', () => {
   const profile = modelProfile('text', ['f0', 'f1', 'f2', 'fweb'], ['b0', 'b1', 'bweb', 'f0']);
   const state = resolveTurnTools(
@@ -406,6 +552,7 @@ Deno.test('resolveTurnTools resolves no model builtins for host and decision pro
   const profile = as<Profile>({
     id: 'p',
     type: 'text',
+    identity: { handle: 'p' },
     tools: { allow: ['f0'] },
     models: { undefined: { builtInTools: ['b0'] } },
   });

@@ -10,6 +10,7 @@
 import {
   type Profile,
   type ProfileDefinition,
+  type RegisteredProvider,
   TheoremError,
   type TraceRecord,
   type TurnEvent,
@@ -27,7 +28,12 @@ import {
   sanitizeTurnRequestWithEvents,
   TOOL_RULES,
 } from '@theoremjs/agents/guardrails';
-import { keySlotsOf, type ModelEvent, type ModelRequest } from '@theoremjs/agents/kernel';
+import {
+  ANSWER_TOOL,
+  keySlotsOf,
+  type ModelEvent,
+  type ModelRequest,
+} from '@theoremjs/agents/kernel';
 import { firstServed } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
@@ -36,6 +42,7 @@ import {
   type StudioDependency,
   writtenScope,
 } from './runtime-scope.ts';
+import { type JsonSchema, sampleFromJsonSchema } from './tool-schema.ts';
 
 /** Where a probe's text enters the turn. */
 export const PROBE_BOUNDARIES = [
@@ -102,14 +109,15 @@ export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, ProbeBoundaryNote> = {
     label: 'Local tool result',
     note: 'What one of the host’s own functions returns.',
     when: 'When the tool returns, before the model reads the result.',
-    checks: 'Injection phrasing and sensitive data are replaced in the result the model reads.',
+    checks:
+      'Injection phrasing, orders to the agent and sensitive data are replaced in the result the model reads.',
   },
   tool_result_remote: {
     label: 'Remote tool result',
     note: 'What a tool returns from outside the host: a web page, an MCP server, another agent. It runs here as another agent’s reply, and the model then makes a destructive call.',
     when: 'When the tool returns, and again at each call the model makes after it.',
     checks:
-      'Replaced as a local result is, fenced as tool data, and read for instructions to the agent (a claim of authority, an order, a callable tool’s name), which tool_instructions reports by default. Every later call is reported, and refused where taint.afterRemoteRead says.',
+      'Replaced as a local result is, fenced as tool data, and read for orders to the agent (a claim of authority, an order, a callable tool’s name), which injection reports by default and which raise taint. Every later call is reported, and refused where taint.afterRemoteRead says.',
   },
   tool_failure: {
     label: 'Tool error',
@@ -406,10 +414,16 @@ function scripted(steps: ModelEvent[][], seen: ModelRequest[]): TurnModel {
   return {
     async *complete(req) {
       seen.push(req);
-      const events = steps[step] ?? [{ type: 'text', text: 'ok' }];
+      const answer = req.wireTools?.find(({ name }) => name === ANSWER_TOOL);
+      const events = steps[step] ?? (answer ? [] : [{ type: 'text', text: 'ok' }]);
       step += 1;
       await Promise.resolve();
       yield* events;
+      // why: A structured turn with tools ends only on this call; a step that ends without one
+      // would fail the probe before its guardrails answer.
+      if (answer && !events.some(({ type }) => type === 'tool')) {
+        yield call(ANSWER_TOOL, sampleFromJsonSchema(answer.parameters as JsonSchema));
+      }
     },
   };
 }
@@ -782,9 +796,17 @@ function probeStatus(guardrails: readonly GuardrailEvent[], refused: boolean): P
 function assertProbeable(
   profile: ProfileDefinition,
   probe: GuardrailProbe,
-): asserts profile is Exclude<ProfileDefinition, { type: 'decision' | 'embedding' }> {
+): asserts profile is Exclude<
+  ProfileDefinition,
+  { type: 'decision' | 'embedding' | 'transcription' }
+> {
   const refusal = probeRefusal(profile);
-  if (refusal || profile.type === 'decision' || profile.type === 'embedding') {
+  if (
+    refusal ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding' ||
+    profile.type === 'transcription'
+  ) {
     throw new TheoremError('request', refusal ?? ''); // labels-exempt: builder diagnostic
   }
   if (!probeBoundariesOf(profile).includes(probe.boundary)) {
@@ -803,7 +825,7 @@ function assertProbeable(
 function probeStream(run: {
   scope: Awaited<ReturnType<typeof writtenScope>>['scope'];
   profile: Profile;
-  type: ProfileDefinition['type'];
+  definition: ProfileDefinition;
   probe: GuardrailProbe;
   signal?: AbortSignal;
   onAgentCall: ReturnType<typeof agentCallHook>;
@@ -811,7 +833,7 @@ function probeStream(run: {
   sink: { write(record: TraceRecord): Promise<void> };
 }): AsyncGenerator<TurnEvent> {
   const { scope, profile, probe, signal, onAgentCall, sink } = run;
-  if (run.type === 'host' || run.type === 'live') {
+  if (run.definition.type === 'host' || run.definition.type === 'live') {
     return scope.invokeTool({ profile: profile.id, ...hostCall(probe), signal, onAgentCall }, sink);
   }
   return scope.runTurn(
@@ -850,17 +872,22 @@ export async function runGuardrailProbe(args: {
   customTools: readonly ToolRegistration[];
   structured?: StructuredRegistration;
   dependencies?: readonly StudioDependency[];
+  /** The project's own providers, which the draft's models may name. */
+  projectProviders?: readonly RegisteredProvider[];
   probe: GuardrailProbe;
   signal?: AbortSignal;
 }): Promise<GuardrailProbeResult> {
   const { probe } = args;
   const asked = args.profile;
   assertProbeable(asked, probe);
-  const { scope, profile } = await writtenScope([
-    ...(args.dependencies ?? []),
-    ...(asked.type === 'speech' || asked.type === 'live' ? [] : [remoteAgent(asked)]),
-    probedDraft(asked, args.customTools, args.structured, probe.text),
-  ]);
+  const { scope, profile } = await writtenScope(
+    [
+      ...(args.dependencies ?? []),
+      ...(asked.type === 'speech' || asked.type === 'live' ? [] : [remoteAgent(asked)]),
+      probedDraft(asked, args.customTools, args.structured, probe.text),
+    ],
+    args.projectProviders,
+  );
   if (!profile) throw new TheoremError('request', 'No agent to probe.'); // labels-exempt: builder diagnostic
 
   const seen: ModelRequest[] = [];
@@ -892,7 +919,7 @@ export async function runGuardrailProbe(args: {
       : probeStream({
           scope,
           profile,
-          type: asked.type,
+          definition: asked,
           probe,
           signal: args.signal,
           onAgentCall,

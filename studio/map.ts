@@ -99,7 +99,9 @@ function byRows(
 /** What a section's row says beside its name, where one line can say it. */
 function rowNote(agent: AgentDraft, facet: string, tools: ReadonlyMap<string, string>): string {
   if (facet === 'models')
-    return agent.modelBindings.map((binding) => binding.modelId || 'New model').join(', ');
+    return agent.modelBindings
+      .map((binding) => binding.modelId.trim() || 'Unnamed model')
+      .join(', ');
   if (facet === 'tools') return String(agent.tools.allow.filter((key) => tools.has(key)).length);
   if (facet === 'outputs') return agent.outputs.mode;
   return '';
@@ -121,7 +123,7 @@ export function workspaceMap(
     return {
       id: agentNodeId(agent.key),
       kind: 'agent',
-      label: agentId || 'New agent',
+      label: agentId.trim() || 'Unnamed agent',
       note: handle ? `${type} · ${handle}` : type,
       opens: agentNodeId(agent.key),
       type,
@@ -171,7 +173,7 @@ export function workspaceMap(
         models.set(id, {
           id,
           kind: 'model',
-          label: binding.modelId || 'New model',
+          label: binding.modelId.trim() || 'Unnamed model',
           note: binding.apiId,
           opens,
           holds: [opens],
@@ -202,7 +204,7 @@ export function workspaceMap(
     return {
       id,
       kind: 'tool',
-      label: tool.toolName || 'New tool',
+      label: tool.toolName.trim() || 'Unnamed tool',
       note: tool.description,
       opens: id,
       type: tool.toolType,

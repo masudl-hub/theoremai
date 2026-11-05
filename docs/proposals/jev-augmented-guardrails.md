@@ -1,6 +1,6 @@
 # Jev-augmented guardrails — investigation and proposed build slice
 
-**Status:** investigated with live Jev calls; not implemented. This proposal is
+**Status:** proposal. Investigated with live Jev calls; not built. This proposal is
 separate from the native Jev decision-profile core.
 
 ## Objective

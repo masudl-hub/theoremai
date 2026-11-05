@@ -1,6 +1,6 @@
 # Host-owned conversation
 
-Status: built for chat and Studio; live calls are still open (section 5). Section 9 records the decisions.
+**Status:** building. Built for chat and Studio; live calls are still open (section 5). Section 9 records the decisions.
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** decide where a chat's conversation lives, and what changes if the host owns it.

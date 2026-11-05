@@ -28,12 +28,17 @@ export {
   type InkWaveformProps,
   type InkWaveLevels,
 } from '../components/InkWaveform.tsx';
-export { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
+export {
+  type LiveCall,
+  type LiveCallInput,
+  useLiveCall,
+} from '../components/live/use-live-call.ts';
 export { theoremTheme } from './built/theorem.js';
 export {
   ChatComposerBar,
   type ChatComposerBarProps,
   EFFORT_ICON,
+  generationOptions,
   type LiveComposerBarProps,
 } from './ChatComposerBar.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';

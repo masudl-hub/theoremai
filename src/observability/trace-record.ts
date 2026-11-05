@@ -43,7 +43,7 @@ const RAW_ATTRIBUTE = 'raw';
 const MATCH_ATTRIBUTE = 'match';
 
 /** The detectors `scrub.injection` cleans a record with. */
-const INSTRUCTION_DETECTORS: readonly Detector[] = ['injection', 'tool_instructions'];
+const INSTRUCTION_DETECTORS: readonly Detector[] = ['injection'];
 
 /** Whether a switch cleans with one side's patterns, when it names its sides. */
 function sideOn(on: ResolvedScrubSwitch, side: keyof Exclude<StoredSides, true>): boolean {

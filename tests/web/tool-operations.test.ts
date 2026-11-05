@@ -1,14 +1,18 @@
-import { assert, assertEquals, assertRejects } from '@std/assert';
+import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import {
+  authorizeToolReplay,
   defaultKernelScope,
+  defineProfile,
   invokeTool,
   registerProfile,
   registerTool,
+  TheoremError,
   type ToolOperationIdentity,
   type TurnEvent,
   z,
 } from '../../mod.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { createMemorySessionStore, createTheoremHostHandler } from '../../web/src/server/mod.ts';
 import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -35,50 +39,103 @@ async function post(
   };
 }
 
-for (const limit of ['operations', 'reserve', 'outcome'] as const) {
-  Deno.test(`session ${limit} capacity refuses unsafe dispatch or retains its uncertain claim`, async () => {
-    const name = `capacity_${limit}`;
-    let effects = 0;
-    registerTool({
-      type: 'function',
-      name,
-      description: 'Count a dispatch',
-      category: 'test',
-      access: 'read-write',
-      permission: 'auto',
-      loadTier: 'T0',
-      paths: ['*'],
-      input: z.object({}),
-      output: z.object({ text: z.string() }),
-      handler: () => {
-        effects++;
-        return { text: limit === 'outcome' ? 'x'.repeat(10000) : 'ok' };
-      },
-    });
-    const store = createMemorySessionStore();
-    const handler = createTheoremHostHandler({
-      profile: { type: 'host', id: name, tools: { allow: [name] } },
-      session: () => name,
-      sessionStore: store,
-      sessionLimits:
-        limit === 'operations'
-          ? { maxOperations: 1 }
-          : limit === 'reserve'
-            ? { maxStateBytes: 1024 }
-            : { maxOutcomeBytes: 1024 },
-    });
-    await post(handler, 'call', { name, input: {} });
-    const before = (await store.load(name))?.state;
-    if (limit === 'operations') {
-      assertEquals(effects, 1);
-      await post(handler, 'call', { name, input: {} });
-      assertEquals((await store.load(name))?.state, before);
-    } else if (limit === 'outcome') {
-      assertEquals(Object.values(before?.operations ?? {})[0]?.status, 'uncertain');
-    }
-    assertEquals(effects, limit === 'reserve' ? 0 : 1);
+function countingTool(name: string, text: () => string) {
+  const calls = { effects: 0 };
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Count a dispatch',
+    category: 'test',
+    access: 'read-write',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ text: z.string() }),
+    handler: () => {
+      calls.effects++;
+      return { text: text() };
+    },
   });
+  return calls;
 }
+
+function capacityHandler(
+  name: string,
+  capacity: { maxStateBytes: number; maxOutcomeBytes: number },
+) {
+  const store = createMemorySessionStore({ capacity });
+  const handler = createTheoremHostHandler({
+    profile: { type: 'host', id: name, tools: { allow: [name] } },
+    session: () => name,
+    sessionStore: store,
+  });
+  return { store, handler };
+}
+
+Deno.test("a result over the store's maxOutcomeBytes settles as result_too_large, never unresolved", async () => {
+  const name = 'capacity_outcome';
+  const calls = countingTool(name, () => 'x'.repeat(10000));
+  const { store, handler } = capacityHandler(name, { maxStateBytes: 65536, maxOutcomeBytes: 4096 });
+  const { events } = await post(handler, 'call', { name, input: {} });
+  assertEquals(calls.effects, 1);
+  const operation = Object.values((await store.load(name))?.state.operations ?? {})[0];
+  assert(operation?.status === 'settled');
+  assertEquals(operation.outcome.effects, 'completed');
+  assertEquals(operation.outcome.replay.failure?.code, 'result_too_large');
+  const ended = events.find((event) => event.type === 'tool' && event.tool.phase === 'error');
+  assert(ended?.type === 'tool' && ended.tool.phase === 'error');
+  assertEquals(ended.tool.failure.code, 'result_too_large');
+  assert(!JSON.stringify(events).includes('did not settle'));
+});
+
+Deno.test('a store that declares no capacity keeps a result of any size', async () => {
+  const name = 'capacity_unset';
+  const calls = countingTool(name, () => 'x'.repeat(2 * 1024 * 1024));
+  const store = createMemorySessionStore();
+  const handler = createTheoremHostHandler({
+    profile: { type: 'host', id: name, tools: { allow: [name] } },
+    session: () => name,
+    sessionStore: store,
+  });
+  const { events } = await post(handler, 'call', { name, input: {} });
+  assertEquals(calls.effects, 1);
+  assertEquals(store.capacity, undefined);
+  const operation = Object.values((await store.load(name))?.state.operations ?? {})[0];
+  assert(operation?.status === 'settled');
+  assertEquals(operation.outcome.replay.failure, undefined);
+  assert(!events.some((event) => event.type === 'tool' && event.tool.phase === 'error'));
+});
+
+Deno.test('a full session drops its oldest settled results so new calls still run', async () => {
+  const name = 'capacity_evict';
+  const calls = countingTool(name, () => 'ok');
+  const { store, handler } = capacityHandler(name, { maxStateBytes: 8192, maxOutcomeBytes: 2048 });
+  const settled: string[] = [];
+  for (let call = 0; call < 8; call++) {
+    await post(handler, 'call', { name, input: {} });
+    const newest = Object.values((await store.load(name))?.state.operations ?? {})
+      .flatMap((operation) => (operation.status === 'settled' ? [operation] : []))
+      .sort((a, b) => b.settledAt - a.settledAt)[0];
+    assert(newest);
+    settled.push(newest.operationId);
+  }
+  assertEquals(calls.effects, 8);
+  const kept = Object.keys((await store.load(name))?.state.operations ?? {});
+  assert(kept.length < 8, `oldest results were dropped: ${kept.length} kept`);
+  assert(kept.includes(settled.at(-1) ?? ''), 'the newest result is kept');
+  assert(!kept.includes(settled[0] ?? ''), 'the oldest result is dropped');
+});
+
+Deno.test('open work that does not fit is refused before the tool runs', async () => {
+  const name = 'capacity_reserve';
+  const calls = countingTool(name, () => 'ok');
+  const { store, handler } = capacityHandler(name, { maxStateBytes: 1024, maxOutcomeBytes: 1024 });
+  const { events } = await post(handler, 'call', { name, input: {} });
+  assertEquals(calls.effects, 0);
+  assertEquals(Object.keys((await store.load(name))?.state.operations ?? {}).length, 0);
+  assert(JSON.stringify(events).includes('this conversation is full'), JSON.stringify(events));
+});
 
 Deno.test('settlement retention is absolute and independent of a replacement handler policy', async () => {
   const name = 'absolute_settlement_retention';
@@ -221,6 +278,7 @@ Deno.test('claims reject a stale worker and allow the original worker to settle 
   const store = createMemorySessionStore();
   const coordinator = sessionToolCoordinator(
     {
+      capacity: store.capacity,
       async mutate(id, change) {
         const snapshot = await store.load(id);
         const state = snapshot?.state ?? {
@@ -334,6 +392,7 @@ Deno.test('kernel replay preserves guarded read-back without dispatching the han
   registerProfile({ type: 'host', id: name, tools: { allow: [name] } });
   let outcome: import('../../mod.ts').ToolOperationOutcome | undefined;
   const execution: import('../../mod.ts').ToolExecutionCoordinator = {
+    maxOutcomeBytes: 1024 * 1024,
     lookup: () => Promise.resolve(outcome ? { kind: 'settled', outcome } : undefined),
     begin: () =>
       Promise.resolve(
@@ -385,6 +444,7 @@ Deno.test('settlement write failure retains uncertainty before the client receiv
     handler: () => ({ count: ++effects }),
   });
   const store: import('../../web/src/server/mod.ts').TheoremSessionStore = {
+    capacity: memory.capacity,
     load: (id) => memory.load(id),
     compareAndSwap(id, revision, next) {
       if (
@@ -555,6 +615,7 @@ Deno.test('promotion refusal is saved as not started before its terminal event',
   });
   let saved: import('../../mod.ts').ToolOperationOutcome | undefined;
   const execution: import('../../mod.ts').ToolExecutionCoordinator = {
+    maxOutcomeBytes: 1024 * 1024,
     lookup: () => Promise.resolve(undefined),
     begin: () => Promise.reject(new Error('Refusal must not acquire a body claim')),
     settle: () => Promise.reject(new Error('Refusal must not settle a body claim')),
@@ -711,53 +772,134 @@ Deno.test('unserializable prepared input refuses dispatch before effects', async
   assert(operations.every((operation) => operation.status !== 'running'));
 });
 
-Deno.test('stricter current disclosure refuses a cached result without reopening its effect', async () => {
-  const name = 'stricter_cached_disclosure';
-  let effects = 0;
+for (const stricter of ['block', 'redact'] as const) {
+  Deno.test(`stricter current disclosure (${stricter}) refuses a cached result without reopening its effect`, async () => {
+    const name = `stricter_cached_disclosure_${stricter}`;
+    let effects = 0;
+    registerTool({
+      type: 'function',
+      name,
+      description: 'Read an identifier',
+      category: 'test',
+      access: 'read-only',
+      permission: 'always_confirm',
+      loadTier: 'T0',
+      paths: ['*'],
+      input: z.object({}),
+      output: z.object({ ssn: z.string() }),
+      handler: () => {
+        effects++;
+        return { ssn: '123-45-6789' };
+      },
+    });
+    const store = createMemorySessionStore();
+    const make = (action: 'ignore' | typeof stricter) =>
+      createTheoremHostHandler({
+        profile: {
+          id: name,
+          type: 'host',
+          tools: { allow: [name] },
+          guardrails: { detect: { ids: action } },
+        },
+        session: () => name,
+        sessionStore: store,
+      });
+    const initial = make('ignore');
+    const issued = (await post(initial, 'call', { name, input: {} })).events.findLast(
+      (event) => event.type === 'tool' && event.tool.phase === 'gate',
+    );
+    assert(issued?.type === 'tool' && issued.tool.operationId);
+    const answer = {
+      gateId: issued.tool.callId,
+      operationId: issued.tool.operationId,
+      decision: 'approve',
+    };
+    const completed = await post(initial, 'invoke', answer);
+    assert(JSON.stringify(completed.events).includes('123-45-6789'));
+    const saved = (await store.load(name))?.state;
+    const replay = await post(make(stricter), 'invoke', answer);
+    assert(!JSON.stringify(replay.events).includes('123-45-6789'));
+    assert(replay.events.some((event) => event.type === 'error' && event.errorKind === 'blocked'));
+    assertEquals((await store.load(name))?.state, saved);
+    assertEquals(effects, 1);
+  });
+}
+
+Deno.test('a hidden tool replays only the words that say it finished', async () => {
+  const name = 'hidden_cached_disclosure';
   registerTool({
     type: 'function',
     name,
-    description: 'Read an identifier',
+    description: 'Read a secret the model never sees',
     category: 'test',
     access: 'read-only',
     permission: 'always_confirm',
     loadTier: 'T0',
     paths: ['*'],
+    exposeToModel: false,
     input: z.object({}),
-    output: z.object({ ssn: z.string() }),
-    handler: () => {
-      effects++;
-      return { ssn: '123-45-6789' };
-    },
+    output: z.object({ text: z.string() }),
+    handler: () => ({ text: 'kept from the model' }),
   });
   const store = createMemorySessionStore();
-  const make = (action: 'ignore' | 'block') =>
-    createTheoremHostHandler({
-      profile: {
-        id: name,
-        type: 'host',
-        tools: { allow: [name] },
-        guardrails: { detect: { ids: action } },
-      },
-      session: () => name,
-      sessionStore: store,
-    });
-  const initial = make('ignore');
-  const issued = (await post(initial, 'call', { name, input: {} })).events.findLast(
+  const profile = defineProfile({ id: name, type: 'host', tools: { allow: [name] } });
+  const handler = createTheoremHostHandler({ profile, session: () => name, sessionStore: store });
+  const issued = (await post(handler, 'call', { name, input: {} })).events.findLast(
     (event) => event.type === 'tool' && event.tool.phase === 'gate',
   );
   assert(issued?.type === 'tool' && issued.tool.operationId);
-  const answer = {
+  await post(handler, 'invoke', {
     gateId: issued.tool.callId,
     operationId: issued.tool.operationId,
     decision: 'approve',
-  };
-  const completed = await post(initial, 'invoke', answer);
-  assert(JSON.stringify(completed.events).includes('123-45-6789'));
-  const saved = (await store.load(name))?.state;
-  const replay = await post(make('block'), 'invoke', answer);
-  assert(!JSON.stringify(replay.events).includes('123-45-6789'));
-  assert(replay.events.some((event) => event.type === 'error' && event.errorKind === 'blocked'));
-  assertEquals((await store.load(name))?.state, saved);
-  assertEquals(effects, 1);
+  });
+  const operation = Object.values((await store.load(name))?.state.operations ?? {})[0];
+  assert(operation?.status === 'settled');
+  const { outcome } = operation;
+  const replay = (saved: typeof outcome) =>
+    authorizeToolReplay({
+      tools: defaultKernelScope.tools,
+      profile,
+      name,
+      resume: undefined,
+      outcome: saved,
+    });
+  replay(outcome);
+  const shown = { ...outcome.replay.modelResult, finding: 'kept from the model' };
+  assertThrows(
+    () => replay({ ...outcome, replay: { ...outcome.replay, modelResult: shown } }),
+    TheoremError,
+  );
+});
+
+Deno.test('a replay is refused for a tool the registry lacks, and for one the profile does not allow', () => {
+  const name = 'replay_not_allowed';
+  registerTool({
+    type: 'function',
+    name,
+    description: 'A tool no profile here allows',
+    category: 'test',
+    access: 'read-only',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ text: z.string() }),
+    handler: () => ({ text: 'never run' }),
+  });
+  const profile = defineProfile({ id: name, type: 'host', tools: { allow: [] } });
+  const replay = (tool: string) =>
+    authorizeToolReplay({
+      tools: defaultKernelScope.tools,
+      profile,
+      name: tool,
+      resume: undefined,
+    });
+  const missing = assertThrows(() => replay('replay_no_such_tool'), TheoremError);
+  assertEquals([missing.kind, missing.message], ['blocked', labelText('error.blocked')]);
+  const refused = assertThrows(() => replay(name), TheoremError);
+  assertEquals(
+    [refused.kind, refused.message],
+    ['blocked', labelText('tool.not_allowed', { tool: name, profile: name })],
+  );
 });

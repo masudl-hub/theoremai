@@ -131,8 +131,13 @@ const boundary = await createTheoremSessionBoundary({
 });
 const open = parseLiveOpenMessage(firstFrame);
 const session = await runSession(
-  { profile, ...await boundary.prepareLiveOpen(open, hostContext) },
-  { vault: hostKeyVault, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
+  {
+    profile,
+    ...await boundary.prepareLiveOpen(open, hostContext),
+    execution: boundary.toolExecution,
+    pageExecution: boundary.pageExecution,
+  },
+  { vault: hostKeyVault },
 );
 for await (const event of session.events()) {
   if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState) {
@@ -142,13 +147,34 @@ for await (const event of session.events()) {
 }
 ```
 
-- `prepareLiveOpen` returns validated history, slots, context, native state, and absence duration. It removes system-role history.
+- `prepareLiveOpen` returns validated history, options, context, native state, and absence duration. It removes system-role history.
 - Its second argument supplies server context. Browser context stays under `client`.
 - Save checkpoint ownership before you send the event. If storage fails, close the session without advertising that checkpoint.
 - The boundary refuses native resumption while a saved operation is ready, running, or uncertain. It does not repeat the operation.
 - Without a session resolver, the boundary uses an anonymous cookie. Forward its `setCookie` value in the upgrade response.
 - `open.host` is the `openMessage` that the page's `connection` returned.
 - Read later messages with `parseLiveClientMessage`. Give context messages to `session.sendContext({ client: message.context })`.
+
+### The live client
+
+`LiveSessionClient` opens the call from the page. It runs each call the model makes on the relay:
+
+```ts
+import { LiveSessionClient } from '@theoremjs/web/client';
+
+const client = new LiveSessionClient({
+  profile: 'guide',
+  pageTools: {
+    highlight: (args) => ({ output: { highlighted: String(args.target) } }),
+  },
+});
+await client.connect();
+```
+
+- A call dispatched to the page runs the `pageTools` function of the same name. Its `output` goes to the model.
+- A page tool with no function, or a function that throws, answers with no answer. The console names a page tool that has no function. The call does not wait.
+- `onGate` answers every other gate: ask the user, then return what `continueGatedToolInvocation` makes of the answer. Without `onGate`, the client refuses every gate.
+- When the connection closes, the calls still open fail, and the relay closes the session.
 
 ## A chat with no framework
 
@@ -177,7 +203,8 @@ await chat.submit();
 
 - `getState()` returns a `ChatState`. It is a new object after each change, and the same object between changes. So you can compare it by reference, as React's `useSyncExternalStore` does.
 - `subscribe(listener)` calls the listener once for each group of changes, after the code that made them has run. It returns the function that unsubscribes. Until the first subscribe or send, the chat asks nothing of the host. Then it reads a resumed conversation that came without its `conversationView`, and answers a restored page gate as unanswered.
-- `update(options)` gives the controller your latest options, such as a new `context`, `slots`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, `initialText`, `initialFiles`, `initialVoice`, and `initialPending` are read only when the controller is created.
+- `update(options)` gives the controller your latest options, such as a new `context`, `options`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, `initialText`, `initialFiles`, `initialVoice`, and `initialPending` are read only when the controller is created.
+- A live call takes `stated` in its options, and `setStated(stated)` changes it during the call. As with `setOptions`, the call is taken up again with the prompt lines the new value chooses.
 - Each method is bound to the controller. Pass it as a callback as it is.
 
 `state.phase` is `'idle'`, `'streaming'`, or `'gated'`. The methods for the composer depend on it:
@@ -188,13 +215,14 @@ await chat.submit();
 | `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`, and joins the transcript there, between the reply before it and the reply after. A steer the turn never takes waits at the front of the queue. |
 | `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
 | `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
+| `pend(message)` | Steers, queues, or stashes a message you made with `createComposerPendingMessage`, as `enqueue` does the draft. A message queued on an idle chat sends at once. A composer shared by several chats gives each the same message, so its id names it in all of them. |
 | `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first, as `stop()` stops it. A reply that waits on gates is left. |
 | `movePending(id, direction)` | Moves a pending message one place `'up'` or `'down'` among the messages of its kind. `composerPendingMoves(messages, id)` from `@theoremjs/agents/interface` says which ways it can go, so a control that can do nothing is not drawn. |
 | `restorePending(id)` | Puts a pending message back in the composer. The draft that was there is stashed first, so the user loses nothing. |
 | `stop()` | Stops the streaming reply with `transport.stop`. What the reply said before the stop stays in the transcript and the history, closed as cancelled. A queued message stays queued. When the host refuses the stop, the controller drops the stream instead, and a host that keeps the conversation keeps the stopped reply where the page can't read it. |
 | `decide(action)`, `authenticate(secret?)` | Answer the gate that the reply waits on. |
 | `branch(index)` | Cuts the conversation after transcript block `index`. |
-| `sendText(text, files?)` | Sends a message from your code. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
+| `sendText(text, options?)` | Sends a message from your code. `options` can add `files`, `voice`, a `model` and its `effort`. The model becomes the chat's pick, as if chosen in the composer. An `effort` without a `model` applies to the chat's current model. A model the profile does not have is refused by the turn, not replaced by the default. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
 
 The controller uses these methods of the transport: `turn`, `invoke` (to answer a gate), `steer`, `stop`, `conversation`, and `rewind`. `conversation` and `rewind` are called only for a profile whose host keeps the conversation. `pageResult` is called when the reply hands a tool to the page.
 
@@ -236,15 +264,32 @@ const transport = withPageToolDispatch(
 | `provider` | Host options, including the credential vault. A function can return these options per request, for example for tenant-specific credentials. |
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
-| `prepare` | Your app's own turn, from the one the handler builds (`TurnWiring.prepare` from `@theoremjs/agents`). Set what your app sets per turn, such as `system`, `credentials`, `onStage` and `onAgentCall`; read your app data as `turn.host`. The handler keeps its profile, its tool execution and its abort. Your `onStage` runs before the handler's steering, and your `credentials` are read before the session's. |
+| `prepare` | Your app's own turn, from the one the handler builds (`TurnWiring.prepare` from `@theoremjs/agents`). Set what your app sets per turn, such as `system`, `credentials`, `onStage`, `onEvent` and `onAgentCall`; read your app data as `turn.host`. The handler keeps its profile, its tool execution and its abort. Your `onStage` runs before the handler's steering, and your `credentials` are read before the session's. A call held at a gate runs on, once answered, with the `host`, `onStage` and `credentials` you give for that call's turn; that turn has `answersHeldCall`, and its `onEvent` is not called, because no new turn runs. |
+| `onStage` | The server's own stage handler, on every call the handler runs, a host profile's included: after your app's (`prepare`), before steering. For a rule the server adds to whatever the app says, such as a question before each tool that writes. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
+| `pageStatesTurn` | Let the page say which prompt lines a turn gets, through `stated` on a turn or a live call. Set it only for a page you trust as yourself, such as a builder's own tool. Without it, a request with `stated` is refused. |
 | `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |
 | `sessionStore`, `steerInbox` | Where open gates are kept, and where steers and stops reach a running turn. Default: process memory, which reaches only turns this process runs. On more than one instance, give a shared `SteerInbox`. |
+| `notifier`, `notifyRetryMs` | Tell an open page that a background call ended, and how long the page waits to reopen a cut stream. Unset, the page reads the end on its next turn or reload. See [the background section](#share-session-authority). |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
-| `gateTtlMs` | How long a gate waits for an answer. Default: 30 minutes. A later answer fails with `session.gate_expired`. |
+| `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`, and the next message cancels the call. Unset, a gate waits until it is answered. |
+| `maxRequestBytes` | The largest browser request body, in bytes. Unset, a body of any size is read. |
+| `pageToolTimeoutMs` | How long the page has to answer a tool call it runs. A call it has not answered by then settles as timed out. Unset, the call waits until the page answers or the turn stops. The browser clients answer every call they get, so only a page function that never returns holds a turn. |
+| `operationRetentionMs` | How long a settled tool result is kept. Default: 24 hours. |
 | `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
 | `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
+
+### Defaults
+
+A limit that stops a turn or refuses a request is unset unless you set it: `gateTtlMs`, `maxRequestBytes`, `pageToolTimeoutMs`, and a session store's `capacity`. The memory stores expire and evict nothing unless you set `ttlMs` and `maxSessions`, so they grow until the process ends. Set both on a public server. These have a default:
+
+| What | Default | Set it with |
+| --- | --- | --- |
+| A settled tool result | Kept 24 hours | `operationRetentionMs` |
+| The session cookie | Lasts 30 days | `session` |
+
+A model profile that leaves out `maxSteps` makes at most 20 model calls a turn.
 
 ### Start a conversation with content
 
@@ -279,7 +324,7 @@ The session store keeps gates, permissions, and operations. The two stores are s
 
 | Store | Where the conversation is kept |
 | --- | --- |
-| `createMemoryConversationStore()` | Process memory, for one server instance. A conversation that is not saved for 24 hours expires. At most 10,000 conversations are kept; the one saved longest ago goes first. Set `ttlMs` and `maxSessions` to change these limits. |
+| `createMemoryConversationStore()` | Process memory, for one server instance. It keeps every conversation until the process ends. Set `ttlMs` to expire a conversation that is not saved for that long, and `maxSessions` to cap the count; the one saved longest ago goes first. |
 | `createSealedConversationStore({ keys, keyVersion })` | Nowhere on the server. The ref is the conversation itself, encrypted and signed with your key, and bound to the session. The browser cannot read it or change it. |
 | Your own `TheoremConversationStore` | Your database. |
 
@@ -317,6 +362,7 @@ interface ConversationDatabase {
 - A null `ref` creates a conversation. Return a new opaque `ref` and `revision`.
 - Otherwise, write only while the stored revision is still `expectedRevision`, as one atomic operation. Return `{ written: false }` on a conflict.
 - Check what you read back with `storedConversationSchema`.
+- Keep `id` as the handler gives it. It names the conversation in each turn's trace as `gen_ai.conversation.id`, and stays the same through every save and rewind.
 
 ### Share session authority
 
@@ -376,28 +422,25 @@ Saved outcomes include guarded model read-back, media, provenance, and suspiciou
 The handler retains settled operations for 24 hours from settlement by default. Set `operationRetentionMs` to change this window.
 Each saved outcome records its absolute retention deadline. Changing a handler's policy does not shorten that deadline.
 Each issued gate records its absolute expiry. Changing `gateTtlMs` does not extend an issued gate.
-Ready, running, and uncertain operations do not expire.
+Ready, running, background, and uncertain operations do not expire.
 
-Use `sessionLimits` when your storage budget requires different finite limits. The defaults are:
+A session store with a real limit declares its `capacity`: what it holds for one session, in bytes of UTF-8 JSON.
 
-| Limit | Default |
+| Field | What it bounds |
 | --- | --- |
-| `maxGates` | 32 |
-| `maxOperations` | 128 |
-| `maxCheckpoints` | 256 |
-| `maxPermissions` | 2,048 |
-| `maxStateBytes` | 32 MiB |
-| `maxInvocationBytes` | 256 KiB |
-| `maxOutcomeBytes` | 256 KiB |
+| `maxStateBytes` | One session's saved state |
+| `maxOutcomeBytes` | One tool result |
 
-Set `maxRequestBytes` to bound browser JSON before parsing. Its default is 16 MiB.
+A store that declares no `capacity` holds any size. `createMemorySessionStore` declares none unless you pass `capacity`, with both fields. A store you write declares the capacity of its own storage, if it has one.
+
+Set `maxRequestBytes` to bound browser JSON before parsing. Unset, a body of any size is read. A relay passes the same number to `parseLiveOpenMessage` and `parseLiveClientMessage`.
 The handler rejects oversized requests before provider access or tool preparation.
 Provider host options also accept `limits` for deadlines and upstream output.
-Byte limits measure UTF-8 JSON. The handler reserves one maximum outcome for each gate and unresolved operation.
-A new claim fails before dispatch when it cannot reserve that space.
-An oversized result after dispatch leaves an uncertain claim. It does not restore an approval.
-Limits never remove unresolved authority or shorten retained settlements. The host must reconcile and archive unresolved actions.
-The memory store accepts the same `sessionLimits` options. Shared stores receive checked states through the handler.
+When the store declares a capacity, the handler keeps room for one `maxOutcomeBytes` result for each gate and each call that has not settled.
+When a session is full, the handler drops its oldest settled results, then its oldest provider checkpoints.
+It never drops gates, permissions, or calls that have not settled. When those alone do not fit, the new call is refused before it runs, and the user reads `session.full`.
+A result larger than `maxOutcomeBytes` settles as the call's `result_too_large` failure. The call is never left unresolved because of its size.
+The handler fits each state to the store's capacity, when it has one, before `compareAndSwap`.
 
 The default memory store coordinates handlers that share the same store object.
 It retains unexpired gates, unresolved operations, and unexpired outcomes during idle and capacity eviction.
@@ -408,14 +451,22 @@ These claims do not provide exactly-once effects at the destination. Use the ope
 Concurrent pending attempts can reach preparation before one claims the body.
 Permission checks and pre-body hooks must be read-only or independently idempotent. The kernel cannot prove hook purity.
 A live session does not restore a dispatched call after an unexpected failure. It retains an uncertain call on that connection.
-To retain execution claims across connections, supply a durable coordinator through `RunSessionOptions.execution`.
+To retain execution claims across connections, supply a durable coordinator as `execution` on `SessionRequest`.
 Browser dispatch uses a host-owned `PageToolExecution` service beside the execution coordinator.
-`createTheoremHandler` supplies both services. Live relays pass the session boundary's `pageExecution` and `toolExecution` to `runSession`.
+`createTheoremHandler` supplies both services. Live relays put the session boundary's `pageExecution` and `toolExecution` on `SessionRequest`.
+
+A tool with a `background` setting runs inline until you pass the `background` option to `createTheoremHandler`. The option takes `{ request, sessionId }` and returns a `ToolBackgroundService`, which receives each detached call and its late events. The session keeps the call as `background` until it settles, and a late settlement does not invalidate a checkpoint. A conversation read shows the call as it stands: running, then its result, or an error for a marked call. An open page reads it on its next turn or reload, unless you set `notifier`. When the session has dropped a settled operation, the block reads an error with the code `outcome_not_retained`. On a durable store, a worker that dies leaves the operation as `background`, so your sweep marks it `uncertain` with `worker_lost` through `compareAndSwap`. Keep the service's values valid after the request ends. A live relay passes its service to `runSession`.
+To show an open page that a background call ended, with no turn or reload, pass `notifier: createMemoryNotifier()` to `createTheoremHandler`. While a call runs, the conversation read tells the page to open `POST <base>/notify`. The handler sends one `changed` line when the stream opens, and one when each background call in the session ends. The line carries no content, so the page calls the same conversation read as before. The page closes the stream when no call runs. The model reads nothing new: a late result still reaches it through `input.lateResults`.
+
+`createMemoryNotifier` reaches only pages connected to the process that ran the call. On more than one instance, give a shared `TheoremNotifier`. Your sweep calls `publish` with the session id after it marks a call `worker_lost`, because that write does not pass through the handler. Hosting platforms cut long responses. Set `notifyRetryMs` so that the page reopens the stream after that wait. Unset, the page does not reopen it, and reads the end on its next turn or reload.
+
+To reach a closed tab, send a Web Push from your `background` service, when the handle's `done` resolves. Theorem does not hold push subscriptions or VAPID keys. If your service worker then reaches an open page, call `refresh()` on the `ChatController`. It runs the same read.
+
 Forward live page results to `answerPageResult`. Preserve checkpoint ownership through `beforeEvent` when using the Studio bridge.
 The default `PageToolBroker` keeps active result waiters in process memory. Several workers need a shared broker or request affinity.
 Use `pageToolBroker` to supply that broker. It carries results; the atomic session store retains execution authority.
 Lost result delivery does not permit another dispatch. The operation retains its claim or an uncertain outcome.
-The default result deadline is 20 seconds. An expired or interrupted result cannot reopen approval.
+Set `pageToolTimeoutMs` to give the page a deadline for a result. Unset, a dispatch waits until the page answers or the turn stops. The browser clients answer every dispatch they get, with no answer when the page has no function for the tool, so only a page function that never returns holds a turn. An expired or interrupted result cannot reopen approval.
 
 ## Build your own server
 

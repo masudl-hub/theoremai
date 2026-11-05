@@ -15,6 +15,7 @@ export {
   useEmbeddingIndex,
 } from './hooks/use-embedding-index.ts';
 export {
+  type SendTextOptions,
   type SentTurn,
   type UseTheoremChatOptions,
   useTheoremChat,

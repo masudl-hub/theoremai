@@ -1,6 +1,7 @@
 import {
   type ChatOptions,
   createChatController,
+  type SendTextOptions,
   type SentTurn,
   type ToolDecisionAction,
 } from '@theoremjs/web/client';
@@ -13,7 +14,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 
-export type { SentTurn };
+export type { SendTextOptions, SentTurn };
 
 export type UseTheoremChatOptions = ChatOptions;
 
@@ -30,9 +31,9 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
   const [chat] = useState(() => createChatController(options));
   useOptionsEffect(() => chat.update(options));
   const state = useSyncExternalStore(chat.subscribe, chat.getState, chat.getState);
-  const slotChoices = useMemo(
-    () => (state.slots ? { ...state.slots, onChange: chat.pickSlot } : undefined),
-    [chat, state.slots],
+  const optionChoices = useMemo(
+    () => (state.options ? { ...state.options, onChange: chat.pickOption } : undefined),
+    [chat, state.options],
   );
   // why: The transcript draws each gate by its index; the chat answers the one gate that waits.
   const handleAuthenticated = useCallback(
@@ -45,7 +46,7 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
   );
   return {
     ...state,
-    slotChoices,
+    optionChoices,
     setDraftText: chat.setDraftText,
     setPendingFiles: chat.setPendingFiles,
     setPendingVoice: chat.setPendingVoice,
@@ -63,5 +64,7 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     handleToolDecision,
     handleGenerationChange: chat.setGeneration,
     sendText: chat.sendText,
+    /** The controller under it all, for a host that drives the chat from outside. */
+    controller: chat,
   };
 }

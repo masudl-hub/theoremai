@@ -35,6 +35,8 @@ export function sqliteSessionStore(path: string): TheoremSessionStore {
     return JSON.parse(new TextDecoder().decode(output.stdout)) as unknown;
   };
   return {
+    // why: A durable store has a real limit, so it declares one.
+    capacity: { maxStateBytes: 16 * 1024 * 1024, maxOutcomeBytes: 1024 * 1024 },
     async load(sessionId) {
       const result = await run('load', sessionId);
       return result === null ? undefined : snapshotSchema.parse(result);

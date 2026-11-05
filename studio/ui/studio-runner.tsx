@@ -1,15 +1,7 @@
 import { Button } from '@astryxdesign/core/Button';
 import { HStack } from '@astryxdesign/core/HStack';
-import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
-import { IconKey } from '@tabler/icons-react';
-import {
-  PaneLoading,
-  PaneState,
-  TheoremChat,
-  TheoremLabelsProvider,
-  useLabels,
-} from '@theoremjs/react/ui';
+import { PaneLoading, TheoremChat, TheoremLabelsProvider, useLabels } from '@theoremjs/react/ui';
 import {
   createDecisionTransport,
   createEmbeddingTransport,
@@ -33,14 +25,15 @@ import {
   compileWorkspace,
   createStudioTransport,
   ON_OWN_KEYS,
-  type StudioConnectionMode,
   type StudioRunPayload,
   type StudioWorkspace,
   studioInterface,
   studioPageTools,
+  type WorkspaceStarts,
   workspaceRunAgent,
 } from '../mod.ts';
 import { useActingAs } from './lib/acting-as.ts';
+import { runsAsConversation } from './lib/conversation-types.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
@@ -60,6 +53,7 @@ import {
   unsavedEdits,
   useEditedLoad,
   useLoadedStamp,
+  useLoadedStated,
   useSavedHidden,
 } from './studio-compare.tsx';
 import { ChooseConflictsContext } from './studio-conflicts.tsx';
@@ -98,7 +92,6 @@ function RunLoadingPane() {
 
 export interface StudioRunnerProps {
   payload: StudioRunPayload;
-  mode: StudioConnectionMode;
   runtime: StudioBrowserRuntime | null;
   trace?: boolean;
   className?: string;
@@ -109,8 +102,7 @@ export interface StudioRunnerProps {
   /** Called on each request the conversation sends: a turn, call, decision, or live session. */
   onActivity?: () => void;
   /**
-   * The ref of a chat conversation to resume, as `onConversationChange` reported it (text and
-   * image agents run in the page). A project's chat is not resumed: its key is the run's.
+   * The ref of a chat conversation to resume, as `onConversationChange` reported it.
    */
   conversation?: ChatProps['conversation'];
   /** The conversation under `conversation` as the server showed it, drawn at once. */
@@ -125,8 +117,11 @@ export interface StudioRunnerProps {
   initialPending?: ChatProps['initialPending'];
   onConversationChange?: ChatProps['onConversationChange'];
   chatRef?: ChatProps['chatRef'];
-  /** The value the page picked for each slot, for a chat's turns and a call's start. */
-  slots?: ChatProps['slots'];
+  /** The value the page picked for each option, for a chat's turns and a call's start. */
+  options?: ChatProps['options'];
+  onOptionsChange?: ChatProps['onOptionsChange'];
+  /** What a run of a profile states: it declares its own options. */
+  statedOf?: (of: StudioRunPayload) => ChatProps['stated'];
   /** What the page tells the agent. */
   context?: ChatProps['context'];
   /**
@@ -144,28 +139,7 @@ export interface StudioRunnerProps {
  * A runner is one conversation. The chat keeps its transcript when an edit recompiles the draft,
  * so its trace feed outlives each transport too; remount the runner (a new `key`) to start over.
  */
-export function StudioRunner({
-  payload,
-  mode,
-  runtime,
-  trace,
-  className,
-  flush,
-  columns,
-  onActivity,
-  conversation,
-  conversationView,
-  initialText,
-  initialFiles,
-  initialVoice,
-  initialPending,
-  onConversationChange,
-  chatRef,
-  slots,
-  context,
-  tested,
-  traces: given,
-}: StudioRunnerProps) {
+export function StudioRunner({ onActivity, traces: given, ...props }: StudioRunnerProps) {
   const [own] = useState(createTraceFeed);
   const traces = given ?? own;
   const activity = useRef(onActivity);
@@ -177,36 +151,13 @@ export function StudioRunner({
   }, []);
   return (
     <Suspense fallback={<RunLoading />}>
-      <Run
-        payload={payload}
-        mode={mode}
-        runtime={runtime}
-        trace={trace}
-        className={className}
-        flush={flush}
-        columns={columns}
-        conversation={conversation}
-        conversationView={conversationView}
-        initialText={initialText}
-        initialFiles={initialFiles}
-        initialVoice={initialVoice}
-        initialPending={initialPending}
-        onConversationChange={onConversationChange}
-        chatRef={chatRef}
-        slots={slots}
-        context={context}
-        tested={tested}
-        project={project}
-        traces={traces}
-        note={note}
-      />
+      <Run {...props} project={project} traces={traces} note={note} />
     </Suspense>
   );
 }
 
 function Run({
   payload,
-  mode,
   runtime,
   trace,
   className,
@@ -220,13 +171,15 @@ function Run({
   initialPending,
   onConversationChange,
   chatRef,
-  slots,
+  options,
+  onOptionsChange,
+  statedOf,
   context,
   tested,
   project,
   traces,
   note,
-}: RunProps & { mode: StudioConnectionMode; project: ProjectSession | null }) {
+}: RunProps & { project: ProjectSession | null }) {
   if (project)
     return (
       <ProjectRun
@@ -238,18 +191,19 @@ function Run({
         flush={flush}
         columns={columns}
         note={note}
+        conversation={conversation}
+        conversationView={conversationView}
+        initialText={initialText}
+        initialFiles={initialFiles}
+        initialVoice={initialVoice}
+        initialPending={initialPending}
+        onConversationChange={onConversationChange}
         chatRef={chatRef}
-        slots={slots}
+        options={options}
+        onOptionsChange={onOptionsChange}
+        statedOf={statedOf}
         context={context}
         tested={tested}
-      />
-    );
-  if (mode !== 'demo' && !runtime)
-    return (
-      <PaneState
-        icon={<Icon icon={IconKey} size="lg" color="secondary" />}
-        title="Connect to run"
-        description="Add your provider keys or local endpoint under Keys."
       />
     );
   if (payload.profile.type === 'decision')
@@ -307,7 +261,9 @@ function Run({
       initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
-      slots={slots}
+      options={options}
+      onOptionsChange={onOptionsChange}
+      statedOf={statedOf}
       context={context}
     />
   );
@@ -353,46 +309,55 @@ function UnsavedActions({ agentId, isNew }: { agentId: string; isNew: boolean })
 }
 
 export type ChatProps = ComponentProps<typeof TheoremChat>;
-type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity' | 'traces'> & {
+type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'onActivity' | 'traces'> & {
   traces: TraceFeed;
   note: () => void;
 };
 /** The types that are not a conversation: a chat cannot sit beside one of these. */
-const NOT_A_CHAT = new Set(['decision', 'host', 'live']);
-const isChat = (payload: StudioRunPayload) => !NOT_A_CHAT.has(payload.profile.type);
+const isChat = (payload: StudioRunPayload) => runsAsConversation(payload.profile.type);
 
 /**
- * The agent as the files hold it, compiled from where the workspace started: an edit may have
- * renamed it or made it another type. Undefined for an agent the files do not hold.
+ * The agents the files hold, compiled from where the workspace started: an edit may have renamed
+ * one or made it another type. Undefined when the files hold none of them.
  */
-function savedPayload(
-  edits: StudioWorkspace,
-  payload: StudioRunPayload,
+function compileFiles(
+  starts: WorkspaceStarts,
+  providers: StudioWorkspace['providers'],
   profiles: readonly string[],
-): StudioRunPayload | undefined {
-  const inFiles = (agent: { identity: { agentId: string } }) =>
-    profiles.includes(agent.identity.agentId.trim());
-  const key = edits.agents.find((agent) => agent.identity.agentId.trim() === payload.agentId)?.key;
-  const start = key === undefined ? undefined : edits.starts.agents[key];
-  if (!start || !inFiles(start)) return undefined;
-  const agents = Object.values(edits.starts.agents).filter(inFiles);
+) {
+  const agents = Object.values(starts.agents).filter((agent) =>
+    profiles.includes(agent.identity.agentId.trim()),
+  );
   const here = new Set(agents.map((agent) => agent.key));
   // A tool that ran an agent the edits removed has no agent here to run.
-  const toolSpecs = Object.values(edits.starts.tools).filter(
+  const toolSpecs = Object.values(starts.tools).filter(
     (tool) => tool.toolType !== 'agent' || here.has(tool.agentKey ?? ''),
   );
   const held = new Set(toolSpecs.map((tool) => tool.key));
-  const files: StudioWorkspace = {
-    ...edits,
-    agents: agents.map((agent) => ({
-      ...agent,
-      tools: { ...agent.tools, allow: agent.tools.allow.filter((toolKey) => held.has(toolKey)) },
-    })),
-    toolSpecs,
-  };
   // The files run in the project, on its own setup.
-  const compiled = compileWorkspace(files, ON_OWN_KEYS);
-  const run = compiled.ok ? workspaceRunAgent(compiled, start.identity.agentId.trim()) : undefined;
+  const compiled = compileWorkspace(
+    {
+      agents: agents.map((agent) => ({
+        ...agent,
+        tools: { ...agent.tools, allow: agent.tools.allow.filter((toolKey) => held.has(toolKey)) },
+      })),
+      toolSpecs,
+      providers,
+    },
+    ON_OWN_KEYS,
+  );
+  return compiled.ok ? compiled : undefined;
+}
+
+/** The agent as the files hold it, from their compile. Undefined for an agent the files do not hold. */
+function savedPayload(
+  edits: StudioWorkspace,
+  files: NonNullable<ReturnType<typeof compileFiles>>,
+  payload: StudioRunPayload,
+): StudioRunPayload | undefined {
+  const key = edits.agents.find((agent) => agent.identity.agentId.trim() === payload.agentId)?.key;
+  const start = key === undefined ? undefined : edits.starts.agents[key];
+  const run = start && workspaceRunAgent(files, start.identity.agentId.trim());
   if (!run) return undefined;
   const { agentId, profile, customTools, structured, questions, dependencies } = run;
   return { ...payload, agentId, profile, customTools, structured, questions, dependencies };
@@ -408,9 +373,11 @@ type SideProps = Pick<
   | 'flush'
   | 'columns'
   | 'chatRef'
-  | 'slots'
+  | 'options'
+  | 'onOptionsChange'
   | 'context'
 > & {
+  stated?: ChatProps['stated'];
   /** Where this side's profile answers: the files' own, or the load of the edits. */
   endpoint: string;
   /**
@@ -432,7 +399,9 @@ function SideRun({
   flush,
   columns,
   chatRef,
-  slots,
+  options,
+  onOptionsChange,
+  stated,
   context,
 }: SideProps) {
   const { type } = payload.profile;
@@ -479,7 +448,9 @@ function SideRun({
         trace={trace}
         className={className}
         chatRef={chatRef}
-        slots={slots}
+        options={options}
+        onOptionsChange={onOptionsChange}
+        stated={stated}
         context={context}
       />
     );
@@ -493,7 +464,8 @@ function SideRun({
       endpoint={endpoint}
       note={note}
       trace={trace}
-      slots={slots}
+      options={options}
+      stated={stated}
       context={context}
     />
   );
@@ -510,6 +482,7 @@ function ProjectSides({
   edits,
   traces,
   chatRef,
+  statedOf,
   ...shared
 }: Omit<RunProps, 'runtime' | 'tested'> & {
   project: ProjectSession;
@@ -519,6 +492,7 @@ function ProjectSides({
   const { answer, pending } = useEditedLoad(project, edits, false);
   const stamp = useLoadedStamp(answer);
   const refused = answer && !answer.ok && !pending ? answer : undefined;
+  const stated = useLoadedStated(statedOf?.(payload), !pending && !refused);
   const isSavedHidden = useSavedHidden();
   // The edited side's own feed, so its traces are not the files' side's.
   const [editedTraces] = useState(createTraceFeed);
@@ -530,6 +504,7 @@ function ProjectSides({
             <SideRun
               {...shared}
               payload={saved}
+              stated={statedOf?.(saved)}
               endpoint={projectProfileEndpoint(project, saved.agentId)}
               traces={traces}
             />
@@ -553,6 +528,7 @@ function ProjectSides({
               {...shared}
               load={stamp}
               payload={payload}
+              stated={stated}
               endpoint={editedProfileEndpoint(project, payload.agentId)}
               traces={editedTraces}
               chatRef={chatRef}
@@ -574,11 +550,18 @@ function ProjectRun({
   tested,
   ...run
 }: Omit<RunProps, 'runtime'> & { project: ProjectSession }) {
-  const { payload } = run;
+  const { payload, statedOf } = run;
   const edits = useMemo(() => unsavedEdits(tested, project.profiles), [tested, project.profiles]);
+  const starts = edits?.starts;
+  const providers = edits?.providers;
+  // why: Choosing another agent or node changes neither the files nor the providers, so they compile once.
+  const files = useMemo(
+    () => (starts && providers ? compileFiles(starts, providers, project.profiles) : undefined),
+    [starts, providers, project.profiles],
+  );
   const saved = useMemo(
-    () => (edits ? savedPayload(edits, payload, project.profiles) : undefined),
-    [edits, payload, project.profiles],
+    () => (edits && files ? savedPayload(edits, files, payload) : undefined),
+    [edits, files, payload],
   );
   if (isChat(payload) && (!saved || isChat(saved)))
     return (
@@ -590,13 +573,29 @@ function ProjectRun({
         traces={run.traces}
         trace={run.trace}
         className={run.className}
+        conversation={run.conversation}
+        conversationView={run.conversationView}
+        initialText={run.initialText}
+        initialFiles={run.initialFiles}
+        initialVoice={run.initialVoice}
+        initialPending={run.initialPending}
+        onConversationChange={run.onConversationChange}
         chatRef={run.chatRef}
-        slots={run.slots}
+        options={run.options}
+        onOptionsChange={run.onOptionsChange}
+        stated={statedOf?.(payload)}
+        savedStated={statedOf?.(saved ?? payload)}
         context={run.context}
       />
     );
   if (!edits)
-    return <SideRun {...run} endpoint={projectProfileEndpoint(project, payload.agentId)} />;
+    return (
+      <SideRun
+        {...run}
+        stated={statedOf?.(payload)}
+        endpoint={projectProfileEndpoint(project, payload.agentId)}
+      />
+    );
   return <ProjectSides {...run} project={project} saved={saved} edits={edits} />;
 }
 function TurnRun({
@@ -614,9 +613,12 @@ function TurnRun({
   initialPending,
   onConversationChange,
   chatRef,
-  slots,
+  options,
+  onOptionsChange,
+  statedOf,
   context,
 }: RunProps) {
+  const stated = statedOf?.(payload);
   const iface = useMemo(() => studioInterface(payload), [payload]);
   /** The studio's page answers each page tool with the tool's stub. */
   const pageTools = useMemo(() => studioPageTools(payload), [payload]);
@@ -639,7 +641,8 @@ function TurnRun({
       runtime={runtime}
       note={note}
       trace={trace}
-      slots={slots}
+      options={options}
+      stated={stated}
       context={context}
     />
   ) : (
@@ -657,7 +660,9 @@ function TurnRun({
       initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
-      slots={slots}
+      options={options}
+      onOptionsChange={onOptionsChange}
+      stated={stated}
       context={context}
       pageTools={pageTools}
     />

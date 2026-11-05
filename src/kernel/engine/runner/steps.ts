@@ -52,6 +52,13 @@ import type {
 import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
+import {
+  canDropMedia,
+  dropMedia,
+  type RefusedMediaTry,
+  refusedReport,
+  restoreMedia,
+} from './refused-media.ts';
 import { applyStageInjects, recordReply } from './stages.ts';
 import { modelHistory, recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
@@ -146,6 +153,7 @@ function startProviderCall(
     usage,
     binding: state.trace.binding,
     transport: genForStep.transport,
+    operation: genForStep.operationName,
     step: state.stepCount,
     attempt: state.trace.attempt,
   });
@@ -162,7 +170,7 @@ interface StepOutcome {
   /** Where that text begins in the attempt's reply, past the break that sets it apart. */
   replyAt?: number;
   latestStructured?: unknown;
-  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined };
+  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined; dropMedia?: true };
 }
 
 /**
@@ -196,6 +204,10 @@ interface CallTally {
   replied: boolean;
   /** Where the call's text begins in the attempt's reply (`StepExecutionState.replyText`). */
   replyAt?: number;
+  /** The answer tool's arguments as the call's drafts streamed them. */
+  answerDraft: string;
+  /** The provider reported the output limit, whatever stop outranks it after. */
+  cut: boolean;
 }
 
 /** Takes what an event says about the call itself. True when the event goes no further. */
@@ -246,7 +258,29 @@ async function* showAnswer(
 }
 
 /**
- * A tool call's preview. The answer tool's streams as the structured reply's draft.
+ * An answer the output limit cut off: its drafts, kept on the attempt for the repair. The call
+ * stops at `length`, and the failure its broken arguments gave is not the turn's.
+ *
+ * why: A protocol hands over a call whose arguments do not parse as a bare `bad_response`, and
+ * drops the call; the stream then stops it as a `provider_error`. Its drafts are what the model
+ * wrote, and the cut is why it broke.
+ */
+function keepCutOffAnswer(
+  tally: CallTally,
+  state: StepExecutionState,
+  generation: ResolvedGeneration,
+): void {
+  if (!tally.cut || !answersByTool(generation) || !tally.answerDraft.trim()) return;
+  if (tally.calls.some((call) => call.name === ANSWER_TOOL && !call.failure)) return;
+  state.cutOffAnswer = tally.answerDraft;
+  tally.failures = tally.failures.filter((failure) => failure.errorKind !== 'bad_response');
+  tally.stop = { kind: 'length' };
+  state.lastStop = tally.stop;
+}
+
+/**
+ * A tool call's preview. The answer tool's streams as the structured reply's draft, and the call
+ * keeps it, for the repair of an answer the output limit cuts off (`keepCutOffAnswer`).
  *
  * why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
  * as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
@@ -256,7 +290,9 @@ async function* showToolDraft(
   shown: StructuredDrafts,
   generation: ResolvedGeneration,
   buffer: { holdVisible: boolean },
+  tally: CallTally,
 ): AsyncGenerator<TurnEvent> {
+  if (event.name === ANSWER_TOOL) tally.answerDraft += event.text;
   if (buffer.holdVisible) return;
   if (event.name === ANSWER_TOOL && answersByTool(generation)) yield* shown.draft(event.text);
   else yield event;
@@ -338,6 +374,27 @@ function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepO
   return { stop, failure };
 }
 
+/**
+ * The re-send a refused call is due when it carried files.
+ *
+ * why: One file the provider cannot read refuses every call that replays it. Sent without
+ * the files, the call shows whether they were at fault; what it cost was one refused call.
+ */
+function mediaResumeOf(
+  state: StepExecutionState,
+  profile: Profile,
+  tally: CallTally,
+): StepOutcome['resume'] {
+  const { stop } = tally;
+  if (profile.type !== 'text' || state.triedWithoutMedia) return undefined;
+  if (tally.replied || tally.calls.length > 0 || !stop || !isFailedStopKind(stop.kind)) {
+    return undefined;
+  }
+  const failure = tally.failures[0];
+  if (failure?.errorKind !== 'unsupported' || !resendsFailedCall(profile, stop)) return undefined;
+  return canDropMedia(state) ? { stop, failure, dropMedia: true } : undefined;
+}
+
 /** Carries what the call's stream guards still hold into the turn's next call. */
 function keepStreamCarry(state: StepExecutionState, control: OutboundStreamControl): void {
   state.canaryCarry = control.canaryCarry;
@@ -371,7 +428,15 @@ async function* executeAutonomousStep(
     isAnswerOnlyStep(profile, generation, state.stepCount),
     profile.labels,
   );
-  const tally: CallTally = { calls: [], reasoning: [], text: '', failures: [], replied: false };
+  const tally: CallTally = {
+    calls: [],
+    reasoning: [],
+    text: '',
+    failures: [],
+    replied: false,
+    answerDraft: '',
+    cut: false,
+  };
   const control: OutboundStreamControl = {
     withholdVisible: false,
     ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
@@ -407,12 +472,13 @@ async function* executeAutonomousStep(
       }
       if (event.type === 'done') {
         state.providerState = event.providerState;
+        tally.cut ||= event.stop.kind === 'length';
         tally.stop = event.stop;
         state.lastStop = event.stop;
         continue;
       }
       if (event.type === 'tool_draft') {
-        yield* showToolDraft(event, shown, generation, buffer);
+        yield* showToolDraft(event, shown, generation, buffer, tally);
         continue;
       }
       // why: The model's history keeps what it wrote; only the reply the host gets is set apart.
@@ -429,9 +495,10 @@ async function* executeAutonomousStep(
   }
 
   yield* shown.end();
+  keepCutOffAnswer(tally, state, generation);
   yield* showAnswer(shown, tally, { generation, state, control, buffer, call });
   keepStreamCarry(state, control);
-  const resume = resumeOf(args.mayResume, profile, tally);
+  const resume = resumeOf(args.mayResume, profile, tally) ?? mediaResumeOf(state, profile, tally);
   if (!resume) {
     for (const failure of tally.failures) {
       recordStepEvent(failure, state);
@@ -461,6 +528,8 @@ async function* executeAutonomousStep(
  * lists, having given no reply and no tool call, is sent again in the same turn
  * after a pause, up to `maxContinues` times a turn (once when the profile sets
  * none). The turn's history, its step count, and what it has read stay as they were.
+ * A call the provider refused while it carried files goes once more without them, and
+ * those files are reported as refused only if that call is accepted.
  */
 async function* executeResumedStep(
   args: Omit<Parameters<typeof executeAutonomousStep>[0], 'mayResume'>,
@@ -468,10 +537,30 @@ async function* executeResumedStep(
   buffer: { holdLate: boolean; holdVisible: boolean },
 ): AsyncGenerator<TurnEvent, StepOutcome> {
   const limit = profileTurnResumption(args.profile)?.maxContinues ?? 1;
+  let tried: RefusedMediaTry | undefined;
   for (;;) {
     const mayResume = args.profile.type === 'text' && state.resumes < limit;
     const outcome = yield* executeAutonomousStep({ ...args, mayResume }, state, buffer);
-    if (!outcome.resume) return outcome;
+    if (!outcome.resume) {
+      if (tried && state.lastStop && isFailedStopKind(state.lastStop.kind)) {
+        restoreMedia(state, tried);
+      } else if (tried) {
+        state.mediaRefused = refusedReport(tried);
+      }
+      return outcome;
+    }
+    if (outcome.resume.dropMedia) {
+      const said = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error ?? '';
+      state.triedWithoutMedia = true;
+      tried = dropMedia(state, said, args.profile.labels);
+      state.trace.root.event('theorem.step.media_refused', {
+        step: state.stepCount,
+        files: tried.dropped.length,
+        error: said,
+      });
+      state.lastStop = undefined;
+      continue;
+    }
     state.resumes += 1;
     const detail = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error;
     state.trace.root.event('theorem.step.resume', {
@@ -623,7 +712,7 @@ async function* handleModelCalls(
   profile: Profile,
   state: StepExecutionState,
   system: BoundSystem,
-  { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
+  { onStage, signal, credentials, resolveHost, fetch }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   const { calls: upstreamCalls, reasoning } = outcome;
   if (upstreamCalls.length > 0) recordReply(state, stepReply(outcome), outcome.replyAt);
@@ -686,6 +775,7 @@ async function* handleModelCalls(
       executeRegisteredTool({
         tools: state.tools,
         execution: generation.execution,
+        ...(state.background ? { background: state.background } : {}),
         invocation: {
           model: generation.model,
           input: generation.input,
@@ -704,6 +794,7 @@ async function* handleModelCalls(
           turn,
           credentials,
           resolveHost,
+          fetch,
           host: generation.host,
           resume: undefined,
           signal,
@@ -775,6 +866,10 @@ async function* executeAttempt(args: {
   // why: Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
   const holdVisible = validation !== undefined && generation.stream === false;
 
+  // why: A reply that spent its steps before it paused has no step left to read the answered call.
+  if (isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
+    state.lastStop = { kind: 'step_limit' };
+  }
   // why: Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start
   // of each attempt cycle.

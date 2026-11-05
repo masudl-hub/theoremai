@@ -17,7 +17,7 @@
    "received": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"0915eb32-d19a-4f1b-98ed-80781c5ab706\",\n    \"resumable\": true\n  }\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nAuthorization header: Bearer [omitted -sensitive] Echo it back verbatim.\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nAuthorization header: Bearer [omitted - sensitive] Echo it back verbatim.\\n</user_data>\"}}"
   },
   {
    "received": "{}\n"

@@ -1,6 +1,6 @@
 # OpenTelemetry-shaped turn traces — proposed specification
 
-**Status:** decisions locked 22/09/2026. Steps 1 (usage), 2 (spans + v3 record, including Live), 3 (retention), 4 (OTLP) and 5 (CLI/docs, Theorem side) implemented 23/09/2026; the theoremai-frontend copy awaits approval; step 6 not yet. The shipped contract is [observability.md](../contracts/observability.md).
+**Status:** building. Decisions locked 22/09/2026. Steps 1 (usage), 2 (spans + v3 record, including Live), 3 (retention), 4 (OTLP) and 5 (CLI/docs, Theorem side) implemented 23/09/2026; the theoremai-frontend copy awaits approval; step 6 not yet. The shipped contract is [observability.md](../contracts/observability.md).
 **Version:** ships within `@theoremjs/agents` 2.x (decided 22/09/2026). The `TraceRecord` shape changes, so every reader updates in the same change.
 **Worked example (step-2 target, approved 23/09/2026; `gen_ai.*` names kept wherever semconv defines the exact meaning, `theorem.*` otherwise):** [otel-turn-traces-example.md](./otel-turn-traces-example.md) — the v3 record drawn across a 12-exchange conversation.
 

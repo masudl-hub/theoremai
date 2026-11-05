@@ -46,7 +46,9 @@ Deno.test('speech X-Generation-Id lands on the call span as gen_ai.response.id',
     true,
     JSON.stringify(events.map((event) => event.type)),
   );
-  const call = into[0]?.spans.find((span) => span.attributes['gen_ai.operation.name'] === 'chat');
+  const call = into[0]?.spans.find(
+    (span) => span.attributes['gen_ai.operation.name'] === 'generate_content',
+  );
   assertEquals(call?.attributes['gen_ai.response.id'], 'gen-tts-call-span');
   assertEquals(call?.attributes['gen_ai.output.type'], 'speech');
   // why: header attrs stay on the POST try; OTel stores them as string[].

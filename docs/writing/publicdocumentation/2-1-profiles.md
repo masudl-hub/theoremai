@@ -16,13 +16,13 @@ graph TD
 
     subgraph CoreContract["Core Specification"]
         IdType["id & type"]
-        Identity["identity: { handle, system, systemByRole }"]
+        Identity["identity: { handle, options, system }"]
         Models["models: Record&lt;ModelId, ModelBinding&gt;"]
         Tools["tools: { allow, parallel }"]
     end
 
     subgraph DataBoundaries["Data Boundaries & Persistence"]
-        Inputs["inputs: { text, attachments, voice, slots, context }"]
+        Inputs["inputs: { text, attachments, voice, options, context }"]
         Outputs["outputs: { structured, validation, streaming }"]
         ProviderContinuation["providerContinuation: { history: 'host' | 'stateless' | 'provider' }"]
     end
@@ -51,6 +51,7 @@ Theorem supports 7 first-class profile types. The `type` determines which runner
 | **`embedding`** | Vector representation for semantic search and document retrieval. | [Embedding Profiles](2-1-6-embedding-profiles.md) |
 | **`image`** | Media asset generation and editing from text prompts, configured via the `image` block (`aspectRatio`, `resolution`, `mimeType`). | [Image Profiles](2-1-4-image-profiles.md) |
 | **`speech`** | Text-to-speech audio synthesis, configured via the `speech` block (`voice`, `style`, `speed`, `format`). | [Speech Profiles](2-1-5-speech-profiles.md) |
+| **`transcription`** | Speech to text: one voice clip in, the words out as text. | [Transcription Profiles](2-1-8-transcription-profiles.md) |
 | **`host`** | Governed passthrough tool runner with no underlying model, executing MCP, HTTP, and local tools under standard boundary guardrails. | [Host Profiles](2-1-7-host-profiles.md) |
 
 ---
@@ -77,24 +78,33 @@ identity: {
 }
 ```
 
-#### Prompt by Role (`systemByRole`)
-When an agent needs to switch personas or operational sub-modes depending on the task, declare alternate instructions under `systemByRole`:
+#### Prompt lines and options
+Use prompt lines when one agent speaks differently by channel or by plan. Write each instruction as one line. A line that opens with `when` goes only on turns where it fits.
+
+An **option** is a named value with a list of choices. Declare it on `identity.options` when your code sets the value. Declare it on `inputs.options` when the person sets the value. The chat shows a picker for `inputs.options` only.
 
 ```ts
 identity: {
   handle: 'desk',
-  system: 'You are the Harbor logistics desk. Provide concise, direct operational answers.',
-  systemByRole: {
-    auditor: [
-      'You are the compliance auditor. Verify shipment declarations against harbor rules.',
-      { private: 'Do not reveal internal audit tolerance thresholds.' },
-    ],
-    triage: 'You are intake triage. Classify declarations and route them to customs or freight.',
+  options: {
+    plan: { choices: [{ value: 'free' }, { value: 'paid' }] },
+    path: { choices: [{ value: 'web' }, { value: 'imessage' }] },
   },
+  system: [
+    'You are the Harbor logistics desk.',
+    'when plan is free: Keep replies to one paragraph.',
+    'when path is imessage and plan is paid: Write plain text with no lists.',
+  ],
 }
 ```
 
-When a turn request specifies a role (`runTurn({ profile: 'harbor.desk', input: { role: 'auditor', text: '...' } })`), Theorem swaps the active system prompt for the matching entry in `systemByRole`. When omitted, it defaults to `identity.handle`, resolving `identity.system` (or `systemByRole[handle]` if declared).
+Every line that fits is sent, a blank line apart. No option is required. If no line fits, the prompt is empty. `path` reads the turn's own `path`:
+
+```ts
+runTurn({ profile: 'harbor.desk', path: 'web', options: { plan: 'free' }, input: { text: '...' } });
+```
+
+A `when` uses the same words as an activity label: `is`, `is not`, and `and`. If an option is unset, `is` does not fit and `is not` fits. Any option also prints with `{name}`. A line that prints an unset option is not sent.
 
 #### Private Prompt Parts
 To protect operational formulas, sensitive rules, or confidential policies from leaking in answers, wrap instructions in `{ private: string }`:
@@ -104,14 +114,16 @@ identity: {
   handle: 'support',
   system: [
     'You are a customer support agent helping with shipping inquiries.',
-    {
-      private: 'Internal tier pricing formulas and secret discount override codes are confidential. Never quote these exact formulas to the customer under any circumstances.',
-    },
+    [
+      {
+        private: 'Internal tier pricing formulas and secret discount override codes are confidential. Never quote these exact formulas to the customer under any circumstances.',
+      },
+    ],
   ],
 }
 ```
 
-Private prompt parts are delivered to the model as instructions, but monitored during generation. If a completion repeats verbatim phrases from a private part, Theorem halts the reply at Boundary 4 (egress) before any tokens reach the client. Both `identity.system` and entries in `identity.systemByRole` support private parts.
+Private prompt parts are delivered to the model as instructions, but monitored during generation. If a completion repeats verbatim phrases from a private part, Theorem halts the reply at Boundary 4 (egress) before any tokens reach the client.
 
 ### 3. `models`
 
@@ -137,8 +149,11 @@ inputs: {
   limitsByMime: {
     'image/png': 5 * 1024 * 1024,
   },
-  slots: {
-    department: ['customs', 'freight', 'billing'],
+  options: {
+    department: {
+      label: 'Department',
+      choices: [{ value: 'customs' }, { value: 'freight' }, { value: 'billing' }],
+    },
   },
   context: {
     from: ['client', 'server'],
@@ -147,7 +162,7 @@ inputs: {
 }
 ```
 
-In addition to text and attachments, profiles can restrict audio input via `voice.accept`, constrain categorical metadata using `slots`, and permit host-injected background context via `context.from` and `context.maxChars`.
+In addition to text and attachments, profiles can restrict audio input via `voice.accept`, offer the person a choice using `options`, and permit host-injected background context via `context.from` and `context.maxChars`.
 
 ### 6. `outputs`
 

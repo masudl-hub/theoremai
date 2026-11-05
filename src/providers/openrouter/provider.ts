@@ -9,6 +9,7 @@ import { openRouterDecisions } from './decisions-protocol.ts';
 import { openRouterEmbeddings } from './embeddings-protocol.ts';
 import { openRouterImages } from './images-protocol.ts';
 import { openRouterOpenAi } from './protocol.ts';
+import { openRouterTranscriptions } from './transcriptions-protocol.ts';
 
 const connection = z.strictObject({
   baseUrl: endpointUrlSchema
@@ -39,7 +40,7 @@ export interface OpenRouterConnection {
   siteName?: string;
 }
 
-/** OpenRouter: many labs' models behind one key. Chat, speech, images, and decisions. */
+/** OpenRouter: many labs' models behind one key. Chat, speech, transcription, images, and decisions. */
 export const openRouterProvider: Provider<OpenRouterConnection, string> = defineProvider({
   id: 'openrouter',
   name: 'OpenRouter',
@@ -47,6 +48,8 @@ export const openRouterProvider: Provider<OpenRouterConnection, string> = define
   connection: connection.default({}),
   key: z.string().trim().min(1),
   authorize: bearer(),
+  // probed 2026-10-27: a working key answers 200; a wrong one or none 401.
+  check: { protocol: openRouterOpenAi, path: '/key' },
   serves(at) {
     const baseUrl = at.baseUrl ?? 'https://openrouter.ai/api/v1';
     const headers: Record<string, string> = {};
@@ -57,6 +60,7 @@ export const openRouterProvider: Provider<OpenRouterConnection, string> = define
       { protocol: openRouterOpenAi, baseUrl, headers },
       { protocol: openRouterEmbeddings, baseUrl, headers },
       { protocol: openRouterImages, baseUrl, headers },
+      { protocol: openRouterTranscriptions, baseUrl, headers },
       { protocol: openRouterDecisions, baseUrl: decisionUrl, url: () => decisionUrl, headers },
     ];
   },

@@ -120,6 +120,48 @@ Deno.test('openAi streams text, thinking, drafts, and a call under Theorem’s i
   assertEquals(events.at(-1), { type: 'done', stop: { kind: 'tool', native: 'tool_calls' } });
 });
 
+Deno.test('openAi: a call cut off at the output limit streams its drafts, then fails, and stops at length', async () => {
+  const { call } = setup(() =>
+    sse([
+      {
+        id: 'r-1',
+        model: 'm-1',
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'wire-1', function: { name: 'weather', arguments: '{"ci' } },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            delta: { tool_calls: [{ index: 0, function: { arguments: 'ty":"Lis' } }] },
+            finish_reason: 'length',
+          },
+        ],
+      },
+    ]),
+  );
+  const events = await collect(callProtocol(call).complete(request));
+  // invariant: The runner repairs a cut-off answer from these drafts (runner/steps.ts keepCutOffAnswer).
+  assertEquals(
+    events
+      .filter((event) => event.type === 'tool_draft')
+      .map((event) => ('text' in event ? event.text : ''))
+      .join(''),
+    '{"city":"Lis',
+  );
+  assertEquals(
+    events.filter((event) => event.type !== 'tool_draft').map((event) => event.type),
+    ['response', 'tool_call', 'error', 'done'],
+  );
+  assertEquals(events.at(-1), { type: 'done', stop: { kind: 'length', native: 'length' } });
+});
+
 Deno.test('openAi reads a whole reply: citations and a structured answer', async () => {
   const { sent, call } = setup(
     () =>
@@ -172,6 +214,42 @@ Deno.test('openAi: a quota error row before any output falls back to the spare k
     events.map((event) => event.type),
     ['text', 'done'],
   );
+});
+
+Deno.test('openAi: a refused request names the reason the body gives, and the provider’s own detail', async () => {
+  const body = {
+    error: {
+      message: 'Provider returned error',
+      code: 400,
+      metadata: { raw: 'data did not match any variant', provider_name: 'Nvidia' },
+    },
+  };
+  const { call } = setup(() => new Response(JSON.stringify(body), { status: 400 }));
+  const error = failureOf(await collect(callProtocol(call).complete(request)));
+  assertEquals(error.kind, 'unsupported');
+  assertEquals(
+    error.message,
+    'Chat Completions HTTP 400: Provider returned error {"metadata":{"raw":"data did not match any variant","provider_name":"Nvidia"}}',
+  );
+});
+
+Deno.test('openAi: an error row keeps the provider’s own detail', async () => {
+  const { call } = setup(() =>
+    sse([{ error: { code: 400, message: 'Bad input.', metadata: { raw: 'no images here' } } }]),
+  );
+  const error = failureOf(await collect(callProtocol(call).complete(request)));
+  assertEquals(error.message, 'Bad input. {"metadata":{"raw":"no images here"}}');
+});
+
+Deno.test('openAi: a reply that breaks after it began can be sent again; one refused at once cannot', async () => {
+  const broken = { error: { code: 400, message: 'Generation stopped mid tool call.' } };
+  const begun = { id: 'gen-1', model: 'glm', choices: [{ delta: { content: 'One' } }] };
+  const late = setup(() => sse([begun, broken]));
+  const lateFailure = failureOf(await collect(callProtocol(late.call).complete(request)));
+  assertEquals(lateFailure.kind, 'unavailable');
+  const early = setup(() => sse([broken]));
+  const earlyFailure = failureOf(await collect(callProtocol(early.call).complete(request)));
+  assertEquals(earlyFailure.kind, 'unsupported');
 });
 
 Deno.test('a key slot on a provider that takes no key is refused', () => {

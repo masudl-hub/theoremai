@@ -205,11 +205,11 @@ async function fetchWithTimeout(
 }
 
 function previewResponseBody(text: string, contentType: string): string {
-  if (!contentType.includes('application/json')) return text.slice(0, 300);
+  if (!contentType.includes('application/json')) return text;
   try {
-    return JSON.stringify(JSON.parse(text), null, 2).slice(0, 300);
+    return JSON.stringify(JSON.parse(text), null, 2);
   } catch {
-    return text.slice(0, 300);
+    return text;
   }
 }
 
@@ -326,14 +326,14 @@ function nonJsonAttempt(
     text.toLowerCase().includes('unsupported protocol version') &&
     protocolVersion !== MCP_PROTOCOL_VERSIONS.at(-1)
   ) {
-    return { status: res.status, protocolError: { code: -32600, message: text.slice(0, 300) } };
+    return { status: res.status, protocolError: { code: -32600, message: text } };
   }
   return {
     response: Response.json({
       ok: false,
       status: res.status,
       code: 'invalid_json',
-      error: `MCP server returned non-JSON response: ${text.slice(0, 200)}`,
+      error: `MCP server returned non-JSON response: ${text}`,
       elapsedMs: elapsedSince(start),
     }),
   };
@@ -375,7 +375,7 @@ function mcpAnswerResponse(
     toolCount: tools.length,
     tools: toolNames,
     targetToolFound: targetName ? toolNames.includes(targetName) : undefined,
-    preview: JSON.stringify(rpcData.result ?? rpcData, null, 2).slice(0, 300),
+    preview: JSON.stringify(rpcData.result ?? rpcData, null, 2),
     elapsedMs: elapsedSince(start),
   });
 }

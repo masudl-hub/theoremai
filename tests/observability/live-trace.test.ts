@@ -552,3 +552,11 @@ Deno.test('a quota refusal with no filled fallback slot fails the open as rate_l
   assertEquals(rootOf(records[0]).attributes['error.type'], 'rate_limit');
 });
 catalogGate();
+
+Deno.test("a session's trace names its project, beside its conversation", async () => {
+  const harness = await open({ projectId: 'p1', conversationId: 'c1' });
+  await finish(harness);
+  const root = rootOf(sessionRecord(harness.records));
+  assertEquals(root.attributes['theorem.project.id'], 'p1');
+  assertEquals(root.attributes['gen_ai.conversation.id'], 'c1');
+});

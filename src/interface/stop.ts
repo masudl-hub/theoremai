@@ -12,6 +12,7 @@ export const WORDED_STOP_KINDS = [
   'provider_error',
   'stream_incomplete',
   'step_limit',
+  'answer_missing',
 ] as const satisfies readonly TurnStopKind[];
 
 /** One of {@linkcode WORDED_STOP_KINDS}. */

@@ -1,5 +1,7 @@
 import { withPublicLabels } from '@theoremjs/agents/guardrails';
+import type { ConversationView } from '../client/transport.ts';
 import {
+  checkPageToolTimeout,
   createMemoryPageToolBroker,
   type PageToolBroker,
   pageToolResultSchema,
@@ -16,7 +18,11 @@ import {
  *                            waits on gates walks away from them first (`abandon`)
  * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused tool call
  * - `POST <base>/steer`   → inject messages into a running turn
+ * - `POST <base>/stop`    → stop a running turn where it stands
+ * - `POST <base>/page-result` → the page's result for a tool the turn ran in the page
  * - `POST <base>/conversation` → the transcript and the paused reply, to draw
+ * - `POST <base>/notify`  → NDJSON that stays open: one line now, and one each time a background
+ *                            call in this session ends. Set `notifier` to serve it
  * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
  *
  * `createTheoremHostHandler` serves a host profile the same way, with no model:
@@ -53,6 +59,7 @@ import {
   type ProviderHostOptions,
   registerProfile,
   runTurn,
+  type StageHandler,
   TheoremError,
   type ToolGate,
   type TurnEvent,
@@ -75,6 +82,7 @@ import {
   gatedToolsFromEvents,
   interfaceFromProfile,
   promotedToolIdsFromEvents,
+  type TranscriptBlock,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
 import {
@@ -82,6 +90,7 @@ import {
   answerGatedCall,
   type GateAnswerRequest,
   resolveGateTtlMs,
+  type ToolBackgroundService,
   type ToolCredentialSource,
 } from '@theoremjs/agents/kernel';
 import {
@@ -90,10 +99,12 @@ import {
   theoremHostCallRequestSchema,
 } from '../client/host-transport.ts';
 import {
+  type StatedTurn,
   type TheoremInvokeRequest,
   type TheoremRewound,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
+  theoremNotifyRequestSchema,
   theoremRewindRequestSchema,
   theoremSteerRequestSchema,
   theoremStopRequestSchema,
@@ -116,13 +127,22 @@ import {
   statelessRefusal,
   waitingCalls,
 } from './conversation.ts';
-import { type TheoremConversationStore, unknownConversation } from './conversation-store.ts';
+import {
+  type StoredConversation,
+  type TheoremConversationStore,
+  unknownConversation,
+} from './conversation-store.ts';
 import {
   createMemoryCredentialStore,
   type TheoremCredentialStore,
   type TheoremCredentials,
 } from './credential-store.ts';
-import { type MutableStore, sessionStateStore } from './session-authority.ts';
+import type { TheoremNotifier } from './notifier.ts';
+import {
+  type MutableStore,
+  type SessionStateStore,
+  sessionStateStore,
+} from './session-authority.ts';
 import { type Session, theoremSession } from './session-identity.ts';
 
 export { theoremSession, theoremSessionId } from './session-identity.ts';
@@ -130,7 +150,6 @@ export { theoremSession, theoremSessionId } from './session-identity.ts';
 import { jsonResponse } from './json-response.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
 import { checkRequest } from './request-check.ts';
-import { resolveSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
 import {
   createMemorySessionStore,
   DEFAULT_OPERATION_RETENTION_MS,
@@ -148,7 +167,7 @@ import {
   stopOnRequest,
 } from './steer-inbox.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
-import { preparedTurn } from './turn-wiring.ts';
+import { preparedTurn, stagesInOrder } from './turn-wiring.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -182,9 +201,20 @@ export type TheoremHandlerOptions = {
    * value the application's other call sites use too. The handler keeps its profile, its tool
    * execution and its abort. The application's `onStage` runs before the handler's steering, and
    * its `credentials` are read before the session's. A call held at a gate runs on, once
-   * answered, with the `onStage` and `credentials` it gives for that call's turn.
+   * answered, with the `host`, `onStage` and `credentials` it gives for that call's turn.
    */
   prepare?: TurnWiring['prepare'];
+  /**
+   * Let the page say which prompt lines a turn gets (`stated`), for a page the host trusts as it
+   * trusts itself: the studio's. Unset refuses them, so a public page never chooses its own lines.
+   */
+  pageStatesTurn?: boolean;
+  /**
+   * The server's own stage handler, on every call this handler runs, a host's included: after
+   * the application's, before steering. For a rule the server adds to whatever the application
+   * says, such as a question before each tool that writes.
+   */
+  onStage?: StageHandler;
   /**
    * Resolve the caller's session id — e.g. `${userId}:${conversationId}` from your
    * auth. Return `undefined` to refuse the request (401). Default: an opaque id
@@ -204,17 +234,37 @@ export type TheoremHandlerOptions = {
   conversationStore?: TheoremConversationStore;
   /**
    * How long a gate (permission, confirmation, sign-in) waits for its answer, in
-   * milliseconds. An answer after that is refused with `session.gate_expired`.
-   * Default: 30 minutes.
+   * milliseconds. An answer after that is refused with `session.gate_expired`,
+   * and the next message cancels the call. Unset, a gate waits until it is answered.
    */
   gateTtlMs?: number;
   /** Retain settled tool results in milliseconds. Default: 24 hours. */
   operationRetentionMs?: number;
-  /** Finite per-session bounds. Unresolved authority is never evicted to satisfy them. */
-  sessionLimits?: Partial<TheoremSessionLimits>;
-  /** Maximum UTF-8 request body bytes before JSON parsing. Default: 16 MiB. */
+  /** Maximum UTF-8 request body bytes before JSON parsing. Unset, a body of any size is read. */
   maxRequestBytes?: number;
   pageToolBroker?: PageToolBroker;
+  /**
+   * How long the page has to answer a tool call it runs, in milliseconds. A call it has not
+   * answered by then settles as timed out. Unset, it waits until the page answers or the turn stops.
+   */
+  pageToolTimeoutMs?: number;
+  /**
+   * The service for tools with a `background` setting, by session. It receives each detached call
+   * and its late events. The session keeps each call's state and result. Unset, every tool runs
+   * inline. The value must stay valid after the request ends, until each call settles.
+   */
+  background?: (ctx: { request: Request; sessionId: string }) => ToolBackgroundService;
+  /**
+   * Tells an open page that a background call ended, so it redraws with no turn or reload. Unset,
+   * the page reads the end on its next turn or reload. A sweep that marks a call itself calls
+   * `publish` too. `createMemoryNotifier` for one instance.
+   */
+  notifier?: TheoremNotifier;
+  /**
+   * How long an open page waits to reopen `notifier`'s stream after it ends, in milliseconds.
+   * Hosting platforms cut long responses. Unset, the page does not reopen it.
+   */
+  notifyRetryMs?: number;
   /** Check current resource access before disclosing a saved tool result. This callback must be read-only. */
   authorizeToolReplay?: (context: {
     request: Request;
@@ -252,7 +302,13 @@ export type TheoremHandlerOptions = {
 /** A host profile runs no model, and takes no turns to steer. */
 export type TheoremHostHandlerOptions = Omit<
   TheoremHandlerOptions,
-  'profile' | 'provider' | 'steerInbox' | 'conversationStore' | 'prepare'
+  | 'profile'
+  | 'provider'
+  | 'steerInbox'
+  | 'conversationStore'
+  | 'prepare'
+  | 'notifier'
+  | 'notifyRetryMs'
 > & {
   /** Host profile to serve. Registered with the kernel when the handler is created. */
   profile: Extract<Profile, { type: 'host' }> | Extract<ProfileDefinition, { type: 'host' }>;
@@ -302,6 +358,7 @@ function routeOf(request: Request): string {
     last === 'steer' ||
     last === 'stop' ||
     last === 'conversation' ||
+    last === 'notify' ||
     last === 'rewind' ||
     last === 'call' ||
     last === 'page-result'
@@ -358,7 +415,7 @@ type HandlerContext = {
   /** A chat's: none for a host profile, which takes no messages. */
   chat?: ChatContext;
   inbox: SteerInbox;
-  sessions: MutableStore<TheoremSessionState>;
+  sessions: SessionStateStore;
   pageToolBroker: PageToolBroker;
   credentials: MutableStore<TheoremCredentials>;
 };
@@ -475,7 +532,11 @@ async function recordOutcome(
     for (const { gate } of pending) {
       const operation = state.operations[gate.operationId];
       if (operation && operation.status !== 'ready')
-        throw new TheoremError('unavailable', labelText('error.unavailable'));
+        throw new TheoremError(
+          'unavailable',
+          `Tool operation ${gate.operationId} is ${operation.status}, not ready, so its gate was not saved`, // labels-exempt: internal diagnostic; the user reads session.busy
+          { copy: { key: 'session.busy' } },
+        );
       delete state.operations[gate.operationId];
       Object.defineProperty(state.gates, gate.operationId, {
         value: gate,
@@ -599,8 +660,7 @@ function answerPendingGate(
     ? state.gates[request.operationId]
     : undefined;
   if (!pending || pending.profileId !== profileId || pending.callId !== request.callId) {
-    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-    throw new TheoremError('request', `gate ${request.callId} is not pending`, {
+    throw new TheoremError('request', labelText('session.gate_expired'), {
       copy: { key: 'session.gate_expired' },
     });
   }
@@ -638,10 +698,18 @@ function walkedCallOf(
   state: TheoremSessionState,
   reference: GateReference,
   profileId: string,
+  paused: TurnEvent[],
 ): WalkedCall {
   const settled = Object.hasOwn(state.operations, reference.operationId)
     ? state.operations[reference.operationId]
     : undefined;
+  // why: A gate that lapsed is gone from the session while the reply still waits on its call. The call is only ever cancelled here, so the next message is never refused for it.
+  if (!settled && !Object.hasOwn(state.gates, reference.operationId)) {
+    const lapsed = pendingGatesFrom(paused, { profileId, turnInput: {} }).find(
+      ({ callId }) => callId === reference.callId,
+    );
+    if (lapsed) state.gates[reference.operationId] = lapsed.gate;
+  }
   return settled?.status === 'settled' &&
     settled.callId === reference.callId &&
     settled.profileId === profileId
@@ -659,12 +727,14 @@ async function takeWalkedAway(
   request: Request,
   session: Session,
   abandon: readonly GateReference[],
+  conversation: StoredConversation,
 ): Promise<IssuedWalkAway[]> {
+  const paused = conversation.paused?.events ?? [];
   // why: A throw leaves the session unsaved, so no call is taken unless all are.
   const calls = await ctx.sessions.mutate(session.id, (state) =>
     abandon.map((reference) => ({
       reference,
-      call: walkedCallOf(state, reference, ctx.profile.id),
+      call: walkedCallOf(state, reference, ctx.profile.id, paused),
     })),
   );
   return calls.map(({ reference, call }) => ({
@@ -692,16 +762,31 @@ async function* invokeAnswered(
   { callId, pending, answer }: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
   const host = await ctx.options.host?.(request);
-  // why: The held call goes on with what the application set for its turn: its stage handler and credentials.
-  const { credentials, onStage } = await preparedTurn(
+  // why: The held call goes on with what the application set for its turn: its context, stage handler and credentials.
+  const prepared = await preparedTurn(
     ctx.options.prepare,
-    { profile: ctx.profile.id, input: pending.turnInput ?? {}, host, signal: request.signal },
-    { credentials: sessionCredentials(ctx, sessionId) },
+    {
+      profile: ctx.profile.id,
+      input: pending.turnInput ?? {},
+      host,
+      signal: request.signal,
+      answersHeldCall: true,
+    },
+    {
+      credentials: sessionCredentials(ctx, sessionId),
+      ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),
+    },
   );
   yield* invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, sessionId),
-    pageExecution: sessionPageDispatch(ctx.sessions, sessionId, ctx.pageToolBroker).execution,
+    ...backgroundWiring(ctx, request, sessionId),
+    pageExecution: sessionPageDispatch(
+      ctx.sessions,
+      sessionId,
+      ctx.pageToolBroker,
+      ctx.options.pageToolTimeoutMs,
+    ).execution,
     name: pending.name,
     callId,
     operationId: pending.operationId,
@@ -712,15 +797,38 @@ async function* invokeAnswered(
       ? { page: answer.page ?? { unanswered: true } }
       : {}),
     sessionPermissions: answer.sessionPermissions,
-    credentials,
-    ...(onStage ? { onStage } : {}),
+    credentials: prepared.credentials,
+    ...(prepared.onStage ? { onStage: prepared.onStage } : {}),
     turnInput: pending.turnInput,
     snapshot: pending.snapshot,
     promoted: pending.promoted,
     model: pending.model,
     signal: request.signal,
-    host,
+    host: prepared.host,
   });
+}
+
+/** The host's service for a call in this session, for a request that runs a tool. */
+function backgroundWiring(
+  ctx: HandlerContext,
+  request: Request,
+  sessionId: string,
+): { background?: ToolBackgroundService } {
+  const service = ctx.options.background?.({ request, sessionId });
+  if (!service) return {};
+  const { notifier } = ctx.options;
+  if (!notifier) return { background: service };
+  return {
+    background: {
+      detached(call) {
+        service.detached(call);
+        void call.done
+          .then(() => notifier.publish(sessionId))
+          .catch((err: unknown) => ctx.options.onError?.(err, { request }));
+      },
+      event: (event, call) => service.event(event, call),
+    },
+  };
 }
 
 /** A settled call's answer, streamed again. */
@@ -745,23 +853,36 @@ async function* chatTurn(
     stopOnRequest(ctx.inbox, key, stop);
   }
   try {
+    const onStage = stagesInOrder(
+      ctx.options.onStage,
+      key ? steerStage(ctx.inbox, key) : undefined,
+    );
     const prepared = await preparedTurn(
       ctx.options.prepare,
       {
         profile: ctx.profile.id,
         execution: sessionToolCoordinator(ctx.sessions, session.id),
-        pageExecution: sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).execution,
+        ...backgroundWiring(ctx, request, session.id),
+        pageExecution: sessionPageDispatch(
+          ctx.sessions,
+          session.id,
+          ctx.pageToolBroker,
+          ctx.options.pageToolTimeoutMs,
+        ).execution,
         input: turn.input,
+        ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
         signal: AbortSignal.any([request.signal, stop.signal]),
         host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
+        ...turn.carried,
+        ...turn.stated,
       },
       {
         credentials: sessionCredentials(ctx, session.id),
-        ...(key ? { onStage: steerStage(ctx.inbox, key) } : {}),
+        ...(onStage ? { onStage } : {}),
       },
     );
     const events = runTurn(prepared, provider);
@@ -785,7 +906,7 @@ function chatRunner(
   ctx: HandlerContext,
   request: Request,
   session: Session,
-  generation: { model?: string; effort?: string; turnId?: string },
+  generation: { model?: string; effort?: string; turnId?: string; stated?: StatedTurn },
 ): ReplyRunner {
   const key = generation.turnId ? inboxKey(session.id, generation.turnId) : undefined;
   const stop = new AbortController();
@@ -808,6 +929,7 @@ function chatRunner(
     },
     ...(generation.model ? { model: generation.model } : {}),
     ...(generation.effort ? { effort: generation.effort } : {}),
+    ...(generation.stated ? { stated: generation.stated } : {}),
     signal,
   };
 }
@@ -832,6 +954,9 @@ async function turn(
   session: Session,
 ): Promise<Response> {
   const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);
+  if (body.stated && !ctx.options.pageStatesTurn) {
+    throw new TheoremError('request', labelText('error.request'));
+  }
   const message = postedMessage(
     chatInterface(chat),
     body.input,
@@ -844,7 +969,12 @@ async function turn(
     // labels-exempt: internal diagnostic; the user reads error.request
     if (body.abandon) throw statelessRefusal('walk away from');
     return eventStream(ctx, request, () =>
-      runner.run({ input: message.input, model: body.model, effort: body.effort }),
+      runner.run({
+        input: message.input,
+        model: body.model,
+        effort: body.effort,
+        ...(body.stated ? { stated: body.stated } : {}),
+      }),
     );
   }
   const opened = await openConversation(host, body.conversation, {
@@ -853,7 +983,7 @@ async function turn(
   });
   // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
   const walkAway = body.abandon
-    ? await takeWalkedAway(ctx, request, session, body.abandon)
+    ? await takeWalkedAway(ctx, request, session, body.abandon, opened.conversation)
     : undefined;
   return eventStream(ctx, request, () =>
     messageReply({ host, opened, message, ...(walkAway ? { walkAway } : {}), runner }),
@@ -874,7 +1004,142 @@ async function conversation(
   const host = conversationHost(ctx, session);
   if (!host) throw statelessRefusal('read');
   const opened = await openConversation(host, body.conversation, { kind: 'read' });
-  return jsonResponse(200, conversationView(host, opened.conversation));
+  return jsonResponse(200, await currentView(ctx, request, session, host, opened.conversation));
+}
+
+const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
+
+/**
+ * One line now, then one for each background call that ends. The stream names no conversation,
+ * because a store's ref can change with each write; the page reads under the ref it holds.
+ * invariant: The first line follows the subscribe, so a call that ends before the page's first
+ * read is never missed.
+ */
+async function notify(
+  ctx: HandlerContext,
+  request: Request,
+  session: Session,
+  notifier: TheoremNotifier,
+): Promise<Response> {
+  await readBody(request, theoremNotifyRequestSchema, ctx.options.maxRequestBytes);
+  let send = () => {};
+  const unsubscribe = await notifier.subscribe(session.id, () => send());
+  let open = true;
+  const end = () => {
+    if (!open) return;
+    open = false;
+    unsubscribe();
+  };
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      send = () => {
+        if (open) controller.enqueue(CHANGED_LINE);
+      };
+      send();
+      const leave = () => {
+        if (!open) return;
+        end();
+        controller.close();
+      };
+      if (request.signal.aborted) leave();
+      else request.signal.addEventListener('abort', leave, { once: true });
+    },
+    cancel: end,
+  });
+  return new Response(stream, { headers: NDJSON_HEADERS });
+}
+
+/**
+ * why: The transcript keeps a detached call as the turn left it. The session holds what became of
+ * it, so a call that has ended does not read as running.
+ */
+async function currentView(
+  ctx: HandlerContext,
+  request: Request,
+  session: Session,
+  host: ConversationHost,
+  conversation: StoredConversation,
+): Promise<ConversationView> {
+  const view = conversationView(host, conversation);
+  if (!view.transcript.some(isDetachedBlock)) return view;
+  const { operations } = await ctx.sessions.read(session.id);
+  const transcript = await Promise.all(
+    view.transcript.map((block) =>
+      isDetachedBlock(block) ? lateBlock(ctx, request, block, operations, host) : block,
+    ),
+  );
+  const { notifier, notifyRetryMs } = ctx.options;
+  return {
+    ...view,
+    transcript,
+    ...(notifier && transcript.some(isDetachedBlock)
+      ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
+      : {}),
+  };
+}
+
+type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
+
+function isDetachedBlock(block: TranscriptBlock): block is ToolBlock {
+  return block.kind === 'tool' && block.tool.state?.phase === 'background';
+}
+
+/** A detached call's block as its operation stands. One the session no longer holds has no known end. */
+async function lateBlock(
+  ctx: HandlerContext,
+  request: Request,
+  block: ToolBlock,
+  operations: TheoremSessionState['operations'],
+  host: ConversationHost,
+): Promise<ToolBlock> {
+  const { tool } = block;
+  const id = tool.operationId;
+  const operation = id && Object.hasOwn(operations, id) ? operations[id] : undefined;
+  if (operation?.status === 'running' || operation?.status === 'background') return block;
+  const { labels } = ctx.profile;
+  if (
+    operation?.status === 'settled' &&
+    ctx.options.authorizeToolReplay &&
+    !(await ctx.options.authorizeToolReplay({ request, operation }))
+  ) {
+    const message = labelText('error.blocked', {}, labels);
+    const failure = { code: 'outcome_withheld', kind: 'blocked', message } as const;
+    const { name, callId } = tool;
+    const at = operation.settledAt;
+    return {
+      ...block,
+      tool: {
+        ...tool,
+        state: { name, callId, at, phase: 'error', failure, readBack: message },
+        endedAt: at,
+      },
+    };
+  }
+  if (operation?.status === 'settled') {
+    const settled = host.forReader(operation.outcome.event);
+    if (settled.type !== 'tool') return block;
+    const { tool: state } = settled;
+    if (!('phase' in state) || (state.phase !== 'complete' && state.phase !== 'error'))
+      return block;
+    return { ...block, tool: { ...tool, state, endedAt: operation.settledAt } };
+  }
+  const message = labelText('tool.execution_uncertain', {}, labels);
+  const failure = {
+    code: operation?.status === 'uncertain' ? operation.reason : 'outcome_not_retained',
+    kind: 'internal',
+    message,
+  } as const;
+  const { name, callId } = tool;
+  const at =
+    operation?.status === 'uncertain' ? operation.detectedAt : (tool.state?.at ?? Date.now());
+  return {
+    ...block,
+    tool: {
+      ...tool,
+      state: { name, callId, at, phase: 'error', failure, readBack: message },
+      endedAt: at,
+    },
+  };
 }
 
 /** The conversation cut after one block; a reply that waits on gates is walked away from first. */
@@ -885,7 +1150,7 @@ async function rewind(ctx: HandlerContext, request: Request, session: Session): 
   const opened = await openConversation(host, body.conversation, { kind: 'rewind', at: body.at });
   const waiting = waitingCalls(opened.conversation);
   const walkAway = waiting.length
-    ? await takeWalkedAway(ctx, request, session, waiting)
+    ? await takeWalkedAway(ctx, request, session, waiting, opened.conversation)
     : undefined;
   const next = await rewindConversation({
     host,
@@ -896,7 +1161,7 @@ async function rewind(ctx: HandlerContext, request: Request, session: Session): 
   if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
   const rewound: TheoremRewound = {
     conversation: next.ref,
-    view: conversationView(host, next.conversation),
+    view: await currentView(ctx, request, session, host, next.conversation),
   };
   return jsonResponse(200, rewound);
 }
@@ -970,11 +1235,18 @@ async function* callEvents(
   const events = invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, session.id),
-    pageExecution: sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).execution,
+    ...backgroundWiring(ctx, request, session.id),
+    pageExecution: sessionPageDispatch(
+      ctx.sessions,
+      session.id,
+      ctx.pageToolBroker,
+      ctx.options.pageToolTimeoutMs,
+    ).execution,
     name: body.name,
     input: body.input,
     sessionPermissions: state.permissions,
     credentials: sessionCredentials(ctx, session.id),
+    ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),
     signal: request.signal,
     host,
   });
@@ -1011,7 +1283,7 @@ function refused(ctx: HandlerContext): Response {
 async function* replayOperation(
   ctx: HandlerContext,
   request: Request,
-  operation: Extract<SessionToolOperation, { status: 'settled' }>,
+  operation: Extract<SessionToolOperation, { status: 'settled' | 'background' }>,
 ): AsyncGenerator<TurnEvent> {
   const tool = defaultKernelScope.tools.get(operation.toolId);
   if (
@@ -1020,7 +1292,8 @@ async function* replayOperation(
     tool.type === 'builtin' ||
     !('tools' in ctx.profile) ||
     !ctx.profile.tools?.allow.includes(operation.toolId) ||
-    (ctx.options.authorizeToolReplay &&
+    (operation.status === 'settled' &&
+      ctx.options.authorizeToolReplay &&
       !(await ctx.options.authorizeToolReplay({ request, operation })))
   )
     throw new TheoremError('blocked', labelText('error.blocked'));
@@ -1029,9 +1302,12 @@ async function* replayOperation(
     profile: ctx.profile,
     name: operation.toolId,
     resume: undefined,
-    outcome: operation.outcome,
+    ...(operation.status === 'settled' ? { outcome: operation.outcome } : {}),
   });
-  yield* once(operation.outcome.event, ctx.profile.labels);
+  yield* once(
+    operation.status === 'settled' ? operation.outcome.event : operation.reply.event,
+    ctx.profile.labels,
+  );
 }
 
 /**
@@ -1082,7 +1358,7 @@ async function settlingOf(
     );
   }
   if (
-    operation?.status === 'settled' &&
+    (operation?.status === 'settled' || operation?.status === 'background') &&
     operation.profileId === ctx.profile.id &&
     operation.callId === body.gateId
   ) {
@@ -1123,7 +1399,12 @@ async function hostRoute(
 async function route(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   if (request.method === 'POST' && routeOf(request) === 'page-result') {
     const body = await readBody(request, pageToolResultSchema, ctx.options.maxRequestBytes);
-    await sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).answer(body);
+    await sessionPageDispatch(
+      ctx.sessions,
+      session.id,
+      ctx.pageToolBroker,
+      ctx.options.pageToolTimeoutMs,
+    ).answer(body);
     return jsonResponse(200, { accepted: true });
   }
   if (ctx.profile.type === 'host')
@@ -1139,6 +1420,11 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   if (target === 'turn') return turn(ctx, chat, request, session);
   if (target === 'invoke') return invoke(ctx, request, session);
   if (target === 'conversation') return conversation(ctx, request, session);
+  if (target === 'notify') {
+    const { notifier } = ctx.options;
+    if (!notifier || !chat.conversations) return refused(ctx);
+    return notify(ctx, request, session, notifier);
+  }
   if (target === 'rewind') return rewind(ctx, request, session);
   if (target === 'stop') return stop(ctx, request, session);
   return steer(ctx, request, session);
@@ -1215,6 +1501,13 @@ export function hostTool(name: string) {
   return registered?.type === 'builtin' ? undefined : registered;
 }
 
+function checkNotifyRetry(ms: number | undefined): void {
+  if (ms === undefined || (Number.isFinite(ms) && ms >= 0)) return;
+  throw new TheoremError('config', labelText('error.config'), {
+    cause: { code: 'notify_retry' },
+  });
+}
+
 function serve(
   name: string,
   profile: Profile,
@@ -1228,8 +1521,9 @@ function serve(
       cause: { code: 'operation_retention' },
     });
   }
-  const limits = resolveSessionLimits(options.sessionLimits);
   requestByteLimit(options.maxRequestBytes);
+  checkPageToolTimeout(options.pageToolTimeoutMs);
+  checkNotifyRetry(options.notifyRetryMs);
   registerProfile(profile);
   const ctx: HandlerContext = {
     options,
@@ -1238,10 +1532,9 @@ function serve(
     ...(chatOptions.chat ? { chat: chatOptions.chat } : {}),
     inbox: chatOptions.steerInbox ?? createMemorySteerInbox(),
     sessions: sessionStateStore(
-      options.sessionStore ?? createMemorySessionStore({ sessionLimits: limits }),
+      options.sessionStore ?? createMemorySessionStore(),
       gateTtlMs,
       operationRetentionMs,
-      limits,
     ),
     credentials: lockedStore(
       options.credentialStore ?? createMemoryCredentialStore(),

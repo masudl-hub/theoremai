@@ -78,7 +78,7 @@ export interface GuardrailHit {
   /** The name of the host's pattern that matched; unset for a match of Theorem's own patterns. */
   pattern?: string;
   /**
-   * What about the match made it one, for `tool_instructions`: `override`, `tool_name`, `order`
+   * What about the match made it one, for `injection` in what a tool returns: `override`, `tool_name`, `order`
    * or `authority`. For a host's `find` that failed, how: `find_threw` or `find_result`.
    */
   signal?: string;

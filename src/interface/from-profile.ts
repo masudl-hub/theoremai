@@ -181,12 +181,21 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
         turnBehaviour: profile?.type === 'speech' ? profile.turnBehaviour : undefined,
         canStop: true,
       });
+    case 'transcription':
+      return profileInterfaceSchema.parse({
+        ...shared,
+        type: 'transcription',
+        inputs,
+        canStop: true,
+      });
     case 'live':
       return profileInterfaceSchema.parse({
         ...shared,
         type: 'live',
         live: liveView(projected.live),
-        ...(projected.inputs ? { inputs: { slots: inputs.slots, context: inputs.context } } : {}),
+        ...(projected.inputs
+          ? { inputs: { options: inputs.options, context: inputs.context } }
+          : {}),
         tools: liveToolsView(toolsView(projected, profile)),
       });
     default: {
@@ -221,8 +230,8 @@ function interfaceFromProjected(projected: ProjectedProfile): ProfileInterface {
 }
 
 /**
- * The interface a browser may read: {@linkcode interfaceFromProfile} without `identity.system` and
- * `systemByRole`, which stay on the server. Labels, turn behaviour, guardrails, and observability are kept.
+ * The interface a browser may read: {@linkcode interfaceFromProfile} without `identity.system`, which
+ * stays on the server. Labels, turn behaviour, guardrails, and observability are kept.
  */
 function clientProfileInterface(input: LiveProfile, tools: ToolRegistry): LiveProfileInterface;
 /** The client-safe interface for a profile that is not live. */

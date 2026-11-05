@@ -280,6 +280,8 @@ function standaloneBlock(event: TurnEvent, idPrefix: string): TranscriptBlock | 
       return { id: nextBlockId(idPrefix), kind: 'grounding', grounding: event.grounding };
     case 'evidence':
       return { id: nextBlockId(idPrefix), kind: 'evidence', evidence: event.evidence };
+    case 'late_results':
+      return { id: nextBlockId(idPrefix), kind: 'late-results', text: event.text };
     case 'error':
       return event.error
         ? { id: nextBlockId(idPrefix), kind: 'error', message: event.error }
@@ -295,6 +297,23 @@ function standaloneBlock(event: TurnEvent, idPrefix: string): TranscriptBlock | 
       };
     default:
       return undefined;
+  }
+}
+
+/**
+ * The media a tool returned beside its output, where the call stands in the reply.
+ * why: a tool sends a picture when it runs, so the picture comes before what the model says next.
+ */
+function appendToolParts(blocks: TranscriptBlock[], tool: ToolCallEvent, idPrefix: string): void {
+  if (tool.phase !== 'complete') return;
+  for (const part of tool.parts ?? []) {
+    if (part.type === 'text') continue;
+    blocks.push({
+      id: nextBlockId(idPrefix),
+      kind: 'media',
+      mimeType: part.mimeType,
+      ...('data' in part ? { data: part.data } : { url: part.uri }),
+    });
   }
 }
 
@@ -328,6 +347,7 @@ function foldTurnEvents(
       case 'tool':
         upsertToolBlock(blocks, event.tool);
         appendPromotedToolMedia(blocks, event.tool, idPrefix, promotedMediaUrls);
+        appendToolParts(blocks, event.tool, idPrefix);
         break;
       case 'structured_draft':
         upsertStructuredDraft(blocks, event.text, idPrefix);

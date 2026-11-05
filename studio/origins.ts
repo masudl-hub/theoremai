@@ -9,6 +9,7 @@
 import { PROFILE_GRAPH } from '@theoremjs/agents/schema';
 import { editorLabel } from './editors.ts';
 import type { OpenAnswer, ProjectOrigins, SettingOrigin } from './server/save-wire.ts';
+import { shortPlace } from './shared-carry.ts';
 import { type StudioWorkspace, workspaceNodeRef } from './workspace.ts';
 
 /** The open node's settings that are set in code. */
@@ -21,11 +22,6 @@ export interface NodeOrigins {
   tool: boolean;
   /** Set when one place in the files sets the whole node, so the editor says it once, over the rows. */
   section?: SettingOrigin;
-  /**
-   * Set when the files spread other code into the node's own settings: the rows the files do not
-   * write after it are the spread's, so the editor says it once, over the rows.
-   */
-  partly?: SettingOrigin;
 }
 
 /** Rows under these are the studio's own, and no file sets them. */
@@ -149,9 +145,7 @@ function withSection(scope: NodeOrigins, path: readonly string[]): NodeOrigins {
   const section = above
     .filter((origin) => !own(origin))
     .sort((a, b) => b.path.length - a.path.length)[0];
-  if (section) return { ...scope, section };
-  const partly = above.find(own);
-  return partly ? { ...scope, partly } : scope;
+  return section ? { ...scope, section } : scope;
 }
 
 /** Where an origin is, as `file:line`. */
@@ -160,13 +154,20 @@ export function originPlace(origin: SettingOrigin): string | undefined {
   return origin.line ? `${origin.file}:${String(origin.line)}` : origin.file;
 }
 
-/** The whole of what sets a value: what a hover and a banner say. */
+/** The whole of what sets a value, with the code that sets it: what a hover and a banner say. */
 export function originLabel(origin: SettingOrigin): string {
-  const short = originShortLabel(origin);
-  return origin.kind === 'constant' ? `${short}, which other code reads` : short;
+  switch (origin.kind) {
+    case 'constant':
+      return `Set by ${origin.text ?? 'a constant'}, which other code reads`;
+    case 'twice':
+    case 'unfound':
+      return originShortLabel(origin);
+    default:
+      return origin.text ? `Set in code: ${origin.text}` : 'Set in code';
+  }
 }
 
-/** What a row says of its origin, at a glance: `Set by bonsaiGoogle`, `Set in code · bonsaiInputs()`. */
+/** What a row says of its origin, at a glance: `Set by bonsaiGoogle`, `Set in code · …/profile.ts:101`. */
 export function originShortLabel(origin: SettingOrigin): string {
   switch (origin.kind) {
     case 'constant':
@@ -176,7 +177,9 @@ export function originShortLabel(origin: SettingOrigin): string {
     case 'unfound':
       return 'Not defined where the studio reads';
     default:
-      return origin.text ? `Set in code · ${origin.text}` : 'Set in code';
+      return origin.file
+        ? `Set in code · ${shortPlace({ ...origin, file: origin.file })}`
+        : 'Set in code';
   }
 }
 

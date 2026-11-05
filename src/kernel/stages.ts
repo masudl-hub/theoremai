@@ -60,6 +60,11 @@ export type StageCallBag = {
   input?: unknown;
   /** `pre_tool` in a turn's step: every call the model made in the step, in the order it made them. */
   stepCalls?: readonly StepCall[];
+  /**
+   * `pre_tool`: the user approved this call where it stopped, at its permission or a
+   * confirmation. A sign-in is not an approval.
+   */
+  approved?: true;
   callNotStarted?: boolean;
   outputRaw?: unknown;
   outputModel?: ModelToolResult;

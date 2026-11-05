@@ -27,7 +27,7 @@ Keep the wire in the protocol. Keep the address and the sign-in in the provider.
 | `src/kernel/provider-runtime.ts` | Event validation, terminal checks, and checkpoints |
 | `src/kernel/provider-live.ts` | Normalized live operations for the session runner |
 | `src/providers/open-ai/protocol.ts` | The `openAi` protocol |
-| `src/providers/openrouter/` | The `openRouterOpenAi`, `openRouterImages`, and `openRouterDecisions` protocols, and `openRouterProvider` |
+| `src/providers/openrouter/` | The `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, and `openRouterDecisions` protocols, and `openRouterProvider` |
 | `src/providers/openrouter/openai/reasoning-state.ts` | Native reasoning details for replay |
 | `src/providers/gemini/` | The `geminiInteractions` and `geminiLive` protocols, and `geminiProvider` |
 | `src/providers/google/interactions/` | Gemini Interactions request and event translation |
@@ -65,7 +65,7 @@ Register providers before profiles. Use the registered provider's model helper t
 
 | Provider | Serves |
 | --- | --- |
-| `openRouterProvider` (`openrouter`) | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterDecisions` (decision) |
+| `openRouterProvider` (`openrouter`) | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterTranscriptions` (transcription), `openRouterDecisions` (decision) |
 | `geminiProvider` (`gemini`) | `geminiInteractions` (text, image, speech), `geminiLive` (live) |
 | Planned local embedding adapter | Embeddings through a host-supplied local runtime |
 | `localProvider` (`local`) | `openAi` (text, speech), `ollamaEmbeddings` (embedding) |
@@ -151,6 +151,7 @@ Reuse a protocol when the endpoint speaks it. An endpoint address alone does not
 | `id` | Stable ID that bindings write; letters and digits, starting with a letter |
 | `name`, `description` | Text for the studio and docs |
 | `endpoints` | The path for each profile type. A type with no entry is not served |
+| `operationNames` | The `gen_ai.operation.name` for each served profile type, e.g. `chat`. It must name each type in `endpoints` and no other. Use a GenAI semantic-conventions value where one applies |
 | `options` | Zod schema for binding options |
 | `continuation` | Optional version, state schema, and the options that change what saved state means |
 | `reasoning`, `custom` | Optional schemas for the reasoning data and custom content that it emits |
@@ -161,7 +162,7 @@ Reuse a protocol when the endpoint speaks it. An endpoint address alone does not
 | `create` | Returns the operations for one call |
 
 `extendProtocol(base, extension)` gives the extension its own ID. Its options are the base's plus its own. It refuses a repeated field.
-Its `body` adds to each request. Its `read` sees each reply row before the base. Endpoints, framing, and error typing default to the base's.
+Its `body` adds to each request. Its `read` sees each reply row before the base. Endpoints, operation names, framing, and error typing default to the base's.
 `carriesTo` reports whether reasoning that one protocol wrote may go back to another protocol in its lineage.
 `modelOptions(protocol, apiId, options)` parses a model's options by the protocol's schema, less any option that model refuses, and throws a `config` error naming what does not fit. A binding is checked with it when it is registered, and a protocol may call it in its own operations.
 
@@ -180,6 +181,7 @@ Implement only the operations that the protocol provides.
 
 The kernel rejects a missing required operation. Requests contain normalized history, content, tools, and generation settings.
 The protocol converts these values to its upstream format.
+An `openSession` request can also carry `context`: the fenced texts of `SessionRequest.context`. Send them after `history` and before any input, in the same upstream message where the API allows it, so that the model reads them before the first thing the user says. The session's later `sendContext` calls arrive through `ProtocolSession.sendContext`.
 
 ### Embedding protocols
 
@@ -395,9 +397,20 @@ to the kernel vector result.
 | --- | --- |
 | `openRouterOpenAi` | Text at `/chat/completions`, speech at `/audio/speech` |
 | `openRouterImages` | Image at `/images` |
+| `openRouterTranscriptions` | Transcription at `/audio/transcriptions` |
 | `openRouterDecisions` | Decision at `decisionUrl`, by default `https://openrouter.ai/api/alpha/decisions` |
 
-`openRouterOpenAi` extends `openAi`. On text, it asks the router for providers that support every supplied parameter.
+`openRouterOpenAi` extends `openAi`. On text, it sets `provider.require_parameters` so that the router uses only upstreams that support every supplied parameter.
+Set `options.provider` to choose the upstreams. It takes OpenRouter's own `provider` fields under their own names, and each field goes out as written, so a host can turn `require_parameters` off.
+This example pins one endpoint:
+
+```ts
+options: { provider: { only: ['gmicloud/fp8'], allow_fallbacks: false } }
+```
+
+`openRouterTranscriptions` sends one inline clip as `input_audio`, in JSON, and reads the words from `text`. Its `options.provider` takes `zdr` and `data_collection` only. OpenRouter's transcription endpoint ignores `only`, `order`, and `ignore`, so the binding refuses them, and a clip it has no format name for fails with a `request` error.
+
+If the pinned endpoint cannot serve a request, the request fails. It does not fall back. Copy the slug from the model's page on OpenRouter.
 It decodes text, reasoning, fragmented tool arguments, structured output, citations, and usage.
 It writes reasoning details as `reasoning` parts and sends them back with the history on the next request.
 It writes the `webSearch` built-in as `web_search_options`.
@@ -575,7 +588,7 @@ The root also exports the default-scope registry functions, the binding schemas,
 | --- | --- |
 | Providers | `defineProvider`, `createProviderRegistry`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, `OpenRouterTranscriptionsOptions`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |

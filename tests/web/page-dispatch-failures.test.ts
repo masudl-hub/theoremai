@@ -5,17 +5,11 @@ import {
   sessionPageDispatch,
 } from '../../web/src/server/page-dispatch.ts';
 import { sessionStateStore } from '../../web/src/server/session-authority.ts';
-import { resolveSessionLimits } from '../../web/src/server/session-limits.ts';
 import { createMemorySessionStore } from '../../web/src/server/session-store.ts';
 import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
 
 async function authority() {
-  const store = sessionStateStore(
-    createMemorySessionStore(),
-    30 * 60_000,
-    86_400_000,
-    resolveSessionLimits(),
-  );
+  const store = sessionStateStore(createMemorySessionStore(), 30 * 60_000, 86_400_000);
   const execution = sessionToolCoordinator(store, 'owner');
   const identity: ToolOperationIdentity = {
     operationId: 'operation',
@@ -55,6 +49,22 @@ Deno.test('expired and cancelled grants cannot reopen browser execution', async 
     free.cancel();
     await free.result;
   }
+});
+
+Deno.test('with no timeout set, a grant waits for the page and records no expiry', async () => {
+  const { store, claim } = await authority();
+  const page = sessionPageDispatch(store, 'owner', createMemoryPageToolBroker());
+  const controller = new AbortController();
+  const grant = await page.execution.dispatch(claim, controller.signal);
+  const raced = await Promise.race([
+    grant.result,
+    new Promise((resolve) => setTimeout(() => resolve('waiting'), 50)),
+  ]);
+  assertEquals(raced, 'waiting');
+  const operation = (await store.read('owner')).operations.operation;
+  assert(operation.status === 'running' && operation.pageGrant?.expiresAt === undefined);
+  controller.abort();
+  assertEquals(await grant.result, { timedOut: true });
 });
 
 Deno.test('a result delivery failure retains its receipt and cannot issue another grant', async () => {

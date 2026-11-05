@@ -1,13 +1,15 @@
 import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeSpans } from '../../observability/trace.ts';
 import { type SpanHandle, type SpanOptions, startTrace } from '../../observability/trace-span.ts';
-import { endThrownSpan } from './turn-trace.ts';
+import type { TurnTraceLink } from '../types.ts';
+import { endThrownSpan, traceLinks } from './turn-trace.ts';
 
 interface TracedCall {
   /** The root span's name, such as `decide <apiId>`. */
   name: string;
   attributes: SpanOptions['attributes'];
   traceparent?: string;
+  links?: readonly TurnTraceLink[];
   /** Host metadata kept on the record. */
   metadata?: Record<string, unknown>;
   /** Where the record goes and how it is cleaned: the profile's settings, or the caller's sink. */
@@ -19,12 +21,13 @@ interface TracedCall {
  * exception when it throws, and written either way. A failed write never changes the outcome.
  */
 async function tracedCall<T>(
-  { name, attributes, traceparent, metadata, writer }: TracedCall,
+  { name, attributes, traceparent, links, metadata, writer }: TracedCall,
   run: (root: SpanHandle) => Promise<T>,
 ): Promise<T> {
   const tree = startTrace(name, {
     kind: 'CLIENT',
     attributes,
+    links: traceLinks(links),
     ...(traceparent ? { traceparent } : {}),
   });
   const { sink, policy } = resolveTraceWriter(writer);

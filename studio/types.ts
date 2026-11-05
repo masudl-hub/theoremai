@@ -1,3 +1,4 @@
+import type { ToolBackground } from '@theoremjs/agents/kernel';
 import {
   type AuthUnauthenticatedPolicy,
   type CustomToolType,
@@ -41,6 +42,10 @@ export type StudioToolSpecSeed = {
   stubOutputJson?: string;
   /** A function tool the page answers; the studio's page answers with the stub. */
   answeredBy?: 'page';
+  /** The model can name tools of its step that finish before this one starts. */
+  after?: boolean;
+  /** When the model gets its reply while the body goes on. */
+  background?: ToolBackground;
   endpoint?: string;
   method?: HttpMethod;
   headersJson?: string;
@@ -57,7 +62,7 @@ export type StudioToolSpecSeed = {
   sessionMax?: number | null;
   /** An agent tool's agent, by its workspace key. */
   agentKey?: string;
-  /** A decision or text agent that filters this tool's output at `post_tool`, by its workspace key. */
+  /** A decision agent that filters this tool's output at `post_tool`, by its workspace key. */
   stageAgentKey?: string;
   /** An agent tool's calls in one turn of its caller; `null` or absent: no cap but max steps. */
   maxCallsPerTurn?: number | null;

@@ -26,6 +26,7 @@ const echo = defineProtocol({
   name: 'Echo',
   description: 'Streams back what it is sent.',
   endpoints: { text: '/echo', live: '/live' },
+  operationNames: { text: 'chat', live: 'generate_content' },
   options: z.strictObject({ loud: z.boolean().optional().describe('Shout.') }),
   reasoning: z.strictObject({ signature: z.string() }),
   custom: { note: z.strictObject({ said: z.string() }) },
@@ -95,6 +96,7 @@ Deno.test('default framing puts X-Generation-Id on a binary http_body row as id'
     name: 'Binary echo',
     description: 'Posts and reads one binary body.',
     endpoints: { speech: '/speak' },
+    operationNames: { speech: 'generate_content' },
     options: z.strictObject({}),
     create: (context) => ({
       async *complete() {
@@ -229,6 +231,26 @@ Deno.test('an extension adds options, refuses one its base has, and carries its 
   );
   assertEquals(carriesTo('echo', routed), true);
   assertEquals(carriesTo('routedEcho', echo), false);
+});
+
+Deno.test('a protocol names one operation for each endpoint it serves, and an extension keeps that true', () => {
+  assertEquals(routed.operationNames, { text: 'chat', live: 'generate_content' });
+  assertThrows(
+    () => defineProtocol({ ...echo, id: 'unnamed', operationNames: { text: 'chat' } }),
+    TheoremError,
+    'operationNames name [text]; endpoints serve [live, text]',
+  );
+  assertThrows(
+    () =>
+      extendProtocol(echo, {
+        id: 'speaks',
+        name: 'Speaks',
+        description: 'Adds speech without naming its operation.',
+        endpoints: { speech: '/speak' },
+      }),
+    TheoremError,
+    'operationNames name [live, text]; endpoints serve [live, speech, text]',
+  );
 });
 
 Deno.test('a registered provider checks its protocols, ids, and connection', () => {

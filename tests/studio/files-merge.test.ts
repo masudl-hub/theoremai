@@ -143,7 +143,15 @@ Deno.test("a setting both changed is a conflict: the builder's stands until they
   const merge = mergedWithFiles(edits, files, old);
   assertEquals(
     merge.conflicts.map(({ kind, key, path, mine, theirs }) => ({ kind, key, path, mine, theirs })),
-    [{ kind: 'agent', key, path: ['identity', 'system'], mine: 'Mine.', theirs: 'Theirs.' }],
+    [
+      {
+        kind: 'agent',
+        key,
+        path: ['identity', 'system'],
+        mine: 'Mine.',
+        theirs: 'Theirs.',
+      },
+    ],
   );
   assertEquals(first(merge.workspace).identity.system, 'Mine.');
   assertEquals(first(withFilesChosen(merge, [])).identity.system, 'Mine.');

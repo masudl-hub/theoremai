@@ -94,8 +94,8 @@ type SaveStep =
   | { at: 'refused'; refusal: SaveRefusal };
 
 const DIALOG_WIDTH = 720;
-/** How long the saved line stays, in milliseconds: long enough to reach Undo. */
-const UNDO_WINDOW = 15_000;
+/** How long a toast with Undo stays, in milliseconds: long enough to reach Undo. */
+export const UNDO_WINDOW = 15_000;
 
 /** Why nothing was written, as the builder reads it. */
 const REFUSED: Record<SaveRefusal['reason'], string> = {
@@ -345,26 +345,30 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
           width={ALERTS_WIDTH}
           style={{ maxHeight: ALERTS_MAX_HEIGHT }}
         >
-          <VStack gap={3}>
-            <HStack hAlign="end">
-              <IconButton
-                label={isCopied ? 'Copied' : 'Copy alerts'}
-                variant="ghost"
-                size="sm"
-                icon={<Icon icon={isCopied ? IconCheck : IconCopy} size="sm" />}
-                tooltip="Copy these alerts to send"
-                onClick={() => {
-                  copy(alertsReport(project, unloaded));
-                }}
-              />
-            </HStack>
+          <VStack gap={3} className="studio-alerts">
+            <IconButton
+              label={isCopied ? 'Copied' : 'Copy alerts'}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={isCopied ? IconCheck : IconCopy} size="sm" />}
+              tooltip="Copy these alerts to send"
+              onClick={() => {
+                copy(alertsReport(project, unloaded));
+              }}
+            />
             {unloaded !== undefined && (
               <VStack gap={1}>
                 <Text weight="semibold">The studio cannot load your files.</Text>
                 <Text type="supporting" color="secondary">
                   It runs them as they last loaded, until they load again.
                 </Text>
-                <CodeBlock code={unloaded.trim()} size="sm" isWrapped maxHeight={240} />
+                <CodeBlock
+                  code={unloaded.trim()}
+                  size="sm"
+                  isWrapped
+                  maxHeight={240}
+                  hasCopyButton={false}
+                />
               </VStack>
             )}
             {problems.map((problem) => (
@@ -688,7 +692,7 @@ export function ProjectSave({
         isOpen={asking}
         onOpenChange={setAsking}
         title="Discard every unsaved edit?"
-        description="All unsaved edits will be lost. This action cannot be reversed."
+        description="The project goes back to its files. Undo in the next message brings the edits back."
         actionLabel="Discard all"
         actionVariant="destructive"
         onAction={() => {

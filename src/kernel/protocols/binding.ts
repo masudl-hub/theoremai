@@ -111,7 +111,7 @@ const modelBinding = z.strictObject({
   fallbackKeySlot: keySlotSchema
     .optional()
     // labels-exempt: builder field description, read by the studio and docs
-    .describe('The slot tried once when the first key is out of quota.'),
+    .describe('The slot tried once when the first key is out of quota, rate limited or busy.'),
   options: jsonObjectSchema
     .optional()
     // labels-exempt: builder field description, read by the studio and docs
@@ -184,6 +184,15 @@ export function protocolOf(
   binding: ModelBinding | DecisionModelBinding,
 ): Protocol {
   return bindingServe(provider, binding).protocol;
+}
+
+/** The `gen_ai.operation.name` of a call the binding makes for `profileType`. */
+export function operationNameOf(
+  provider: RegisteredProvider,
+  binding: ModelBinding | DecisionModelBinding,
+  profileType: ModelProfileType,
+): string | undefined {
+  return protocolOf(provider, binding).operationNames[profileType];
 }
 
 /**

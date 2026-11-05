@@ -3,11 +3,11 @@ import {
   createMemorySessionStore,
   createTheoremSessionBoundary,
   DEFAULT_OPERATION_RETENTION_MS,
-  resolveSessionLimits,
   sessionPageDispatch,
   sessionStateStore,
   sessionToolCoordinator,
 } from '@theoremjs/web/server';
+import { STUDIO_BACKGROUND } from './runtime-scope.ts';
 
 export function browserExecution() {
   const id = crypto.randomUUID();
@@ -16,18 +16,15 @@ export function browserExecution() {
     request: new Request('https://studio.local'),
     session: () => id,
     sessionStore: memory,
+    pageStatesTurn: true,
   });
-  const store = sessionStateStore(
-    memory,
-    30 * 60_000,
-    DEFAULT_OPERATION_RETENTION_MS,
-    resolveSessionLimits(),
-  );
+  const store = sessionStateStore(memory, undefined, DEFAULT_OPERATION_RETENTION_MS);
   const page = sessionPageDispatch(store, id, createMemoryPageToolBroker());
   return {
     boundary,
     execution: sessionToolCoordinator(store, id),
     pageExecution: page.execution,
+    background: STUDIO_BACKGROUND,
     pageResult: page.answer,
   };
 }

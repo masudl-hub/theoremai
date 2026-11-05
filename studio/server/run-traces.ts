@@ -8,12 +8,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import {
-  type Profile,
-  registerTraceDestination,
-  resolveObservabilityPolicy,
-  type TraceRecord,
-} from '@theoremjs/agents';
+import { type Profile, registerTraceDestination, type TraceRecord } from '@theoremjs/agents';
 import { eachLine, NDJSON, type SendLine } from '../stream-lines.ts';
 import type { StudioTraceLine } from '../traces.ts';
 
@@ -23,9 +18,13 @@ export const STUDIO_RUN_TRACES = 'theorem-studio-run';
 /** The records of the run in progress. The kernel writes a record inside the run that made it. */
 const runs = new AsyncLocalStorage<TraceRecord[]>();
 
-/** The profile as the studio serves it: one that records writes to the run it is in. */
+/**
+ * The profile as the studio serves it: one that records writes to the run it is in.
+ * invariant: this agrees with the page, where a block naming no place records to the studio
+ * (`STUDIO_POLICY_UNSET`); without it the page offers a trace no run writes.
+ */
 export function tracedToPage<P extends Profile>(profile: P): P {
-  if (!resolveObservabilityPolicy(profile.observability).record) return profile;
+  if (!profile.observability || profile.observability.writeTo === false) return profile;
   registerTraceDestination(STUDIO_RUN_TRACES, {
     write: (record) => {
       runs.getStore()?.push(record);

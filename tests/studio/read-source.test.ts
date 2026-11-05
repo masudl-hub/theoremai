@@ -68,6 +68,72 @@ Deno.test('the decision example file reads back into the same file', async () =>
   roundTrip(await createDecisionExampleDraft());
 });
 
+Deno.test('a prompt and its options read back as one box and a row each', () => {
+  const draft = createExampleDraft();
+  const edited = {
+    ...draft,
+    identity: {
+      ...draft.identity,
+      options: [
+        {
+          key: 'option-plan',
+          name: 'plan',
+          label: '',
+          isShownInChat: false,
+          choices: [
+            { key: 'choice-free', value: 'free', description: '' },
+            { key: 'choice-paid', value: 'paid', description: '' },
+          ],
+        },
+      ],
+      system: 'Be brief.\n\nwhen plan is paid: Take your time. {private: One.\n\nTwo.}',
+    },
+  };
+  roundTrip(edited);
+  const compiled = compileStudio(edited, ON_OWN_KEYS);
+  assert(compiled.ok);
+  const read = readStudioSource(studioSource(compiled), edited);
+  assert(read.ok);
+  assertEquals(read.draft.identity.system, edited.identity.system);
+  assertEquals(read.draft.identity.options, edited.identity.options);
+});
+
+Deno.test('a when line with a blank line in it is refused, since one box would split it', () => {
+  const draft = createExampleDraft();
+  const line = 'when plan is paid: Take your time.';
+  const compiled = compileStudio(
+    {
+      ...draft,
+      identity: {
+        ...draft.identity,
+        options: [
+          {
+            key: 'option-plan',
+            name: 'plan',
+            label: '',
+            isShownInChat: false,
+            choices: [
+              { key: 'choice-free', value: 'free', description: '' },
+              { key: 'choice-paid', value: 'paid', description: '' },
+            ],
+          },
+        ],
+        system: `Be brief.\n\n${line}`,
+      },
+    },
+    ON_OWN_KEYS,
+  );
+  assert(compiled.ok);
+  const source = studioSource(compiled);
+  assert(source.includes(line));
+  const read = readStudioSource(source.replace(line, `${line}\\n\\nAnd more.`), draft);
+  assert(!read.ok);
+  assertEquals(
+    read.errors[0]?.message,
+    'A "when" line in the system prompt can\'t hold a blank line.',
+  );
+});
+
 Deno.test('both taint settings in the file come back into the draft', () => {
   const draft = createExampleDraft();
   draft.guardrails.taintAfterRemoteRead = 'write';
@@ -147,6 +213,21 @@ function withoutFirstCall(source: string, name: string): string {
   const start = source.lastIndexOf('registerTool(', at);
   const end = source.indexOf(');\n', at);
   return source.slice(0, start) + source.slice(end + 3);
+}
+
+for (const background of ['always', 'ask', { afterMs: 10000 }] as const) {
+  Deno.test(`a tool's background ${JSON.stringify(background)} reads back from the file`, () => {
+    const draft = createExampleDraft();
+    const [first, ...rest] = draft.toolSpecs;
+    assert(first);
+    const set = { ...draft, toolSpecs: [{ ...first, background }, ...rest] };
+    roundTrip(set);
+    const compiled = compileStudio(set, ON_OWN_KEYS);
+    assert(compiled.ok);
+    const read = readStudioSource(studioSource(compiled), set);
+    if (!read.ok) throw new Error(read.errors.map((error) => error.message).join('\n'));
+    assertEquals(read.draft.toolSpecs[0]?.background, background);
+  });
 }
 
 Deno.test('leaving a tool out of tools.allow takes it off this agent', () => {
@@ -238,6 +319,7 @@ Deno.test('a continue list the file leaves out opens as the kernel reads it, not
     'length',
     'stream_incomplete',
     'provider_error',
+    'answer_missing',
   ]);
   assertEquals(read.draft.turnBehaviour.resumeEnabled, true);
 });
@@ -292,26 +374,31 @@ Deno.test('context and a tool the page answers read back', () => {
   });
 });
 
-Deno.test('slots and sizes by type read back, each slot and choice keeping its key', () => {
+Deno.test('options and sizes by type read back, each option and choice keeping its key', () => {
   const draft = createExampleDraft();
   draft.inputs = {
     ...draft.inputs,
     limitsByMime: { 'application/pdf': 2000000, 'image/*': 500000 },
-    slots: [
+  };
+  draft.identity = {
+    ...draft.identity,
+    options: [
       {
-        key: 'slot-tone',
+        key: 'option-tier',
+        name: 'tier',
+        label: '',
+        isShownInChat: false,
+        choices: [{ key: 'choice-gold', value: 'gold', description: '' }],
+      },
+      {
+        key: 'option-tone',
         name: 'tone',
         label: 'Tone',
+        isShownInChat: true,
         choices: [
           { key: 'choice-plain', value: 'plain', description: 'Short words.' },
           { key: 'choice-warm', value: 'warm', description: '' },
         ],
-      },
-      {
-        key: 'slot-role',
-        name: 'role',
-        label: '',
-        choices: [{ key: 'choice-admin', value: 'admin', description: '' }],
       },
     ],
   };
@@ -321,7 +408,7 @@ Deno.test('slots and sizes by type read back, each slot and choice keeping its k
   const read = readStudioSource(studioSource(compiled), draft);
   assert(read.ok);
   assertEquals(read.draft.inputs.limitsByMime, draft.inputs.limitsByMime);
-  assertEquals(read.draft.inputs.slots, draft.inputs.slots);
+  assertEquals(read.draft.identity.options, draft.identity.options);
 });
 
 Deno.test('who holds the conversation survives a Studio source round trip', () => {
@@ -438,7 +525,10 @@ Deno.test('a setting the kernel lists, set to another value, fails where it is w
   const written = source.replace('turnBehaviour: {', "turnBehaviour: {\n    atStepLimit: 'answr',");
   const read = readStudioSource(written, draft);
   assert(!read.ok);
-  assertEquals(read.errors[0]?.message, `"answr" is not one of 'stop', 'answer'.`);
+  assertEquals(
+    read.errors[0]?.message,
+    `turnBehaviour.atStepLimit "answr" is not one of 'stop', 'answer'.`,
+  );
   assertEquals(read.errors[0]?.line, lineOf(written, "atStepLimit: 'answr'"));
 });
 

@@ -91,11 +91,16 @@ interface DetectScope extends LeakScope, Pick<GuardrailContext, 'givenUrls' | 'o
   note?: string;
   /** What `ungiven_images` and `ungiven_links` let through besides the given URLs. */
   allow?: ResolvedAllow;
-  /** The tools the model can call this turn, for `tool_instructions`: a tool's text naming one is a match. */
+  /** The tools the model can call this turn, for `injection` in what a tool returns: naming one is a match. */
   callable?: readonly string[];
+  /** Set where a tool's output or error is read: `injection` also reads it for orders aimed at the agent. */
+  fromTool?: boolean;
 }
 
 const NO_SCOPE: DetectScope = {};
+
+/** A text read at no boundary may be what a tool returned, so `injection` reads it for orders to the agent too. */
+const NO_BOUNDARY: DetectScope = { fromTool: true };
 
 /**
  * The {@linkcode LeakScope} of a turn under `detect`: each part only while its detector is above
@@ -167,7 +172,6 @@ function hostSpans(
 /** The placeholder a host's pattern leaves for a detector, where it is not the sensitive one. */
 const HOST_KIND: Readonly<Partial<Record<Detector, RedactSpan['kind']>>> = {
   injection: 'injection',
-  tool_instructions: 'directive',
   tool_leak: 'tool',
 };
 
@@ -194,7 +198,14 @@ function theoremSpans(
   scope: DetectScope,
   skipImages = false,
 ): RedactSpan[] {
-  if (detector === 'injection') return injectionSpans(text);
+  if (detector === 'injection') {
+    if (!scope.fromTool) return injectionSpans(text);
+    const orders = directives(text, scope.callable).map((found) => ({
+      ...found,
+      kind: 'directive' as const,
+    }));
+    return [...injectionSpans(text), ...orders];
+  }
   if (detector === 'marker_leak') {
     const patterns = [MARKERS, ...(scope.note ? [notePattern(scope.note)] : [])];
     return spansFromPatterns(text, patterns, 'prompt');
@@ -216,9 +227,6 @@ function theoremSpans(
     return privateSystem ? ranged(promptEchoRanges(text, privateSystem, canary), 'prompt') : [];
   }
   if (detector === 'tool_leak') return toolLeakSpans(text, scope.ownTools);
-  if (detector === 'tool_instructions') {
-    return directives(text, scope.callable).map((found) => ({ ...found, kind: 'directive' }));
-  }
   return sensitiveSpans(text, ONLY[detector]);
 }
 
@@ -227,7 +235,7 @@ function hitOf(detector: Detector, text: string, span: RedactSpan): GuardrailHit
   const { start, end } = span;
   if (detector === 'canary_leak') return { ...CANARY_HIT, span: { start, end } };
   if (detector === 'prompt_leak') return promptEchoHit(text, start, end);
-  if (detector === 'tool_instructions' && span.signal) {
+  if (detector === 'injection' && span.signal) {
     const severity = span.signal === 'order' || span.signal === 'authority' ? 'medium' : 'high';
     return { ...hitFromSpan(text, span, DETECT_RULES[detector], severity), signal: span.signal };
   }
@@ -327,6 +335,11 @@ function hostAt(boundary: Boundary, detect: ResolvedDetect): HostDetector[] {
   return (detect.host ?? []).filter(({ actions }) => actions[boundary] !== 'ignore');
 }
 
+/** Whether `boundary` is where a tool's output or error reaches the model. */
+function isToolReturn(boundary: Boundary): boolean {
+  return boundary.startsWith('tool_output_') || boundary.startsWith('tool_failure_');
+}
+
 /** Every detector that reads `boundary`, Theorem's then the host's; among `keys` when given. */
 function readersAt(
   boundary: Boundary,
@@ -339,11 +352,12 @@ function readersAt(
     const chosen = detect[detector][boundary];
     if (chosen === 'ignore') continue;
     const skip = leavesImages(detector, boundary, detect);
+    const read = isToolReturn(boundary) ? { ...scope, fromTool: true } : scope;
     readers.push({
       key: detector,
       rule: DETECT_RULES[detector],
       chosen,
-      spans: (text) => spansOf(detector, text, scope, detect.sources?.[detector], skip),
+      spans: (text) => spansOf(detector, text, read, detect.sources?.[detector], skip),
       hit: (text, span) => hitOf(detector, text, span),
     });
   }
@@ -540,7 +554,7 @@ function detectRelease(
 function redactDetectors(text: string, detectors: readonly Detector[]): string {
   return applySpans(
     text,
-    detectors.flatMap((detector) => spansOf(detector, text, NO_SCOPE)),
+    detectors.flatMap((detector) => spansOf(detector, text, NO_BOUNDARY)),
   );
 }
 
@@ -563,7 +577,7 @@ function storedSpans(
       sides === true
         ? turn
         : { theorem: sides.theorem, matchers: sides.host ? (turn?.matchers ?? []) : [] };
-    return spansOf(detector, text, NO_SCOPE, source);
+    return spansOf(detector, text, NO_BOUNDARY, source);
   });
 }
 
@@ -618,7 +632,7 @@ const TOOL_STAGE: Readonly<Record<string, GuardrailStage>> = Object.fromEntries(
 /** The trace stage each boundary reports under. */
 const BOUNDARY_STAGE: Readonly<Record<Boundary, GuardrailStage>> = {
   user: 'input',
-  slots: 'input',
+  options: 'input',
   context: 'input',
   repair: 'input',
   attachment: 'attachment',

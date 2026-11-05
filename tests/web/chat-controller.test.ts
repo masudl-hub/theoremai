@@ -332,22 +332,22 @@ Deno.test('a stop keeps what the reply said, and a queued message stays queued',
   ]);
 });
 
-Deno.test('each turn carries the slots and context as they are when it is sent', async () => {
+Deno.test('each turn carries the options and context as they are when it is sent', async () => {
   const host = heldHost();
   const iface = {
     ...textInterface(),
     inputs: {
       ...textInterface().inputs,
-      slots: { tone: { choices: [{ value: 'warm' }, { value: 'dry' }] } },
+      options: { tone: { choices: [{ value: 'warm' }, { value: 'dry' }] } },
     },
   };
   const chat = createChatController({ transport: host.transport, iface, context: { page: 'a' } });
-  assertEquals(chat.getState().slots?.values, { tone: 'warm' });
-  chat.pickSlot('tone', 'dry');
+  assertEquals(chat.getState().options?.values, { tone: 'warm' });
+  chat.pickOption('tone', 'dry');
   chat.update({ transport: host.transport, iface, context: { page: 'b' } });
   const sent = chat.sendText('Hi');
   await settle();
-  assertEquals(host.turns[0].request.input.slots, { tone: 'dry' });
+  assertEquals(host.turns[0].request.input.options, { tone: 'dry' });
   assertEquals(host.turns[0].request.input.context, { page: 'b' });
   reply(host.turns[0], 'Hello');
   const turn = await sent;
@@ -533,6 +533,96 @@ Deno.test('a message sent now while the reply waits on a gate walks away from it
   assertEquals(chat.getState().phase, 'idle');
 });
 
+/** A gated reply whose stream and conversation read stay open until the test lets them go. */
+function gateHost(paused: boolean) {
+  const host = heldHost();
+  const invokes: TheoremInvokeRequest[] = [];
+  let read = () => {};
+  const transport: TheoremTransport = {
+    ...host.transport,
+    invoke: (request, onLine) => {
+      invokes.push(request);
+      onLine({ type: 'done', stop: { kind: 'completed' } });
+      return Promise.resolve();
+    },
+    conversation: async () => {
+      await new Promise<void>((resolve) => {
+        read = resolve;
+      });
+      return {
+        transcript: [{ id: 'u1', kind: 'user-text', text: 'Look it up' }],
+        ...(paused && !invokes.length
+          ? { paused: { events: gated('call-1', 'permission'), blocks: [] } }
+          : {}),
+      };
+    },
+  };
+  const chat = createChatController({ transport, iface: hostedInterface() });
+  /** Sends a message and streams its gate, drawn, up to the stream's last line. */
+  const drawn = async () => {
+    const asked = chat.sendText('Look it up');
+    await settle();
+    host.turns[0].line({ type: 'conversation', ref: 'ref-2', posted: true });
+    for (const line of gated('call-1', 'permission').slice(0, 2)) host.turns[0].line(line);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return {
+      end: () => {
+        host.turns[0].line(gated('call-1', 'permission')[2]);
+        host.turns[0].end();
+      },
+      turn: host.turns[0],
+      asked,
+    };
+  };
+  return { chat, invokes, drawn, read: () => read() };
+}
+
+Deno.test('an answer given while the gate still streams waits for the run, once, and shows', async () => {
+  const { chat, invokes, drawn, read } = gateHost(true);
+  const { end, asked } = await drawn();
+  const answer = chat.decide('allow');
+  const twice = chat.decide('allow');
+  assertEquals(chat.getState().answering?.callId, 'call-1');
+  end();
+  await settle();
+  assertEquals(invokes.length, 0);
+  read();
+  await settle();
+  assertEquals(invokes.length, 1);
+  assertEquals(invokes[0].gateId, 'call-1');
+  read();
+  await Promise.all([asked, answer, twice]);
+  assertEquals(chat.getState().failure, null);
+  assertEquals(chat.getState().answering, null);
+});
+
+Deno.test('an answer given between the stream and the read of what waits is not refused', async () => {
+  const { chat, invokes, drawn, read } = gateHost(true);
+  const { end, asked } = await drawn();
+  end();
+  await settle();
+  const answer = chat.decide('allow');
+  read();
+  await settle();
+  assertEquals(invokes.length, 1);
+  read();
+  await Promise.all([asked, answer]);
+  assertEquals(chat.getState().failure, null);
+});
+
+Deno.test('an answer waiting on a run goes nowhere when the run left that gate behind', async () => {
+  const { chat, invokes, drawn, read } = gateHost(false);
+  const { turn, asked } = await drawn();
+  const answer = chat.decide('allow');
+  turn.line({ type: 'done', stop: { kind: 'cancelled' } });
+  turn.end();
+  await settle();
+  read();
+  await Promise.all([asked, answer]);
+  assertEquals(invokes.length, 0);
+  assertEquals(chat.getState().answering, null);
+});
+
 Deno.test('a restored page gate is answered unanswered once someone follows the chat, and only once', async () => {
   const host = heldHost();
   const invokes: TheoremInvokeRequest[] = [];
@@ -576,4 +666,80 @@ Deno.test('a restored page gate is answered unanswered once someone follows the 
   assertEquals(invokes[0].operationId, 'call-3');
   assertEquals(invokes[0].page, { unanswered: true });
   assertEquals(chat.getState().phase, 'idle');
+});
+
+Deno.test('a model the profile does not have goes to the host as picked, to be refused there', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  void chat.sendText('Default');
+  await settle();
+  assertEquals(host.turns[0].request.model, undefined);
+  reply(host.turns[0], 'Ok');
+  await settle();
+  void chat.sendText('Other', { model: 'other' });
+  await settle();
+  assertEquals(host.turns[1].request.model, 'other');
+  reply(host.turns[1], 'Ok');
+  await settle();
+  assertEquals(chat.getState().session.selectedModel, 'other');
+});
+
+Deno.test('a model and effort picked while a reply streams outlast the reply', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  chat.setDraftText('One');
+  void chat.submit();
+  await settle();
+  chat.setGeneration({ modelId: 'fast', effort: 'high' });
+  reply(host.turns[0], 'Done');
+  await settle();
+  assertEquals(chat.getState().session.selectedModel, 'fast');
+  assertEquals(chat.getState().session.selectedEffort, 'high');
+});
+
+Deno.test('an effort sent alone applies to the model the chat is on', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  await settle();
+  const model = chat.getState().session.selectedModel;
+  void chat.sendText('One', { effort: 'high' });
+  await settle();
+  assertEquals(chat.getState().session.selectedModel, model);
+  assertEquals(chat.getState().session.selectedEffort, 'high');
+  assertEquals(host.turns[0].request.effort, 'high');
+});
+
+Deno.test('a message queued on an idle chat sends', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  await settle();
+  await chat.pend(createComposerPendingMessage({ kind: 'queue', draft: { text: 'Next' } }));
+  await settle();
+  assertEquals(host.turns.length, 1);
+  assertEquals(chat.getState().pendingMessages, []);
+});
+
+Deno.test('two chats sent one message each run the model picked on them', async () => {
+  const hosts = [heldHost(), heldHost()];
+  const [one, two] = hosts.map(({ transport }) =>
+    createChatController({ transport, iface: textInterface() }),
+  );
+  await settle();
+  two.setGeneration({ modelId: 'other', effort: 'high' });
+  void one.sendText('Same');
+  void two.sendText('Same');
+  await settle();
+  assertEquals(hosts[0].turns[0].request.model, undefined);
+  assertEquals(hosts[1].turns[0].request.model, 'other');
+  assertEquals(hosts[1].turns[0].request.effort, 'high');
+});
+
+Deno.test('a message pended in two chats keeps one id in both', async () => {
+  const one = createChatController({ transport: heldHost().transport, iface: textInterface() });
+  const two = createChatController({ transport: heldHost().transport, iface: textInterface() });
+  const message = createComposerPendingMessage({ kind: 'stash', draft: { text: 'Later' } });
+  await one.pend(message);
+  await two.pend(message);
+  assertEquals(one.getState().pendingMessages[0].id, message.id);
+  assertEquals(two.getState().pendingMessages[0].id, message.id);
 });

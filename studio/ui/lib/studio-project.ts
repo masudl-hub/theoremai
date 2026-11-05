@@ -4,15 +4,11 @@
  * own code.
  */
 
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { TheoremRewound } from '@theoremjs/web/client';
 import { createContext, useContext } from 'react';
-import {
-  filesPrint,
-  type ProjectCode,
-  providersAtStart,
-  type StudioAsks,
-  type StudioWorkspace,
-} from '../../mod.ts';
-import type { StudioPeopleOffer } from '../../people.ts';
+import { filesPrint, type ProjectCode, providersAtStart, type StudioWorkspace } from '../../mod.ts';
+import { actingAsHeaders, type StudioActingAs, type StudioPeopleOffer } from '../../people.ts';
 import { READ_STEPS, type ReadStep } from '../../read-steps.ts';
 import type {
   EditedAnswer,
@@ -53,8 +49,6 @@ export interface ProjectSession {
   origins: ProjectOrigins;
   /** Where the files define each provider the project registered. */
   providerPlaces: ProviderPlace[];
-  /** The tools that write: the ones the studio makes ask, and the ones it cannot. */
-  asks: StudioAsks;
   /** The files as the server read them, as a short text that changes when they do. */
   print: string;
   /** What the project printed when its files stopped loading; the page shows the last load that did. */
@@ -85,7 +79,6 @@ export function projectCode(
   };
 }
 
-export const NO_ASKS: StudioAsks = { asked: [], inside: [] };
 const NO_ORIGINS: ProjectOrigins = { profiles: {}, tools: {}, providers: {} };
 
 /** Set while the page has a project open; `null` on the website's own page. */
@@ -110,7 +103,6 @@ export function projectSession(name: string): ProjectSession {
     unregistered: [],
     origins: NO_ORIGINS,
     providerPlaces: [],
-    asks: NO_ASKS,
     print: '',
     people: undefined,
     peopleProblem: undefined,
@@ -170,6 +162,28 @@ export function editedProfileEndpoint(project: ProjectSession, profileId: string
   return `${project.endpoint}/edited/profiles/${encodeURIComponent(profileId)}`;
 }
 
+/**
+ * A chat that opens on `blocks`, on the project's server: its ref and view. Every load seals with
+ * the run's one key, so whichever side goes on opens it.
+ */
+export async function startProjectConversation(
+  project: ProjectSession,
+  profileId: string,
+  blocks: readonly TranscriptBlock[],
+  actingAs: StudioActingAs | undefined,
+): Promise<TheoremRewound> {
+  const endpoint = project.profiles.includes(profileId)
+    ? projectProfileEndpoint(project, profileId)
+    : editedProfileEndpoint(project, profileId);
+  const response = await fetch(`${endpoint}/conversation/start`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...actingAsHeaders(actingAs) },
+    body: JSON.stringify({ blocks }),
+  });
+  if (!response.ok) throw new Error(`The studio server answered ${String(response.status)}.`);
+  return response.json();
+}
+
 /** Shows a line of one of the project's files in the editor the builder chose, or the studio command's. */
 export function openInEditor(project: ProjectSession, place: OpenRequest): Promise<OpenAnswer> {
   const editor = getPref('editor');
@@ -188,7 +202,6 @@ interface Opened {
   unregistered?: Unregistered[];
   origins?: ProjectOrigins;
   providerPlaces?: ProviderPlace[];
-  asks?: StudioAsks;
   unloaded?: string;
   editor?: string;
   setup?: string;
@@ -241,7 +254,6 @@ export type ProjectFiles = Pick<
   | 'unheld'
   | 'origins'
   | 'providerPlaces'
-  | 'asks'
   | 'print'
   | 'unloaded'
   | 'people'
@@ -259,7 +271,6 @@ function filesOf(opened: Opened): ProjectFiles {
     unheld: opened.unheld ?? [],
     origins: opened.origins ?? NO_ORIGINS,
     providerPlaces: opened.providerPlaces ?? [],
-    asks: opened.asks ?? NO_ASKS,
     print: filesPrint(opened.workspace),
     // Set even when absent, so a setup file that stops offering people stops being offered.
     people: opened.people,

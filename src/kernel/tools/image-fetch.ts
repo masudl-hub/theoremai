@@ -59,6 +59,7 @@ async function fetchOne(
       policy: toolNetworkPolicy(ctx),
       followRedirects: true,
       resolveHost: ctx.resolveHost,
+      fetchFn: ctx.fetch,
     },
   );
   if (!response.ok) throw new Error(`HTTP ${response.status}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

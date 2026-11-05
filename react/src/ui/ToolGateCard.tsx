@@ -13,7 +13,7 @@ import { IconEye, IconFlame, IconPencil, type Icon as TablerIcon } from '@tabler
 import type { ToolAccess, ToolGate } from '@theoremjs/agents/kernel';
 import type { ToolDecisionAction } from '@theoremjs/web/client';
 import { humanize, isOAuthComplete } from '@theoremjs/web/client';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { approvalHeading } from './approval-heading.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 
@@ -21,6 +21,8 @@ export type ToolDecision = ToolDecisionAction;
 
 /** The widest a gate card gets, in pixels. */
 export const GATE_CARD_WIDTH = 400;
+/** why: A focused title shows no ring; the focus is for screen readers, as on Astryx's DialogHeader. */
+const TITLE_FOCUS: CSSProperties = { outline: 'none' };
 
 function formatInput(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -34,7 +36,8 @@ function GateCard(props: { heading: string; tag?: ReactNode; children: ReactNode
     <Card variant="bubble" elevation="med" maxWidth={GATE_CARD_WIDTH}>
       <VStack gap={3}>
         <HStack justify="between" align="start" gap={3}>
-          <Text type="large" weight="semibold">
+          {/* why: A dialog opens on its title (data-autofocus), not on Details or Approve. */}
+          <Text type="large" weight="semibold" tabIndex={-1} data-autofocus style={TITLE_FOCUS}>
             {props.heading}
           </Text>
           {props.tag}

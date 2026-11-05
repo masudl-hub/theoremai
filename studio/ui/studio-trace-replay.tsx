@@ -9,10 +9,21 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { FileInput } from '@astryxdesign/core/FileInput';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
+import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
+import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
 import { Text } from '@astryxdesign/core/Text';
+import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import { VStack } from '@astryxdesign/core/VStack';
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconHistory,
+  IconPlayerPlay,
+  IconX,
+} from '@tabler/icons-react';
 import type {
   ComposerProfileInterface,
   ProfileInterface,
@@ -50,14 +61,16 @@ import {
   type ReplayScript,
   recordedPayload,
   recordedTranscript,
-  replayScript,
+  replayScripts,
   type StudioRunPayload,
   startStudioConversation,
   studioInterface,
   studioPageTools,
 } from '../mod.ts';
+import { useActingAs } from './lib/acting-as.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { startProjectConversation, useProject } from './lib/studio-project.ts';
 
 /** A trace file the builder imported. */
 export interface OpenedTrace {
@@ -95,6 +108,7 @@ type ReplayStatus =
   | { kind: 'missing'; turn: number }
   | { kind: 'diverged'; divergence: ReplayDivergence }
   | { kind: 'failed'; turn: number; message: string }
+  | { kind: 'stopped'; turn: number }
   | { kind: 'done' };
 
 const ordinal = (turn: number) => `turn ${String(turn + 1)}`;
@@ -171,7 +185,8 @@ function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }
     if (!file) return;
     setReading(true);
     try {
-      onImport({ name: file.name, records: parseTraceFile(await file.text()) });
+      const records = parseTraceFile(await file.text());
+      onImport({ name: file.name, records });
       setProblem(undefined);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -185,9 +200,9 @@ function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }
         label="Trace file"
         isLabelHidden
         mode="dropzone"
-        accept="application/json,.json"
+        accept="application/json,.json,.jsonl"
         isLoading={reading}
-        placeholder="Drop a trace (.json) or choose a file"
+        placeholder="Drop a trace (.json or .jsonl) or choose a file"
         value={null}
         changeAction={changeAction}
         onChange={() => undefined}
@@ -199,10 +214,22 @@ function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }
 
 type Shown = 'recorded' | 'replayed';
 
+/** A replay of one file through one agent: how many times it ran, and which run is shown. */
+interface ReplayRun {
+  of: ReplayScript;
+  agent: string;
+  attempt: number;
+  shown: Shown;
+}
+
 /** What the trace card holds besides its file: the imported trace, and how its replay runs. */
 interface TraceControls {
   opened: OpenedTrace;
   script: ReplayScript;
+  /** Which of the file's conversations is open, from 0, and how many it holds. */
+  picked: number;
+  count: number;
+  onPick: (next: number) => void;
   payload: StudioRunPayload;
   shown: Shown | null;
   onShown: (next: Shown) => void;
@@ -211,6 +238,7 @@ interface TraceControls {
   isRunning: boolean;
   onReplay: () => void;
   onStop: () => void;
+  onClear: () => void;
 }
 
 const recordedAt = (script: ReplayScript) =>
@@ -223,17 +251,18 @@ const recordedAt = (script: ReplayScript) =>
 /** Recorded / Replayed: which run the conversation and the inspector show. */
 function ShownControl({ shown, onShown }: { shown: Shown; onShown: (next: Shown) => void }) {
   return (
-    <SegmentedControl
-      label="Show"
+    <ToggleButton
+      label="Replayed"
+      tooltip={shown === 'replayed' ? 'Recorded' : 'Replayed'}
       size="sm"
-      value={shown}
-      onChange={(next) => {
-        onShown(next === 'replayed' ? 'replayed' : 'recorded');
+      isIconOnly
+      icon={<Icon icon={IconHistory} size="sm" />}
+      pressedIcon={<Icon icon={IconPlayerPlay} size="sm" />}
+      isPressed={shown === 'replayed'}
+      onPressedChange={(isReplayed) => {
+        onShown(isReplayed ? 'replayed' : 'recorded');
       }}
-    >
-      <SegmentedControlItem value="recorded" label="Recorded" />
-      <SegmentedControlItem value="replayed" label="Replayed" />
-    </SegmentedControl>
+    />
   );
 }
 
@@ -248,14 +277,53 @@ function TraceFacts({ controls }: { controls: TraceControls }) {
   ];
   return (
     <>
-      <VStack gap={0}>
-        <Text type="label" maxLines={1}>
-          {controls.opened.name}
-        </Text>
-        <Text type="supporting" color="secondary" maxLines={1}>
-          {facts.filter(Boolean).join(' · ')}
-        </Text>
-      </VStack>
+      <HStack gap={2} vAlign="center">
+        <StackItem size="fill">
+          <VStack gap={0}>
+            <Text type="label" maxLines={1}>
+              {controls.opened.name}
+            </Text>
+            <Text type="supporting" color="secondary" maxLines={1}>
+              {facts.filter(Boolean).join(' · ')}
+            </Text>
+          </VStack>
+        </StackItem>
+        <IconButton
+          label="Clear trace"
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconX} size="sm" />}
+          isDisabled={controls.isRunning}
+          onClick={controls.onClear}
+        />
+      </HStack>
+      {controls.count > 1 ? (
+        <HStack gap={1} vAlign="center">
+          <IconButton
+            label="Previous conversation"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconChevronLeft} size="sm" />}
+            isDisabled={controls.isRunning || controls.picked === 0}
+            onClick={() => {
+              controls.onPick(controls.picked - 1);
+            }}
+          />
+          <Text type="supporting">
+            Conversation {String(controls.picked + 1)} of {String(controls.count)}
+          </Text>
+          <IconButton
+            label="Next conversation"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconChevronRight} size="sm" />}
+            isDisabled={controls.isRunning || controls.picked === controls.count - 1}
+            onClick={() => {
+              controls.onPick(controls.picked + 1);
+            }}
+          />
+        </HStack>
+      ) : null}
       {script.agent && script.agent !== payload.profile.id ? (
         <Banner
           status="info"
@@ -376,16 +444,29 @@ function StatusBanner({
           />
         );
       case 'diverged': {
-        const { turn, call, reason } = status.divergence;
+        const divergence = status.divergence;
+        const at =
+          'tool' in divergence
+            ? `the ${divergence.tool} tool`
+            : `${divergence.agent}'s model call ${String(divergence.call)}`;
         return (
           <Banner
             status="warning"
-            title={`Replay stopped at ${ordinal(turn)}, model call ${String(call)}`}
-            description={reason}
-            endContent={live(turn)}
+            title={`Replay stopped at ${ordinal(divergence.turn)}, ${at}`}
+            description={divergence.reason}
+            endContent={live(divergence.turn)}
           />
         );
       }
+      case 'stopped':
+        return (
+          <Banner
+            status="info"
+            title={`Replay stopped at ${ordinal(status.turn)}`}
+            description="You stopped it. Continue live to go on from here with the profile's model."
+            endContent={live(status.turn)}
+          />
+        );
       case 'failed':
         return (
           <Banner
@@ -418,7 +499,8 @@ type ConsoleProps = {
   iface: ComposerProfileInterface;
   trace: boolean | undefined;
   card: (controls: Pick<TraceControls, 'isRunning' | 'onStop'>) => ReactNode;
-  opened: OpenedTrace;
+  /** The records the inspector shows: the open conversation's, and those no conversation holds. */
+  records: readonly TraceRecord[];
   script: ReplayScript;
 };
 
@@ -428,7 +510,7 @@ function ReplayConsole({
   iface,
   trace,
   card,
-  opened,
+  records,
   script,
   shown,
   liveTools,
@@ -440,10 +522,12 @@ function ReplayConsole({
   runtime: StudioBrowserRuntime | null;
   onLive: (start: LiveStart) => void;
 }) {
+  const project = useProject();
+  const { actingAs } = useActingAs();
   const diverged = useRef<ReplayDivergence>(undefined);
   const [status, setStatus] = useState<ReplayStatus>({ kind: 'running', turn: 0 });
   const [traces] = useState(createTraceFeed);
-  const recorded = useMemo(() => recordedFeed(opened.records), [opened.records]);
+  const recorded = useMemo(() => recordedFeed(records), [records]);
   const replay = useMemo(
     () =>
       createReplay(script, payload.profile.id, (divergence) => {
@@ -473,6 +557,12 @@ function ReplayConsole({
   const phase = useRef(chat.phase);
   phase.current = chat.phase;
   const [from, setFrom] = useState(0);
+  /** The builder pressed Stop: the replay sends no further turn. */
+  const halted = useRef(false);
+  // invariant: only leaving the replay stops its reply; Continue replay restarts the loop while a resumed reply streams.
+  const stopReply = useRef(handleStop);
+  stopReply.current = handleStop;
+  useEffect(() => () => stopReply.current(), []);
   useEffect(() => {
     let stopped = false;
     /** Until a reply still streaming (one a stop is ending) has ended. */
@@ -483,7 +573,7 @@ function ReplayConsole({
     void (async () => {
       for (let turn = from; turn < script.turns.length; turn += 1) {
         await settled();
-        if (stopped) return;
+        if (stopped || halted.current) return;
         if (phase.current === 'gated') {
           // The turn before waits on a gate: its reply goes on with the calls it has left.
           replay.startTurn(turn - 1);
@@ -495,7 +585,7 @@ function ReplayConsole({
         setStatus({ kind: 'running', turn });
         try {
           const sent = await sendText(text);
-          if (stopped) return;
+          if (stopped || halted.current) return;
           if (diverged.current)
             return setStatus({ kind: 'diverged', divergence: diverged.current });
           // The chat took nothing: it was not idle yet. Settle, then send this turn again.
@@ -509,12 +599,13 @@ function ReplayConsole({
     })();
     return () => {
       stopped = true;
-      handleStop();
     };
-  }, [from, replay, script, sendText, handleStop]);
+  }, [from, replay, script, sendText]);
   const live = async (turn: number) => {
     const blocks = script.turns.slice(0, turn).flatMap((each) => each.blocks);
-    const started = await startLive(payload, runtime, blocks);
+    const started = project
+      ? await startProjectConversation(project, payload.agentId, blocks, actingAs)
+      : await startLive(payload, runtime, blocks);
     onLive({ ...started, text: script.turns[turn]?.text ?? '' });
   };
   const replayed = shown === 'replayed';
@@ -526,8 +617,9 @@ function ReplayConsole({
       card={card({
         isRunning: status.kind === 'running',
         onStop: () => {
+          halted.current = true;
           handleStop();
-          setStatus({ kind: 'done' });
+          setStatus((now) => (now.kind === 'running' ? { kind: 'stopped', turn: now.turn } : now));
         },
       })}
       conversation={
@@ -556,6 +648,11 @@ export type TraceReplayProps = {
   trace: boolean | undefined;
   runtime: StudioBrowserRuntime | null;
   onLive: (start: LiveStart) => void;
+  /** The imported file, held by the page so closing the console does not lose it. */
+  opened: OpenedTrace | undefined;
+  onOpened: (trace: OpenedTrace) => void;
+  /** Lets go of the imported file. */
+  onClear: () => void;
 };
 
 /**
@@ -572,22 +669,56 @@ export function TraceReplay(props: TraceReplayProps) {
   );
 }
 
-function TraceConsole({ payload, trace, runtime, onLive }: TraceReplayProps) {
+/** A file with no conversation in it. */
+const emptyScript: ReplayScript = { agent: '', turns: [], records: [] };
+
+/**
+ * What the inspector shows of a file: all of it with one conversation in it; with more, the open
+ * conversation's records and those no conversation holds (a host's tool call, a decision).
+ */
+function shownRecords(
+  records: readonly TraceRecord[],
+  scripts: readonly ReplayScript[],
+  script: ReplayScript | undefined,
+): readonly TraceRecord[] {
+  if (scripts.length <= 1 || !script) return records;
+  const held = new Set(scripts.flatMap((each) => each.records));
+  const open = new Set(script.records);
+  return records.filter((record) => open.has(record) || !held.has(record));
+}
+
+function TraceConsole({
+  payload,
+  trace,
+  runtime,
+  onLive,
+  opened,
+  onOpened,
+  onClear,
+}: TraceReplayProps) {
   const iface = useMemo(() => studioInterface(payload), [payload]);
-  const [opened, setOpened] = useState<OpenedTrace>();
-  const script = useMemo(() => opened && replayScript(opened.records), [opened]);
-  const recorded = useMemo(() => recordedFeed(opened?.records ?? []), [opened]);
-  const [attempt, setAttempt] = useState(0);
-  const [shown, setShown] = useState<Shown>('recorded');
+  const scripts = useMemo(() => (opened ? replayScripts(opened.records) : []), [opened]);
+  const [pick, setPick] = useState<{ of: OpenedTrace; index: number }>();
+  // why: a newly opened file starts on its first conversation.
+  const picked = pick && pick.of === opened ? pick.index : 0;
+  const script = opened ? (scripts[picked] ?? emptyScript) : undefined;
+  const records = useMemo(
+    () => shownRecords(opened?.records ?? [], scripts, script),
+    [opened, scripts, script],
+  );
+  const recorded = useMemo(() => recordedFeed(records), [records]);
+  const [ran, setRan] = useState<ReplayRun>();
   const [liveTools, setLiveTools] = useState(false);
-  const imported = (next: OpenedTrace) => {
-    setOpened(next);
-    setAttempt(0);
-    setShown('recorded');
+  // invariant: a replay belongs to the conversation and the agent it ran; another of either shows the recording.
+  const run = ran && ran.of === script && ran.agent === payload.profile.id ? ran : undefined;
+  const attempt = run?.attempt ?? 0;
+  const shown = run?.shown ?? 'recorded';
+  const setShown = (next: Shown) => {
+    if (run) setRan({ ...run, shown: next });
   };
   const replayOnce = () => {
-    setAttempt((count) => count + 1);
-    setShown('replayed');
+    if (script)
+      setRan({ of: script, agent: payload.profile.id, attempt: attempt + 1, shown: 'replayed' });
   };
   // invariant: the header offers an import only for a type whose conversation a trace holds.
   if (iface.type === 'live') return null;
@@ -597,16 +728,21 @@ function TraceConsole({ payload, trace, runtime, onLive }: TraceReplayProps) {
         iface={iface}
         feed={recorded}
         trace={trace}
-        card={<TraceCard onImport={imported} />}
+        card={<TraceCard onImport={onOpened} />}
         conversation={null}
       />
     );
   const card = ({ isRunning, onStop }: Pick<TraceControls, 'isRunning' | 'onStop'>) => (
     <TraceCard
-      onImport={imported}
+      onImport={onOpened}
       controls={{
         opened,
         script,
+        picked,
+        count: scripts.length,
+        onPick: (index) => {
+          setPick({ of: opened, index });
+        },
         payload,
         shown: attempt > 0 ? shown : null,
         onShown: setShown,
@@ -618,6 +754,7 @@ function TraceConsole({ payload, trace, runtime, onLive }: TraceReplayProps) {
         isRunning,
         onReplay: replayOnce,
         onStop,
+        onClear,
       }}
     />
   );
@@ -638,7 +775,7 @@ function TraceConsole({ payload, trace, runtime, onLive }: TraceReplayProps) {
       iface={iface}
       trace={trace}
       card={card}
-      opened={opened}
+      records={records}
       script={script}
       shown={shown}
       liveTools={liveTools}

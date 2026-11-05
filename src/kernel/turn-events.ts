@@ -620,6 +620,8 @@ export interface TurnToolSnapshot {
   path?: string;
   sessionPermissions?: string[];
   wire: WireFunctionTool[];
+  /** The request has a background service, so `ask` tools offer the `background` argument. */
+  modelBackground?: boolean;
 }
 const turnToolSnapshot = z.object({
   builtins: z.array(z.string()),
@@ -629,6 +631,7 @@ const turnToolSnapshot = z.object({
   path: z.string().optional(),
   sessionPermissions: z.array(z.string()).optional(),
   wire: z.array(wireFunctionTool),
+  modelBackground: z.boolean().optional(),
 });
 true satisfies Equals<z.infer<typeof turnToolSnapshot>, TurnToolSnapshot>;
 /** The schema a tool snapshot parses against. */
@@ -740,10 +743,12 @@ export type ToolPhaseEvent = ToolPhaseBase &
         readBack?: string;
         parts?: InteractionPart[];
         activityPast?: string;
-        /** An agent tool's call: the called agent's own usage, which the caller's `done.tokens` includes. */
+        /** An agent tool's call: the called agent's own usage. The caller's `done.tokens` includes it, unless the call settled after `done`. */
         tokens?: TurnTokens;
       }
     | { phase: 'gate'; gate: ToolGate; readBack?: string }
+    /** The model reads `readBack` now and the call goes on; its real end reaches the host alone. */
+    | { phase: 'background'; readBack: string }
     | {
         phase: 'error';
         failure: ToolFailure;
@@ -789,6 +794,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     gate: toolGate,
     readBack: z.string().optional(),
   }),
+  z.object({ ...toolPhaseBase, phase: z.literal('background'), readBack: z.string() }),
   z.object({
     ...toolPhaseBase,
     phase: z.literal('error'),
@@ -906,16 +912,35 @@ const TOOL_SNAPSHOT_STOP_KINDS = [
   'gate',
 ] as const satisfies readonly ToolSnapshotStopKind[];
 
+/** One file a provider refused: what it was, and where the turn was carrying it. */
+export interface RefusedMedia {
+  mimeType: string;
+  from: 'input' | 'history' | 'tool';
+}
+
+/**
+ * The turn went on without files the provider refused. Set only when the same call, sent
+ * without them, was accepted: that is the proof the files were at fault.
+ */
+export interface MediaRefused {
+  dropped: RefusedMedia[];
+  /** The provider's own reason, for the builder only: `forClient` strips the whole report. */
+  said: string;
+}
+
 export interface DoneBase {
   providerState?: ProviderCheckpoint;
   /** The turn's summed usage (`sumTokens` over its `tokens` events). */
   tokens?: TurnTokens;
   /** The turn's root span as a W3C `traceparent`, for a later request's `links`. */
   traceparent?: string;
+  /** The model calls that count against `maxSteps` so far, those of `stepsTaken` included. */
+  steps?: number;
   compaction?: CompactionSignal;
   /** A user utterance interrupted an in-flight live response (barge-in). */
   interrupted?: boolean;
   interactionId?: string;
+  mediaRefused?: MediaRefused;
 }
 
 /**
@@ -980,6 +1005,11 @@ export type TurnEvent =
    * `attempt` counts the retries: 1 for the first, as the trace's `theorem.attempt.retry` does.
    */
   | { type: 'attempt'; attempt: number; reason: AttemptReason }
+  /**
+   * The message `input.lateResults` put in the conversation, role `user`. It enters a history built
+   * from events like any other message.
+   */
+  | { type: 'late_results'; text: string }
   | { type: 'media'; media: { mimeType: string; data: string } }
   | { type: 'grounding'; grounding: GroundingEvent }
   /** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
@@ -1107,9 +1137,18 @@ const doneBase = {
   type: z.literal('done'),
   tokens: turnTokens.optional(),
   traceparent: z.string().optional(),
+  steps: z.number().int().nonnegative().optional(),
   compaction: compactionSignal.optional(),
   interrupted: z.boolean().optional(),
   interactionId: z.string().optional(),
+  mediaRefused: z
+    .object({
+      dropped: z.array(
+        z.object({ mimeType: z.string(), from: z.enum(['input', 'history', 'tool']) }),
+      ),
+      said: z.string(),
+    })
+    .optional(),
 };
 const doneEvent = z.union([
   z.object({
@@ -1159,6 +1198,7 @@ const TURN_EVENTS = {
     attempt: z.number().int().positive(),
     reason: z.enum(['validation', 'egress']),
   }),
+  late_results: z.object({ type: z.literal('late_results'), text: z.string() }),
   media: z.object({
     type: z.literal('media'),
     media: z.object({ mimeType: z.string(), data: z.string() }),
@@ -1253,6 +1293,7 @@ const turnEvent = z.union([
     TURN_EVENTS.citation,
     TURN_EVENTS.compaction,
     TURN_EVENTS.evidence,
+    TURN_EVENTS.late_results,
     TURN_EVENTS.tokens,
     TURN_EVENTS.session,
     TURN_EVENTS.guardrail,

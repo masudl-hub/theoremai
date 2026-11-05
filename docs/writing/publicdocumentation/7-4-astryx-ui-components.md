@@ -32,7 +32,7 @@ export function VesselDispatchChat() {
 }
 ```
 
-### Context, Slots & Page Tools
+### Context, Options & Page Tools
 
 ```tsx
 import { TheoremChat } from '@theoremjs/react/ui';
@@ -41,7 +41,7 @@ export function VesselDispatchChat() {
   return (
     <TheoremChat
       endpoint="/api/theorem"
-      slots={{ sector: 'north-basin' }}
+      options={{ sector: 'north-basin' }}
       context={{ activeVessel: 'VSL-409', quayPosition: 12 }}
       pageTools={{
         highlightQuay: async (args) => {
@@ -56,7 +56,8 @@ export function VesselDispatchChat() {
 }
 ```
 
-- **`slots`**: Locks slot values or provides default choices in the composer bar.
+- **`options`**: Sets the first value of each option on `inputs.options`. The composer shows a picker for each one.
+- **`stated`**: Says the path and the options on `identity.options` that choose the turn's prompt lines. The server reads it only with `pageStatesTurn` set, so use it on a page you trust as yourself.
 - **`context`**: Transmits background client state with every turn. The agent reads this context without generating conversational replies to it.
 - **`pageTools`**: Handles tools declared with `answeredBy: 'page'`. The client executes the function and returns output over HTTP without displaying prompt dialogs to the user.
 - **`trace`**: Renders an interactive trace inspector panel when the profile has observability enabled.

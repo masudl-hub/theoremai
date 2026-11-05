@@ -41,6 +41,7 @@ export const ollamaEmbeddings: Protocol<OllamaEmbeddingsOptions> = defineProtoco
   name: 'Ollama Embeddings',
   description: 'Ollama’s local embedding endpoint.',
   endpoints: { embedding: '/api/embed' },
+  operationNames: { embedding: 'embeddings' },
   options,
   embeddingLimits: () => ({ media: [] }),
   create(context) {

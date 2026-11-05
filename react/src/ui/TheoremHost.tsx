@@ -96,6 +96,7 @@ const MAX_EARLIER = 8;
 
 const STATUS_DOT: Readonly<Record<HostCallStatus, StatusDotVariant>> = {
   running: 'accent',
+  background: 'accent',
   gate: 'warning',
   complete: 'success',
   error: 'error',

@@ -1,4 +1,3 @@
-export { type StudioAsks, type WriteAsk, writeAsk, writeAskLine } from './asks.ts';
 export {
   KNOWN_GEMINI_EMBEDDING_MODELS,
   KNOWN_OPENROUTER_EMBEDDING_MODELS,
@@ -8,6 +7,7 @@ export {
   compileStudio,
   credentialHeaderProblem,
   credentialUrlProblem,
+  draftOptions,
   type StudioCompileResult,
   type StudioIssue,
   type StudioProfileDefinition,
@@ -146,27 +146,29 @@ export {
   includeFacet,
   type LabelsDraft,
   type LiveDraft,
+  loadTierWarning,
   MODEL_LIMITS,
   type ModelBindingDraft,
   type ModelsDraft,
   newCriteria,
+  newCriterion,
   newDecisionImage,
   newDecisionQuestion,
   newModelBinding,
+  newOption,
   newOwnDetector,
   newPattern,
-  newSlot,
-  newSlotChoice,
   newToolSpec,
   type ObservabilityDraft,
+  type OptionChoiceDraft,
+  type OptionDraft,
   type OutputsDraft,
   type OwnDetectorDraft,
+  optionChoices,
   type PatternDraft,
   type PatternSourceDraft,
   plantsCanary,
   removeModelBinding,
-  type SlotChoiceDraft,
-  type SlotDraft,
   type SpeechDraft,
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
@@ -201,6 +203,14 @@ export {
   runGuardrailProbes,
 } from './guardrail-probe.ts';
 export { unheldProblem } from './held-credentials.ts';
+export {
+  LABEL_AREAS,
+  type LabelArea,
+  type LabelAreaPrefix,
+  type LabelAudience,
+  labelAreaOf,
+  PROFILE_LABEL_KEYS,
+} from './label-areas.ts';
 export {
   type LentBinding,
   type LentDecisionLimits,
@@ -327,7 +337,7 @@ export {
   type ReplayTurn,
   recordedPayload,
   recordedTranscript,
-  replayScript,
+  replayScripts,
 } from './replay.ts';
 export {
   bindingSlots,
@@ -337,21 +347,15 @@ export {
   keySlotUnset,
 } from './requirements.ts';
 export {
-  clearStudioRunPayload,
   createStudioRunId,
-  keptStudioRunIds,
-  loadStudioRunPayload,
+  keptStudioRun,
+  maskedStudioRun,
   readStudioRunIdFromUrl,
-  STUDIO_RUN_INDEX_KEY,
-  STUDIO_RUN_PAYLOAD_CAP,
-  STUDIO_RUN_PAYLOAD_KEY,
-  STUDIO_RUN_PAYLOAD_KEY_PREFIX,
-  type StudioRunIndex,
-  type StudioRunIndexEntry,
+  type StudioRunCredentials,
   type StudioRunPayload,
-  saveStudioRunPayload,
-  studioRunPayloadKey,
-  upsertStudioRunIndex,
+  studioRunCredentials,
+  studioRunIsMasked,
+  withStudioRunCredentials,
 } from './run-payload.ts';
 export type { StudioDependency } from './runtime-scope.ts';
 export { sectionNote } from './section-notes.ts';
@@ -408,7 +412,6 @@ export {
 } from './traces.ts';
 export type { StudioSteerLine, StudioTransportOptions } from './transport.ts';
 export {
-  clearStaleStudioRuns,
   createStudioDecisionTransport,
   createStudioEmbeddingTransport,
   createStudioHostTransport,
@@ -467,6 +470,7 @@ export {
   scopedNodeId,
   setToolAllowed,
   startedHere,
+  type WorkspaceContent,
   type WorkspaceNodeRef,
   type WorkspaceStarts,
   type WorkspaceTree,

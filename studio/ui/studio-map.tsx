@@ -63,7 +63,6 @@ import { MapToken, useTokenWidths } from './map-token.tsx';
 import { drags, fieldStart, follow, scrollOnce, usePan } from './pan.ts';
 import './studio-map.css';
 
-/** With detail a node holds its icon, its name, and two lines of its note; a card's head, one; a row, a section. */
 /** A token's slot: as wide as the longest name it shows in full. */
 const TOKEN_SIZES: MapSizes = {
   node: { width: 240, height: 24 },
@@ -626,10 +625,9 @@ export function StudioMap({
     actions,
   );
   const Node = expanded ? DetailNode : TokenNode;
-  const open = nodes.find((node) => isOpen(node, selected))?.id;
   // The open node's lines are drawn over the rest, and the lit ones over those.
   const over = (line: MapLayout['lines'][number]) =>
-    onLines.has(line.link) ? 2 : line.from === open || line.to === open ? 1 : 0;
+    onLines.has(line.link) ? 2 : line.from === opened || line.to === opened ? 1 : 0;
   const lines = [...layout.lines].sort((a, b) => over(a) - over(b));
 
   return (
@@ -687,7 +685,7 @@ export function StudioMap({
                   d={d}
                   data-kind={link.kind}
                   data-on={onLines.has(link) ? '' : undefined}
-                  data-open={from === open || to === open ? '' : undefined}
+                  data-open={from === opened || to === opened ? '' : undefined}
                 />
               ))}
             </svg>

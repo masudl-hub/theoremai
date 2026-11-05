@@ -67,6 +67,9 @@ export interface StudioWorkspace {
   starts: WorkspaceStarts;
 }
 
+/** What a workspace compiles from: its agents, its tool library, and its providers. */
+export type WorkspaceContent = Pick<StudioWorkspace, 'agents' | 'toolSpecs' | 'providers'>;
+
 const AGENT_PREFIX = 'agent:';
 
 /** An agent's node id: its root, or a facet or binding under it (`identity` is the root). */
@@ -132,7 +135,7 @@ function draftOf(
 }
 
 /** One agent as a single draft: its tools are the library's it allows, in the order it allows them. */
-export function agentDraft(workspace: StudioWorkspace, key: string): StudioDraft | undefined {
+export function agentDraft(workspace: WorkspaceContent, key: string): StudioDraft | undefined {
   const agent = workspace.agents.find((candidate) => candidate.key === key);
   return agent && draftOf(agent, workspace.toolSpecs, workspace.providers);
 }
@@ -433,7 +436,24 @@ export function removeLibraryTool(workspace: StudioWorkspace, toolKey: string): 
 }
 
 /** The same settings with the same values. The order they are held in is not a difference. */
-const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+const same = (a: unknown, b: unknown) => a === b || canonicalOnce(a) === canonicalOnce(b);
+
+const canonicalText = new WeakMap<object, string>();
+
+/**
+ * `canonical(value)`, worked out once for each object.
+ *
+ * invariant: The workspace replaces what it changes and never edits an agent, tool, or provider
+ * in place, so an object's text stays true.
+ */
+function canonicalOnce(value: unknown): string {
+  if (value === null || typeof value !== 'object') return canonical(value);
+  const known = canonicalText.get(value);
+  if (known !== undefined) return known;
+  const text = canonical(value);
+  canonicalText.set(value, text);
+  return text;
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -784,18 +804,16 @@ export interface FilesMerge {
   files: StudioWorkspace;
 }
 
-const DRAFT_KEY = /^(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}$/;
+const KEY_SHAPE = '(agent|line|model|tool|question|criterion|reference)-[0-9a-f]{8}';
+const DRAFT_KEY = new RegExp(`^${KEY_SHAPE}$`);
 
 /** A value as text with each key named by where it first stands, so two opens of one thing read the same. */
 function keyless(value: unknown): string {
   const names = new Map<string, string>();
-  return JSON.stringify(value).replace(
-    /\b(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}\b/g,
-    (key) => {
-      if (!names.has(key)) names.set(key, `#${names.size}`);
-      return names.get(key) ?? key;
-    },
-  );
+  return JSON.stringify(value).replace(new RegExp(`\\b${KEY_SHAPE}\\b`, 'g'), (key) => {
+    if (!names.has(key)) names.set(key, `#${names.size}`);
+    return names.get(key) ?? key;
+  });
 }
 
 /**
@@ -1284,10 +1302,10 @@ export function modelSharers(
   return {
     models: own
       .filter((binding) => binding.key !== bindingKey && calls(binding))
-      .map((binding) => binding.modelId.trim() || 'new'),
+      .map((binding) => binding.modelId.trim() || 'Unnamed model'),
     agents: workspace.agents
       .filter((agent) => agent.key !== agentKey && agent.modelBindings.some(calls))
-      .map((agent) => agent.identity.agentId.trim() || 'New agent'),
+      .map((agent) => agent.identity.agentId.trim() || 'Unnamed agent'),
   };
 }
 
@@ -1387,10 +1405,8 @@ export interface WorkspaceTree {
   tools: StudioTreeNode[];
 }
 
-/** Beside other agents, one with no id yet is named as an agent, not by its Identity facet. */
 function agentRoot(agent: AgentDraft, providers: StudioProvider[]): StudioTreeNode {
-  const root = scopeTree(agent.key, studioTree(draftOf(agent, [], providers)));
-  return agent.identity.agentId.trim() ? root : { ...root, label: 'New agent' };
+  return scopeTree(agent.key, studioTree(draftOf(agent, [], providers)));
 }
 
 export function workspaceTree(workspace: StudioWorkspace): WorkspaceTree {

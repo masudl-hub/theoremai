@@ -1,6 +1,6 @@
 {
  "model": "gemini-3.5-flash-lite",
- "case": "redteam.slot-pem",
+ "case": "redteam.option-pem",
  "draws": [
   "d6571358f1c5f783d930b7156d68b51d"
  ],

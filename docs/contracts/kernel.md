@@ -71,10 +71,10 @@ A `Profile` binds:
 | Block | Role |
 | --- | --- |
 | `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'`, or `'embedding'` (`PROFILE_TYPES`) |
-| `identity` | `handle`, optional `system` / `systemByRole` — absent on `host`; `handle` only on `speech` and `decision` |
-| `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
+| `identity` | `handle`, optional `options` and `system` — absent on `host`; `handle` only on `speech` and `decision`. `system` is a string or a list of lines. See [Prompt lines](#prompt-lines). |
+| `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect`, and `maxSteps` except on `live` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
-| `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.slots` entry is a value list or `{ label?, choices: { value, description? }[] }` (normalized at define); optional `label` / `description` are UI-only. `{name}` in `identity.system` becomes the chosen **value** for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
+| `inputs` | Text / attachments / voice / options / context / per-mime limits — present on `text`, `image`; `live` takes `options` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.options` entry is `{ label?, choices: { value, description? }[] }`; optional `label` / `description` are UI-only. See [Prompt lines](#prompt-lines) |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `atStepLimit` on **text**; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; an inject's `released` drops the draft the user never got, and a bad one warns `inject_released_invalid`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
@@ -155,15 +155,35 @@ kernel does not scan the state. Decision profiles are served by `createTheoremDe
 
 Every decision writes one trace record through the profile's observability
 policy, or through `RunDecisionOptions.sink` when the host passes one: a
-`decide <apiId>` CLIENT root span (under `DecisionRequest.traceparent` when
-given, stamped with `DecisionRequest.metadata`) carrying
-`gen_ai.operation.name: decide`, `gen_ai.provider.name` from the model binding,
+`<operation> <apiId>` CLIENT root span (under `DecisionRequest.traceparent` when
+given, stamped with `DecisionRequest.metadata`) carrying the
+protocol's `gen_ai.operation.name` (`decide` for the first-party decision protocols), `gen_ai.provider.name` from the model binding,
 `gen_ai.agent.name` (the profile), the requested and answering model, token
 usage and its cost (`theorem.usage.cost_usd`), `theorem.decision.contract`, and the state, questions, and answers as
 stored JSON content under the profile's scrub policy. The trace holds the type and size of each
 image (`theorem.decision.assets`) and never the image. Invalid local requests are rejected before creating a trace. A failed dispatched decision ends
 the span `ERROR` with `error.type` its error kind. As with turns, a failed
 trace write never fails the decision.
+
+### Transcription profile
+
+A `transcription` profile turns one voice clip into text. It runs through `runTurn`: speech with its input and output swapped.
+
+| Field | Contract |
+| --- | --- |
+| `type` | `'transcription'` |
+| `identity.handle` | The host-owned profile name |
+| `models` | One or more model bindings; registration fills `defaultModel` |
+| `allowModelSelect` | Allows the request to select a named model |
+| `inputs` | `voice`, with `maxFiles`, `maxBytes`, `maxTurnBytes`, and `limitsByMime`. `inputs.text` can only be `false`, and registration sets it |
+| `guardrails` | `quota` and `detect` |
+| `observability` | Trace destination, sampling, scrubbing, and usage inclusion |
+
+The profile has no system prompt, tools, outputs, `maxSteps`, or `providerContinuation`. It plants no canary, because the model follows no instruction and holds nothing of the profile's.
+
+A turn must carry one clip in `input.voice`. A turn with no clip fails with a `request` error, and a `system` on the request fails with a `config` error. The turn yields `text`, `tokens`, and `done`. A clip with no speech yields no `text`.
+
+An agent tool takes text, so a transcription profile is not an agent tool.
 
 ### Embedding profile
 
@@ -359,6 +379,7 @@ The protocol must have an endpoint for the profile type (`unsupported` otherwise
 Cache, storage, and persistence settings belong to protocol options.
 The registration owns credential defaults (`keySlot`, `fallbackKeySlot`), and a binding may override them.
 Provider vault lookup requires an own property for the selected slot. Inherited credentials and resolvers do not grant access.
+A provider may declare `check: { protocol, path }`, a GET on where it serves `protocol`, signed as a call is. `checkKey(provider, { vault, slot? })` reads the slot (the provider's, unless `slot` names a model's own) the way a call does and sends that GET once, with an 8-second limit. A 2xx is `accepted`; 400, 401 or 403 is `refused`; no answer or any other status is `unreachable`. An empty slot is `empty`, and a provider with no `check` is `unchecked`. `said` is the refusal body, with the key removed and cut to 300 characters.
 
 `registerProvider` returns a `RegisteredProvider` with typed `.model()` and `.decisionModel()` helpers.
 The helpers check `options` against the protocol when the binding is made.
@@ -390,6 +411,58 @@ guardrails default on, and Interactions streaming defaults to SSE
 `projectProfile` / `resolveTurn` project a registered profile + `TurnRequest`
 into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consume.
 
+
+## Prompt lines
+
+Use prompt lines when one agent speaks differently by channel, plan, or any other value a turn can state. Each entry of `identity.system` is a **line**. A line that opens with `when` goes only on turns where it fits.
+
+An **option** is a named value with a list of choices. There is one shape, on two objects. The object says who sets the value.
+
+| Object | Who sets the value | How a turn states it | Shown in a chat UI |
+| --- | --- | --- | --- |
+| `identity.options` | Your code | `TurnRequest.options` | No |
+| `inputs.options` | The person | `TurnRequest.input.options` | Yes, as a picker |
+
+```ts
+identity: {
+  handle: 'desk',
+  options: { plan: { choices: [{ value: 'free' }, { value: 'paid' }] } },
+  system: [
+    'You are the Harbor desk.',
+    'when plan is free: Keep replies to one paragraph.',
+    'when reader is student: Explain each term. Write for a {reader}.',
+  ],
+},
+inputs: {
+  text: true,
+  options: {
+    reader: { label: 'Reader', choices: [{ value: 'anyone' }, { value: 'student' }] },
+  },
+},
+
+runTurn({
+  profile: 'desk',
+  path: 'web',
+  options: { plan: 'free' },
+  input: { text: 'Hello', options: { reader: 'student' } },
+});
+```
+
+| Rule | Owner |
+| --- | --- |
+| Every line that fits is sent, in order, a blank line apart. `req.system` follows the lines. | `pickSystemLines`, `resolveTurnSystemPrompt` |
+| No option is required. If an option is unset, `when tone is warm` does not fit and `when tone is not warm` fits. | `pickSystemLines` |
+| If no line fits, the prompt is empty. | `pickSystemLines` |
+| Any option fills `{name}` with its value. A line that prints an unset option is not sent, and this includes its private parts. | `fillOptions` |
+| A `{name}` that is no option stays as written. | `fillOptions` |
+| A value the option does not list is refused. An option name on the wrong object is refused. | `assertTurnOptions` |
+| `path` is a code option. Its value is the turn's own `path`, so `options.path` is refused. | `turnFacts`, `assertTurnOptions` |
+| A `when` reads options on either object. It uses the activity-label grammar. `+`, `is null`, and dotted names are refused. | `systemLinesProblem` |
+| One name on both objects is refused at start. A `when` that names no option is refused at start. | `systemLinesProblem` |
+| A line is a string or a list of parts. A bare `{ private }` in the list of lines is refused. | `assertSystemLines` |
+| Marks are settled on the prompt as written, so a dropped line never changes the marks of a kept line. | `pickSystemLines` |
+| A tool in `tools.allow` may list only paths that `identity.options.path` lists. A turn checks this, because a tool can register after its profile. | `toolPathProblem` |
+
 ## Turn lifecycle
 
 `runTurn(request, hostOptions?, sink?)` is the single deterministic execution path
@@ -410,6 +483,8 @@ finalize (inject may re-enter the step loop under `maxSteps`); terminal `done`;
 then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
 text). Invalid affordances yield a follow-up `stage` event with `stageWarnings`.
 AbortSignal / stage `abort` end with cancelled `done` then `post_turn`.
+`TurnRequest.onEvent` reads each event as it leaves `runTurn`, before the caller
+gets it, so an app can act on a turn someone else runs. A throw ends the turn with that error.
 Live sessions emit the same stage names around utterance cycles and
 `LiveSession.executeTool` (`docs/contracts/stages.md`).
 
@@ -448,8 +523,8 @@ Live sessions emit the same stage names around utterance cycles and
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path.
    Every call of a step is announced first. With `tools.parallel: true` they then run side
    by side; left out or false, one at a time in the order the model made them. A call whose
-   `pre_tool` answers `waitFor` starts its body once those calls settle
-   ([stages.md](./stages.md#same-round-batch-rules)). The step ends when each has settled.
+   `pre_tool` answers `waitFor`, or that names tools in `after`, starts its body once those
+   calls settle ([stages.md](./stages.md#same-round-batch-rules)). The step ends when each has settled, or has its reply and goes on in the background ([Background tool calls](#background-tool-calls)).
    Each reads the turn's taint, destinations, and visible tools as they stood when the step
    began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
@@ -503,6 +578,7 @@ Trace context on the request, all optional:
 | Field | Recorded as |
 | --- | --- |
 | `traceparent` | W3C parent of the root span; the turn joins that trace. Without it the turn starts a new trace. A malformed value throws. |
+| `projectId` | `theorem.project.id` |
 | `conversationId` | `gen_ai.conversation.id` |
 | `links` (`TurnTraceLink[]`) | Span links on the root: `{ traceparent, kind: 'resume' \| 'continue' \| 'retry', stop? }` |
 | `metadata` | Stored on the record untouched |
@@ -510,8 +586,15 @@ Trace context on the request, all optional:
 The terminal `done` carries `traceparent` (the turn's root), which a later
 request passes in `links`. `ToolContext.traceparent` is the call's
 `execute_tool` span, so a tool that runs a specialist or makes its own
-outbound calls parents them there. `SessionRequest` and `InvokeToolRequest`
-take `traceparent`, `conversationId`, `links`, and `metadata` the same way.
+outbound calls parents them there. `RunControls` holds these fields and `signal`.
+`TurnRequest`, `SessionRequest`, `InvokeToolRequest`, `DecisionRequest`,
+`EmbeddingRequest`, and `CompactHistoryRequest` all take it, and each records
+the fields the same way.
+
+`TurnRequest` and `SessionRequest` share `AgentRunRequest`, so a live call takes
+`model`, `effort`, `execution`, `background`, and `pageExecution` as a turn does.
+A live call resolves `model` and `effort` by the same rules: `allowModelSelect`
+and `allowEffortSelect` must be set. The trace records `model_select` and the effort.
 
 `runTurn`, `runSession`, `resolveTurn`, and `projectProfile` refuse a `'host'`
 profile with `TheoremError` (`requireModelProfile`); host profiles only execute
@@ -534,6 +617,7 @@ The kernel validates protocol events before it releases them or executes client 
 | `structured_draft` | The next piece of a structured reply's JSON, `text`, read at `reply` as the reply's text and then at `reply_structured`, where the whole is read: a match there stops the drafts. A preview only: the `structured` event that follows is the reply. Sent only under `sse`, and not when the reply was held for its verdict |
 | `structured` | Parsed JSON object when the profile names a structured schema; `removed` lists what item rules took out, `failed` the fields still invalid when validation ran out of retries |
 | `attempt` | The turn threw the reply so far away and asks again: `attempt` counts the retries (1 for the first), `reason` is `validation`, or `egress`. The text, media, and structured events before it in the turn are not the reply. `keptReply(events)` drops them; `foldTurnEvents`, `appendAssistantEventsToHistory` (one assistant message per reply) and an agent tool's output read only the kept reply |
+| `late_results` | The message `input.lateResults` put in the conversation, `text`. It comes first in the run, and a history built from events takes it as a role `user` message |
 | `media` | Generated image/audio bytes + mime |
 | `grounding` | Google search metadata: Live `groundingMetadata`, and Interactions tool results (`google_search_result` `search_suggestions` → `searchHtml`). Maps sources add normalized `chunks[].maps` (`title` / `uri` / `placeId`); the raw payload rides on `metadata`. The sources themselves travel as `citation` |
 | `citation` | `sources` (`title` / `uri` / `type` / `placeId?`) a provider or a tool cited. From a provider: Google `url_citation` / `place_citation` annotations and `google_maps_result` places, OpenRouter citations and `url_citation` annotations. From a tool: its `sources(output)` on a completed call, with the call's `callId` (see [Tool sources](#tool-sources)) |
@@ -613,6 +697,7 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | `thought` | yes (also in trace when filtered from stream) | only when profile allows |
 | `tool_draft` | yes | only under `sse`; a preview, never the call |
 | `structured_draft`, a `tool` event's `draft` phase | yes | only under `sse`; a preview, never the reply or the output |
+| `late_results` | yes | for the client's history; the transcript shows nothing for it |
 
 Use `forClient` / `forClientEvents` from `@theoremjs/agents/host` before WebSocket or SSE
 flush. A development tool on the builder's own machine passes `reader: 'builder'` and reads
@@ -627,7 +712,11 @@ the raw reason instead ([host](host.md)). Pass a trace sink (`memorySink`, `json
 `historyMessageParts` (`src/kernel/interaction-parts.ts`) puts `content` first as a
 text part, then `parts`. Every first-party protocol (`geminiInteractions`, `geminiLive`,
 `openAi`, `openRouterOpenAi`, `openRouterImages`) builds history content from it, so a host that stores a text projection
-alongside media does not lose either one.
+alongside media does not lose either one. Chat Completions (`openAi`,
+`openRouterOpenAi`) takes only text in assistant content, so an assistant
+message's files leave a marker such as `[image: sent in the next message]` and
+follow it in a user message led by "Files the assistant sent:", after the results
+of any calls it made.
 
 Google Interactions code execution (`codeExecution` builtin) is a server-side
 tool: THEOREM does not run Python. Hosts receive the sandbox timeline as
@@ -779,10 +868,10 @@ model can send it anything the profile's `inputs` declares:
 | `text` | always | The message to the agent |
 | `attachments` | `inputs.attachments` is set | Files, as `{ mimeType, data }` or `{ mimeType, uri }` |
 | `voice` | `inputs.voice` is set | Recorded speech, as `{ mimeType, data }` |
-| `slots` | `inputs.slots` is set | One of the declared choices for each slot sent |
+| `options` | `inputs.options` is set | One of the declared choices for each option sent |
 | `speech` | the profile is a `speech` profile | `{ voice?, style?, speed? }` for this call |
 
-A field the profile does not take, or a slot choice it does not declare, fails
+A field the profile does not take, or an option choice it does not declare, fails
 the call `invalid_input` (`bad_response`); nothing is dropped. The called
 turn checks MIME types, counts, and sizes as it does for any turn, and a file it
 refuses fails the call `agent_failed` (`input`). The model then reads why, in
@@ -917,6 +1006,7 @@ invokeTool({ profile, name: 'risky_tool', callId, operationId, input: {...}, res
 invokeTool({ profile, name: 'record_lookup', callId, operationId, input: {...}, resume: { granted: true }, snapshot, promoted: ['record_lookup'], turnInput });
 
 // Tool `preTool` returning `confirm` gates once; `resume.granted: true` skips preTool on the next invoke (same as `always_confirm` permission).
+// A host `pre_tool` `confirm` gates once too: the granted resume runs the stage again, and its `confirm` asks nothing more.
 
 // Host direct invoke (command palette)
 invokeTool({ profile, name: 'lookup_order', input: {...} });
@@ -930,7 +1020,7 @@ const { phase, events } = await runTool({ profile, name: 'lookup_order', input: 
 
 | Layer | Owner | Role |
 | --- | --- | --- |
-| Registry | Host startup | Schema, handler, `access`, `loadTier`, `permission`, wire metadata |
+| Registry | Host startup | Schema, handler, `access`, `loadTier`, `permission`, `after`, wire metadata |
 | Profile | Host | `tools.allow` / `tools.t1Policy` / `tools.t2Loader`; `models.*.builtInTools` |
 | Turn | Host | `sessionPermissions` for consent; `credentials` source for authenticated HTTP/MCP tools (read per slot, only when a tool signs in); path / input / transport |
 | Execution | Kernel | Shared `executeRegisteredTool` for model and `invokeTool` paths |
@@ -959,13 +1049,15 @@ The service is trusted host code. Profiles, browser request bodies, and protocol
 Permission and sign-in resumes retain `gateKind`, so preparation that did not run before approval still runs before dispatch.
 The shared executor accepts an optional host-owned `ToolExecutionCoordinator` through trusted `execution` options.
 `createMemoryToolExecution` is the kernel's in-process coordinator. It checks the claim token on `settle` and `markUncertain`.
-It refuses `settleNotStarted` for an operation that already has a record, and refuses new operations at the `maxOperations` of its `MemoryToolExecutionOptions`.
+It refuses `settleNotStarted` for an operation that already has a record, and refuses new operations at the `maxOperations` of its `MemoryToolExecutionOptions`, when the host sets it.
 A full coordinator reads as `config`: it frees no record, so it stays full until the process restarts or the host raises `maxOperations`. A claim token it did not issue, or a second record for one operation, reads as `internal`.
 A page tool that runs with no coordinator reads as `config`. A coordinator or page dispatch that breaks this contract reads as `internal`, and `errorInternal` says what broke.
 It holds no storage outside the process, so a host that resumes across workers supplies its own coordinator.
 The host must reserve storage before returning an acquired claim. React handlers enforce finite capacity and reserve terminal evidence.
 Capacity exhaustion must refuse dispatch. It must not remove unresolved claims to authorize another attempt.
-`TurnRequest`, `InvokeToolRequest`, and `RunSessionOptions` carry this service. Profiles and provider options do not.
+A coordinator may declare `maxOutcomeBytes`, the most bytes of UTF-8 JSON it keeps for one outcome. One that declares none keeps any size. `createMemoryToolExecution` takes it as an option and has no default.
+A larger result settles as the call's `result_too_large` failure, of kind `bad_response`, with the same `effects`. The model reads that failure, not the result.
+`TurnRequest`, `SessionRequest`, and `InvokeToolRequest` carry this service. Profiles and provider options do not.
 Nested agent turns inherit it. Each child tool action receives its own operation ID.
 `ToolOperationIdentity` binds both IDs, the profile, the tool, and an accepted invocation hash.
 Its optional `invocation` contains `SavedToolInvocation`. New body claims retain accepted data and final prepared input.
@@ -991,12 +1083,57 @@ An error after the claim keeps the kind of its cause and reads with the `tool.ex
 `ModelToolResult` retains the guarded read-back, media, provenance, and suspicious content signals.
 `toolOperationOutcomeSchema` validates terminal events and replay data, including guarded model read-back and provenance.
 `ToolOperationUncertainty` distinguishes interrupted execution, failed settlement writes, and a lost worker.
-The executor saves settlement before it emits completion. An incomplete body or settlement failure retains a protected claim.
+The executor saves settlement before it emits completion. An incomplete body or settlement failure retains a protected claim. A `stop` with a reason is the one exception ([Background tool calls](#background-tool-calls)).
 Live sessions also retain uncertain held calls after dispatch. They cannot execute again on the same connection.
 Recovery across connections requires a host-owned durable coordinator.
+
+### Background tool calls
+
+Use `registerTool.background` when a tool takes longer than a person should wait. The model gets a reply, the turn goes on, and the kernel keeps running the body. The host stores the result and decides what to do with it.
+
+| Setting | The model gets its reply |
+| --- | --- |
+| `'always'` | At the hand-off, when the body starts |
+| `{ afterMs }` | When the body has run past this time |
+| `'ask'` | At the hand-off if the model sets the `background` argument. Otherwise when the body ends |
+| `'never'` or unset | When the body ends |
+
+If the body ends before that moment, the model reads the real result. Bad input, a permission gate and a sign-in gate happen before the hand-off, so they also answer in the turn. A gated `'always'` tool detaches when the host resumes it.
+
+Only an `'ask'` tool gets the `background` argument, and only in a turn with the service. The argument stays in the call and its invocation hash. The kernel removes it before the input check.
+
+The host passes a trusted `ToolBackgroundService` as `background` on `TurnRequest`, `SessionRequest`, and `InvokeToolRequest`. Without it every tool runs inline, whatever its setting. The service needs a coordinator with `detach`. Without one the request reads as `config`.
+
+- `detached(handle)` receives a `ToolBackgroundHandle` for each detached call, with `stop` and `done`. `done` resolves when the call has settled or been marked.
+- `event(event, call)` receives each later event of that call, after the same projection a turn's events get.
+
+The coordinator saves the reply through `detach(claim, reply)` before the turn reads it. `lookup` and `begin` then return `kind: 'background'`, so a second run reads the settled result if one exists, and the reply if not. A failed `detach` save stops the body, and the call ends as `settlement_write_failed`.
+
+The call counts as settled for its step at the reply. `waitFor` and one-at-a-time order release there. A sibling's failure or the turn's `signal` reaches the call only until the reply. After that, only `stop` does.
+
+| Call | Result |
+| --- | --- |
+| `stop(reason)` | The call settles as a `cancelled` failure with `reason` as its `code` and `effects: 'unknown'`, whatever the body does |
+| `stop()` | A shutdown. The call ends as `execution_interrupted` |
+| `stop(reason, { graceMs })` | The same, and a body that ignores its signal past this time is cut. The kernel drops its later events |
+| Any stop after settlement | Nothing |
+
+After the reply:
+
+- `post_tool` runs at the real end. Its `inject` and `abort` are removed, because no turn is open.
+- A body that returns `awaiting` settles as a failure with the code `awaiting_after_reply`.
+- An agent tool's tokens go on the late terminal event, not on `done`. A stopped agent tool reports the tokens spent so far.
+- The call writes its own trace record at its real end, joined to the turn through `traceparent`.
+- `maxOutcomeBytes` applies to the final outcome.
+
+The late result reaches the model only through the host, in `input.lateResults` of a later turn. The host passes the outcome it stored, once. The model reads the result as a tool result after the person's message, and the reply counts it as a read ([How long the marks last](./guardrails.md#how-long-the-marks-last)). The run emits a `late_results` event, so a history built from events holds the message, and later turns read it. A transcript keeps it in a `late-results` block and shows nothing for it. A host that passes the same outcome again adds no second message, and the marks still count. Text in `input.context` or `input.history` reads as the host's or the user's.
+
+Only a top-level call detaches. A tool inside an agent tool runs inline. A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and on a `tools.t2Loader` tool, and on a tool with its own `background` input.
+
+The work is bound to the process. It stops with the process and does not restart, and the claim stays open for the host's sweep. The host keeps the turn's `host` value, `credentials` and `onStage` valid until the call settles. `createTheoremHandler` takes the service through its `background` option, and its session coordinator has `detach`.
 React's `createTheoremSessionBoundary` applies the same authenticated namespace and atomic store to live setup.
 It rejects unowned native state before transport. Ownership includes an operation-state fingerprint.
-A ledger change invalidates old live ownership, including a settlement after checkpoint creation.
+A ledger change invalidates old live ownership, including a settlement after checkpoint creation. A detached call is the exception: its reply is what the checkpoint covers, so its late settlement changes nothing.
 Chat can retain native state across approval when portable history contains every authoritative settled result.
 Unknown effects, missing read-back, or edited results cannot satisfy that check. It records checkpoint ownership before browser delivery.
 Running or uncertain operations refuse native resumption. They remain available for trusted host reconciliation.
@@ -1015,7 +1152,11 @@ a call is doing and what it did, in the tool's words: `'Saving {title} to your
 collection'`. Each `{path}` is a dot path into the call: the kernel fills it from
 the input, then the output (`{results.0.name}` steps into a list by position).
 Only text and numbers fill a placeholder. Text collapses its whitespace and is
-shown whole; numbers keep at most two decimals. The kernel does not shorten a
+shown whole; numbers keep at most two decimals. A **count** is a placeholder
+with two words after its path: `{results.length hit|hits}` shows "1 hit" or
+"3 hits". English plural rules pick the word, so 0 takes the second word. A
+count fills only from a number. A third part is its fallback:
+`{results.length hit|hits|some hits}`. The kernel does not shorten a
 label. A host that needs a shorter label shortens it on its own page. The `running` phase carries
 `activity` filled from the input, and `complete` carries `activityPast` filled from
 the input and output. When a placeholder has no such value, the phase carries no
@@ -1048,7 +1189,8 @@ labels: {
 names the line. The causes are: a last line that does not always fit, a line
 below one that always fits, a condition that names no input field, a condition
 that compares a value the schema never allows, and a line that opens with
-`when` and has no readable condition. A one-line label can also open with a
+`when` and has no readable condition. Any label is refused for a count with one
+word, or a count of a field the schema says is not a number. A one-line label can also open with a
 condition. When the condition does not hold, the transcript names the tool.
 
 `labels.activityFailed` says a call did not happen: `'Couldn't save {title}'`,
@@ -1133,7 +1275,7 @@ Profile `outputs` pins behavior the kernel enforces before the protocol runs:
 
 | Pin | Effect |
 | --- | --- |
-| `structured` | Schema id or slot-mapped ids. Sent as the response format, or as the answer tool's input when the turn has function tools ([Structured output](#structured-output)) |
+| `structured` | Schema id or option-mapped ids. Sent as the response format, or as the answer tool's input when the turn has function tools ([Structured output](#structured-output)) |
 | `streaming` | `mode`, `streamThoughts`. Under `sse`, the reply, tool calls, and tool output stream as they are written, each piece checked first; thinking streams unless `streamThoughts` is `false`. Under `buffered`, each arrives whole |
 | `validation` | Field validators, `maxRetries` (repair guidance is the labels' `repair.default_guidance`) |
 
@@ -1154,9 +1296,14 @@ On a turn that answers by tool:
 - The answer tool's call is not a tool call to the host. Its drafts go out as `structured_draft`, read at `reply_structured`. Its input is the `structured` event.
 - The call ends the turn. Other calls in the same step do not run.
 - The step that `turnBehaviour.atStepLimit: 'answer'` leaves without tools still has the answer tool.
-- A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `provider_error`.
+- A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `answer_missing`. The provider answered, so the stop does not blame it.
+- A call the output limit cuts off is repaired as below. The repair carries the call's input as its drafts streamed it.
 - The tool's description is the label `structured.answer_tool`.
 - A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
+
+On every structured turn, a reply cut at `length` is repaired, with or without `outputs.validation`: once, or `outputs.validation.maxRetries` times when that is more. The repair carries what the model wrote, the rejection `structured.cut_off` and the guidance `repair.cut_off_guidance`. Cut off again with no repair left, the turn fails with a `bad_response` error and the stop `provider_error`. A response-format reply over `geminiInteractions` is not repaired yet: the protocol reads the cut text as JSON, so the turn fails at once with a `bad_response` error and the stop `provider_error`.
+
+On a turn that answers by response format, a reply that ended but is not valid JSON is repaired like any other reply that fails validation, while `outputs.validation.maxRetries` has a retry left. The repair carries the reply's text and the rejection `structured.not_json`. With no retry left, the turn ends with the `bad_response` error and the stop `provider_error`.
 
 Top-level modality pins (after `model`, not under `outputs`):
 
@@ -1172,7 +1319,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 
 | Block | On live? | Notes |
 | --- | --- | --- |
-| `identity` | yes | `handle`, `system` / `systemByRole` |
+| `identity` | yes | `handle`, `options`, `system` |
 | `model` | yes | A binding whose protocol has a `live` endpoint, such as `geminiLive` |
 | `live` | yes | Voice, VAD, transcription, resumption, compression, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
 | `tools` | yes | `{ allow: ToolId[]; parallel? }` — `parallel` orders a step a host runs through `invokeToolStep`. Every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |
@@ -1423,7 +1570,9 @@ The compactor gets `toCompact` as its history, with the labels'
   history, so `maxTokens` must fit the compactor's context.
 - Tool calls and results become assistant text (`compaction.tool_call`,
   `compaction.tool_result`) naming the tool, so no provider needs the tools
-  declared.
+  declared. A result's files follow it in a user message led by
+  `compaction.tool_files`, because Chat Completions takes only text in
+  assistant content.
 - An earlier summary in `toCompact` is summarized with the rest.
 
 A completed, non-empty reply is the summary: the structured output as JSON,
@@ -1475,8 +1624,7 @@ for await (const event of runTurn(req, hostOptions)) {
 
 `compactHistory` runs the compactor on the history `done.compaction` carried,
 with the same split, reading, outcomes, and trace event as `before`, in a trace
-of its own (`traceparent`, `conversationId`, and `metadata` join it to the
-turn's). `model` defaults to the profile's default model, which must have
+of its own (`RunControls` join it to the turn's). `model` defaults to the profile's default model, which must have
 `compaction`. It returns `CompactionResult` (`outcome`, `toCompact`,
 `history`, `summary` / `failure`, `droppedMedia`, the compactor's `tokens`),
 or `undefined` when the split leaves nothing to compact. The compactor resolves its registered binding.
@@ -1538,6 +1686,7 @@ re-exports the type and owns only the resume policy below.
 | `cancelled` | User / host abort |
 | `stream_incomplete` | Stream ended without terminal reason |
 | `step_limit` | The last model call `maxSteps` allows asked for tools: they ran, and the turn has no answer. `turnBehaviour.atStepLimit: 'answer'` (`StepLimitMode`) sends that call without tools instead |
+| `answer_missing` | The model finished without calling the answer tool, and no repair was left. The turn's `bad_response` error comes first. The turn's trace marks it as failed, but it is not a failed model call, so the turn does not send the call again |
 | `interrupted` | Live barge-in |
 | `generation_complete` | Live utterance boundary |
 
@@ -1547,14 +1696,14 @@ Mappers: `turnStopFromOpenAiFinishReason`, `turnStopFromInteractionStatus`,
 ### Resume policy
 
 `allowContinue` / `autoContinue` accept only `ContinueStopKind`
-(`CONTINUE_STOP_KINDS`: `length` | `stream_incomplete` | `provider_error`).
+(`CONTINUE_STOP_KINDS`: `length` | `stream_incomplete` | `provider_error` | `answer_missing`).
 `tool` uses host `invokeTool` + `resume`. `cancelled` / `completed` / `filtered` /
 live boundaries are not continueFrom-eligible — `defineProfile` rejects them.
 
 ```ts
 turnBehaviour: {
   resumption: {
-    allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+    allowContinue: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'],
     autoContinue: ['length', 'stream_incomplete'],
   },
   // text only — omit on image/speech
@@ -1576,8 +1725,22 @@ turn's trace records `theorem.step.resume` with the step, the count, the stop an
 the provider's reason. When no re-send is left, the turn ends with that `error`
 and stop as before.
 
+A call the provider refuses (`unsupported`) while it carries files is the one refusal
+sent again, once a turn, on a profile whose `autoContinue` lists `provider_error`. A
+single file the provider cannot read refuses every call that replays it, so the call
+goes without this turn's files, or without the conversation's when this turn has none.
+A note takes each file's place: the labels `turn.media_refused_image`,
+`turn.media_refused_video`, and `turn.media_refused_file`. If that call is accepted, the
+files were at fault: the turn goes on, and `done.mediaRefused` names them
+(`dropped: [{ mimeType, from: 'input' | 'history' | 'tool' }]`) with the provider's
+reason in `said`, for the builder only: `forClient` strips it. If it is refused too, the
+files go back, the turn ends with the failure as before, and `done` names nothing. The
+turn's trace records `theorem.step.media_refused`. This re-send does not count against
+`maxContinues`.
+
 A call that gave part of its reply, and a reply cut at `length`, are not sent again
-by the turn: the host continues them with `continueFrom`. A `continueFrom` turn is a
+by the turn: the host continues them with `continueFrom`. A structured reply that does
+not parse is the exception: validation repairs it ([Structured output](#structured-output)). A `continueFrom` turn is a
 new turn, so it starts with no record of what the stopped turn read.
 
 An agent tool's called profile follows the same rule under its own
@@ -1586,7 +1749,7 @@ carries the turn's public error text after the `tool.agent_failed` line.
 
 | Constant / helper | Value / role |
 | --- | --- |
-| `CONTINUE_STOP_KINDS` | length, stream_incomplete, provider_error |
+| `CONTINUE_STOP_KINDS` | length, stream_incomplete, provider_error, answer_missing |
 | `DEFAULT_ALLOW_CONTINUE` | = `CONTINUE_STOP_KINDS` |
 | `DEFAULT_AUTO_CONTINUE` | length, stream_incomplete |
 | `AUTO_CONTINUE_DELAY_MS` | `1500` — the pause before a text turn sends a failed model call again, and the suggested pause before a host's auto-continue |
@@ -1643,8 +1806,8 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - Each `efforts` level is one of `THINKING_LEVELS`. Which of those a model
   takes is not the kernel's to say: the Gemini protocols refuse a level
   outside `minimal`, `low`, `medium`, or `high` (`unsupported`).
-- A slot-mapped `outputs.structured` names a slot in `inputs.slots`, and its
-  `map` keys are that slot's choice **values**. At turn time `resolveTurn` rejects a slot
+- An option-mapped `outputs.structured` names an option on `identity.options` or `inputs.options`, and its
+  `map` keys are that option's choice **values**. At turn time `resolveTurn` rejects an option
   the profile does not declare, or a value outside its choices (`request`).
 - Model bindings require a protocol, a registered provider ID, and an upstream model ID.
   The provider must serve the protocol, and the protocol parses the binding's `options`.
@@ -1703,7 +1866,7 @@ fails).
 
 | Concern | Entrypoints |
 | --- | --- |
-| Spec | `interfaceFromProfile(profile, tools)` (projects against that tool registry), `clientProfileInterface(profile, tools)` (the same without `identity.system` and `systemByRole`, for a browser), `interfaceFromProjected` (an already projected profile) |
+| Spec | `interfaceFromProfile(profile, tools)` (projects against that tool registry), `clientProfileInterface(profile, tools)` (the same without `identity.system`, for a browser), `interfaceFromProjected` (an already projected profile) |
 | Inputs | `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime` |
 | Draft | `sanitizeUserDraft`, `prepareUserTurn` |
 | Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled`, `argumentsSoFar(call)` (a call's arguments as far as the model has written them: the whole fields and the string still being written, to preview it live), `stopText(stop, blocks, labels)` (why a turn ended short, in its `stop.<kind>` label; nothing when it ended whole, when a Theorem guardrail stopped it, or when an error block says why), `WORDED_STOP_KINDS` |
@@ -1772,7 +1935,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Runner | `registerProvider`, `getProvider`, `listProviders`, `ProviderHostOptions`, `providerCheckpointSchema`, `runTurn`, `runSession`, `runDecision`, `runEmbedding`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `RunEmbeddingOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Providers | `defineProvider`, `registerProvider`, `createProviderRegistry`, `getProvider`, `listProviders`, `listProtocols`, `Provider`, `ProviderDefinition`, `RegisteredProvider`, `Registration`, `ProviderRegistry`, `ProviderTransport`, `Serve`, `PriceTable`, `ModelPrice`, `Rates`, `costFromPrices` |
 | Provider sign-in | `Authorize`, `Signer`, `bearer`, `header`, `query`, `KeyCredential`, `ApiKeyCredential`, `BearerCredential`, `RuntimeAbilities`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `callProtocol`, `carriesTo`, `modelOptions`, `plainWebSocket`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `Continuation` |
+| Protocols | `defineProtocol`, `extendProtocol`, `callProtocol`, `checkKey`, `KeyCheck`, `carriesTo`, `modelOptions`, `plainWebSocket`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `Continuation` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding`, `ModelProfileType`, `ProviderGenerationConfig`, `ProviderBuiltin`, `checkBinding`, `keySlotsOf`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `DecisionModelSettings`, `ModelSettings` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `EstimatedCost` |
 | Provider vault | `KeySlot`, `keySlotSchema`, `KeyVault`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |
@@ -1780,19 +1943,19 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Provider output | `ProtocolEvent`, `ProtocolContentEvent`, `ProviderCheckpoint`, `ProviderStateRebuilt`, `ProviderWarning`, `ProviderEvidence`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `ApiExportMeta`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock`, `ProfileType`, `ThinkingLevel`, `MediaInputKind`, `SummaryMode`, `StreamMode`, `SpeechAudioFormat`, `DEFAULT_RESUMED_AFTER_MS`, `CONTEXT_SENDERS`, `ContextSender`, `LIVE_ACTIVITY_HANDLINGS`, `LiveActivityHandling`, `LIVE_START_SENSITIVITIES`, `LiveStartSensitivity`, `LIVE_END_SENSITIVITIES`, `LiveEndSensitivity`, `CompactionMeter`, `CompactionTiming`, `CompactionOutcome`, `CacheMode`, `CacheTtl`, `STEP_LIMIT_MODES`, `StepLimitMode`, `ITEM_FAIL_ACTIONS`, `TOOL_RESUME_CAUSES`, `ToolResumeCause`, `STAGE_APPLY_WARNING_CODES`, `ToolLoadTier`, `FieldMeta` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `ApiExportMeta`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock`, `ProfileType`, `ThinkingLevel`, `MediaInputKind`, `SummaryMode`, `StreamMode`, `SpeechAudioFormat`, `DEFAULT_RESUMED_AFTER_MS`, `CONTEXT_SENDERS`, `ContextSender`, `LIVE_ACTIVITY_HANDLINGS`, `LiveActivityHandling`, `LIVE_START_SENSITIVITIES`, `LiveStartSensitivity`, `LIVE_END_SENSITIVITIES`, `LiveEndSensitivity`, `CompactionMeter`, `CompactionTiming`, `CompactionOutcome`, `CacheMode`, `CacheTtl`, `STEP_LIMIT_MODES`, `StepLimitMode`, `ITEM_FAIL_ACTIONS`, `TOOL_RESUME_CAUSES`, `ToolResumeCause`, `STAGE_APPLY_WARNING_CODES`, `ToolLoadTier`, `FieldMeta`, `FieldProblem`, `profileFieldProblems`, `toolFieldProblems` |
 | Utilities | `base64ToBytes`, `bytesToBase64`, `isRecord`, `Equals` (compile-time type equality, for exact-shape checks) |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `normalizeProfileInputsSlots`, `normalizeSlotDecl`, `normalizeSlots`, `slotValues`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
-| Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `ToolContext`, `GateReference`, `gateReferenceSchema`, `executeRegisteredTool`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer`, `CredentialRefusedError` |
-| Tool execution | `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `TranscriptionProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `resolveTurnSystemPrompt`, `systemLinesProblem`, `optionsProblem`, `optionValues` |
+| Tools | `ANSWER_TOOL`, `ToolRegistry`, `assertToolSettings`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `ToolContext`, `GateReference`, `gateReferenceSchema`, `executeRegisteredTool`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer`, `CredentialRefusedError` |
+| Tool execution | `ToolBackground`, `ToolBackgroundCall`, `ToolBackgroundHandle`, `ToolBackgroundService`, `ToolOperationReply`, `toolOperationReplySchema`, `BackgroundToolEvent`, `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource`, `ProtectedResourceMetadata`, `AuthorizationServerMetadata`, `OAuthTokens`, `OAuth2Credential`, `ToolCredential`, `OAuthTransportOptions`, `OAuthEndpoints`, `CreatePkceFlowOptions`, `PkceFlowResult`, `ExchangePkceCodeOptions`, `ExchangePkceCodeResult`, `RefreshOAuthTokenOptions`, `SealedStatePayload`, `toBase64Url`, `fromBase64Url`, `credentialFromTypedSecret`, `credentialForSignInGate` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
 | Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `reasoningPartSchema`, `historyHash`, `turnDoneOf`, `keptReply`, `AttemptReason`, `InvalidField`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) |
-| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingMoves`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
+| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `MODEL_SELECT_MIN_MODELS`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `replyCarriedFromEvents`, `ReplyCarried`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingMoves`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TranscriptionProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 
 `PromotedToolMedia` and `media` `TranscriptBlock`s carry an optional

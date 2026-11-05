@@ -35,7 +35,8 @@ import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
-import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
+import { assertBackgroundCoordinator, type ToolBackgroundSupport } from '../../tools/background.ts';
+import { cloneTurnToolSnapshot, expandT1Policy, promoteTurnTools } from '../../tools/resolve.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
 import { keptReply, turnDoneOf } from '../../turn-events.ts';
 import type {
@@ -59,6 +60,7 @@ import type {
   TurnToolSnapshot,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
+import { detachedTrace } from '../background.ts';
 import {
   type CompactionTokens,
   type CompactorRun,
@@ -387,6 +389,7 @@ async function* emitTurn(args: {
   provider: TurnModel;
   trace: TurnTraceState;
   agents: AgentCaller | undefined;
+  background: ToolBackgroundSupport | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
 }): AsyncGenerator<TurnEvent> {
@@ -396,10 +399,17 @@ async function* emitTurn(args: {
     tools: args.registry.tools,
     profile,
     generation,
+    request: safe,
     trace: args.trace,
     ...(args.agents ? { agents: args.agents } : {}),
+    ...(args.background ? { background: args.background } : {}),
   });
   args.outState.state = state;
+  if (state.lateResults !== undefined) {
+    const late: TurnEvent = { type: 'late_results', text: state.lateResults };
+    state.allEmittedEvents.push(late);
+    yield late;
+  }
 
   const pre = yield* applyTurnStage({
     profile,
@@ -439,6 +449,8 @@ async function* emitTurn(args: {
   const done = turnDoneOf(
     {
       stop: state.lastStop ?? { kind: 'completed' },
+      steps: state.stepCount,
+      ...(state.mediaRefused ? { mediaRefused: state.mediaRefused } : {}),
       ...(state.providerState &&
       !cutConversation(state) &&
       !(
@@ -473,6 +485,7 @@ async function* streamTurnEvents(
     provider,
     trace: ctx.trace,
     agents: ctx.agents,
+    background: ctx.background,
     outState: ctx,
   })) {
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
@@ -535,6 +548,7 @@ type TraceCtx = {
   observability?: ResolvedObservabilityPolicy;
   state?: StepExecutionState;
   agents?: AgentCaller;
+  background?: ToolBackgroundSupport;
 };
 
 function newTraceCtx(
@@ -588,7 +602,7 @@ async function* runTracedTurn(ctx: TraceCtx, provider: TurnModel): AsyncGenerato
  * The trace record is written however the turn ends, including when the host stops reading early;
  * spans still open then close as `ERROR` / `unclosed`.
  */
-async function* runTurnInRegistry(
+async function* tracedTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
   provider: TurnModel,
@@ -605,6 +619,29 @@ async function* runTurnInRegistry(
     guardrails: ctx.known?.guardrails,
   });
   ctx.observability = policy;
+  const { background: service } = req;
+  if (service) {
+    ctx.background = {
+      service,
+      project: (event) =>
+        withPublicLabels(projectForObs(event, ctx.observability), ctx.known?.labels),
+      openTrace: () =>
+        detachedTrace({
+          traceparent: tree.root.traceparent(),
+          write: (spans) =>
+            writeTrace(
+              sink,
+              buildRecord({
+                spans,
+                policy,
+                canaries: ctx.canaries,
+                ...(req.metadata ? { metadata: req.metadata } : {}),
+              }),
+              policy,
+            ),
+        }),
+    };
+  }
   try {
     yield* runTracedTurn(ctx, provider);
   } finally {
@@ -657,7 +694,21 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
   }
 }
 
+/** A turn's events, each read by `req.onEvent` before the caller gets it. */
+async function* runTurnInRegistry(
+  registry: KernelRegistry,
+  req: TurnRequest,
+  provider: TurnModel,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<TurnEvent> {
+  for await (const event of tracedTurnInRegistry(registry, req, provider, sinkOverride)) {
+    await req.onEvent?.(event);
+    yield event;
+  }
+}
+
 async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<TurnEvent> {
+  assertBackgroundCoordinator(ctx.req.background, ctx.req.execution);
   const checkStart = performance.now();
   const sanitized = sanitizeTurnRequestWithEvents(
     ctx.req,
@@ -687,10 +738,12 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   if (sanitized.refusal) throw sanitized.refusal;
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
   await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
+  promoteTurnTools(ctx.registry.tools, gen.tools, ctx.safe.promoted);
   if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
   if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);
   ctx.generation = gen;
+  ctx.root.set({ 'theorem.turn.system_lines': [...gen.systemLines] });
   ctx.canary = gen.canary;
   ctx.canaries.push(gen.canary);
   const binding = profile.models[gen.model];
@@ -859,7 +912,9 @@ async function compactHistoryInRegistry(
   const turnReq: TurnRequest = {
     profile: req.profile,
     input: {},
-    ...(req.conversationId ? { conversationId: req.conversationId } : {}),
+    conversationId: req.conversationId,
+    projectId: req.projectId,
+    links: req.links,
   };
   const tree = startTrace(`invoke_agent ${req.profile}`, {
     ...turnSpanOptions(turnReq),

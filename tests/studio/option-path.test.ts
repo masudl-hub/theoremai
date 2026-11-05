@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { geminiEmbeddings } from '../../src/providers/mod.ts';
+import { geminiEmbeddings, openRouterOpenAi } from '../../src/providers/mod.ts';
 import { optionAt, protocolOptionFields, withOption } from '../../studio/providers.ts';
 
 Deno.test('optionAt reads a dotted path, and nothing past a value that is not an object', () => {
@@ -54,4 +54,18 @@ Deno.test('protocolOptionFields leaves out what the model refuses, unless the bi
     paths('gemini-embedding-2-preview', { taskType: 'CLUSTERING' }).includes('taskType'),
     true,
   );
+});
+
+Deno.test('a list of names is a row, and a list left empty is unset', () => {
+  const fields = protocolOptionFields(openRouterOpenAi);
+  const row = (path: string) => fields.find((field) => field.path === path);
+  assertEquals(row('provider.only')?.kind, 'names');
+  assertEquals(row('provider.quantizations')?.kind, 'names');
+  assertEquals(row('provider.allow_fallbacks')?.label, 'Allow fallbacks');
+  assertEquals(row('provider.max_price.prompt')?.kind, 'number');
+  assertEquals(row('provider.sort'), undefined);
+  assertEquals(withOption({}, 'provider.only', ['gmicloud/fp8']), {
+    provider: { only: ['gmicloud/fp8'] },
+  });
+  assertEquals(withOption({ provider: { only: ['a'] } }, 'provider.only', undefined), {});
 });

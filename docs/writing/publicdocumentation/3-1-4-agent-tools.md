@@ -37,7 +37,7 @@ export const customsSubAgentTool = registerTool({
 
 Because the sub-agent is already a declared profile, Theorem derives the tool's schemas automatically:
 
-* **Input Schema**: The tool takes `text`, plus any additional channels the target profile declares in `inputs` (such as `attachments`, `voice`, `slots`, and `speech`).
+* **Input Schema**: The tool takes `text`, plus any additional channels the target profile declares in `inputs` (such as `attachments`, `voice`, `options`, and `speech`).
 * **Output Schema**: The tool returns the target agent's response payload—including its `text`, `structured` JSON output, citations (`sources`), and media parts.
 
 ---
@@ -59,11 +59,11 @@ To govern how the calling model interacts with the sub-agent, configure field an
 
 ### Reserving Channels (`hostOnly`)
 
-If the target profile accepts channels that the calling model should not manipulate (such as private session slots or enterprise documents), designate them as `hostOnly`:
+If the target profile accepts channels that the calling model should not manipulate (such as private session options or enterprise documents), designate them as `hostOnly`:
 
 ```ts
 // ... inside agent tool definition
-hostOnly: ['slots', 'attachments'],
+hostOnly: ['options', 'attachments'],
 ```
 
 The calling model sees only the `text` field. Only your host hook can supply the reserved channels.

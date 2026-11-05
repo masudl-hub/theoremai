@@ -155,6 +155,7 @@ export const geminiEmbeddings: Protocol<GeminiEmbeddingsOptions> = defineProtoco
   name: 'Gemini Embeddings',
   description: "Google's embedding API for text and supported media.",
   endpoints: { embedding: '/models/{apiId}:embedContent' },
+  operationNames: { embedding: 'embeddings' },
   options,
   embeddingLimits: (apiId) => (TASK_FIELD_MODELS.test(apiId) ? TEXT_ONLY : MULTIMODAL),
   // why: Gemini Embedding 2 reads the task from the text and refuses the field; the request's `task` says it.

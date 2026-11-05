@@ -11,7 +11,6 @@ import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Kbd } from '@astryxdesign/core/Kbd';
-import { Selector } from '@astryxdesign/core/Selector';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
@@ -74,28 +73,29 @@ import {
 import { stageComposerFiles } from '../client/composer-attachments.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
+import { ComposerControls, ComposerSelector } from './ComposerControls.tsx';
 import { composerDrawerLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { VoiceNote } from './VoiceNote.tsx';
 
 const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
-/** A slot the profile declares: its allowed values, the one chosen, and how to choose another. */
+/** An option the profile declares: its allowed values, the one chosen, and how to choose another. */
 /** The effort selector's icon. The studio's Agents list shows the same one. */
 export const EFFORT_ICON = IconBrain;
 
-export type SlotChoiceOption = {
+export type OptionChoiceView = {
   value: string;
   description?: string;
 };
 
-export type SlotDeclView = {
+export type OptionDeclView = {
   label?: string;
-  choices: readonly SlotChoiceOption[];
+  choices: readonly OptionChoiceView[];
 };
 
-export type SlotChoices = {
-  declared: Readonly<Record<string, SlotDeclView>>;
+export type OptionChoices = {
+  declared: Readonly<Record<string, OptionDeclView>>;
   values: Readonly<Record<string, string>>;
   onChange: (name: string, value: string) => void;
 };
@@ -123,9 +123,11 @@ export type ChatComposerBarProps = {
   onSubmit: () => void;
   onStop: () => void;
   onMenuAction: (action: ComposerMenuAction) => void;
-  onGenerationChange: (next: { modelId: string; effort?: string }) => void;
-  /** The profile's `inputs.slots` with the value chosen for each; one selector per slot, beside the model's. */
-  slotChoices?: SlotChoices;
+  onGenerationChange?: (next: { modelId: string; effort?: string }) => void;
+  /** Stands in for the model and effort selectors, for a bar whose choices are not one chat's. */
+  generationSelect?: ReactNode;
+  /** The profile's `inputs.options` with the value chosen for each; one selector per option, beside the model's. */
+  optionChoices?: OptionChoices;
   onPendingMove: (id: string, direction: 'up' | 'down') => void;
   onPendingRemove: (id: string) => void;
   onPendingQueue: (id: string) => void;
@@ -281,7 +283,7 @@ type ModelOption = ReturnType<typeof interfaceModelOptions>[number];
 type EffortOption = ReturnType<typeof interfaceEffortOptions>[number];
 
 /** The model and effort choices this profile offers; efforts only for a chosen model. */
-function generationOptions(iface: ComposerProfileInterface, selectedModel?: string) {
+export function generationOptions(iface: ComposerProfileInterface, selectedModel?: string) {
   const models = modelSelectEnabled(iface) ? interfaceModelOptions(iface) : [];
   const efforts =
     selectedModel && effortSelectEnabled(iface, selectedModel)
@@ -299,7 +301,7 @@ function ModelSelector(props: {
 }) {
   if (props.models.length === 0) return null;
   return (
-    <Selector
+    <ComposerSelector
       label={props.label}
       isLabelHidden
       size="sm"
@@ -327,7 +329,7 @@ function EffortSelector(props: {
 }) {
   if (props.efforts.length === 0) return null;
   return (
-    <Selector
+    <ComposerSelector
       label={props.label}
       isLabelHidden
       size="sm"
@@ -342,7 +344,7 @@ function EffortSelector(props: {
   );
 }
 
-function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
+function OptionSelectors(props: { choices?: OptionChoices; isDisabled: boolean }) {
   if (!props.choices) return null;
   const { declared, values, onChange } = props.choices;
   return Object.entries(declared).map(([name, decl]) => {
@@ -356,7 +358,7 @@ function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
       description: choice.description,
     }));
     return (
-      <Selector
+      <ComposerSelector
         key={name}
         label={title}
         isLabelHidden
@@ -375,23 +377,39 @@ function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
 
 function GenerationSelect(props: {
   iface: ComposerProfileInterface;
-  slotChoices?: SlotChoices;
+  optionChoices?: OptionChoices;
   selectedModel?: string;
   selectedEffort?: string;
   isDisabled: boolean;
   onChange: ChatComposerBarProps['onGenerationChange'];
+  control?: ReactNode;
 }) {
   const { models, efforts } = generationOptions(props.iface, props.selectedModel);
-  const slotCount = Object.keys(props.slotChoices?.declared ?? {}).length;
-  if (models.length + efforts.length + slotCount === 0) return null;
+  const optionCount = Object.keys(props.optionChoices?.declared ?? {}).length;
+  // invariant: What the controls show; when it changes they unfold and measure again.
+  const fit = JSON.stringify([
+    props.control
+      ? null
+      : [models.length, efforts.length, props.selectedModel, props.selectedEffort],
+    props.optionChoices?.values,
+    optionCount,
+  ]);
+  if (props.control)
+    return (
+      <ComposerControls fit={fit}>
+        {props.control}
+        <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
+      </ComposerControls>
+    );
+  if (models.length + efforts.length + optionCount === 0) return null;
   return (
-    <HStack gap={1}>
+    <ComposerControls fit={fit}>
       <ModelSelector
         label={labelText('composer.model', {}, props.iface.labels)}
         models={models}
         value={props.selectedModel}
         isDisabled={props.isDisabled}
-        onChange={(modelId) => props.onChange({ modelId })}
+        onChange={(modelId) => props.onChange?.({ modelId })}
       />
       <EffortSelector
         label={labelText('composer.effort', {}, props.iface.labels)}
@@ -399,11 +417,11 @@ function GenerationSelect(props: {
         value={props.selectedEffort}
         isDisabled={props.isDisabled}
         onChange={(effort) => {
-          if (props.selectedModel) props.onChange({ modelId: props.selectedModel, effort });
+          if (props.selectedModel) props.onChange?.({ modelId: props.selectedModel, effort });
         }}
       />
-      <SlotSelectors choices={props.slotChoices} isDisabled={props.isDisabled} />
-    </HStack>
+      <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
+    </ComposerControls>
   );
 }
 
@@ -838,11 +856,12 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
       footerActions={
         <GenerationSelect
           iface={iface}
-          slotChoices={props.slotChoices}
+          optionChoices={props.optionChoices}
           selectedModel={props.selectedModel}
           selectedEffort={props.selectedEffort}
           isDisabled={phase === 'streaming'}
           onChange={props.onGenerationChange}
+          control={props.generationSelect}
         />
       }
       // why: Astryx: sendActions render to the left of the send button, at size="md".

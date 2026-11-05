@@ -1,4 +1,9 @@
-import { TheoremError, type TurnEvent } from '@theoremjs/agents';
+import {
+  type GateReference,
+  type ProfileOptions,
+  TheoremError,
+  type TurnEvent,
+} from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   branchInterfaceTurnSession,
@@ -44,6 +49,7 @@ import {
   type ChatLineSink,
   type ConversationView,
   isUnknownConversation,
+  type StatedTurn,
   type TheoremTransport,
   type TheoremTurnRequest,
   type TurnEventSink,
@@ -84,13 +90,15 @@ export type ChatOptions = {
    */
   onConversationChange?: (ref: string | undefined) => void;
   /**
-   * The value chosen for each of the profile's `inputs.slots`. Sent with every turn. A slot you
+   * The value chosen for each of the profile's `inputs.options`. Sent with every turn. An option you
    * name here is fixed to that value; one you leave out is the visitor's to pick (the chat's
-   * `pickSlot`), starting at its first allowed value.
+   * `pickOption`), starting at its first allowed value.
    */
-  slots?: Record<string, string>;
-  /** Told each time the visitor picks a slot, with every slot's value. */
-  onSlotsChange?: (slots: Record<string, string>) => void;
+  options?: Record<string, string>;
+  /** Which prompt lines each turn gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
+  /** Told each time the visitor picks an option, with every option's value. */
+  onOptionsChange?: (options: Record<string, string>) => void;
   /** What the page wants the agent to know: any JSON. The latest value goes with every turn. */
   context?: unknown;
   /** The page's tools, by name: each answers a tool the profile declares with `answeredBy: 'page'`. */
@@ -108,15 +116,9 @@ export type ChatOptions = {
  */
 export type MessageDelivery = 'sending' | 'sent' | 'delivered' | 'read';
 
-/** One declared slot as the composer shows it (group label + choices with optional blurbs). */
-export type ChatSlotDecl = {
-  label?: string;
-  choices: readonly { value: string; description?: string }[];
-};
-
-/** The slots the profile declares, and the value of each: the page's, else the picked one, else the first allowed. */
-export type ChatSlots = {
-  declared: Record<string, ChatSlotDecl>;
+/** The options the profile declares, and the value of each: the page's, else the picked one, else the first allowed. */
+export type ChatOptionPicks = {
+  declared: ProfileOptions;
   values: Record<string, string>;
 };
 
@@ -143,8 +145,8 @@ export type ChatState = {
   /** The latest message's delivery; `null` before the first and once its turn failed. */
   delivery: MessageDelivery | null;
   streaming: boolean;
-  /** `undefined` when the profile declares no slots. */
-  slots: ChatSlots | undefined;
+  /** `undefined` when the profile declares no options. */
+  options: ChatOptionPicks | undefined;
 };
 
 /** What `sendText` hands back: the blocks the turn added, its user message, and the reply. */
@@ -167,6 +169,12 @@ export type ChatController = {
    * `conversationView` is read then, and a restored page gate answered then.
    */
   subscribe(listener: () => void): () => void;
+  /**
+   * Reads the conversation from the host and draws it. For a page told by its own channel that
+   * something ended, such as a service worker that receives a Web Push. A run in flight reads it
+   * anyway when it ends, and a failed read leaves the chat as it stands.
+   */
+  refresh(): Promise<void>;
   /** The latest options. `conversation`, `conversationView` and `initialText` are read only at creation. */
   update(options: ChatOptions): void;
   setDraftText(value: ChatUpdate<string>): void;
@@ -180,6 +188,11 @@ export type ChatController = {
   stop(): void;
   /** Steers, queues, or stashes the composer's draft. A steer goes to the running turn. */
   enqueue(kind: 'queue' | 'steer' | 'stash'): Promise<void>;
+  /**
+   * Steers, queues, or stashes a message made elsewhere, as `enqueue` does the draft: a composer
+   * shared by several chats gives each the same message, so its id names it in all of them.
+   */
+  pend(message: ComposerPendingMessage): Promise<void>;
   /**
    * Sends a pending message, or the composer's draft, now: a streaming reply stops first, and a
    * reply that waits on gates is walked away from.
@@ -203,12 +216,24 @@ export type ChatController = {
   branch(index: number): Promise<void>;
   /** The model, and its effort (its default when left out), for the next turn. */
   setGeneration(next: { modelId: string; effort?: string }): void;
-  pickSlot(name: string, value: string): void;
+  pickOption(name: string, value: string): void;
   /**
-   * Sends `text` and optional files as the composer would, and resolves once the reply is done;
-   * `null` when it can't go now (a reply is streaming, or waits on a gate).
+   * Sends `text`, and what `options` adds, as the composer would, and resolves once the reply is
+   * done; `null` when it can't go now (a reply is streaming, or waits on a gate).
    */
-  sendText(text: string, files?: readonly File[]): Promise<SentTurn | null>;
+  sendText(text: string, options?: SendTextOptions): Promise<SentTurn | null>;
+};
+
+/**
+ * What `sendText` sends with its text. A `model` becomes the chat's pick, as if chosen in the
+ * composer; one the profile doesn't have is refused by the turn, not swapped for its default.
+ */
+export type SendTextOptions = {
+  files?: readonly File[];
+  voice?: readonly File[];
+  model?: string;
+  /** The model's effort. Left out, the model's default. */
+  effort?: string;
 };
 
 type ComposerFields = { text: string; files: File[]; voice: File[] };
@@ -235,7 +260,7 @@ type RunOptions = {
 const DELIVERY_ORDER: readonly MessageDelivery[] = ['sending', 'sent', 'delivered', 'read'];
 
 /** The server's own reports (bookkeeping, a failure, the end), which say nothing of the model having the message. */
-const SERVER_EVENTS = new Set(['stage', 'guardrail', 'session', 'error', 'done']);
+const SERVER_EVENTS = new Set(['stage', 'guardrail', 'late_results', 'session', 'error', 'done']);
 /** The reply itself (its thinking and tool calls come before it). */
 const REPLY_EVENTS = new Set(['text', 'structured', 'media']);
 
@@ -271,12 +296,12 @@ function withTurnError(blocks: TranscriptBlock[], error: string): TranscriptBloc
   return [...blocks, { id: crypto.randomUUID(), kind: 'error', message: error }];
 }
 
-function slotsOf(
+function picksOf(
   iface: ComposerProfileInterface | null,
   fixed: Record<string, string> | undefined,
   picked: Record<string, string>,
-): { values: Record<string, string> | undefined; slots: ChatSlots | undefined } {
-  const declared = iface?.inputs.slots ?? {};
+): { values: Record<string, string> | undefined; options: ChatOptionPicks | undefined } {
+  const declared = iface?.inputs.options ?? {};
   const values: Record<string, string> = { ...fixed };
   for (const [name, decl] of Object.entries(declared)) {
     const first = decl.choices[0]?.value;
@@ -286,11 +311,11 @@ function slotsOf(
   const chosen = Object.keys(declared).length > 0;
   return {
     values: chosen || fixed ? values : undefined,
-    slots: chosen ? { declared, values } : undefined,
+    options: chosen ? { declared, values } : undefined,
   };
 }
 
-function sameSlots(a: ChatSlots | undefined, b: ChatSlots | undefined): boolean {
+function samePicks(a: ChatOptionPicks | undefined, b: ChatOptionPicks | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;
   const keys = Object.keys(a.values);
   return (
@@ -350,6 +375,11 @@ class Chat implements ChatController {
   #pageToolsWarned: string | undefined;
   #frame: (() => void) | null = null;
   #frameBlocks: TranscriptBlock[] | null = null;
+  /** What the last view said about the host's push; unset, nothing is listened for. */
+  #notify: ConversationView['notify'];
+  #listening: AbortController | null = null;
+  #reading: Promise<void> | null = null;
+  #readAgain = false;
 
   constructor(options: ChatOptions) {
     this.#options = options;
@@ -370,7 +400,7 @@ class Chat implements ChatController {
       session: emptyInterfaceTurnSession(),
       delivery: null,
       streaming: false,
-      slots: slotsOf(options.iface, options.slots, {}).slots,
+      options: picksOf(options.iface, options.options, {}).options,
     };
     this.#notified = this.#state;
     this.#warnPageTools();
@@ -385,16 +415,101 @@ class Chat implements ChatController {
       this.#live = true;
       this.#settle();
     }
-    return () => this.#listeners.delete(listener);
+    this.#followPush();
+    return () => {
+      this.#listeners.delete(listener);
+      this.#followPush();
+    };
   };
+
+  refresh = (): Promise<void> => {
+    if (this.#reading) {
+      this.#readAgain = true;
+      return this.#reading;
+    }
+    this.#reading = this.#readHost().finally(() => {
+      this.#reading = null;
+    });
+    return this.#reading;
+  };
+
+  /** invariant: Reads never overlap, so an older view never draws over a newer one. */
+  async #readHost(): Promise<void> {
+    do {
+      this.#readAgain = false;
+      await this.#readOnce();
+    } while (this.#readAgain);
+  }
+
+  async #readOnce(): Promise<void> {
+    const { iface, transport } = this.#options;
+    const ref = this.#conversation;
+    if (!iface || ref === undefined || !keepsConversation(iface) || this.#busy) return;
+    const before = this.#state.blocks;
+    let view: ConversationView;
+    try {
+      view = await transport.conversation({ conversation: ref });
+    } catch (err) {
+      // why: Nobody asked for this read, and the next one heals a passing failure.
+      if (isUnknownConversation(err)) this.#setPush(undefined);
+      return;
+    }
+    // why: A run reads the conversation once it ends, later than this.
+    if (this.#busy) return;
+    // why: Another read drew first. It may have started before the call ended, so read again.
+    if (this.#state.blocks !== before || this.#conversation !== ref) {
+      this.#readAgain = true;
+      return;
+    }
+    this.#draw(view, this.#state.session, []);
+  }
+
+  #setPush(notify: ConversationView['notify']): void {
+    this.#notify = notify;
+    this.#followPush();
+  }
+
+  /** Holds the host's push open while the last view asks for it and someone is here to see it. */
+  #followPush(): void {
+    if (!this.#notify || this.#listeners.size === 0 || !this.#options.transport.notify) {
+      this.#listening?.abort();
+      this.#listening = null;
+      return;
+    }
+    if (this.#listening) return;
+    const listening = new AbortController();
+    this.#listening = listening;
+    void this.#listen(listening);
+  }
+
+  async #listen(listening: AbortController): Promise<void> {
+    const { signal } = listening;
+    while (!signal.aborted) {
+      try {
+        await this.#options.transport.notify?.(() => void this.refresh(), signal);
+      } catch {
+        // why: The push is a convenience; the page still reads on its next turn or reload.
+      }
+      const retryMs = this.#notify?.retryMs;
+      if (signal.aborted || retryMs === undefined) break;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, retryMs);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    if (this.#listening === listening) this.#listening = null;
+  }
 
   update = (options: ChatOptions): void => {
     this.#options = options;
     this.#warnPageTools();
-    const { slots } = slotsOf(options.iface, options.slots, this.#picked);
+    const { options: picks } = picksOf(options.iface, options.options, this.#picked);
     const patch: Partial<ChatState> = {};
     if (options.iface !== this.#state.iface) patch.iface = options.iface;
-    if (!sameSlots(slots, this.#state.slots)) patch.slots = slots;
+    if (!samePicks(picks, this.#state.options)) patch.options = picks;
     if (Object.keys(patch).length > 0) this.#set(patch);
   };
 
@@ -442,21 +557,32 @@ class Chat implements ChatController {
     const { draftText, pendingFiles, pendingVoice } = this.#state;
     if (!composerHasPayload(draftText, pendingFiles, pendingVoice)) return;
     this.#set({ issues: [] });
+    let message: ComposerPendingMessage;
     try {
       const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
-      const message = createComposerPendingMessage({ kind, draft });
-      this.#set({
-        pendingMessages: orderComposerPendingMessages([...this.#state.pendingMessages, message]),
-        ...this.#clearedComposer(),
-      });
-      if (kind !== 'steer') return;
-      const turnId = this.#turnId;
-      if (!turnId) {
-        this.#steerAfterTurnEnded();
-        return;
-      }
-      const inject = userDraftToSteerInject(draft);
-      if (inject.length === 0) return;
+      message = createComposerPendingMessage({ kind, draft });
+    } catch (err) {
+      this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
+      return;
+    }
+    this.#set(this.#clearedComposer());
+    await this.pend(message);
+  };
+
+  pend = async (message: ComposerPendingMessage): Promise<void> => {
+    this.#set({
+      pendingMessages: orderComposerPendingMessages([...this.#state.pendingMessages, message]),
+    });
+    if (message.kind === 'queue' && this.#state.phase === 'idle') this.#drainArmed = true;
+    if (message.kind !== 'steer') return;
+    const turnId = this.#turnId;
+    if (!turnId) {
+      this.#steerAfterTurnEnded();
+      return;
+    }
+    const inject = userDraftToSteerInject(message.draft);
+    if (inject.length === 0) return;
+    try {
       await this.#options.transport.steer({ turnId, id: message.id, inject });
     } catch (err) {
       this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
@@ -569,17 +695,28 @@ class Chat implements ChatController {
     });
   };
 
-  pickSlot = (name: string, value: string): void => {
-    const before = slotsOf(this.#options.iface, this.#options.slots, this.#picked).values;
+  pickOption = (name: string, value: string): void => {
+    const before = picksOf(this.#options.iface, this.#options.options, this.#picked).values;
     this.#picked = { ...this.#picked, [name]: value };
-    this.#set({ slots: slotsOf(this.#options.iface, this.#options.slots, this.#picked).slots });
-    this.#options.onSlotsChange?.({ ...before, [name]: value });
+    this.#set({
+      options: picksOf(this.#options.iface, this.#options.options, this.#picked).options,
+    });
+    this.#options.onOptionsChange?.({ ...before, [name]: value });
   };
 
-  sendText = async (text: string, files: readonly File[] = []): Promise<SentTurn | null> => {
+  sendText = async (text: string, options: SendTextOptions = {}): Promise<SentTurn | null> => {
     if (!this.#options.iface || this.#state.phase !== 'idle') return null;
+    // invariant: the turn reads the pick from the session, before `#followDefaults` next runs.
+    const modelId =
+      options.model ??
+      (options.effort === undefined ? undefined : this.#state.session.selectedModel);
+    if (modelId !== undefined) this.setGeneration({ modelId, effort: options.effort });
     const before = this.#state.blocks.length;
-    await this.#sendFields({ text, files: [...files], voice: [] });
+    await this.#sendFields({
+      text,
+      files: [...(options.files ?? [])],
+      voice: [...(options.voice ?? [])],
+    });
     return { blocks: this.#state.blocks.slice(before) };
   };
 
@@ -648,6 +785,15 @@ class Chat implements ChatController {
   }
 
   /** Draws the conversation as the host shows it: its transcript, and the reply that waits on gates. */
+  /**
+   * The session a run leaves, with the model and effort picked now.
+   * why: the run carries the pick it started with; one made while it ran must outlast it.
+   */
+  #sessionAfter(session: InterfaceTurnSession, events: readonly TurnEvent[]): InterfaceTurnSession {
+    const { selectedModel, selectedEffort } = this.#state.session;
+    return { ...sessionAfter(session, events), selectedModel, selectedEffort };
+  }
+
   #draw(view: ConversationView, session: InterfaceTurnSession, events: readonly TurnEvent[]): void {
     const shown = [...this.#state.blocks, ...this.#state.streamBlocks];
     const blocks = keepIds(shown, view.transcript);
@@ -655,16 +801,20 @@ class Chat implements ChatController {
       blocks,
       streamBlocks: keepIds(shown.slice(blocks.length), view.paused?.blocks ?? []),
       // why: A reply at rest leaves the run's own events (tokens, an ask); a paused one, the host's.
-      session: sessionAfter(session, view.paused?.events ?? events),
+      session: this.#sessionAfter(session, view.paused?.events ?? events),
       chatStarted: view.transcript.length > 0 || view.paused !== undefined,
     });
+    this.#setPush(view.notify);
   }
 
   /**
    * Keeps the model and effort valid as the interface changes: a pick still on the old defaults
    * follows the new ones, and a pick the profile no longer has falls back to them.
+   * invariant: judged only when the interface changes. A pick made under this one stays, and a
+   * model it does not have is refused by the turn, not swapped for the default.
    */
   #followDefaults(iface: ComposerProfileInterface): void {
+    if (iface === this.#defaultsFrom) return;
     const { session } = this.#state;
     const next = followGenerationDefaults(
       iface,
@@ -847,9 +997,34 @@ class Chat implements ChatController {
     );
   }
 
+  /** The gate on the reply still running that no answer is on its way to. */
+  #drawnGate(): GateReference | undefined {
+    const { streamBlocks, answering } = this.#state;
+    for (const block of streamBlocks) {
+      if (block.kind !== 'tool' || block.tool.state?.phase !== 'gate') continue;
+      const { callId, operationId } = block.tool;
+      if (operationId && callId !== answering?.callId) return { callId, operationId };
+    }
+    return undefined;
+  }
+
   async #answerGate(resolution: ToolGateResolution): Promise<void> {
-    // why: Set once the run starts (not while another runs), and cleared once it has ended.
+    // why: Set once this answer shows on its gate (not while another's does), and cleared once it has ended.
     let started = false;
+    // why: A gate draws while its reply streams, but what waits is only settled when that run ends.
+    const running = this.#state.phase === 'gated' ? null : this.#run;
+    if (running) {
+      const gate = this.#drawnGate();
+      if (!gate || resolution.action === 'page') return;
+      started = true;
+      this.#set({ answering: { ...gate, action: resolution.action } });
+      await running;
+      // invariant: An answer goes only to the gate it was given on.
+      if (this.#state.session.gatedTool?.operationId !== gate.operationId) {
+        this.#set({ answering: null });
+        return;
+      }
+    }
     try {
       await this.#runTurn(({ iface, view, transport, scope }) => {
         started = true;
@@ -873,7 +1048,7 @@ class Chat implements ChatController {
 
   /**
    * The transport each run uses: the page's tools answer their calls, each turn carries the
-   * page's slots and context as they are when it is sent, and each line lands the steers it
+   * page's options and context as they are when it is sent, and each line lands the steers it
    * reports, moves the message's delivery on, and hands the chat the conversation's new ref
    * (so a page that reloads mid-reply keeps the posted message).
    */
@@ -894,14 +1069,15 @@ class Chat implements ChatController {
   }
 
   #withValues(request: TheoremTurnRequest): TheoremTurnRequest {
-    const { iface, slots: fixed, context } = this.#options;
-    const slots = slotsOf(iface, fixed, this.#picked).values;
-    if (slots === undefined && context === undefined) return request;
+    const { iface, options: fixed, context, stated } = this.#options;
+    const options = picksOf(iface, fixed, this.#picked).values;
+    if (options === undefined && context === undefined && stated === undefined) return request;
     return {
       ...request,
+      ...(stated === undefined ? {} : { stated }),
       input: {
         ...request.input,
-        ...(slots === undefined ? {} : { slots }),
+        ...(options === undefined ? {} : { options }),
         ...(context === undefined ? {} : { context }),
       },
     };
@@ -1071,7 +1247,7 @@ class Chat implements ChatController {
     outcome: RunOutcome,
     worked: { workedMs: number; endedAt: number },
   ): boolean {
-    const session = sessionAfter(outcome.session, outcome.events);
+    const session = this.#sessionAfter(outcome.session, outcome.events);
     const { failure } = outcome;
     const reply = stampWorked(foldAssistantTurn(iface, outcome.events), worked);
     if (session.gatedTool !== null) {

@@ -9,6 +9,9 @@ function formatProfileInputs(p: ModelProfile | EmbeddingProfile): string {
   if (p.type === 'live') {
     return 'audio/video (live)';
   }
+  if (p.type === 'transcription') {
+    return 'voice';
+  }
   const inputs: string[] = [];
   const { inputs: spec } = p;
   if (!spec) {
@@ -44,7 +47,7 @@ function printProfileCard(p: Profile): void {
   }
   const models = Object.keys(p.models).join(', ') || 'default';
   const structured =
-    p.type === 'live' || p.type === 'speech' || p.type === 'embedding'
+    p.type === 'live' || p.type === 'speech' || p.type === 'transcription' || p.type === 'embedding'
       ? undefined
       : p.outputs?.structured;
   const structuredLabel =

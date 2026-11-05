@@ -186,6 +186,10 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
     label: 'Ran out of steps',
     doc: 'The last model call the profile allows asked for tools, so the turn ended without an answer.',
   },
+  answer_missing: {
+    label: 'No answer',
+    doc: 'The model finished without calling the answer tool, and no repair was left.',
+  },
   stream_incomplete: {
     label: 'Stream cut off',
     doc: "The provider's stream ended before the answer was complete.",
@@ -307,13 +311,23 @@ const CASE_KINDS: Readonly<Record<'capability' | 'regression', TraceOptionMeta>>
 
 const OPERATIONS: Readonly<
   Record<
-    'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide' | 'embeddings',
+    | 'invoke_agent'
+    | 'chat'
+    | 'generate_content'
+    | 'transcribe'
+    | 'execute_tool'
+    | 'decide'
+    | 'embeddings',
     TraceOptionMeta
   >
 > = {
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
-  chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
-  generate_content: { label: 'Generate content', doc: 'A model call over a Gemini API.' },
+  chat: { label: 'Chat', doc: 'A model call to a chat-completions endpoint.' },
+  generate_content: {
+    label: 'Generate content',
+    doc: 'A model call that generates content other than over chat completions: Gemini, speech, or images.',
+  },
+  transcribe: { label: 'Transcribe', doc: 'One transcription call: a voice clip in, text out.' },
   execute_tool: { label: 'Run tool', doc: 'A tool call theorem ran.' },
   decide: {
     label: 'Decide',
@@ -426,11 +440,7 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   },
   'detect.injection': {
     label: 'Injection',
-    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". The decision names the boundary it was crossing and what was done with it.',
-  },
-  'detect.tool_instructions': {
-    label: 'Tool instructions',
-    doc: 'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". In what a tool returns, also a tool\'s text that instructed the agent: beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each such match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
   },
   'detect.canary_leak': {
     label: 'Canary leak',
@@ -701,6 +711,12 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'Stream guardrail time',
     'milliseconds',
     "Time every check on this call's streamed output took, together; each check's own time is on its `theorem.guardrail` event.",
+  ),
+  'theorem.turn.system_lines': attr(
+    'agent',
+    'Prompt lines sent',
+    'list',
+    "Which of the profile's prompt lines fit this turn, by number from 1.",
   ),
   'theorem.step': attr('agent', 'Step', 'number', 'Which model call of the turn this is, from 1.'),
   'theorem.attempt': attr(
@@ -1346,7 +1362,7 @@ const HITS = fields('error', 'Hits', 'Each rule that matched.', {
     'error',
     'Signal',
     'text',
-    "What made a `tool_instructions` match one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
+    "What made an `injection` match in what a tool returns one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
   ),
   start: attr('error', 'From', 'number', 'Where the match starts in the checked text.'),
   end: attr('error', 'To', 'number', 'Where the match ends in the checked text.'),
@@ -1443,6 +1459,15 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
       step: attr('agent', 'Step', 'number', 'The step whose model call was sent again.'),
       resume: attr('agent', 'Re-send', 'number', 'How many calls the turn has sent again so far.'),
       stop: attr('agent', 'Stop', 'text', 'How the failed call ended.'),
+      error: attr('error', 'Detail', 'content', "The provider's internal reason."),
+    },
+  },
+  'theorem.step.media_refused': {
+    label: 'Sent without files',
+    doc: 'The provider refused a model call that carried files, and the turn sent it without them.',
+    attributes: {
+      step: attr('agent', 'Step', 'number', 'The step whose model call was refused.'),
+      files: attr('agent', 'Files', 'number', 'How many files the call went without.'),
       error: attr('error', 'Detail', 'content', "The provider's internal reason."),
     },
   },
@@ -1741,6 +1766,7 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
       );
     case 'chat':
     case 'generate_content':
+    case 'transcribe':
       return withSubject(
         'theorem.request.live' in span.attributes ? 'response' : 'call',
         stringAttribute(span, 'gen_ai.request.model'),

@@ -74,6 +74,13 @@ function messageOf(err: unknown): string {
   if (err instanceof Error && err.message) {
     return err.message;
   }
+  // why: A plain-object cause such as `{ code }` would read `[object Object]`; its own scalar fields say what it holds.
+  if (err && typeof err === 'object' && !(err instanceof Error)) {
+    const fields = Object.entries(err).filter(
+      ([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value),
+    );
+    if (fields.length) return fields.map(([key, value]) => `${key}: ${value}`).join(', ');
+  }
   return String(err);
 }
 
@@ -166,7 +173,11 @@ function withPublicLabels(event: TurnEvent, labels?: LabelOverrides): TurnEvent 
     event.tool.failure.error === undefined
   ) {
     const { tool } = event;
-    const error = kindText(tool.failure.kind, labels, { tool: tool.name });
+    // why: a tool's network failure names the tool; error.network names the model provider.
+    const error =
+      tool.failure.kind === 'network'
+        ? labelText('tool.unreachable', { tool: tool.name }, labels)
+        : kindText(tool.failure.kind, labels, { tool: tool.name });
     return { ...event, tool: { ...tool, failure: { ...tool.failure, error } } };
   }
   return event;

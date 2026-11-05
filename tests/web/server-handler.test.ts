@@ -5,6 +5,7 @@ import {
   type LabelKey,
   labelDefault,
   type ProfileDefinition,
+  type ProfileIdentity,
   registerTool,
   TheoremError,
   type TurnEvent,
@@ -39,11 +40,15 @@ import { scriptedProvider } from '../fixtures/scripted.ts';
 import { sqliteSessionStore } from '../fixtures/sqlite-session-store.ts';
 
 const SYSTEM = 'secret persona instructions';
-function profile(id: string, allow: string[] = []): ProfileDefinition {
+function profile(
+  id: string,
+  allow: string[] = [],
+  identity: ProfileIdentity = { handle: 'helper', system: SYSTEM },
+): ProfileDefinition {
   return {
     type: 'text',
     id,
-    identity: { handle: 'helper', system: SYSTEM },
+    identity,
     models: {
       stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' },
     },
@@ -234,7 +239,7 @@ Deno.test('turn streams kernel events from the host profile, not the client', as
   );
   assertEquals(seen[0]?.system?.includes(SYSTEM), true);
 });
-Deno.test("a turn carries the page's slots and context, and the host's context as server", async () => {
+Deno.test("a turn carries the page's options and context, and the host's context as server", async () => {
   const seen: {
     system?: string;
     sent?: string;
@@ -257,7 +262,7 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
       guardrails: { detect: 'ignore' },
       inputs: {
         text: true,
-        slots: { language: ['en', 'fr'] },
+        options: { language: { choices: [{ value: 'en' }, { value: 'fr' }] } },
         context: { from: ['client', 'server'], maxChars: 200 },
       },
     },
@@ -266,13 +271,13 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
   });
   await collect((onEvent) =>
     transportFor(handler).turn(
-      { input: { text: 'hi', slots: { language: 'fr' }, context: { page: 'Pricing' } } },
+      { input: { text: 'hi', options: { language: 'fr' }, context: { page: 'Pricing' } } },
       onEvent,
     ),
   );
   assertEquals(seen[0]?.system?.includes('Reply in fr.'), true);
-  assertEquals(seen[0]?.sent?.includes('<page_context from="server">\n{"tier":"pro"}'), true);
-  assertEquals(seen[0]?.sent?.includes('<page_context from="client">\n{"page":"Pricing"}'), true);
+  assertEquals(seen[0]?.sent?.includes('<turn_context from="server">\n{"tier":"pro"}'), true);
+  assertEquals(seen[0]?.sent?.includes('<turn_context from="client">\n{"page":"Pricing"}'), true);
 });
 Deno.test('provider failures reach the client in the labels wording for their kind', async () => {
   const handler = handlerFor({
@@ -763,6 +768,7 @@ Deno.test('eight session conflicts fail without invoking a tool', async () => {
   let conflict = false;
   let attempts = 0;
   const store: TheoremSessionStore = {
+    capacity: memory.capacity,
     load: (id) => memory.load(id),
     compareAndSwap: (id, revision, next) => {
       if (!conflict) return memory.compareAndSwap(id, revision, next);
@@ -819,6 +825,7 @@ Deno.test('invalid or reused write revisions cannot release an approval', async 
       provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'must-not-execute')),
       session: () => 'invalid-write',
       sessionStore: {
+        capacity: memory.capacity,
         load: (id) => memory.load(id),
         compareAndSwap: (id, revision, next) => {
           if (!corrupt) return memory.compareAndSwap(id, revision, next);
@@ -897,11 +904,12 @@ function walkAwayProvider(seen: (TurnHistoryMessage[] | undefined)[]): TurnModel
   };
 }
 /** A handler paused on `handler_delete`, and the chat that waits on it. */
-async function pausedForWalkAway(id: string, cut: Cut = {}) {
+async function pausedForWalkAway(id: string, cut: Cut = {}, gateTtlMs?: number) {
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
   const handler = handlerFor({
     profile: profile(id, ['handler_delete']),
     provider: () => fixtureHostOptions(walkAwayProvider(seen)),
+    ...(gateTtlMs === undefined ? {} : { gateTtlMs }),
   });
   const transport = transportFor(handler, cut);
   const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
@@ -1150,6 +1158,121 @@ Deno.test('a chat page callback returns its result against an active claimed gra
     assertEquals(effects, answer ? 1 : 0);
   }
 });
+registerTool({
+  type: 'function',
+  name: 'handler_loaded_t2',
+  description: 'Runs once a loader has loaded it',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T2',
+  permission: 'auto',
+  input: z.object({}),
+  output: z.object({}),
+  handler: () => ({}),
+});
+registerTool({
+  type: 'function',
+  name: 'handler_gated_loader',
+  description: 'Loads a tool, once a person allows it',
+  category: 'test',
+  access: 'read-write',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'always_confirm',
+  input: z.object({}),
+  output: z.object({ loaded: z.array(z.string()) }),
+  handler: () => ({ loaded: ['handler_loaded_t2'] }),
+});
+Deno.test('a reply that goes on after an answered gate keeps the tool that call loaded', async () => {
+  const listed: string[][] = [];
+  const loads: TurnModel = {
+    complete: (req) =>
+      (async function* () {
+        listed.push((req.wireTools ?? []).map((tool) => tool.name));
+        if (listed.length === 1) {
+          yield {
+            type: 'tool' as const,
+            tool: { name: 'handler_gated_loader', arguments: {}, callId: 'call-1' },
+          };
+          yield { type: 'done' as const, stop: { kind: 'tool' } };
+          return;
+        }
+        yield { type: 'text' as const, text: 'done' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+  const handler = handlerFor({
+    profile: {
+      type: 'text',
+      id: 'handler-loaded-after-gate',
+      identity: { handle: 'helper', system: SYSTEM },
+      models: { stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' } },
+      tools: {
+        allow: ['handler_gated_loader', 'handler_loaded_t2'],
+        t2Loader: 'handler_gated_loader',
+      },
+      inputs: { text: true },
+      guardrails: { detect: 'ignore' },
+    },
+    provider: () => fixtureHostOptions(loads),
+  });
+  const transport = transportFor(handler);
+  const gate = pausedGate(
+    await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
+  );
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(listed, [['handler_gated_loader'], ['handler_gated_loader', 'handler_loaded_t2']]);
+});
+Deno.test('a reply that goes on after an answered gate keeps counting its steps', async () => {
+  const listed: string[][] = [];
+  const loads: TurnModel = {
+    complete: (req) =>
+      (async function* () {
+        listed.push((req.wireTools ?? []).map((tool) => tool.name));
+        if (listed.length === 1) {
+          yield {
+            type: 'tool' as const,
+            tool: { name: 'handler_gated_loader', arguments: {}, callId: 'call-1' },
+          };
+          yield { type: 'done' as const, stop: { kind: 'tool' } };
+          return;
+        }
+        yield { type: 'text' as const, text: 'done' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+  const handler = handlerFor({
+    profile: {
+      type: 'text',
+      id: 'handler-steps-after-gate',
+      identity: { handle: 'helper', system: SYSTEM },
+      models: { stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' } },
+      maxSteps: 2,
+      turnBehaviour: { atStepLimit: 'answer' },
+      tools: { allow: ['handler_gated_loader'], t2Loader: 'handler_gated_loader' },
+      inputs: { text: true },
+      guardrails: { detect: 'ignore' },
+    },
+    provider: () => fixtureHostOptions(loads),
+  });
+  const transport = transportFor(handler);
+  const gate = pausedGate(
+    await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
+  );
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(listed, [['handler_gated_loader'], []]);
+});
 Deno.test("another session can't approve this session's paused call", async () => {
   ran.length = 0;
   const handler = handlerFor({
@@ -1210,6 +1333,17 @@ Deno.test("an answer after the host's gateTtlMs is refused and the call never ru
   );
   assertEquals(ran, []);
 });
+Deno.test('a gate that expired does not block the next message, and its call never runs', async () => {
+  ran.length = 0;
+  const { seen, turn, walkAway } = await pausedForWalkAway('handler-walk-away-expired', {}, 1);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const walked = await walkAway();
+  assertEquals(failureOf(lastTool([...turn, ...walked], 'handler_delete'))?.kind, 'cancelled');
+  assertEquals(walked.filter((event) => event.type === 'done').length, 1);
+  assertEquals(ran, []);
+  assertEquals(seen.at(-1)?.at(-1)?.role, 'user');
+});
+
 Deno.test('a gateTtlMs that is not a positive number is refused at construction', () => {
   for (const gateTtlMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assertThrows(() =>
@@ -1557,6 +1691,7 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
     name: 'Checkpoint fixture',
     description: 'Asks for one tool, then finishes, keeping a cursor between calls.',
     endpoints: { text: '/turn' },
+    operationNames: { text: 'chat' },
     options: z.strictObject({}),
     continuation: { version: 1, schema: z.strictObject({ cursor: z.string() }) },
     create: () => ({
@@ -2026,4 +2161,141 @@ Deno.test('a sealed reply the person stops keeps what it said, under the ref the
     seen[0]?.map((message) => message.role),
     ['user', 'assistant', 'user'],
   );
+});
+const hostsSeen: unknown[] = [];
+registerTool({
+  type: 'function',
+  name: 'handler_reads_host',
+  description: 'Read the context of its turn',
+  category: 'test',
+  access: 'read-write',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'always_confirm',
+  input: z.object({ id: z.string() }),
+  output: z.object({ read: z.boolean() }),
+  handler: (_input, ctx) => {
+    hostsSeen.push(ctx.host);
+    return { read: true };
+  },
+});
+Deno.test("a held call runs on, once answered, with the context the application's prepare set", async () => {
+  hostsSeen.length = 0;
+  const handler = handlerFor({
+    profile: profile('handler-prepared-host', ['handler_reads_host']),
+    provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
+    host: () => ({ keeper: 'k1' }),
+    prepare: (turn) => ({ ...turn, host: { ...(turn.host as object), loading: 'from prepare' } }),
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
+  const gate = pausedGate(turn);
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(hostsSeen, [{ keeper: 'k1', loading: 'from prepare' }]);
+});
+
+Deno.test("a turn's prepare sees a held call going on, and only a run's events reach onEvent", async () => {
+  const prepared: (true | undefined)[] = [];
+  const seen: string[] = [];
+  const handler = handlerFor({
+    profile: profile('handler-held-prepare', ['handler_reads_host']),
+    provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
+    host: () => ({ keeper: 'k1' }),
+    prepare: (turn) => {
+      prepared.push(turn.answersHeldCall);
+      return { ...turn, onEvent: (event) => void seen.push(event.type) };
+    },
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
+  const gate = pausedGate(turn);
+  assertEquals(seen.includes('done'), true);
+  seen.length = 0;
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(prepared.slice(0, 2), [undefined, true]);
+  assertEquals(prepared.slice(2).includes(true), false);
+});
+
+/** A profile whose prompt turns on the page's picks. */
+function linedProfile(id: string, allow: string[] = []): ProfileDefinition {
+  return profile(id, allow, {
+    handle: 'helper',
+    options: {
+      path: { choices: [{ value: 'web' }, { value: 'voice' }] },
+      plan: { choices: [{ value: 'free' }, { value: 'paid' }] },
+    },
+    system: ['when path is web: Web line.', 'when plan is paid: Paid line.', 'Every line.'],
+  });
+}
+const PICKED = { path: 'web', options: { plan: 'paid' } };
+
+Deno.test('a page the host trusts says which prompt lines its turn gets', async () => {
+  const seen: { system?: string }[] = [];
+  const handler = handlerFor({
+    profile: linedProfile('handler-stated'),
+    provider: () => fixtureHostOptions(textProvider('ok', seen)),
+    pageStatesTurn: true,
+  });
+  await collect((onEvent) =>
+    transportFor(handler).turn({ input: { text: 'hi' }, stated: PICKED }, onEvent),
+  );
+  assertEquals(seen[0]?.system?.includes('Paid line.'), true);
+  assertEquals(seen[0]?.system?.includes('Web line.'), true);
+});
+
+Deno.test('a page saying which prompt lines it gets is refused unless the host trusts it', async () => {
+  const seen: { system?: string }[] = [];
+  const handler = handlerFor({
+    profile: linedProfile('handler-stated-refused'),
+    provider: () => fixtureHostOptions(textProvider('ok', seen)),
+  });
+  await assertRefused(
+    () =>
+      collect((onEvent) =>
+        transportFor(handler).turn({ input: { text: 'hi' }, stated: PICKED }, onEvent),
+      ),
+    'error.request',
+  );
+  assertEquals(seen, []);
+});
+
+Deno.test('a reply paused on a gate keeps its prompt lines when it goes on', async () => {
+  ran.length = 0;
+  const seen: { system?: string }[] = [];
+  const model = toolCallingProvider('handler_delete', 'kept');
+  const handler = handlerFor({
+    profile: linedProfile('handler-stated-paused', ['handler_delete']),
+    provider: () =>
+      fixtureHostOptions({
+        complete: (req) => {
+          seen.push({ system: req.system });
+          return model.complete(req);
+        },
+      }),
+    pageStatesTurn: true,
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) =>
+    transport.turn({ input: { text: 'delete' }, stated: PICKED }, onEvent),
+  );
+  const gate = pausedGate(turn);
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(ran, ['kept']);
+  assertEquals(seen.length, 2);
+  assertEquals(seen[1]?.system?.includes('Paid line.'), true);
 });

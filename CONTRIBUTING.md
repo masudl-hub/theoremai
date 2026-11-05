@@ -11,7 +11,7 @@ npm install
 deno install
 ```
 
-`npm install` also installs the git hooks. The pre-commit hook runs `npm run lint:docs`. The pre-push hook runs `fallow audit --base main`. Please do not skip a hook. If a hook fails, fix the cause.
+`npm install` also installs the git hooks. The pre-commit hook runs `npm run lint:docs` on the tree being committed. The pre-push hook runs CI's lint job and type checks on the commit being pushed, then `fallow audit`. Please do not skip a hook. If a hook fails, fix the cause.
 
 ## Run the checks
 
@@ -21,6 +21,7 @@ deno install
 | `npm run lint` | Docs truth, Deno lint, Biome, ast-grep, and Fallow. |
 | `npm run check:web` | Type-check for `@theoremjs/web`. |
 | `npm run check:react` | Type-check and theme check for `@theoremjs/react`. |
+| `npm --prefix studio run test:browser` | Every studio flow in a browser, against a fake model. It takes about 15 minutes here. The `Studio browser` workflow runs it in four shards when `studio/`, `web/` or `react/` changes, and nightly. No preview waits on it. |
 | `deno publish --dry-run` | The JSR package. |
 | `npm run build:npm` | Builds the npm package into `npm/`. Run `cd npm && npm pack` to see the tarball. |
 | `deno task verify:provider-smoke` | One real OpenRouter turn. It reads `OPENROUTER_API_KEY` from the shell, or from the file that `THEOREM_ENV_FILE` names. |
@@ -100,7 +101,7 @@ Only a maintainer publishes. JSR and npm publish from separate commands, and the
 
 A release is a version bump merged to `main`. The `Publish npm` workflow then publishes all four packages under `latest` and creates the GitHub release `v<version>` from its notes. Write the notes in the release pull request, in `docs/releases/v<version>.md`, as [`docs/releases/README.md`](docs/releases/README.md) describes. `npm run lint:docs` fails until they are there.
 
-A preview needs no bump. Name a branch for the version it leads to (`0.3.4`). Each push to it that passes CI publishes all four packages under the `next` tag, as `<version>-next.<run>.g<commit>`. The version is the branch's own while it is unpublished, else the patch after it. An app takes the newest preview with:
+A preview needs no bump. Name a branch for the version it leads to (`0.3.4`). Each push to it that passes CI publishes all four packages under the `next` tag, as `<version>-next.<run>.g<commit>`. The version is the branch's own while it is unpublished, else the patch after it. A run publishes nothing when the branch has moved past its commit, and `next` moves only after all four packages are published. An app takes the newest preview with:
 
 ```bash
 npm install @theoremjs/agents@next @theoremjs/web@next @theoremjs/react@next @theoremjs/studio@next

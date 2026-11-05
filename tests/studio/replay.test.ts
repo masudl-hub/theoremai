@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { assert, assertEquals, assertMatch, assertThrows } from '@std/assert';
+import { assert, assertEquals, assertMatch, assertRejects, assertThrows } from '@std/assert';
 import type { ModelEvent, TurnEvent, TurnModel } from '@theoremjs/agents/kernel';
 import type { TraceRecord } from '@theoremjs/agents/observability';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
@@ -9,9 +9,10 @@ import {
   openingFromRecords,
   parseTraceFile,
   type ReplayDivergence,
+  type ReplayScript,
   recordedTools,
   recordedTranscript,
-  replayScript,
+  replayScripts,
 } from '../../studio/replay.ts';
 import { runtimeProvider, type StudioRuntime, studioScope } from '../../studio/runtime-scope.ts';
 
@@ -90,9 +91,18 @@ async function recording() {
   return await runTurn({ mode: 'byok', provider: () => model }, 'How far is 10 km in miles?');
 }
 
+/** The file's one conversation. */
+function onlyScript(records: readonly TraceRecord[]): ReplayScript {
+  const scripts = replayScripts(records);
+  assertEquals(scripts.length, 1);
+  const [script] = scripts;
+  assert(script);
+  return script;
+}
+
 Deno.test('a recorded turn reads back as what was sent, each model call, and each tool result', async () => {
   const { records } = await recording();
-  const script = replayScript(records);
+  const script = onlyScript(records);
   assertEquals(script.agent, AGENT);
   assertEquals(script.turns.length, 1);
   const [turn] = script.turns;
@@ -124,19 +134,19 @@ Deno.test("a turn under the host's own span, which the record does not hold, rea
       span.parentSpanId ? span : { ...span, parentSpanId: '00f067aa0ba902b7' },
     ),
   }));
-  const read = (script: ReturnType<typeof replayScript>) =>
+  const read = (script: ReplayScript) =>
     script.turns.map(({ blocks, ...turn }) => ({
       ...turn,
       kinds: blocks.map((block) => block.kind),
     }));
-  const original = replayScript(records);
+  const original = onlyScript(records);
   assertEquals(original.turns.length, 1);
-  assertEquals(read(replayScript(hosted)), read(original));
+  assertEquals(read(onlyScript(hosted)), read(original));
 });
 
 Deno.test('a replay through the same profile answers as the recording did, reaching no model', async () => {
   const recorded = await recording();
-  const script = replayScript(recorded.records);
+  const script = onlyScript(recorded.records);
   const diverged: ReplayDivergence[] = [];
   const replay = createReplay(script, AGENT, (each) => {
     diverged.push(each);
@@ -153,7 +163,7 @@ Deno.test('a replay through the same profile answers as the recording did, reach
 });
 
 Deno.test('a replay stops where the profile no longer offers a tool the recording calls', async () => {
-  const script = replayScript((await recording()).records);
+  const script = onlyScript((await recording()).records);
   const diverged: ReplayDivergence[] = [];
   const replay = createReplay(script, AGENT, (each) => {
     diverged.push(each);
@@ -169,7 +179,7 @@ Deno.test('a replay stops where the profile no longer offers a tool the recordin
     failed = err;
   });
   assertEquals(
-    diverged.map((each) => [each.turn, each.call]),
+    diverged.map((each) => [each.turn, 'call' in each ? each.call : undefined]),
     [[0, 1]],
   );
   assertMatch(diverged[0].reason, /convert_units, which the profile no longer offers/);
@@ -177,7 +187,7 @@ Deno.test('a replay stops where the profile no longer offers a tool the recordin
 });
 
 Deno.test('a replay stops when the profile asks the model more often than the recording answered', async () => {
-  const script = replayScript((await recording()).records);
+  const script = onlyScript((await recording()).records);
   const diverged: ReplayDivergence[] = [];
   const replay = createReplay(script, AGENT, (each) => {
     diverged.push(each);
@@ -199,6 +209,7 @@ Deno.test('a replay stops when the profile asks the model more often than the re
   assertEquals(diverged, [
     {
       turn: 0,
+      agent: AGENT,
       call: 3,
       reason: 'The profile asked the model a 3rd time this turn; the recording answered 2.',
     },
@@ -215,7 +226,7 @@ async function changed(change: (spans: Map<string, TraceRecord['spans'][number]>
   const first = record.spans.filter((span) => span.name.startsWith('chat ')).sort(byStart)[0];
   if (first) spans.set('first chat', first);
   change(spans);
-  return replayScript([record]);
+  return onlyScript([record]);
 }
 
 const appendPart = (value: unknown, part: Record<string, unknown>) => {
@@ -256,7 +267,7 @@ Deno.test('a reply holding media the recording lacks stops the replay at that ca
   });
   assert(failed);
   assertEquals(diverged, [
-    { turn: 0, call: 1, reason: 'The recording does not hold all of this reply.' },
+    { turn: 0, agent: AGENT, call: 1, reason: 'The recording does not hold all of this reply.' },
   ]);
 });
 
@@ -279,11 +290,28 @@ Deno.test('every tool but an agent is answered by a handler in a replay', () => 
   }
 });
 
-Deno.test('a trace file is the records the studio downloads, or one record', async () => {
+Deno.test('a trace file is the records the studio downloads, one record, or JSONL', async () => {
   const { records } = await recording();
   assertEquals(parseTraceFile(JSON.stringify(records)).length, records.length);
   assertEquals(parseTraceFile(JSON.stringify(records[0])).length, 1);
+  const jsonl = `${records.map((record) => JSON.stringify(record)).join('\n')}\n`;
+  assertEquals(parseTraceFile(jsonl), parseTraceFile(JSON.stringify(records)));
   assertThrows(() => parseTraceFile('{nope'), Error, 'This file is not JSON.');
+  assertThrows(
+    () => parseTraceFile(`${JSON.stringify(records[0])}\n{nope\n`),
+    Error,
+    'Line 2 of this file is not JSON.',
+  );
+  assertThrows(
+    () => parseTraceFile(`${JSON.stringify(records[0])}\n\n${JSON.stringify({ spans: 3 })}`),
+    Error,
+    'This file is not a Theorem trace (line 3).',
+  );
+  assertThrows(
+    () => parseTraceFile(JSON.stringify({ ...records[0], v: 2 })),
+    Error,
+    'This trace is version 2; the studio reads version 3.',
+  );
   assertThrows(
     () => parseTraceFile(JSON.stringify([records[0], { spans: 3 }])),
     Error,
@@ -292,7 +320,7 @@ Deno.test('a trace file is the records the studio downloads, or one record', asy
 });
 
 Deno.test('a turn set again goes on with the calls it had left', async () => {
-  const script = replayScript((await recording()).records);
+  const script = onlyScript((await recording()).records);
   const diverged: ReplayDivergence[] = [];
   const replay = createReplay(script, AGENT, (each) => {
     diverged.push(each);
@@ -309,4 +337,121 @@ Deno.test('a turn set again goes on with the calls it had left', async () => {
   replay.startTurn(0);
   assertEquals(await first(), 'text');
   assertEquals(diverged, []);
+});
+
+Deno.test('a recorded tool shows the output the person saw, not the fenced text the model read', async () => {
+  const { events, records } = await recording();
+  for (const span of records.flatMap((record) => record.spans))
+    if ('gen_ai.tool.call.result' in span.attributes)
+      span.attributes['gen_ai.tool.call.result'] =
+        '<tool_data tool="convert_units" origin="http">\n{"miles":6.2}\n</tool_data>';
+  const tool = recordedTranscript(onlyScript(records)).find((block) => block.kind === 'tool');
+  assert(tool?.kind === 'tool' && tool.tool.state?.phase === 'complete');
+  assertEquals(tool.tool.state.output, toolOutputs(events)[0]);
+});
+
+/** `record` as another agent's turn, its root under `parent` when one is given. */
+function asTurnOf(record: TraceRecord, name: string, parent?: TraceRecord): TraceRecord {
+  const copy = structuredClone(record);
+  const root = copy.spans.find(
+    (span) => !copy.spans.some((other) => other.spanId === span.parentSpanId),
+  );
+  assert(root);
+  root.attributes['gen_ai.agent.name'] = name;
+  root.name = `invoke_agent ${name}`;
+  if (parent) {
+    const above = parent.spans[0];
+    assert(above);
+    for (const span of copy.spans) span.traceId = above.traceId;
+    root.parentSpanId = above.spanId;
+  }
+  for (const span of copy.spans) span.spanId = `${span.spanId.slice(0, 12)}beef`;
+  for (const span of copy.spans)
+    if (span !== root && span.parentSpanId)
+      span.parentSpanId = `${span.parentSpanId.slice(0, 12)}beef`;
+  return copy;
+}
+
+Deno.test("a host-run agent's record joins the turn its parent span is in", async () => {
+  const [first] = (await recording()).records;
+  assert(first);
+  const script = onlyScript([first, asTurnOf(first, 'helper.agent', first)]);
+  assertEquals(script.turns.length, 1);
+  assertEquals(
+    script.turns[0]?.calls.map((call) => call.agent),
+    [AGENT, AGENT, 'helper.agent', 'helper.agent'],
+  );
+});
+
+Deno.test("another agent's own conversation in the file is a conversation of its own", async () => {
+  const [first] = (await recording()).records;
+  assert(first);
+  const scripts = replayScripts([first, asTurnOf(first, 'other.agent')]);
+  assertEquals(
+    scripts.map((script) => [script.agent, script.turns.length]),
+    [
+      [AGENT, 1],
+      ['other.agent', 1],
+    ],
+  );
+});
+
+/** `record` as a turn of the conversation `id`. */
+function inConversation(record: TraceRecord, id: string): TraceRecord {
+  const copy = structuredClone(record);
+  const root = copy.spans.find((span) => !span.parentSpanId);
+  assert(root);
+  root.attributes['gen_ai.conversation.id'] = id;
+  return copy;
+}
+
+Deno.test('turns are grouped by the conversation they name, in the order each began', async () => {
+  const [first] = (await recording()).records;
+  assert(first);
+  const scripts = replayScripts([
+    inConversation(first, 'one'),
+    inConversation(first, 'two'),
+    inConversation(first, 'one'),
+  ]);
+  assertEquals(
+    scripts.map((script) => [script.conversation, script.turns.length, script.records.length]),
+    [
+      ['one', 2, 2],
+      ['two', 1, 1],
+    ],
+  );
+});
+
+Deno.test('a compaction between turns holds no turn', async () => {
+  const [first] = (await recording()).records;
+  assert(first);
+  const compaction = structuredClone(first);
+  const root = compaction.spans.find((span) => !span.parentSpanId);
+  assert(root);
+  root.attributes['gen_ai.input.messages'] = [];
+  root.events.push({
+    name: 'theorem.compaction',
+    timeUnixNano: root.startTimeUnixNano,
+    attributes: {},
+  });
+  assertEquals(onlyScript([first, compaction, first]).turns.length, 2);
+});
+
+Deno.test('a tool the recording holds no further result for stops the replay, naming the tool', async () => {
+  const script = onlyScript((await recording()).records);
+  const diverged: ReplayDivergence[] = [];
+  const replay = createReplay(script, AGENT, (each) => {
+    diverged.push(each);
+  });
+  const convert = replay.toolHandlers.convert_units;
+  assert(convert);
+  await convert(CONVERT as never);
+  await assertRejects(async () => await convert(CONVERT as never), Error, 'Replay stopped');
+  assertEquals(diverged, [
+    {
+      turn: 0,
+      tool: 'convert_units',
+      reason: 'The recording has no further result for convert_units.',
+    },
+  ]);
 });

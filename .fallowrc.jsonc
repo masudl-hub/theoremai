@@ -4,6 +4,8 @@
   "entry": [
     // Unpublished headless interface surface; still an analysis entry for react + tests.
     "src/interface/mod.ts",
+    // Repo-only guardrail eval harness, run by scripts/guardrails-eval.ts (scripts/ is ignored).
+    "src/guardrails/eval/mod.ts",
     "tests/cli/**/*.ts",
     "tests/kernel/**/*.ts",
     "tests/guardrails/**/*.ts",
@@ -42,6 +44,9 @@
     "studio/app/main.tsx",
     "studio/app/vite.config.ts",
     "studio/tests/**/*.ts",
+    // The browser suite's fake model and server: playwright.config.ts starts them, by path.
+    "studio/e2e/serve.mjs",
+    "studio/e2e/fake-model.mjs",
     "react/src/studio/main.tsx"
   ],
   // @astryxdesign/cli is used only as the `astryx` binary in react's theme scripts; whether fallow
@@ -55,6 +60,16 @@
     "@astryxdesign/core",
     // The studio's font: only its stylesheet (studio/ui/figtree.css) names it, by url().
     "@fontsource/figtree",
+    // @astryxdesign/richtext's peers: the studio lists them so richtext resolves, and imports only some.
+    "@lexical/code",
+    "@lexical/extension",
+    "@lexical/headless",
+    "@lexical/html",
+    "@lexical/link",
+    "@lexical/markdown",
+    "@lexical/rich-text",
+    "@lexical/table",
+    "@lexical/utils",
     // @astryxdesign/core's peer: the studio lists it so core resolves it, and imports it nowhere itself.
     "@stylexjs/stylex",
     // @theoremjs/react's peer: the studio theme extends react's, which extends the neutral theme.
@@ -64,7 +79,13 @@
     "hyparquet-compressors"
   ],
   // Vite's worker suffix on a package the host installs; the kernel repo has no Monaco.
-  "ignoreUnresolvedImports": ["monaco-editor/editor/editor.worker?worker"],
+  // why: `src/cli/**` is outside the analysis below, so the package's own `./cli` export resolves
+  // to nothing here. A clean install fails on it; a checkout with a linked package does not.
+  "ignoreUnresolvedImports": [
+    "monaco-editor/editor/editor.worker?worker",
+    "monaco-editor/languages/features/json/json.worker?worker",
+    "@theoremjs/agents/cli"
+  ],
   // Modules loaded only by dynamic import, whose exports are read off the loaded module:
   // docs-truth's ownership graph (graph.mjs → _map.mjs), the studio's in-page engine (loaded
   // when a run needs it), and the decision example's pictures (loaded when the example is made).

@@ -31,7 +31,9 @@ a new conversation without an error), and `conversation` resumes from one, read 
 the conversation as the host keeps it. A stateless profile keeps no conversation, so it has no
 ref, and its transcript is kept only in the page. `chatRef` (`sendText`
 on the hook) sends a message as the composer would and resolves with the blocks the turn added
-once its reply is done, or `null` while a reply streams or waits on a gate.
+once its reply is done, or `null` while a reply streams or waits on a gate. It can add files,
+voice notes, a model and its effort. A model or effort the profile does not take is refused by
+the turn, not replaced by the default.
 
 Pending rows show attachment / voice previews, text, **Queue** (stash → queue),
 and **Send now**. Clicking the text restores the full draft (text + files + voice)

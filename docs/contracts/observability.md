@@ -5,8 +5,23 @@ does not own a database, does not read trace-related environment variables for
 destinations, and never lets tracing fail a turn. Hosts that need a signal when
 sinks die set `TraceSink.onError` or `observability.onWriteError`.
 
-Registered model turns use the normalized `chat` operation; live responses use
-`generate_content`. The provider name is the registered provider instance ID.
+Each model call, embedding call, and decision has the `gen_ai.operation.name`
+that its protocol states for the profile type (`operationNames`). Its span is
+named `<operation> <apiId>`. The first-party protocols state these names:
+
+| Protocol | Profile types | Operation |
+| --- | --- | --- |
+| `openAi`, `openRouterOpenAi` | `text` | `chat` |
+| `openAi`, `openRouterOpenAi` | `speech` | `generate_content` |
+| `geminiInteractions` | `text`, `image`, `speech` | `generate_content` |
+| `geminiLive` | `live` | `generate_content` |
+| `openRouterImages` | `image` | `generate_content` |
+| `openRouterTranscriptions` | `transcription` | `transcribe` |
+| `geminiEmbeddings`, `openRouterEmbeddings`, `ollamaEmbeddings` | `embedding` | `embeddings` |
+| `openRouterDecisions`, `systemOne` | `decision` | `decide` |
+
+A call has no operation name when its profile was registered without a provider
+registry. The provider name is the registered provider instance ID.
 Native finish values on turns use `gen_ai.response.finish_reasons` rather than a
 vendor-specific status attribute. Credential values resolved by an adapter are removed
 at the upstream tap boundary before the existing trace scrub and content-hash policy.
@@ -115,7 +130,7 @@ debug-off switch.
 | Switch | Cleans with |
 | --- | --- |
 | `sensitive` | `ids`, `financial`, `network`, `credentials`, and every detector of the host's own; not `email`, `phone`, or `bank_account`, which a turn flags by default and a trace keeps |
-| `injection` | `injection` and `tool_instructions` |
+| `injection` | `injection`, with the orders to the agent it reads in what a tool returns |
 | `canary` | The canaries bound in the record |
 
 Each switch is a `ScrubSwitch` and says whose patterns clean the trace, apart
@@ -226,7 +241,7 @@ carry text inline: `buildRecord` resolves every content marker once, under
 | --- | --- |
 | `$content` (messages, instructions, tool arguments and results, reasoning, exception text) | Scrubbed text in `content`, referenced as `{ content_sha256 }` |
 | `$bytes` (media) | `content_sha256` over the raw bytes and `bytes` length; bytes never stored. Text that is not base64 is hashed as text and marked `invalid_base64` |
-| `$json` (upstream rows, wire bodies) | Media hashed, canaries removed, text scrubbed, every string equal to a recorded text replaced by `{ content_sha256 }`; the result stored in `content`, referenced as `{ json_sha256 }` |
+| `$json` (upstream rows, wire bodies) | Media and thought signatures hashed, canaries removed, text scrubbed, every string equal to a recorded text replaced by `{ content_sha256 }`; the result stored in `content`, referenced as `{ json_sha256 }` |
 
 - Credential headers are recorded as `[redacted]`; every other header is kept.
 - With `scrub.canary` on for Theorem's side, every canary bound in the record
@@ -486,7 +501,7 @@ from that table, not from a span's `llm.cost.total`.
 | `JsonlSinkOptions` (from `@theoremjs/agents/observability/jsonl`) | type |
 | `writeTrace` | function |
 | `buildRecord`, `contentOf`, `inlineContent` | function |
-| `traceRecordSchema` | const |
+| `traceRecordSchema`, `TRACE_VERSION` | const |
 | `toOtlpJson` | function |
 | `withOpenInference` (from `@theoremjs/agents/observability/openinference`) | function |
 | `phoenixAnnotations` (from `@theoremjs/agents/observability/phoenix`) | function |

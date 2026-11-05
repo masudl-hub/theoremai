@@ -93,14 +93,14 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
 
     const slotReq: TurnRequest = {
       profile: FUZZ_PROFILE_ID,
-      input: { text: 'hello', slots: { payload: p.text } },
+      input: { text: 'hello', options: { payload: p.text } },
     };
     try {
       const safe = sanitizeTurnRequest(slotReq, getProfile(slotReq.profile));
-      const output = safe.input?.slots?.payload ?? '';
+      const output = safe.input?.options?.payload ?? '';
       results.push({
         payload: p,
-        channel: 'req.input.slots',
+        channel: 'req.input.options',
         survived: output === p.text,
         input: p.text,
         output,
@@ -108,7 +108,7 @@ function testTurnRequest(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
     } catch {
       results.push({
         payload: p,
-        channel: 'req.input.slots',
+        channel: 'req.input.options',
         survived: false,
         input: p.text,
         output: '[threw error]',

@@ -5,7 +5,8 @@ import type { KeySlot } from '../types.ts';
 export type KeyCredential = string | JsonObject;
 export interface CredentialContext {
   providerId: string;
-  apiId: string;
+  /** The model the call is for. Absent for a key check, which calls no model. */
+  apiId?: string;
   keySlot: KeySlot;
   signal?: AbortSignal;
 }

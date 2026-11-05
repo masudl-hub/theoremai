@@ -235,12 +235,8 @@ Deno.test('speech profiles store no guardrails and resolve no system prompt or c
   assertEquals(generation.resolvedSystem, []);
 });
 Deno.test('speech profiles reject a system prompt', () => {
-  for (const overrides of [
-    { identity: { handle: 'speech_contract', system: 'Speak warmly.' } },
-    { identity: { handle: 'speech_contract', systemByRole: { a: 'Speak warmly.' } } },
-  ]) {
-    assertThrows(() => defineProfile(speechDefinition(overrides)), TheoremError);
-  }
+  const overrides = { identity: { handle: 'speech_contract', system: 'Speak warmly.' } };
+  assertThrows(() => defineProfile(speechDefinition(overrides)), TheoremError);
 });
 Deno.test('speech turns reject a host system prompt', () => {
   registerProfile(speechDefinition({}));

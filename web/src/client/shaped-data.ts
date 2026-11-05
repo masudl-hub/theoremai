@@ -4,6 +4,8 @@
  * component only maps each decision to its Astryx part.
  */
 
+import { type InteractionPart, MEDIA_INPUT_KIND_VALUES } from '@theoremjs/agents';
+
 export type Row = Record<string, unknown>;
 
 /** Fields that name a row, in the order they're tried. */
@@ -97,6 +99,36 @@ export function json(value: unknown): string {
     return JSON.stringify(value, null, 2) ?? String(value);
   } catch {
     return JSON.stringify(jsonSafe(value), null, 2) ?? String(value);
+  }
+}
+
+const MEDIA_KINDS: ReadonlySet<string> = new Set(MEDIA_INPUT_KIND_VALUES);
+
+/** A part as the kernel declares one (`InteractionPart`): text, or media carried as base64 `data` or at a `uri`. */
+export function isPart(value: unknown): value is InteractionPart {
+  if (!isRow(value) || typeof value.type !== 'string') return false;
+  if (value.type === 'text') return typeof value.text === 'string';
+  return (
+    MEDIA_KINDS.has(value.type) &&
+    typeof value.mimeType === 'string' &&
+    (typeof value.data === 'string' || typeof value.uri === 'string')
+  );
+}
+
+/**
+ * How much text laying the value out draws: its JSON, without each part's
+ * base64 `data`, which is drawn as a picture or a player.
+ */
+export function layoutChars(value: unknown): number {
+  try {
+    const lean = JSON.stringify(
+      value,
+      (_key, item: unknown) => (isPart(item) && 'data' in item ? { ...item, data: '' } : item),
+      2,
+    );
+    return lean?.length ?? 0;
+  } catch {
+    return json(value).length;
   }
 }
 
@@ -330,11 +362,13 @@ export type Shape =
   | { kind: 'list'; rows: ListRow[] }
   | { kind: 'table'; columns: string[]; rows: Row[] }
   | { kind: 'rows'; items: unknown[] }
-  | { kind: 'fields'; row: Row };
+  | { kind: 'fields'; row: Row }
+  | { kind: 'parts'; parts: InteractionPart[] };
 
 function listShape(items: unknown[]): Shape {
   if (items.length === 0) return { kind: 'none' };
   if (items.every(isPlain)) return { kind: 'tokens', items };
+  if (items.every(isPart)) return { kind: 'parts', parts: items };
   const listed = items.map(listRow);
   if (listed.every((row) => row !== undefined)) return { kind: 'list', rows: listed };
   const columns = tableColumns(items);

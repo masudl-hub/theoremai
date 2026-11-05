@@ -11,11 +11,9 @@ import type {
   SurfaceRejection,
 } from './types.ts';
 
-const LEDGER_SIZE = 100;
 const INTENT_WINDOW_MS = 60_000;
 const MOUNT_WAIT_MS = 5000;
 const NODE_LIST_CAP = 80;
-const RECENT_IN_STATE = 5;
 
 /** One answered `act`, kept so a retried call replays instead of applying twice. */
 export interface SurfaceLedgerEntry {
@@ -122,7 +120,7 @@ export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): Surfa
   const note = (line: string) => options.onNote?.(line);
 
   const remember = (entry: SurfaceLedgerEntry) => {
-    ledger = [...ledger.filter((old) => old.callId !== entry.callId), entry].slice(-LEDGER_SIZE);
+    ledger = [...ledger.filter((old) => old.callId !== entry.callId), entry];
     options.ledger?.save(ledger);
   };
 
@@ -520,13 +518,8 @@ export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): Surfa
       const surfaces = [...mounted.values()].map(
         (surface) => `${surface.id} r${String(surface.revision())}: ${surface.summary()}`,
       );
-      const recent = ledger
-        .slice(-RECENT_IN_STATE)
-        .map((entry) => `${entry.at} ${entry.action}`)
-        .join(', ');
-      if (!surfaces.length && !recent) return null;
-      const line = [surfaces.join('; '), recent ? `last calls: ${recent}` : ''].filter(Boolean);
-      return scrubDeep(`(state) ${line.join('; ')}`, known()) as string;
+      if (!surfaces.length) return null;
+      return scrubDeep(`(state) ${surfaces.join('; ')}`, known()) as string;
     },
   };
 }

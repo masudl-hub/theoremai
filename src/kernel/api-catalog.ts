@@ -8,6 +8,10 @@ export const REQUEST_FIELDS: Record<
   `runTurn.${keyof TurnRequest | `input.${keyof TurnInput}`}`,
   FieldMeta
 > = {
+  'runTurn.background': {
+    type: 'ToolBackgroundService',
+    doc: 'Host-issued service for tool calls that go on after their reply. It needs a coordinator with detach. Without it every tool runs inline.',
+  },
   'runTurn.pageExecution': {
     type: 'PageToolExecution',
     doc: 'Host-issued browser dispatch with a claimed operation and correlated result.',
@@ -27,19 +31,20 @@ export const REQUEST_FIELDS: Record<
   },
   'runTurn.input': { type: 'TurnInput', doc: 'What the user sent for the turn.' },
   'runTurn.input.text': { type: 'string', doc: "The user's message." },
-  'runTurn.input.role': {
-    type: 'string',
-    doc: 'Picks the instruction of that name from identity.systemByRole.',
-    unset: 'The profile instruction',
-  },
-  'runTurn.input.slots': {
+  'runTurn.input.options': {
     type: 'Record<string, string>',
-    doc: 'The choice the turn makes for each slot the profile declares in inputs.slots; a slot or a value the profile does not declare is refused.',
+    doc: "The value a person picked for each option in the profile's inputs.options; an option or a value the profile does not declare is refused.",
+    unset: 'The person picked none',
   },
   'runTurn.input.context': {
     type: "Partial<Record<'client' | 'server', unknown>>",
     doc: "What the page (client) or the host (server) wants the model to know, as any JSON or text; a sender the profile's inputs.context does not list, or a package over its maxChars, is refused.",
     unset: 'No context',
+  },
+  'runTurn.input.lateResults': {
+    type: 'ToolOperationOutcome[]',
+    doc: 'Background tool calls that settled after their turn, as the host stored them. The model reads each as a tool result, and this reply counts it as a remote read when the call was remote. Pass each one once: the turn emits it as a late_results event, so a history built from events holds it.',
+    unset: 'No late results',
   },
   'runTurn.input.attachments': {
     type: 'Array<TurnBlob | TurnMediaRef>',
@@ -85,6 +90,11 @@ export const REQUEST_FIELDS: Record<
   'runTurn.system': {
     type: 'SystemPrompt',
     doc: "An instruction for this request only, added to the profile's own.",
+  },
+  'runTurn.options': {
+    type: 'Record<string, string>',
+    doc: "The value the host's code sets for each option in the profile's identity.options but path; an option or a value the profile does not declare is refused.",
+    unset: 'The code set none',
   },
   'runTurn.path': {
     type: 'string',
@@ -140,6 +150,14 @@ export const REQUEST_FIELDS: Record<
     type: 'number',
     doc: 'Which continue attempt this is, from 1; checked against the maxContinues of the profile.',
   },
+  'runTurn.promoted': {
+    type: 'ToolId[]',
+    doc: 'Tools this reply already had when an earlier run of it paused; the turn opens with them on its list.',
+  },
+  'runTurn.stepsTaken': {
+    type: 'number',
+    doc: 'Steps this reply already took when an earlier run of it paused; they count against maxSteps.',
+  },
   'runTurn.speech': {
     type: 'TurnSpeech',
     doc: "This turn's voice, style, and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",
@@ -149,6 +167,11 @@ export const REQUEST_FIELDS: Record<
     type: 'ResolveHost',
     doc: 'Resolves the host name of a remote tool before each request; a name that resolves to a private address is refused.',
   },
+  'runTurn.fetch': {
+    type: 'typeof fetch',
+    doc: "Sends each request a remote tool makes, once that request's network checks pass. A page whose tools cannot reach a host directly sends them through its own server here.",
+    unset: 'The global fetch',
+  },
   'runTurn.onStage': {
     type: 'StageHandler',
     doc: 'Your function that sees each stage of a text turn and can answer with what the stage allows.',
@@ -157,6 +180,14 @@ export const REQUEST_FIELDS: Record<
     type: 'AgentCallHook',
     doc: 'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
     unset: 'The agent runs on what the model sent',
+  },
+  'runTurn.onEvent': {
+    type: '(event: TurnEvent) => void | Promise<void>',
+    doc: "Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw ends the turn with that error.",
+  },
+  'runTurn.answersHeldCall': {
+    type: 'true',
+    doc: "Set on the turn TurnWiring.prepare is given for a held call that goes on once answered: no model runs, and input is the paused turn's.",
   },
 };
 

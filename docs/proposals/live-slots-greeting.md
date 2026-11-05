@@ -1,6 +1,6 @@
 # Context, slots in prompts, a greeting, and page tools on the profile
 
-Status: built. Section 8 is the order it was built in.
+**Status:** built. Section 8 is the order it was built in.
 
 ## 1. The problem
 
@@ -127,7 +127,7 @@ createTheoremHandler({ profile, context: (request) => ({ tier: tierOf(request) }
 
 Removed, with no alias:
 
-- `sendContext` on the live session, the live client, and `useLiveRunnerModel`.
+- `sendContext` on the live session, the live client, and `useLiveCall`.
 - The `context` client message with free text.
 - The `onConnected` prop and the single `pageTool` function prop (neither was
   committed).

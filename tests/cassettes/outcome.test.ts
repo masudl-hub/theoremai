@@ -1,6 +1,6 @@
 import { assertEquals, assertNotEquals } from '@std/assert';
 import type { TurnEvent } from '../../mod.ts';
-import { normalizeOutcome, outcomeOf } from './cases.ts';
+import { CASSETTE_MODELS, modelSlug, normalizeOutcome, outcomeOf } from './cases.ts';
 
 Deno.test('cassette outcomes list each rule per event while retaining actions, signals, events, and effects', () => {
   const event: Extract<TurnEvent, { type: 'guardrail' }> = {
@@ -62,4 +62,11 @@ Deno.test('cassette outcomes list each rule per event while retaining actions, s
     outcomeOf([event, { type: 'text', text: 'different reply' }]),
     outcomeOf([single]),
   );
+});
+
+Deno.test('every cassette model has a replay file of its own', () => {
+  for (const { apiId } of CASSETTE_MODELS) {
+    const file = new URL(`./replay.${modelSlug(apiId)}.test.ts`, import.meta.url);
+    assertEquals(Deno.statSync(file).isFile, true, apiId);
+  }
 });

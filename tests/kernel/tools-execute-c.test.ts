@@ -1369,6 +1369,42 @@ Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and k
     );
   });
 });
+Deno.test('a host edit at post_tool that the output guard blocks settles as output_blocked, not as the edit', async () => {
+  const profile = profileOf(['remote_http'], { detect: 'block' });
+  const scope = scopeOf({
+    type: 'http',
+    name: 'remote_http',
+    description: 'http probe',
+    endpoint: 'https://api.example.com/x',
+    method: 'GET',
+    category: 'test',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ answer: z.string() }),
+  });
+  const server = (() => Promise.resolve(jsonResponse({ answer: 'original' }))) as typeof fetch;
+  const r = await withFetch(server, () =>
+    run({
+      scope,
+      profile,
+      name: 'remote_http',
+      stages: stagesOf(profile, (ctx) =>
+        ctx.stage === 'post_tool' ? { mutate: { output: { answer: INJ_IGNORE } } } : undefined,
+      ),
+    }),
+  );
+  check(failureOf(r).code, 'output_blocked', 'withheld');
+  check(r.settlement.outputRaw, undefined, 'the edit is not the output');
+  check(r.settlement.awaiting ?? false, false, 'not awaiting input');
+  check(
+    r.settlement.modelResult?.modelText?.includes(INJ_IGNORE),
+    false,
+    'the model never reads it',
+  );
+});
 Deno.test('a failure message is redacted when the profile takes it out, and follows the profile when it says otherwise', async () => {
   const throwing = (message: string) =>
     fnTool('fails', {
@@ -1392,7 +1428,8 @@ Deno.test('a failure message is redacted when the profile takes it out, and foll
       e.guardrail.hits.map((h) => h.rule),
       e.guardrail.provenance?.tool,
     ]),
-    [['tool_result', 'redact', ['detect.injection'], 'fails']],
+    // why: the phrasing and the order to set instructions aside both match.
+    [['tool_result', 'redact', ['detect.injection', 'detect.injection'], 'fails']],
     'injection event',
   );
   check(injected.settlement.failure?.message, `lookup failed: ${INJ_IGNORE}`, 'raw failure kept');
@@ -1473,5 +1510,35 @@ Deno.test('a remote result that steers the agent is annotated and reported as su
     'suspicious' in (local.settlement.modelResult ?? {}),
     false,
     'a local result is never suspicious',
+  );
+});
+Deno.test('an agent tool called with no agent runner fails as unsupported before anything runs', async () => {
+  const scope = createKernelScope();
+  scope.profiles.register({ ...profileOf([]), id: 'no_runner_here' });
+  scope.tools.register({
+    type: 'agent',
+    name: 'ask_nobody',
+    description: 'probe',
+    category: 'test',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    profile: 'no_runner_here',
+  });
+  const r = await run({ scope, profile: profileOf(['ask_nobody']), name: 'ask_nobody' });
+  check(
+    failureOf(r),
+    {
+      code: 'unknown_tool',
+      kind: 'unsupported',
+      message: "Tool 'ask_nobody' has unsupported type",
+    },
+    'unsupported',
+  );
+  check(
+    toolEventsOf(r.events, 'error').map((t) => t.failure.code),
+    ['unknown_tool'],
+    'one failure event',
   );
 });

@@ -33,13 +33,14 @@ import type {
   ModelId,
   Profile,
   ProfileId,
+  RunControls,
   ToolId,
   TurnInput,
   TurnRequest,
   TurnSpeech,
-  TurnTraceLink,
 } from '../types.ts';
 import type { LabelTemplate } from './activity-label.ts';
+import type { ToolBackground, ToolBackgroundService } from './background.ts';
 import type { PageToolExecution, ToolExecutionCoordinator } from './operation.ts';
 import type { UncheckedOutput } from './unchecked-output.ts';
 
@@ -66,7 +67,6 @@ export interface ToolLabels {
   activityPast?: LabelTemplate;
   activityFailed?: LabelTemplate;
   request?: LabelTemplate;
-  hiddenFromSettings?: boolean;
 }
 
 export interface ToolBase {
@@ -141,6 +141,8 @@ export interface ToolContext {
   resume?: InvokeToolResume;
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
+  /** Sends this call's requests once their checks pass; the run's `fetch`. Default: the global `fetch`. */
+  fetch?: typeof fetch;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
   /** The page's answer to this call, for a tool with `answeredBy: 'page'`. */
@@ -202,6 +204,12 @@ export interface ToolHostHooks<TIn = unknown> {
     | undefined
     | Promise<import('../stages.ts').StageResult | undefined>;
   exposeToModel?: boolean;
+  /** The model gets an `after` field: the tools in the same step that must settle before this call starts. */
+  after?: boolean;
+  /** When the model gets its reply. Unset is `never`: when the body ends. A turn without a background service runs inline. */
+  background?: ToolBackground;
+  /** `inputSchema` with the `background` argument. The registry sets it on an `ask` tool. */
+  askInputSchema?: Record<string, unknown>;
 }
 
 export interface ToolOutputHooks<TOut = unknown> {
@@ -343,7 +351,7 @@ export interface McpSessionLimits {
  * What an agent tool call carries: the text, and whatever else the called
  * profile's `inputs` declares. `speech` is for a speech profile.
  */
-export interface AgentToolInput extends Pick<TurnInput, 'slots' | 'attachments' | 'voice'> {
+export interface AgentToolInput extends Pick<TurnInput, 'options' | 'attachments' | 'voice'> {
   text: string;
   speech?: TurnSpeech;
 }
@@ -361,7 +369,7 @@ export interface AgentToolOutput {
 }
 
 /** A channel of an agent tool's input that the called profile's `inputs` declares. */
-export type AgentToolChannel = 'attachments' | 'voice' | 'slots';
+export type AgentToolChannel = 'attachments' | 'voice' | 'options';
 
 /**
  * A tool whose call runs one turn of another registered agent. That agent is a
@@ -385,6 +393,8 @@ export interface AgentToolDef extends ToolBase {
   /** Channels the profile takes that the calling model can't fill; only `onAgentCall` sends them. */
   hostOnly?: AgentToolChannel[];
   preTool?: ToolHostHooks<AgentToolInput>['preTool'];
+  after?: ToolHostHooks<AgentToolInput>['after'];
+  background?: ToolHostHooks<AgentToolInput>['background'];
   exposeToModel?: boolean;
 }
 
@@ -503,8 +513,9 @@ export interface ToolLoadContext {
 export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 
 /** A request to run a held tool call outside a turn. */
-export interface InvokeToolRequest {
+export interface InvokeToolRequest extends RunControls {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundService;
   /** invariant: Only the trusted host restores the kernel-issued identity from saved authority. */
   operationId?: string;
   profile: string;
@@ -527,20 +538,14 @@ export interface InvokeToolRequest {
   sessionPermissions?: string[];
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
+  /** Sends the call's requests once their checks pass. Default: the global `fetch`. */
+  fetch?: typeof fetch;
   path?: string;
-  signal?: AbortSignal;
   /** Handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;
   /** The page's answer, when this invoke answers a `page` gate. */
   page?: PageAnswer;
   pageExecution?: PageToolExecution;
-  /** W3C `traceparent` of the host span this invoke runs under. */
-  traceparent?: string;
-  /** Recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  /** Preserved on the trace record; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
-  links?: TurnTraceLink[];
   /** Receives `pre_tool` / `post_tool` only. */
   onStage?: import('../stages.ts').StageHandler;
   /** Runs an agent tool's turn; an agent tool needs it, or `onAgentCall` returning one. */

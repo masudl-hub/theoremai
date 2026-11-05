@@ -88,7 +88,7 @@ function serializedInbound(req: TurnRequest, profile: Profile): string {
   const safe = sanitizeTurnRequest(req, profile);
   const parts: string[] = [];
   if (safe.input?.text) parts.push(safe.input.text);
-  if (safe.input?.slots) parts.push(JSON.stringify(safe.input.slots));
+  if (safe.input?.options) parts.push(JSON.stringify(safe.input.options));
   if (safe.input?.history) parts.push(JSON.stringify(safe.input.history));
   return parts.join('\n');
 }
@@ -98,7 +98,7 @@ export function inboundMisses(attack: LiveAttack, profile: Profile): string[] {
   const input = attack.request.input;
   const raw = [
     input?.text ?? '',
-    JSON.stringify(input?.slots ?? {}),
+    JSON.stringify(input?.options ?? {}),
     JSON.stringify(input?.history ?? []),
   ].join('\n');
   const sanitized = serializedInbound(attack.request, profile);

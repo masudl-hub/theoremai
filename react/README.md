@@ -147,7 +147,7 @@ The profile, the keys, and the system prompt stay on the server. The browser rec
 | --- | --- |
 | `@theoremjs/react` | Hooks, transports, and client logic |
 | `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, `TheoremEmbedding`, and their parts |
-| `@theoremjs/react/live` | `LiveRunner`, the voice and video call UI |
+| `@theoremjs/react/live` | `useLiveCall`, `LiveRunner` and `LiveCallTile`, the voice and video call and its UI |
 | `@theoremjs/react/server` | `@theoremjs/web/server`: the handlers and the stores they use |
 | `@theoremjs/react/ui/theme` | `theoremTheme`, the base for your own Astryx theme |
 | `@theoremjs/react/ui/icons` | The icon set of the theme |
@@ -174,7 +174,7 @@ To draw your own figures like the trace panel does, `@theoremjs/react/ui` also e
 | `initialFiles` | The files that the composer starts with, staged to send. The component reads them once, when it mounts. |
 | `initialVoice` | The voice notes that the composer starts with, staged to send. The component reads them once, when it mounts. |
 | `initialPending` | The messages that the composer starts with set aside: queued, stashed, or steering, as `createComposerPendingMessage` from `@theoremjs/agents/interface` makes them. The component reads them once, when it mounts. |
-| `chatRef` | Sends a message from your code. See below. |
+| `chatRef` | Sends a message, stops a reply, or focuses the composer from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
 
 ### Resume a conversation
@@ -205,8 +205,8 @@ A profile whose `providerContinuation.history` is `'stateless'` keeps no convers
 
 ### Send a message from your code
 
-`chatRef` gives you `send(text, files?)`. It sends the text and optional array of browser files as the user. Files use the same profile validation and encoding as composer attachments. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
-`chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does.
+`chatRef` gives you `send(text, options?)`. It sends the text as the user. `options` can add `files` and `voice`, arrays of browser files, which use the same profile validation and encoding as composer attachments. It can also name a `model` and its `effort` for the turn. The model becomes the chat's pick, as if chosen in the composer. A model or file the profile does not take is refused, as the composer refuses it, and the refusal shows in the chat. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
+`chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does. It gives you `focus()`, which puts the keyboard in the composer, for example after your own control clears the chat. And it gives you `controller`, the chat's `ChatController`, for a host that drives the chat from outside, as a composer shared by several chats does.
 
 ```tsx
 const chat = useRef<TheoremChatHandle>(null);
@@ -346,47 +346,69 @@ For your own UI, use `useTheoremEmbedding` for one request, and `embed(inputs, {
 
 A `live` profile runs a voice or video call. The call goes through a WebSocket relay that you host with `runSession` from `@theoremjs/agents`.
 
-`LiveRunner` needs two props:
+`useLiveCall` holds the call, and `LiveRunner` draws it. `useLiveCall` needs two values:
 
 - `iface`: the interface of the profile. `interfaceFromProfile` (from `@theoremjs/agents/interface`) builds it.
-- `connection`: a function that tells the runner what to connect to.
+- `connection`: a function that tells the call what to connect to.
 
 ```tsx
-import { LiveRunner } from '@theoremjs/react/live';
+import { LiveRunner, useLiveCall } from '@theoremjs/react/live';
 
-<LiveRunner iface={iface} connection={() => ({ profile: 'support.voice' })} />
+const call = useLiveCall({ iface, connection: () => ({ profile: 'support.voice' }) });
+
+<LiveRunner call={call} />
 ```
 
 This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own message to the relay, add `openMessage`. To use your own socket, add `createSocket`.
 
 `LiveRunner` also accepts `theme`, `mode`, `labels`, and `trace`. Tool gates in a call appear in a dialog over the call.
 
+### A call across pages
+
+The call lasts as long as the component that calls `useLiveCall`. Call it above your routes, and the call goes on while the person moves to another page. `LiveRunner` can unmount and mount again on the same call. The call ends when the component that holds it unmounts.
+
+Give `LiveRunner` an `onMinimize` to show a minimize control in the call. Theorem calls it and does not navigate: your code decides where to go, and the call goes on.
+
+`LiveCallTile` draws the same call small: the camera preview, or the ink waveform when the camera is off, then the call time, mute, end, and expand. While a tool runs, its name shows in place of the time, and a tool gate opens the same dialog `LiveRunner` shows, so the person can answer it on any page. It fills the box you give it, so your code places it and sizes it. A press on the tile or its expand control calls `onExpand`.
+
+```tsx
+import { LiveCallTile } from '@theoremjs/react/live';
+
+<LiveCallTile call={call} onExpand={() => navigate('/call')} />
+```
+
+Show `LiveRunner` or `LiveCallTile` for a call, not both: the camera preview is one element, and it shows in the one that mounted last.
+
 ### The page's part in a call
 
-Three more props give the call values from the page. The profile declares each one; the page only supplies the value.
+Three more values for `useLiveCall` come from the page. The profile declares each one; the page only supplies the value.
 
-| Prop | The profile declares | What the page gives |
+| Value | The profile declares | What the page gives |
 | --- | --- | --- |
-| `slots` | `inputs.slots` | The value chosen for each slot. It is read when the call starts. A value that changes during a call takes the call up again with it when the profile has resumption on; otherwise the next call has it. |
+| `options` | `inputs.options` | The value chosen for each option. It is read when the call starts. A value that changes during a call takes the call up again with it when the profile has resumption on; otherwise the next call has it. |
 | `context` | `inputs.context` with `from: ['client']` | Any JSON the agent should know, such as the page the person is on. |
 | `pageTools` | A function tool with `answeredBy: 'page'` | A function for each page tool, by name. It returns `{ output }`. |
 
+`stated` is a fourth value, for a page you trust as yourself. It says the `path` and the `options` from `identity.options` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as an option does. `TheoremChat` takes the same prop, on each turn.
+
+`model` and `effort` pick the call's model when the profile sets `allowModelSelect`. They are read when the call starts.
+
 ```tsx
-<LiveRunner
-  iface={iface}
-  connection={() => ({ profile: 'support.voice' })}
-  slots={{ language: 'fr' }}
-  context={{ page: '/pricing', cart }}
-  pageTools={{
+const call = useLiveCall({
+  iface,
+  connection: () => ({ profile: 'support.voice' }),
+  options: { language: 'fr' },
+  context: { page: '/pricing', cart },
+  pageTools: {
     highlight: (args) => ({ output: { success: highlight(String(args.target)) } }),
-  }}
-/>
+  },
+});
 ```
 
-- `context` goes with the start of the call. When its value changes, the runner sends it again. The agent reads it as background and does not reply to it.
+- `context` goes with the start of the call. When its value changes, `useLiveCall` sends it again. The agent reads it as background and does not reply to it.
 - A page tool's output schema checks what the page returned. Every other tool runs on the relay, with its gates.
 - `TheoremChat` and `useTheoremChat` take the same `pageTools`. When a chat agent calls a page tool, the reply waits for the page's answer and then goes on. The person is shown no prompt.
-- The runner writes a console warning when the profile has a page tool with no function in `pageTools`, and when `pageTools` has a function for a tool that is not a page tool.
+- `useLiveCall` writes a console warning when the profile has a page tool with no function in `pageTools`, and when `pageTools` has a function for a tool that is not a page tool.
 
 The live client checks a tool call with its relay before it invokes a page callback.
 It waits for permission and sign-in decisions first. A claimed dispatch grant supplies the final checked arguments.
@@ -415,7 +437,7 @@ A failed call does not reconnect. Without `live.sessionResumption`, a provider-e
 
 The relay is server code. To authenticate the conversation and resume a call in your relay, see [Your relay](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#your-relay).
 
-To build your own call view, use `useLiveRunnerModel(iface, connection, { slots, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions, and its controls. `LiveCaptionsPanel` draws the captions.
+To build your own call view, draw the call that `useLiveCall` returns. It holds the state of the call, its captions, and its controls. `LiveCaptionsPanel` from `@theoremjs/react/ui` draws the captions.
 
 ### A custom browser transport
 
@@ -458,6 +480,8 @@ function MyChat() {
 `handlePendingMove(id, direction)` moves a pending message among those of its kind. `ChatComposerBar` draws a move only when `composerPendingMoves` from `@theoremjs/agents/interface` says the message can go that way: a message alone in its kind has none.
 
 To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
+
+The composer bar has a selector for the model, its effort, and each option. When their values do not fit the bar, each selector shows only its icon, and a tooltip gives its name and value. When the icons do not fit either, the row scrolls inside the composer. A control you pass as `generationSelect` keeps its own look and scrolls with the row.
 
 `ChatTranscript` places `citation` blocks after the answer text by default (the Sources strip under the prose). Pass `bodyKindPlacement={{}}` when citations must stay in stream order between text segments (inline citations).
 

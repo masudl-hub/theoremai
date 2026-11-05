@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import type { ProviderCheckpoint } from '../../mod.ts';
+import { labelText, type ProviderCheckpoint, TheoremError } from '../../mod.ts';
 import {
   createMemorySessionStore,
   createTheoremSessionBoundary,
@@ -66,13 +66,19 @@ Deno.test('live context stays untrusted and system-role history never reaches se
   assertEquals(prepared.history, [{ role: 'user', content: 'hello' }]);
 });
 
-Deno.test('live checkpoint eviction is finite, deduplicated, and refreshes retained identities', async () => {
-  const store = createMemorySessionStore();
+Deno.test('live checkpoints are deduplicated and the oldest drops when the session is full', async () => {
+  const probe = createMemorySessionStore();
+  await (
+    await createTheoremSessionBoundary({ request, session: () => 'probe', sessionStore: probe })
+  ).recordCheckpoint(checkpoint);
+  const one = JSON.stringify((await probe.load('probe'))?.state).length;
+  const store = createMemorySessionStore({
+    capacity: { maxStateBytes: one, maxOutcomeBytes: one },
+  });
   const boundary = await createTheoremSessionBoundary({
     request,
     session: () => 'retained',
     sessionStore: store,
-    sessionLimits: { maxCheckpoints: 1 },
   });
   await boundary.recordCheckpoint(checkpoint);
   await boundary.recordCheckpoint(checkpoint);
@@ -161,4 +167,26 @@ Deno.test('settlement invalidates older native ownership even when the effect co
     ).providerState?.data,
     { cursor: 'after-effect' },
   );
+});
+
+Deno.test('a live call says which prompt lines it gets only on a page the host trusts', async () => {
+  const stated = { path: 'web', options: { plan: 'paid' } };
+  const refusing = await createTheoremSessionBoundary({
+    request,
+    session: () => 'untrusted',
+    sessionStore: createMemorySessionStore(),
+  });
+  const refused = await assertRejects(
+    () => refusing.prepareLiveOpen({ type: 'open', stated }),
+    TheoremError,
+  );
+  assertEquals(refused.message, labelText('error.request'));
+  const trusting = await createTheoremSessionBoundary({
+    request,
+    session: () => 'trusted',
+    sessionStore: createMemorySessionStore(),
+    pageStatesTurn: true,
+  });
+  const prepared = await trusting.prepareLiveOpen({ type: 'open', stated });
+  assertEquals({ path: prepared.path, options: prepared.options }, stated);
 });

@@ -38,6 +38,13 @@ export const scriptedProtocol = defineProtocol({
     live: '/complete',
     decision: '/complete',
   },
+  operationNames: {
+    text: 'chat',
+    image: 'chat',
+    speech: 'chat',
+    live: 'generate_content',
+    decision: 'decide',
+  },
   options: z.strictObject({}),
   reasoning: jsonValueSchema,
   create: (context) => ({

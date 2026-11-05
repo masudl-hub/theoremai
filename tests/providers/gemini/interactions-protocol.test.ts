@@ -528,6 +528,29 @@ Deno.test('a speech turn gives its PCM as WAV; text alone is an error, and only 
   assertEquals(summary(plain), ['text', 'response', 'done']);
 });
 
+Deno.test('a streamed image that names no type is typed from its bytes; other bytes are no image', async () => {
+  const image = { builtins: [], image: { type: 'image' as const, includeText: false } };
+  const host: Host = { profileType: 'image', builtInTools: [] };
+  const drawnFrom = (data: string) =>
+    run(
+      sse([
+        row('step.delta', { index: 0, delta: { type: 'image', data } }),
+        row('interaction.completed', { interaction: { status: 'completed' } }),
+      ]),
+      image,
+      {},
+      host,
+    );
+  assertEquals(await drawnFrom('/9j/abc').events(), [
+    { type: 'media', media: { mimeType: 'image/jpeg', data: '/9j/abc' } },
+    { type: 'done', stop: { kind: 'completed', native: 'completed' } },
+  ]);
+  assertEquals(summary(await drawnFrom('abc').events()), [
+    'error:no image returned from image generation',
+    'done',
+  ]);
+});
+
 Deno.test('an image turn sends its prompt and reference image, and asks for the image it pins', async () => {
   const image = {
     type: 'image' as const,

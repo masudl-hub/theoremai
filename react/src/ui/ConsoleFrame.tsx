@@ -2,14 +2,17 @@ import { Button } from '@astryxdesign/core/Button';
 import { Card } from '@astryxdesign/core/Card';
 import { Center } from '@astryxdesign/core/Center';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { useResizable } from '@astryxdesign/core/Resizable';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
+import { percent, pixel } from '@astryxdesign/core/Resizable/utils';
 import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
+import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
+import { IconCode, IconEye } from '@tabler/icons-react';
 import type { HttpOptions } from '@theoremjs/web/client';
 import {
   Children,
@@ -21,6 +24,7 @@ import {
   use,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import type { TheoremLabels } from './labels.ts';
@@ -30,7 +34,6 @@ import {
   PanelBody,
   PanelScroll,
   paneEdge,
-  RAISED,
   SidePanel,
   SidePanelHeader,
 } from './SidePanel.tsx';
@@ -129,23 +132,28 @@ function ConsoleSingle({
   maxWidth: string;
   children: ReactNode;
 }) {
+  const column = (
+    <Center axis="horizontal" width="100%" minHeight="100%">
+      <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
+        {children}
+      </VStack>
+    </Center>
+  );
+  if (!flush)
+    return (
+      <PanelBody inset="all" padding={0} isScrollable>
+        {column}
+      </PanelBody>
+    );
+  // why: A flush page is already the raised panel, so it takes no block inset of its own.
   return (
     <VStack
       height="100%"
       paddingInlineStart={PANEL_EDGE}
-      style={{ ...(flush ? FLUSH_CARD : undefined), paddingInlineEnd: paneEdge(PANEL_EDGE) }}
+      style={{ ...FLUSH_CARD, paddingInlineEnd: paneEdge(PANEL_EDGE) }}
     >
-      <Card
-        variant="transparent"
-        height="100%"
-        padding={0}
-        style={flush ? { overflowY: 'auto' } : { ...RAISED, overflowY: 'auto' }}
-      >
-        <Center axis="horizontal" width="100%" minHeight="100%">
-          <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
-            {children}
-          </VStack>
-        </Center>
+      <Card variant="transparent" height="100%" padding={0} style={{ overflowY: 'auto' }}>
+        {column}
       </Card>
     </VStack>
   );
@@ -214,7 +222,7 @@ function ConsoleBody({
   const paired = columns && drawn > 1;
   if (paired && !narrow) {
     return (
-      <ConsoleColumns requestLabel={requestLabel} basisWidth={layoutRef.current?.clientWidth ?? 0}>
+      <ConsoleColumns requestLabel={requestLabel} layoutRef={layoutRef}>
         {children}
       </ConsoleColumns>
     );
@@ -234,12 +242,12 @@ function ConsoleBody({
  */
 function ConsoleColumns({
   requestLabel = 'Request',
-  basisWidth,
+  layoutRef,
   children,
 }: {
   requestLabel?: string;
-  /** The outer layout's width. The pair is not measurable on this first render. */
-  basisWidth: number;
+  /** The outer layout, measured once when the pair first draws. The pair is not measurable yet. */
+  layoutRef: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
   const t = useLabels();
@@ -249,10 +257,13 @@ function ConsoleColumns({
   // reflowing the request. This layout is already on screen, so the first
   // width is two fifths of it. 70% leaves the response a readable share, and a
   // percentage maximum follows the pair when the trace opens.
+  // why: Read once. Reading layout on every render forces a reflow of each streamed event's commit.
+  const [basisWidth] = useState(() => layoutRef.current?.clientWidth ?? 0);
   const requestPanel = useResizable({
     defaultSize: basisWidth > 0 ? Math.round(basisWidth * 0.4) : '40%',
     minSize: 280,
-    maxSize: '70%',
+    // why: In a narrow pair 70% is below the minimum; the maximum never is.
+    maxSize: percent(70, { min: pixel(280) }),
     containerRef: pairRef,
   });
   const [request, response] = Children.toArray(children);
@@ -382,21 +393,19 @@ export function RequestCard({ title, onRun, children, ...heading }: RequestCardP
           {title}
         </Text>
         {heading.onView ? (
-          <SegmentedControl
-            label={t('@theorem.decision.view')}
+          <ToggleButton
+            label={t('@theorem.data.json')}
+            tooltip={t(heading.view === 'json' ? '@theorem.decision.fields' : '@theorem.data.json')}
             size="sm"
-            value={heading.view}
-            onChange={(next) => {
-              heading.onView(next === 'json' ? 'json' : 'fields');
+            isIconOnly
+            isDisabled={!heading.hasFields}
+            icon={<Icon icon={IconEye} size="sm" />}
+            pressedIcon={<Icon icon={IconCode} size="sm" />}
+            isPressed={heading.view === 'json'}
+            onPressedChange={(isJson) => {
+              heading.onView(isJson ? 'json' : 'fields');
             }}
-          >
-            <SegmentedControlItem
-              value="fields"
-              label={t('@theorem.decision.fields')}
-              isDisabled={!heading.hasFields}
-            />
-            <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
-          </SegmentedControl>
+          />
         ) : (
           heading.actions
         )}

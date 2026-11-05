@@ -895,7 +895,7 @@ async function* sendHttpRequest(
           followRedirects: true,
           // why: a read changes nothing, so a busy or briefly down service is asked again, as a
           // model call is; a write is never sent twice.
-          ...(tool.access === 'read-only' ? { fetchFn: retryTransient(fetch) } : {}),
+          fetchFn: tool.access === 'read-only' ? retryTransient(ctx.fetch ?? fetch) : ctx.fetch,
           originBoundHeaders: { ...tool.headers, ...authHeaders },
           resolveHost: ctx.resolveHost,
           onCheck: checks.onCheck,
@@ -1078,6 +1078,7 @@ type McpTransport = {
   originBoundHeaders: Record<string, string>;
   policy?: NetworkGuardrailSpec;
   resolveHost?: ResolveHost;
+  fetch?: typeof fetch;
   signal?: AbortSignal;
   onCheck?: (ms: number) => void;
   maxResponseBytes?: number;
@@ -1121,6 +1122,7 @@ async function fetchMcpProtocolAttempt(
       followRedirects: true,
       originBoundHeaders: transport.originBoundHeaders,
       resolveHost: transport.resolveHost,
+      fetchFn: transport.fetch,
       onCheck: transport.onCheck,
       ...(transport.beforeSend ? { beforeSend: transport.beforeSend } : {}),
     },
@@ -1152,7 +1154,7 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: `mcp_http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
-        message: `MCP server error HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server error HTTP ${response.status} from ${new URL(transport.url).hostname}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -1246,6 +1248,7 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
         followRedirects: false,
         originBoundHeaders: { ...transport.originBoundHeaders, ...originBound },
         resolveHost: transport.resolveHost,
+        fetchFn: transport.fetch,
         onCheck: transport.onCheck,
       },
     );
@@ -1270,7 +1273,7 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
   if (!response.ok) {
     throw sessionFailure(
       `mcp_session_http_${response.status}`,
-      `MCP server refused to open a session: HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `MCP server ${new URL(transport.url).hostname} refused to open a session: HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const id = response.headers.get(SESSION_HEADER);
@@ -1563,6 +1566,7 @@ async function* sendMcpRequest(
       originBoundHeaders: { ...tool.headers, ...authHeaders },
       policy: toolNetworkPolicy(ctx),
       resolveHost: ctx.resolveHost,
+      fetch: ctx.fetch,
       signal: ctx.signal,
       onCheck: checks.onCheck,
       ...(tool.maxResponseBytes === undefined ? {} : { maxResponseBytes: tool.maxResponseBytes }),

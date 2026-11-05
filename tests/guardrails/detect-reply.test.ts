@@ -114,7 +114,7 @@ Deno.test('a Live reply is spoken, so redact stops it as block does', async () =
 
 Deno.test('the stream replaces exactly what reading the whole reply replaces', async () => {
   const detect: DetectSpec = recordOf(
-    ['ids', 'financial', 'credentials', 'injection'] as const,
+    ['ids', 'financial', 'credentials'] as const,
     (): DetectorRule => ({ at: { reply: 'redact' } }),
   );
   const replies = [

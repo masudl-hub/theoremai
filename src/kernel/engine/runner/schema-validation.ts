@@ -58,13 +58,13 @@ async function runFieldValidator(
   path: string,
   value: unknown,
   validator: ProfileValidator | undefined,
-  slots: Record<string, string> | undefined,
+  options: Readonly<Record<string, string>> | undefined,
   failures: ValidationFailure[],
 ): Promise<void> {
   if (!validator) {
     return;
   }
-  const check: ValidationResult = await validator(value, slots);
+  const check: ValidationResult = await validator(value, options);
   if (check.isValid) {
     return;
   }
@@ -80,10 +80,10 @@ async function visitProperty(args: {
   child: unknown;
   isRequired: boolean;
   fields: Record<string, ProfileValidator> | undefined;
-  slots: Record<string, string> | undefined;
+  options: Readonly<Record<string, string>> | undefined;
   failures: ValidationFailure[];
 }): Promise<void> {
-  const { path, propSchema, child, isRequired, fields, slots, failures } = args;
+  const { path, propSchema, child, isRequired, fields, options, failures } = args;
   if (isAbsent(child)) {
     if (isRequired) {
       pushMissing(path, failures);
@@ -91,12 +91,12 @@ async function visitProperty(args: {
     return;
   }
 
-  await runFieldValidator(path, child, fields?.[path], slots, failures);
+  await runFieldValidator(path, child, fields?.[path], options, failures);
 
   const nested = asObjectSchema(propSchema);
   const nestedValue = nested ? asRecord(child) : null;
   if (nested && nestedValue) {
-    await walkObject(nested, nestedValue, path, fields, slots, failures);
+    await walkObject(nested, nestedValue, path, fields, options, failures);
   }
 }
 
@@ -105,7 +105,7 @@ async function walkObject(
   value: unknown,
   pathPrefix: string,
   fields: Record<string, ProfileValidator> | undefined,
-  slots: Record<string, string> | undefined,
+  options: Readonly<Record<string, string>> | undefined,
   failures: ValidationFailure[],
 ): Promise<void> {
   const props = propertySchemas(schema);
@@ -120,7 +120,7 @@ async function walkObject(
       child: record?.[key],
       isRequired: required.has(key),
       fields,
-      slots,
+      options,
       failures,
     });
   }
@@ -134,7 +134,7 @@ async function collectValidationFailures(
   jsonSchema: Record<string, unknown>,
   structured: unknown,
   fields: Record<string, ProfileValidator> | undefined,
-  slots?: Record<string, string>,
+  options?: Readonly<Record<string, string>>,
 ): Promise<ValidationFailure[]> {
   const root = asObjectSchema(jsonSchema);
   if (!root) {
@@ -147,7 +147,7 @@ async function collectValidationFailures(
     }
     return failures;
   }
-  await walkObject(root, structured, '', fields, slots, failures);
+  await walkObject(root, structured, '', fields, options, failures);
   return failures;
 }
 

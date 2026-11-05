@@ -12,12 +12,12 @@ import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { NumberInput } from '@astryxdesign/core/NumberInput';
+import { Popover } from '@astryxdesign/core/Popover';
 import { Section } from '@astryxdesign/core/Section';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { pixel, proportional, Table } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
-import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
@@ -48,15 +48,18 @@ import {
   IconCheck,
   IconChevronRight,
   IconCircleDashed,
+  IconClock,
   IconDatabase,
   IconDeviceDesktop,
   IconEraser,
   IconEye,
   IconEyeOff,
   IconFeather,
+  IconFileOff,
   IconFlag,
   IconFlame,
   IconFlask,
+  IconFold,
   IconGauge,
   IconHandOff,
   IconHandStop,
@@ -72,7 +75,9 @@ import {
   IconKey,
   IconLayersUnion,
   IconLockOpen,
+  IconLogin,
   IconMessage,
+  IconMessageQuestion,
   IconMicrophone,
   IconPackage,
   IconPaperclip,
@@ -113,18 +118,19 @@ import {
   HTTP_METHODS,
   type HttpMethod,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  LABEL_KEYS,
   type LabelKey,
   labelDefault,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
   type ProfileGraphFacetId,
   profileGraphFacet,
+  SPEECH_AUDIO_FORMATS,
   type StepLimitMode,
   type StudioAuthType,
   THINKING_LEVELS,
   type ThinkingLevel,
   type ToolAccess,
+  type ToolBackground,
   type ToolLoadTier,
   type ToolPermission,
   VOICE_ACCEPT_MIMES,
@@ -145,6 +151,7 @@ import {
   TOOL_BOUNDARIES,
   TOOL_KINDS,
 } from '@theoremjs/agents/guardrails';
+import { MODEL_SELECT_MIN_MODELS } from '@theoremjs/agents/interface';
 import {
   type ContextType,
   createContext,
@@ -183,6 +190,7 @@ import {
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_OUTPUT_MIMES,
   GOOGLE_IMAGE_RESOLUTIONS,
+  GOOGLE_SPEECH_FORMATS,
   GOOGLE_SPEECH_VOICES,
   type GuardrailsDraft,
   type ImageReferenceDraft,
@@ -195,38 +203,44 @@ import {
   isOpenRouterRoute,
   keptLimits,
   kernelDefinitions,
+  LABEL_AREAS,
+  type LabelAreaPrefix,
+  type LabelAudience,
   type LentKeys,
   LOCAL_PROVIDER_ID,
+  labelAreaOf,
   lentCompression,
+  loadTierWarning,
   MODEL_LIMITS,
   type ModelBindingDraft,
   modelRoute,
   modelSlots,
   newCriteria,
+  newCriterion,
   newDecisionImage,
   newDecisionQuestion,
   newModelBinding,
+  newOption,
   newOwnDetector,
   newPattern,
-  newSlot,
-  newSlotChoice,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
+  type OptionChoiceDraft,
+  type OptionDraft,
   type OutputsDraft,
   type OwnDetectorDraft,
   onStudioLocal,
   optionAt,
+  optionChoices,
   type PatternDraft,
   type PatternSourceDraft,
+  PROFILE_LABEL_KEYS,
   type ProtocolOptionField,
   plantsCanary,
   protocolOptionFields,
   removeModelBinding,
-  type SlotChoiceDraft,
-  type SlotDraft,
   STUDIO_TRACE_DESTINATION,
-  type StudioAsks,
   type StudioDraft,
   type StudioIssue,
   type StudioProfileType,
@@ -247,20 +261,24 @@ import {
   toolSpecNodeId,
   updateModelBinding,
   withOption,
-  writeAsk,
 } from '../mod.ts';
+import { SECTION_HINTS } from '../section-notes.ts';
 import { AddProviderButton } from './add-provider.tsx';
 import { IconGoogle, IconOpenAi, IconOpenRouter, IconTypeSafe } from './brand-icons.tsx';
 import {
   type Choice,
   ChoiceRow,
+  EntriesRow,
   InspectorGroupTitle,
   InspectorRow,
   InspectorSection,
+  JsonRow,
   ListRow,
+  NamesInput,
   NamesRow,
   NumberRow,
   OriginLine,
+  OwnField,
   type Segment,
   SegmentedRow,
   SetInCode,
@@ -268,15 +286,14 @@ import {
   SwitchRow,
   TextAreaRow,
   TextRow,
+  WideRow,
 } from './inspector.tsx';
 import {
-  ConfirmWrite,
   GuardrailTest,
   LeavePage,
   ListBadges,
   LocalConnection,
   NodeIssues,
-  ProjectAsks,
   QuestionLink,
   RowOrigins,
   RunsOn,
@@ -286,12 +303,7 @@ import {
   type WorkspaceAgent,
   WorkspaceContext,
 } from './inspector-context.ts';
-import {
-  CONTEXT_PLACEHOLDER,
-  contextErrorOf,
-  draftSlots,
-  usePageValues,
-} from './lib/studio-page.ts';
+import { CONTEXT_PLACEHOLDER, contextErrorOf, usePageValues } from './lib/studio-page.ts';
 import { useProject } from './lib/studio-project.ts';
 import {
   setToolCredential,
@@ -313,6 +325,11 @@ const DetectorTester = lazy(() =>
   import('./guardrail-tester.tsx').then((tester) => ({ default: tester.DetectorTester })),
 );
 
+// The formatted editor and Lexical load when a prompt first shows.
+const PromptRow = lazy(() =>
+  import('./prompt-row.tsx').then((row) => ({ default: row.PromptRow })),
+);
+
 export type SetDraft = Dispatch<SetStateAction<StudioDraft>>;
 
 /** The draft's sections that are one object of settings, rather than a list. */
@@ -332,6 +349,11 @@ const PROFILE_TYPE_SEGMENTS: Segment<StudioProfileType>[] = [
   { value: 'text', label: 'Text', icon: PROFILE_TYPE_ICON.text },
   { value: 'image', label: 'Image', icon: PROFILE_TYPE_ICON.image },
   { value: 'speech', label: 'Speech', icon: PROFILE_TYPE_ICON.speech },
+  {
+    value: 'transcription',
+    label: 'Transcription',
+    icon: PROFILE_TYPE_ICON.transcription,
+  },
   { value: 'live', label: 'Live', icon: PROFILE_TYPE_ICON.live },
   { value: 'decision', label: 'Decision', icon: PROFILE_TYPE_ICON.decision },
   { value: 'embedding', label: 'Embedding', icon: PROFILE_TYPE_ICON.embedding },
@@ -375,9 +397,16 @@ const LEVEL_SEGMENTS: Segment<ThinkingLevel>[] = THINKING_LEVELS.map((value) => 
   ...LEVEL_SEGMENT[value],
 }));
 
+/** The segment for a closed set left unset: the provider's default. */
+const PROVIDER_DEFAULT = {
+  value: 'default',
+  label: 'Provider default',
+  icon: IconCircleDashed,
+} as const;
+
 /** Thought summaries: on, off, or left to the provider (`null` in the draft). */
 const SUMMARIES_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
-  { value: 'default', label: 'Provider default', icon: IconCircleDashed },
+  PROVIDER_DEFAULT,
   { value: 'on', label: 'On', icon: IconBulb },
   { value: 'off', label: 'Off', icon: IconBulbOff },
 ];
@@ -465,37 +494,269 @@ function withNewSections(before: StudioDraft, after: StudioDraft): StudioDraft {
 
 function SystemPromptSection({
   identity,
+  canShowOptions,
   set,
 }: {
   identity: StudioDraft['identity'];
+  canShowOptions: boolean;
   set: SetSection<'identity'>;
 }) {
   return (
-    <InspectorSection title="System prompt">
-      <TextArea
-        label="System prompt"
-        isLabelHidden
-        size="sm"
-        rows={8}
-        value={identity.system}
-        placeholder={fieldMeta('identity.system')?.unset}
-        onChange={(system) => {
-          set({ system });
-        }}
-      />
-      <TextAreaRow
-        label="By role"
-        path="identity.systemByRole"
-        field="systemByRoleJson"
-        value={identity.systemByRoleJson}
-        rows={4}
-        hasSpellCheck={false}
-        placeholder={SYSTEM_BY_ROLE_PLACEHOLDER}
-        onChange={(systemByRoleJson) => {
-          set({ systemByRoleJson });
-        }}
-      />
+    <InspectorSection title="System prompt" hint={SECTION_HINTS.system}>
+      <OptionRows identity={identity} canShow={canShowOptions} set={set} />
+      <Suspense fallback={null}>
+        <PromptRow
+          value={identity.system}
+          options={identity.options}
+          rows={PROMPT_ROWS}
+          placeholder={fieldMeta('identity.system')?.unset}
+          onChange={(system) => {
+            set({ system });
+          }}
+        />
+      </Suspense>
     </InspectorSection>
+  );
+}
+
+/** The value an option states: the page's pick while the option still takes it, or its first. */
+const statedValue = (option: OptionDraft, picked: string | undefined) => {
+  const values = option.choices.map(({ value }) => value);
+  return values.find((value) => value === picked) ?? values[0];
+};
+
+/** A value's hover: what the catalog says of it, then what pressing it does here. */
+const valueHint = (meta: ReturnType<typeof fieldMeta>) => ({
+  marked: `${meta?.doc ?? ''} The studio states this value.`.trim(),
+  other: `${meta?.doc ?? ''} Press to state this value.`.trim(),
+});
+
+const OPTION_FIELDS_WIDTH = 320;
+
+/**
+ * What a person or a page reads of an option, and, where the profile lets a person pick it, whether
+ * they do. Its label and its values' descriptions compile with the option, wherever it goes.
+ */
+function OptionFields({
+  option,
+  canShow,
+  onChange,
+}: {
+  option: OptionDraft;
+  canShow: boolean;
+  onChange: (change: Partial<OptionDraft>) => void;
+}) {
+  const isShown = option.isShownInChat;
+  const label = {
+    label: 'Label',
+    value: option.label,
+    placeholder: option.name.trim() || undefined,
+    onChange: (next: string) => {
+      onChange({ label: next });
+    },
+  };
+  const description = (choice: OptionChoiceDraft) => ({
+    label: choice.value,
+    value: choice.description,
+    placeholder: 'Optional',
+    onChange: (next: string) => {
+      onChange({
+        choices: option.choices.map((each) =>
+          each.key === choice.key ? { ...each, description: next } : each,
+        ),
+      });
+    },
+  });
+  const descriptions = option.choices.map((choice) =>
+    isShown ? (
+      <TextRow
+        key={choice.key}
+        {...description(choice)}
+        path="inputs.options.*.choices.*.description"
+      />
+    ) : (
+      <TextRow
+        key={choice.key}
+        {...description(choice)}
+        path="identity.options.*.choices.*.description"
+      />
+    ),
+  );
+  return (
+    <VStack gap={1}>
+      {canShow && (
+        <SwitchRow
+          label="Shown in interface"
+          path="inputs.options"
+          field="options"
+          value={isShown}
+          onChange={(isShownInChat) => {
+            onChange({ isShownInChat });
+          }}
+        />
+      )}
+      {isShown ? (
+        <TextRow {...label} path="inputs.options.*.label" />
+      ) : (
+        <TextRow {...label} path="identity.options.*.label" />
+      )}
+      {descriptions.length > 0 &&
+        (isShown ? (
+          <WideRow
+            label="Values"
+            path="inputs.options.*.choices"
+            isRequired={false}
+            hasIssue={false}
+          >
+            {descriptions}
+          </WideRow>
+        ) : (
+          <WideRow
+            label="Values"
+            path="identity.options.*.choices"
+            isRequired={false}
+            hasIssue={false}
+          >
+            {descriptions}
+          </WideRow>
+        ))}
+    </VStack>
+  );
+}
+
+/** One option on one row: its name, its values with the one the chat states marked, whether a person picks it, and its remove button. */
+function OptionRow({
+  option,
+  at,
+  canShow,
+  stated,
+  onState,
+  onChange,
+  onRemove,
+}: {
+  option: OptionDraft;
+  at: number;
+  canShow: boolean;
+  stated: string | undefined;
+  onState: (value: string) => void;
+  onChange: (change: Partial<OptionDraft>) => void;
+  onRemove: () => void;
+}) {
+  const status = useFieldStatus()('options', at);
+  const row = `Option ${String(at + 1)}`;
+  return (
+    <VStack gap={0} paddingBlockEnd={2} className="option-row">
+      <HStack gap={1} vAlign="center">
+        <StackItem size="fill">
+          <TextInput
+            label={`${row} name`}
+            isLabelHidden
+            size="sm"
+            status={status}
+            value={option.name}
+            placeholder="plan"
+            onChange={(name) => {
+              onChange({ name });
+            }}
+          />
+        </StackItem>
+        <Popover
+          placement="below"
+          alignment="end"
+          width={OPTION_FIELDS_WIDTH}
+          label={`${row} in interface`}
+          content={<OptionFields option={option} canShow={canShow} onChange={onChange} />}
+        >
+          <IconButton
+            label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in interface`}
+            tooltip={option.isShownInChat ? 'Shown in interface' : 'Not shown in interface'}
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconPencil} size="sm" />}
+          />
+        </Popover>
+        <IconButton
+          label={`Remove ${row.toLowerCase()}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconX} size="sm" />}
+          onClick={onRemove}
+        />
+      </HStack>
+      <NamesInput
+        label={`${row} values`}
+        value={option.choices.map(({ value }) => value)}
+        placeholder="free"
+        overflow="none"
+        marked={stated}
+        onMark={onState}
+        markHint={valueHint(
+          option.isShownInChat
+            ? fieldMeta('inputs.options.*.choices.*.value')
+            : fieldMeta('identity.options.*.choices.*.value'),
+        )}
+        onChange={(values) => {
+          onChange({ choices: optionChoices(values, option.choices) });
+        }}
+      />
+    </VStack>
+  );
+}
+
+function OptionRows({
+  identity,
+  canShow,
+  set,
+}: {
+  identity: StudioDraft['identity'];
+  canShow: boolean;
+  set: SetSection<'identity'>;
+}) {
+  const { options } = identity;
+  const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
+  return (
+    <WideRow label="Options" path="identity.options" isRequired={false} hasIssue={false}>
+      <OwnField path="identity.options">
+        {options.map((option, at) => (
+          <OwnField
+            key={option.key}
+            path={option.isShownInChat ? 'inputs.options' : 'identity.options'}
+          >
+            <OptionRow
+              option={option}
+              at={at}
+              canShow={canShow}
+              stated={statedValue(option, values.options[option.name])}
+              onState={(value) => {
+                setValues({ ...values, options: { ...values.options, [option.name]: value } });
+              }}
+              onChange={(change) => {
+                set({
+                  options: options.map((each) =>
+                    each.key === option.key ? { ...each, ...change } : each,
+                  ),
+                });
+              }}
+              onRemove={() => {
+                set({ options: options.filter((each) => each.key !== option.key) });
+              }}
+            />
+          </OwnField>
+        ))}
+        <HStack>
+          <Button
+            label="Add option"
+            tooltip="A named value that lines of the prompt can read and print"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconPlus} size="sm" />}
+            onClick={() => {
+              set({ options: [...options, newOption()] });
+            }}
+          />
+        </HStack>
+      </OwnField>
+    </WideRow>
   );
 }
 
@@ -505,7 +766,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
   const set = patch(setDraft, 'identity');
   return (
     <>
-      <InspectorSection title="Profile">
+      <InspectorSection title="Profile" hint={SECTION_HINTS.profile}>
         <TextRow
           label="Id"
           path="profile.id"
@@ -544,8 +805,15 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
         )}
       </InspectorSection>
       {identity.profileType !== 'speech' &&
+        identity.profileType !== 'transcription' &&
         identity.profileType !== 'decision' &&
-        identity.profileType !== 'host' && <SystemPromptSection identity={identity} set={set} />}
+        identity.profileType !== 'host' && (
+          <SystemPromptSection
+            identity={identity}
+            canShowOptions={draftAllows(draft, 'inputs.options')}
+            set={set}
+          />
+        )}
     </>
   );
 }
@@ -562,7 +830,7 @@ function ModelPolicySection({
 }) {
   const { models } = draft;
   return (
-    <InspectorSection title="Policy">
+    <InspectorSection title="Policy" hint={SECTION_HINTS.modelPolicy}>
       <ChoiceRow
         label="Default"
         path="profile.defaultModel"
@@ -579,6 +847,8 @@ function ModelPolicySection({
         path="profile.allowModelSelect"
         field="allowModelSelect"
         value={models.allowModelSelect}
+        isDisabled={draft.modelBindings.length < MODEL_SELECT_MIN_MODELS}
+        disabledMessage="Add a second model to let people switch."
         onChange={(allowModelSelect) => {
           set({ allowModelSelect });
         }}
@@ -595,18 +865,20 @@ function ModelPolicySection({
               set({ providerHistory });
             }}
           />
-          <NumberRow
-            label="Max steps"
-            path="profile.maxSteps"
-            units="steps"
-            field="maxSteps"
-            value={models.maxSteps}
-            min={1}
-            isIntegerOnly
-            onChange={(maxSteps) => {
-              set({ maxSteps });
-            }}
-          />
+          {draftAllows(draft, 'profile.maxSteps') && (
+            <NumberRow
+              label="Max steps"
+              path="profile.maxSteps"
+              units="steps"
+              field="maxSteps"
+              value={models.maxSteps}
+              min={1}
+              isIntegerOnly
+              onChange={(maxSteps) => {
+                set({ maxSteps });
+              }}
+            />
+          )}
         </>
       )}
       <SlotRow
@@ -1362,9 +1634,9 @@ function ProtocolOptionsSection({
   );
 }
 
-/** A setting a boolean option takes: left to the protocol, on, or off. */
+/** A setting a boolean option takes: left to the provider, on, or off. */
 const OPTION_SWITCH_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
-  { value: 'default', label: 'Protocol default', icon: IconCircleDashed },
+  PROVIDER_DEFAULT,
   { value: 'on', label: 'On', icon: IconCheck },
   { value: 'off', label: 'Off', icon: IconX },
 ];
@@ -1381,7 +1653,7 @@ function ProtocolOptionRow({
 }) {
   const value = optionAt(binding.options, option.path);
   const field = `options.${option.path}`;
-  const write = (next: string | number | boolean | undefined) => {
+  const write = (next: string | number | boolean | string[] | undefined) => {
     set({ options: withOption(binding.options, option.path, next) });
   };
   const common = {
@@ -1428,6 +1700,18 @@ function ProtocolOptionRow({
           hint={option.description}
           onChange={(next) => {
             write(next ?? undefined);
+          }}
+        />
+      );
+    case 'names':
+      return (
+        <NamesRow
+          label={option.label}
+          path="models.*.options"
+          field={field}
+          value={Array.isArray(value) ? value.filter((name) => typeof name === 'string') : []}
+          onChange={(next) => {
+            write(next.length ? next : undefined);
           }}
         />
       );
@@ -1512,7 +1796,7 @@ function ModelSection({
 /** How the model generates: its output cap, temperature, and summaries. */
 function GenerationSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
   return (
-    <InspectorSection title="Generation">
+    <InspectorSection title="Generation" hint={SECTION_HINTS.generation}>
       <NumberRow
         label="Max output"
         path="models.*.maxOutputTokens"
@@ -1914,29 +2198,34 @@ function InputAcceptsSection({
   inputs,
   set,
   image,
+  voiceOnly,
   hasSizes,
-}: InputsSectionProps & { image: boolean; hasSizes: boolean }) {
+}: InputsSectionProps & { image: boolean; voiceOnly: boolean; hasSizes: boolean }) {
   const attachmentPicker = image ? IMAGE_ATTACHMENT_PICKER : ATTACHMENT_PICKER;
   return (
     <InspectorSection title="Accepts" path="inputs">
-      <SwitchRow
-        label="Text"
-        path="inputs.text"
-        value={inputs.text}
-        onChange={(text) => {
-          set({ text });
-        }}
-      />
-      <AcceptRow
-        label="Attachments"
-        path="inputs.attachments.accept"
-        value={{ accept: inputs.attachmentsAccept, limits: inputs.limitsByMime }}
-        picker={attachmentPicker}
-        hasSizes={hasSizes}
-        onChange={({ accept, limits }) => {
-          set({ attachmentsAccept: accept, limitsByMime: limits });
-        }}
-      />
+      {!voiceOnly && (
+        <>
+          <SwitchRow
+            label="Text"
+            path="inputs.text"
+            value={inputs.text}
+            onChange={(text) => {
+              set({ text });
+            }}
+          />
+          <AcceptRow
+            label="Attachments"
+            path="inputs.attachments.accept"
+            value={{ accept: inputs.attachmentsAccept, limits: inputs.limitsByMime }}
+            picker={attachmentPicker}
+            hasSizes={hasSizes}
+            onChange={({ accept, limits }) => {
+              set({ attachmentsAccept: accept, limitsByMime: limits });
+            }}
+          />
+        </>
+      )}
       {!image && (
         <AcceptRow
           label="Voice"
@@ -1956,7 +2245,7 @@ function InputAcceptsSection({
 function InputLimitsSection({ inputs, set }: InputsSectionProps) {
   const limitsRequired = inputLimitsRequired(inputs);
   return (
-    <InspectorSection title="Limits">
+    <InspectorSection title="Limits" hint={SECTION_HINTS.limits}>
       <NumberRow
         label="Max files"
         path="inputs.maxFiles"
@@ -2062,13 +2351,11 @@ function ContextPreviewRow() {
   const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
   const error = contextErrorOf(values.contextJson);
   return (
-    <TextAreaRow
+    <JsonRow
       label="Preview"
       path="inputs.context"
       isRequired={false}
       value={values.contextJson}
-      rows={3}
-      hasSpellCheck={false}
       placeholder={CONTEXT_PLACEHOLDER}
       status={error ? { type: 'error', message: error } : undefined}
       onChange={(contextJson) => {
@@ -2078,249 +2365,31 @@ function ContextPreviewRow() {
   );
 }
 
-/** The value the studio's page sends for each slot declared so far. Kept in this tab. */
-function SlotPreviewRows({ slots }: { slots: readonly SlotDraft[] }) {
-  const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
-  return draftSlots(slots).map(({ name, label, values: allowed }) => (
-    <ChoiceRow
-      key={name}
-      label={label}
-      path="inputs.slots"
-      isRequired
-      value={allowed.find((value) => value === values.slots[name]) ?? allowed[0]}
-      options={allowed}
-      onChange={(next) => {
-        if (next) setValues({ ...values, slots: { ...values.slots, [name]: next } });
-      }}
-    />
-  ));
-}
-
-/** One of a slot's choices: the value a turn sends, what the page says of it, and a remove button. */
-function SlotChoiceRow({
-  choice,
-  at,
-  onChange,
-  onRemove,
-}: {
-  choice: SlotChoiceDraft;
-  at: number;
-  onChange: (change: Partial<SlotChoiceDraft>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <HStack gap={1} vAlign="center">
-      <div className="criterion-label">
-        <TextInput
-          label={`Choice ${String(at + 1)} value`}
-          isLabelHidden
-          size="sm"
-          value={choice.value}
-          placeholder="value"
-          onChange={(value) => {
-            onChange({ value });
-          }}
-        />
-      </div>
-      <StackItem size="fill">
-        <TextInput
-          label={`Choice ${String(at + 1)} description`}
-          isLabelHidden
-          size="sm"
-          value={choice.description}
-          placeholder="What the page says of it"
-          onChange={(description) => {
-            onChange({ description });
-          }}
-        />
-      </StackItem>
-      <IconButton
-        label={`Remove choice ${String(at + 1)}`}
-        variant="ghost"
-        size="sm"
-        icon={<Icon icon={IconX} size="sm" />}
-        onClick={onRemove}
-      />
-    </HStack>
-  );
-}
-
-/** A head over a slot's choices, with its field's description on hover. */
-function SlotChoiceHead({ title, doc }: { title: string; doc: string | undefined }) {
-  return (
-    <Tooltip content={doc} hasHoverIndication={false}>
-      <Text type="supporting" color="secondary">
-        {title}
-      </Text>
-    </Tooltip>
-  );
-}
-
-function SlotChoiceHeads() {
-  return (
-    <HStack gap={1}>
-      <div className="criterion-label">
-        <SlotChoiceHead title="Value" doc={fieldMeta('inputs.slots.*.choices.*.value')?.doc} />
-      </div>
-      <StackItem size="fill">
-        <SlotChoiceHead
-          title="Description"
-          doc={fieldMeta('inputs.slots.*.choices.*.description')?.doc}
-        />
-      </StackItem>
-    </HStack>
-  );
-}
-
-/** One slot: its name, its label, its choices, and the buttons that add a choice and remove it. */
-function SlotSection({
-  slot,
-  at,
-  onChange,
-  onRemove,
-}: {
-  slot: SlotDraft;
-  at: number;
-  onChange: (change: Partial<SlotDraft>) => void;
-  onRemove: () => void;
-}) {
-  const status = useFieldStatus()('slots', at);
-  const name = slot.name.trim() || `Slot ${String(at + 1)}`;
-  const setChoice = (key: string, change: Partial<SlotChoiceDraft>) => {
-    onChange({
-      choices: slot.choices.map((choice) =>
-        choice.key === key ? { ...choice, ...change } : choice,
-      ),
-    });
-  };
-  return (
-    <InspectorSection title={slot.label.trim() || name} path="inputs.slots.*">
-      <TextRow
-        label="Name"
-        path="inputs.slots.*"
-        status={status}
-        value={slot.name}
-        placeholder="language"
-        onChange={(next) => {
-          onChange({ name: next });
-        }}
-      />
-      <TextRow
-        label="Label"
-        path="inputs.slots.*.label"
-        value={slot.label}
-        placeholder={slot.name.trim() || undefined}
-        onChange={(label) => {
-          onChange({ label });
-        }}
-      />
-      <VStack gap={1}>
-        <Tooltip content={fieldMeta('inputs.slots.*.choices')?.doc} hasHoverIndication={false}>
-          <Text type="label" weight="semibold">
-            Choices
-          </Text>
-        </Tooltip>
-        <SlotChoiceHeads />
-        {slot.choices.map((choice, index) => (
-          <SlotChoiceRow
-            key={choice.key}
-            choice={choice}
-            at={index}
-            onChange={(change) => {
-              setChoice(choice.key, change);
-            }}
-            onRemove={() => {
-              onChange({ choices: slot.choices.filter((each) => each.key !== choice.key) });
-            }}
-          />
-        ))}
-      </VStack>
-      <HStack gap={1}>
-        <Button
-          label="Add choice"
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconPlus} size="sm" />}
-          onClick={() => {
-            onChange({ choices: [...slot.choices, newSlotChoice()] });
-          }}
-        />
-        <Button
-          label={`Remove ${name}`}
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconTrash} size="sm" />}
-          onClick={onRemove}
-        />
-      </HStack>
-    </InspectorSection>
-  );
-}
-
-/** Every slot, each in its own section, and the page's pick for each above them. */
-function InputSlotsSections({ inputs, set }: InputsSectionProps) {
-  const { slots } = inputs;
-  const setSlot = (key: string, change: Partial<SlotDraft>) => {
-    set({ slots: slots.map((slot) => (slot.key === key ? { ...slot, ...change } : slot)) });
-  };
-  return (
-    <>
-      <InspectorSection path="inputs.slots" note={sectionNote('slots')}>
-        <SlotPreviewRows slots={slots} />
-        <HStack>
-          <Button
-            label="Add slot"
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={IconPlus} size="sm" />}
-            onClick={() => {
-              set({ slots: [...slots, newSlot(slots)] });
-            }}
-          />
-        </HStack>
-      </InspectorSection>
-      {slots.map((slot, at) => (
-        <SlotSection
-          key={slot.key}
-          slot={slot}
-          at={at}
-          onChange={(change) => {
-            setSlot(slot.key, change);
-          }}
-          onRemove={() => {
-            set({ slots: slots.filter((each) => each.key !== slot.key) });
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
 function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { inputs } = draft;
   const set = patch(setDraft, 'inputs');
   /** An image profile takes images, video, and PDF as references, and no voice. */
   const image = draft.identity.profileType === 'image';
+  const voiceOnly = !draftAllows(draft, 'inputs.attachments.accept');
   return (
     <>
-      {draftAllows(draft, 'inputs.attachments.accept') && (
+      {(!voiceOnly || draftAllows(draft, 'inputs.voice')) && (
         <InputAcceptsSection
           inputs={inputs}
           set={set}
           image={image}
+          voiceOnly={voiceOnly}
           hasSizes={draftAllows(draft, 'inputs.limitsByMime')}
         />
       )}
       {draftAllows(draft, 'inputs.maxFiles') && <InputLimitsSection inputs={inputs} set={set} />}
       {draftAllows(draft, 'inputs.context') && <InputContextSection inputs={inputs} set={set} />}
-      <InputSlotsSections inputs={inputs} set={set} />
     </>
   );
 }
 
-const SYSTEM_BY_ROLE_PLACEHOLDER = `{
-  "support": "Answer as the support desk."
-}`;
+/** How tall the system prompt starts. */
+const PROMPT_ROWS = 12;
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
 
@@ -2334,7 +2403,7 @@ function otherAgents(
     .filter((agent) => agent.key !== self)
     .map((agent) => ({
       value: agent.key,
-      label: agent.agentId || 'Unnamed agent',
+      label: agent.agentId.trim() || 'Unnamed agent',
       disabled: !canName(agent),
     }));
 }
@@ -2460,13 +2529,6 @@ function catalogChoices<T extends string>(path: string): Choice<T>[] {
   }));
 }
 
-/** The segment for a closed set left unset: the provider's default. */
-const PROVIDER_DEFAULT = {
-  value: 'default',
-  label: 'Provider default',
-  icon: IconCircleDashed,
-} as const;
-
 /** An unset pin (`''`) as the provider-default segment. */
 function segmentOf<T extends string>(value: T | ''): T | 'default' {
   return value === '' ? 'default' : value;
@@ -2548,8 +2610,6 @@ function PresetRow({
 /** OpenRouter's image vocabularies; the kernel takes free strings, so these are the studio's. */
 const OPENROUTER_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'] as const;
 const OPENROUTER_IMAGE_BACKGROUNDS = ['auto', 'transparent', 'opaque'] as const;
-/** A pinned file rides in every turn's request, so it stays small. */
-const REFERENCE_MAX_BYTES = 4 * 1024 * 1024;
 
 /** A picked file's type and its bytes in base64. */
 async function fileData(file: File): Promise<{ mimeType: string; data: string }> {
@@ -2655,10 +2715,9 @@ function OpenRouterImageRows({ image, set }: ImageRowsProps) {
         label="Images"
         path="image.n"
         field="n"
-        units="per turn"
+        units="per request"
         value={image.n}
         min={1}
-        max={10}
         isIntegerOnly
         onChange={(n) => {
           set({ n });
@@ -2820,9 +2879,8 @@ function ImageReferencesEditor({
         mode="dropzone"
         accept="image/*"
         isMultiple
-        maxSize={REFERENCE_MAX_BYTES}
         isLoading={reading}
-        placeholder="Drop images or choose files, up to 4 MB each"
+        placeholder="Drop images or choose files"
         value={null}
         changeAction={changeAction}
         onChange={() => undefined}
@@ -2840,14 +2898,13 @@ function ImageReferencesEditor({
   );
 }
 
-/** Speech pins. mp3 is only on offer when every model's provider can make it. */
+/** Speech pins. A format is on offer only when every model's provider can make it. */
 function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const google = allGoogle(draft);
   const { speech } = draft;
   const set = patch(setDraft, 'speech');
-  // Gemini refuses mp3.
-  const mp3 = draft.modelBindings.every(
-    (binding) => !isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
+  const onGemini = draft.modelBindings.some((binding) =>
+    isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
   );
   return (
     <InspectorSection path="speech">
@@ -2887,14 +2944,16 @@ function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
         path="speech.format"
         field="format"
         value={speech.format}
-        options={[
-          'pcm',
-          {
-            value: 'mp3',
-            label: 'mp3',
-            ...(mp3 ? {} : { description: 'Only openAi models make mp3', disabled: true }),
-          },
-        ]}
+        options={SPEECH_AUDIO_FORMATS.map((format) =>
+          onGemini && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format)
+            ? {
+                value: format,
+                label: format,
+                description: `Gemini cannot make ${format}`,
+                disabled: true,
+              }
+            : format,
+        )}
         onChange={(format) => {
           set({ format });
         }}
@@ -3264,13 +3323,11 @@ function OutputShapeSection({
               set({ schemaId });
             }}
           />
-          <TextAreaRow
+          <JsonRow
             label="JSON Schema"
             path="outputs.structured"
             field="schemaJson"
             isRequired
-            rows={8}
-            hasSpellCheck={false}
             value={outputs.schemaJson}
             placeholder={SCHEMA_PLACEHOLDER}
             onChange={(schemaJson) => {
@@ -3378,6 +3435,7 @@ const STOP_KIND_LABEL: Record<ContinueStopKind, string> = {
   length: 'Length',
   stream_incomplete: 'Dropped stream',
   provider_error: 'Provider error',
+  answer_missing: 'No answer',
 };
 
 /** Which stops a reply is continued after: `allow` offers a Continue, `auto` continues unasked. */
@@ -4336,7 +4394,7 @@ function PatternSourceSection({
   const mine = source.patterns.length > 0;
   const use: PatternUse = source.theorem ? (mine ? 'both' : 'theorem') : 'mine';
   return (
-    <InspectorSection title="Patterns">
+    <InspectorSection title="Patterns" hint={SECTION_HINTS.patterns}>
       <SegmentedRow
         label="Read with"
         path={`guardrails.detect.${detector}.theorem`}
@@ -4634,7 +4692,7 @@ function DetectorPage({
         />
       )}
       {isUrlDetector(detector) && (
-        <InspectorSection title="Allow">
+        <InspectorSection title="Allow" hint={SECTION_HINTS.allow}>
           <UrlAllowRows
             detector={detector}
             allow={allow[detector]}
@@ -4645,7 +4703,7 @@ function DetectorPage({
         </InspectorSection>
       )}
       {meta.allow === 'names' && (
-        <InspectorSection title="Allow">
+        <InspectorSection title="Allow" hint={SECTION_HINTS.allow}>
           <NamesRow
             label="Names"
             path={`guardrails.detect.${detector}.allow.names`}
@@ -4707,7 +4765,7 @@ function OwnDetectorPage({
       >
         <DetectIssue />
       </PageHeader>
-      <InspectorSection title="Detector">
+      <InspectorSection title="Detector" hint={SECTION_HINTS.detector}>
         <TextRow
           label="Name"
           path="guardrails.detect.*.label"
@@ -4987,11 +5045,56 @@ const INCLUDE_FLAGS: Flag<keyof ObservabilityDraft['include']>[] = [
   { key: 'guardrailMatchPreview', label: 'Match preview' },
 ];
 
-const SCRUB_FLAGS: Flag<keyof ObservabilityDraft['scrub']>[] = [
+type ScrubName = keyof ObservabilityDraft['scrub'];
+type ScrubSwitch = ObservabilityDraft['scrub'][ScrubName];
+type ScrubChoice = 'on' | 'both' | 'theorem' | 'host' | 'off';
+
+const SCRUB_ROWS: readonly { key: ScrubName; label: string }[] = [
   { key: 'sensitive', label: 'Sensitive' },
   { key: 'injection', label: 'Injection' },
   { key: 'canary', label: 'Canary' },
 ];
+
+const SCRUB_CHOICES: readonly Choice<ScrubChoice>[] = [
+  { value: 'on', label: 'On', description: 'With the patterns each detector reads the turn with' },
+  {
+    value: 'both',
+    label: "Theorem's and yours",
+    description: 'Both sides, whatever the turn reads with',
+  },
+  { value: 'theorem', label: "Theorem's only" },
+  {
+    value: 'host',
+    label: 'Yours only',
+    description: 'Your guardrails.detect patterns and detectors',
+  },
+  { value: 'off', label: 'Off' },
+];
+
+// why: the canary is Theorem's, so only its side means anything.
+const CANARY_CHOICES: readonly Choice<ScrubChoice>[] = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+/** The choice a scrub switch is: the object form names the sides, each on when left out. */
+function scrubChoice(name: ScrubName, value: ScrubSwitch): ScrubChoice {
+  if (typeof value === 'boolean') return value ? 'on' : 'off';
+  const theorem = value.theorem ?? true;
+  if (name === 'canary') return theorem ? 'on' : 'off';
+  const host = value.host ?? true;
+  if (theorem && host) return 'both';
+  if (theorem) return 'theorem';
+  return host ? 'host' : 'off';
+}
+
+const SCRUB_SWITCHES: Record<ScrubChoice, ScrubSwitch> = {
+  on: true,
+  both: { theorem: true, host: true },
+  theorem: { theorem: true, host: false },
+  host: { theorem: false, host: true },
+  off: false,
+};
 
 /** A set of on-or-off flags as one checklist: the ones on are checked. */
 function FlagList<K extends string>({
@@ -5034,10 +5137,6 @@ function FlagList<K extends string>({
 }
 
 const PERCENT = new Intl.NumberFormat('en-US', { style: 'percent' });
-
-const RESOURCE_PLACEHOLDER = `{
-  "service.name": "my-agent"
-}`;
 
 /** The observability slice of the draft and its setter, for each observability section. */
 interface ObservabilitySectionProps {
@@ -5094,15 +5193,18 @@ function TraceContentSections({ observability, set }: ObservabilitySectionProps)
         />
       </InspectorSection>
       <InspectorSection path="observability.scrub">
-        <FlagList
-          label="Scrub"
-          path="observability.scrub"
-          flags={SCRUB_FLAGS}
-          value={observability.scrub}
-          onChange={(scrub) => {
-            set({ scrub });
-          }}
-        />
+        {SCRUB_ROWS.map(({ key, label }) => (
+          <ChoiceRow
+            key={key}
+            label={label}
+            path={`observability.scrub.${key}`}
+            value={scrubChoice(key, observability.scrub[key])}
+            options={key === 'canary' ? CANARY_CHOICES : SCRUB_CHOICES}
+            onChange={(choice) => {
+              if (choice) set({ scrub: { ...observability.scrub, [key]: SCRUB_SWITCHES[choice] } });
+            }}
+          />
+        ))}
       </InspectorSection>
     </>
   );
@@ -5133,14 +5235,15 @@ function TraceStorageSection({ observability, set }: ObservabilitySectionProps) 
           set({ rotateAfterMiB });
         }}
       />
-      <TextAreaRow
+      <EntriesRow
         label="Resource"
+        noun="Attribute"
         path="observability.resource"
         field="resourceJson"
         value={observability.resourceJson}
-        rows={3}
-        hasSpellCheck={false}
-        placeholder={RESOURCE_PLACEHOLDER}
+        typed
+        namePlaceholder="service.name"
+        valuePlaceholder="my-agent"
         onChange={(resourceJson) => {
           set({ resourceJson });
         }}
@@ -5189,6 +5292,28 @@ const PERMISSION_SEGMENTS: Segment<ToolPermission>[] = [
   { value: 'always_confirm', label: 'Every call', icon: IconHandStop },
 ];
 
+type BackgroundSegment = 'never' | 'ask' | 'always' | 'afterMs';
+
+const BACKGROUND_SEGMENTS: Segment<BackgroundSegment>[] = [
+  { value: 'never', label: 'Never', icon: IconPlayerPause },
+  { value: 'ask', label: 'Model asks', icon: IconMessageQuestion },
+  { value: 'always', label: 'Always', icon: IconPlayerTrackNext },
+  { value: 'afterMs', label: 'After a time', icon: IconClock },
+];
+
+/** A newly picked wait, until the builder sets their own. */
+const BACKGROUND_AFTER_MS = 10_000;
+
+function backgroundSegment(background: ToolBackground | undefined): BackgroundSegment {
+  if (typeof background === 'object') return 'afterMs';
+  return background ?? 'never';
+}
+
+function backgroundOf(segment: BackgroundSegment, afterMs: number | null) {
+  if (segment === 'afterMs') return { afterMs: afterMs ?? BACKGROUND_AFTER_MS };
+  return segment === 'never' ? undefined : segment;
+}
+
 const METHOD_SEGMENTS: Segment<HttpMethod>[] = [
   { value: 'GET', label: 'GET', icon: IconHttpGet },
   { value: 'POST', label: 'POST', icon: IconHttpPost },
@@ -5222,17 +5347,6 @@ const AUTH_HEADER_PREFIX: Record<Exclude<StudioAuthType, 'none'>, string> = {
   oauth2: 'Bearer ',
 };
 
-/**
- * Why a tool on `tier` never loads on this draft: the studio can't write a T1 policy, so a
- * T2 tool loads only through the T2 loader.
- */
-function loadTierWarning(draft: StudioDraft, tier: ToolLoadTier): string | undefined {
-  if (tier === 'T2' && draftAllows(draft, 'tools.t2Loader') && !draft.tools.t2Loader.trim()) {
-    return 'No T2 loader is set under Tools, so this tool never loads.';
-  }
-  return undefined;
-}
-
 function placeholderHint(schemas: string[]): string | undefined {
   const names = new Set<string>();
   for (const json of schemas) {
@@ -5251,10 +5365,6 @@ function placeholderHint(schemas: string[]): string | undefined {
   }
   return names.size ? `Can use ${[...names].join(' ')}` : undefined;
 }
-
-const HEADERS_PLACEHOLDER = `{
-  "Accept": "application/json"
-}`;
 
 /** Adds a new tool to the draft and opens it. */
 export function addToolSpec(
@@ -5504,8 +5614,12 @@ function ToolLoadingSection({
 const MS = new Intl.NumberFormat('en-US', { style: 'unit', unit: 'millisecond' });
 
 /** The result's headline: the status line, or for an MCP server, what it offers. */
-function probeTitle(result: ProbeResult, tool: ToolSpecDraft): string {
+function probeTitle(result: ProbeResult, tool: ToolSpecDraft, inProject: boolean): string {
   const took = result.elapsedMs === undefined ? '' : ` · ${MS.format(result.elapsedMs)}`;
+  // why: on a project the test keeps to the agent's guardrail, as its runs do; the way out is there.
+  if (inProject && result.code === 'ssrf_blocked') {
+    return "This agent's network guardrail doesn't allow this address, so a run couldn't call it either. Change it in Guardrails, under Network.";
+  }
   if (!result.ok && result.error) return result.error;
   if (tool.toolType === 'mcp' && result.tools) {
     // The route only checks for the remote tool when one is named.
@@ -5597,12 +5711,10 @@ function TestCredentialRow({
 /** The input an HTTP tool's test sends. */
 function SampleInputRow({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <TextAreaRow
+    <JsonRow
       label="Sample input"
       path="studio.sampleInput"
       value={value}
-      rows={4}
-      hasSpellCheck={false}
       placeholder="{}"
       onChange={onChange}
     />
@@ -5647,6 +5759,7 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
   const shown = useContext(ShownProbe);
   const [result, setResult] = useState(shown);
   const http = tool.toolType === 'http';
+  const inProject = useProject() !== null;
   const method = tool.method ?? HTTP_METHODS[0];
   // A result answers the request as it was: once what it reaches or sends changes, it's dropped.
   const target = probeTarget(tool, method);
@@ -5656,11 +5769,7 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
     setResult(undefined);
   }
 
-  const confirmWrite = useContext(ConfirmWrite);
   const run = async () => {
-    // A tool that writes runs only once the builder read the input and said so.
-    const ask = writeAsk(tool, sampleInput);
-    if (ask && !(await confirmWrite(ask))) return;
     setPending(true);
     try {
       setResult(await runToolProbe(tool, sampleInput, credential, guardrails));
@@ -5687,7 +5796,7 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
       {result && (
         <Banner
           status={probeStatus(result)}
-          title={probeTitle(result, tool)}
+          title={probeTitle(result, tool, inProject)}
           description={probeDetails(result)}
         />
       )}
@@ -5806,25 +5915,21 @@ function ToolSection({
 /** The tool's input and output schemas. */
 function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   return (
-    <InspectorSection title="Contract">
-      <TextAreaRow
+    <InspectorSection title="Contract" hint={SECTION_HINTS.contract}>
+      <JsonRow
         label="Input"
         path="registerTool.inputSchema"
         field="inputJson"
         value={tool.inputJson}
-        rows={8}
-        hasSpellCheck={false}
         onChange={(inputJson) => {
           set({ inputJson });
         }}
       />
-      <TextAreaRow
+      <JsonRow
         label="Output"
         path="registerTool.outputSchema"
         field="outputJson"
         value={tool.outputJson}
-        rows={8}
-        hasSpellCheck={false}
         onChange={(outputJson) => {
           set({ outputJson });
         }}
@@ -5917,13 +6022,11 @@ function StubSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
           set({ answeredBy: page ? 'page' : undefined });
         }}
       />
-      <TextAreaRow
+      <JsonRow
         label="Returns"
         path="studio.stubOutput"
         field="stubOutputJson"
         value={tool.stubOutputJson ?? ''}
-        rows={6}
-        hasSpellCheck={false}
         hint="Left blank, a stand-in built from the output schema."
         onChange={(stubOutputJson) => {
           set({ stubOutputJson });
@@ -5936,14 +6039,14 @@ function StubSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 /** The static headers HTTP and MCP tools both send. */
 function HeadersRow({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   return (
-    <TextAreaRow
+    <EntriesRow
       label="Headers"
+      noun="Header"
       path="registerTool.headers"
       field="headersJson"
       value={tool.headersJson ?? ''}
-      rows={4}
-      hasSpellCheck={false}
-      placeholder={HEADERS_PLACEHOLDER}
+      namePlaceholder="Accept"
+      valuePlaceholder="application/json"
       onChange={(headersJson) => {
         set({ headersJson });
       }}
@@ -6056,7 +6159,7 @@ function AgentSection({
   workspace: Workspace;
 }) {
   return (
-    <InspectorSection title="Agent">
+    <InspectorSection title="Agent" hint={SECTION_HINTS.agent}>
       <ChoiceRow
         label="Runs"
         path="registerTool.profile"
@@ -6290,13 +6393,38 @@ function AuthSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   );
 }
 
-/** What the studio does about a tool that writes, when that is not what Permission says. */
-function studioAskNote(asks: StudioAsks, tool: string): string | undefined {
-  if (asks.asked.includes(tool))
-    return 'In the studio this tool asks before every run, because it writes. Your application runs it as Permission says.';
-  if (asks.inside.includes(tool))
-    return 'This tool writes, and the studio cannot make it ask: a called agent runs it, and a question inside a called agent has no one to answer it. The call to that agent asks instead.';
-  return undefined;
+/** When the model gets its reply: the setting, and the time for one that waits. */
+function BackgroundRows({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
+  const { background } = tool;
+  const afterMs = typeof background === 'object' ? background.afterMs : null;
+  return (
+    <>
+      <SegmentedRow
+        label="Background"
+        path="registerTool.background"
+        field="background"
+        value={backgroundSegment(background)}
+        segments={BACKGROUND_SEGMENTS}
+        onChange={(segment) => {
+          set({ background: backgroundOf(segment, afterMs) });
+        }}
+      />
+      {afterMs === null ? null : (
+        <NumberRow
+          label="After"
+          path="registerTool.background.afterMs"
+          field="background"
+          value={afterMs}
+          min={0}
+          isIntegerOnly
+          units="ms"
+          onChange={(next) => {
+            if (next !== null) set({ background: { afterMs: next } });
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 /** Who may call the tool, whether it asks first, when it loads and on which paths. */
@@ -6309,9 +6437,10 @@ function PolicySection({
   tool: ToolSpecDraft;
   set: SetTool;
 }) {
-  const note = studioAskNote(useContext(ProjectAsks), tool.toolName);
+  const workspace = useContext(WorkspaceContext);
+  const isLoader = draft.tools.t2Loader.trim() === tool.toolName.trim();
   return (
-    <InspectorSection title="Policy" note={note}>
+    <InspectorSection title="Policy" hint={SECTION_HINTS.toolPolicy}>
       <SegmentedRow
         label="Access"
         path="registerTool.access"
@@ -6332,13 +6461,14 @@ function PolicySection({
           set({ permission });
         }}
       />
+      {tool.answeredBy === 'page' || isLoader ? null : <BackgroundRows tool={tool} set={set} />}
       <SegmentedRow
         label="Load tier"
         path="registerTool.loadTier"
         field="loadTier"
         value={tool.loadTier}
         segments={LOAD_TIER_SEGMENTS}
-        warning={loadTierWarning(draft, tool.loadTier)}
+        warning={loadTierWarning(draft, tool, workspace?.allowed)}
         onChange={(loadTier) => {
           set({ loadTier });
         }}
@@ -6412,123 +6542,33 @@ function ToolSpecEditor({
   );
 }
 
-/** Labels' areas, by labels key prefix: what visitors read first, then what the model reads. */
-/** Who reads a line: the visitor, in the chat, or the model, in its context. */
-type LabelAudience = 'visitor' | 'model';
-
-const LABEL_AREAS: readonly {
-  prefix: string;
-  title: string;
-  note: string;
-  icon: IconType;
-  audience: LabelAudience;
-}[] = [
-  {
-    prefix: 'error',
-    title: 'Errors',
-    note: 'When a turn fails.',
-    icon: IconAlertTriangle,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'attachments',
-    title: 'Attachments',
-    note: "When a file can't be sent.",
-    icon: IconPaperclip,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'voice',
-    title: 'Voice',
-    note: "When a voice note can't be recorded or used.",
-    icon: IconMicrophone,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'session',
-    title: 'Session',
-    note: 'Waits, approvals, and signing in.',
-    icon: IconHourglass,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'stop',
-    title: 'Stops',
-    note: 'Why a reply ended short.',
-    icon: IconPlayerStop,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'composer',
-    title: 'Composer',
-    note: 'The model and effort pickers.',
-    icon: IconAdjustmentsHorizontal,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'live',
-    title: 'Live',
-    note: 'When a live session ends.',
-    icon: IconHeadset,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'quota',
-    title: 'Quota',
-    note: 'When the daily limit is reached.',
-    icon: IconGauge,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'tool',
-    title: 'Tools',
-    note: "When a tool call can't run.",
-    icon: IconTool,
-    audience: 'model',
-  },
-  {
-    prefix: 'repair',
-    title: 'Repair',
-    note: 'Fixing a reply that failed its schema.',
-    icon: IconBandage,
-    audience: 'model',
-  },
-  {
-    prefix: 'egress',
-    title: 'Egress',
-    note: 'A reply that fails its check, sent back or refused.',
-    icon: IconSend,
-    audience: 'model',
-  },
-  {
-    prefix: 'continue',
-    title: 'Resumption',
-    note: 'Picking up a reply that stopped short.',
-    icon: IconPlayerTrackNext,
-    audience: 'model',
-  },
-  {
-    prefix: 'canary',
-    title: 'Canary',
-    note: "The note that binds each turn's canary.",
-    icon: IconFeather,
-    audience: 'model',
-  },
-  {
-    prefix: 'taint',
-    title: 'Untrusted content',
-    note: 'Why a tool call was refused after reading it.',
-    icon: IconBiohazard,
-    audience: 'model',
-  },
-  {
-    prefix: 'advisory',
-    title: 'Advisories',
-    note: 'Notes beside content that tries to direct it.',
-    icon: IconInfoCircle,
-    audience: 'model',
-  },
-];
+/** Each labels area's icon. */
+const LABEL_AREA_ICONS: Record<LabelAreaPrefix, IconType> = {
+  error: IconAlertTriangle,
+  attachments: IconPaperclip,
+  voice: IconMicrophone,
+  session: IconHourglass,
+  stop: IconPlayerStop,
+  composer: IconAdjustmentsHorizontal,
+  'detect.blocked': IconShieldOff,
+  thought: IconBulb,
+  live: IconHeadset,
+  quota: IconGauge,
+  tool: IconTool,
+  repair: IconBandage,
+  egress: IconSend,
+  continue: IconPlayerTrackNext,
+  canary: IconFeather,
+  taint: IconBiohazard,
+  advisory: IconInfoCircle,
+  detect: IconShieldSearch,
+  sign_in: IconLogin,
+  user_data: IconUser,
+  context: IconLayersUnion,
+  structured: IconBraces,
+  compaction: IconFold,
+  turn: IconFileOff,
+};
 
 const LABEL_AUDIENCES: readonly {
   value: LabelAudience;
@@ -6683,11 +6723,11 @@ function SharedLabelRow({
         <HStack gap={1} align="center">
           <Text type="supporting">{shared.setting} is off.</Text>
           <Button
-            label={`Open ${profileGraphFacet(facet)?.label ?? facet}`}
+            label={`${draft.included.includes(facet) ? 'Open' : 'Add'} ${profileGraphFacet(facet)?.label ?? facet}`}
             variant="ghost"
             size="sm"
             onClick={() => {
-              // A section left out of the profile has no node to open until it's back in.
+              // why: a section left out of the profile has no node to open until it's added.
               setDraft((current) => includeFacet(current, facet));
               onSelect(facet);
             }}
@@ -6765,7 +6805,7 @@ function LabelsEditor({
 function labelAreas(draft: StudioDraft, needle: string, audience: LabelAudience) {
   return LABEL_AREAS.filter((area) => needle || area.audience === audience)
     .map((area) => {
-      const all = LABEL_KEYS.filter((key) => key.startsWith(`${area.prefix}.`));
+      const all = PROFILE_LABEL_KEYS.filter((key) => labelAreaOf(key) === area);
       const keys = needle
         ? all.filter((key) =>
             [
@@ -6819,7 +6859,7 @@ function LabelAudiencePicker({
 function LabelAreaTrigger({ area }: { area: ReturnType<typeof labelAreas>[number] }) {
   return (
     <HStack gap={2} align="center">
-      <Icon icon={area.icon} size="sm" color="secondary" />
+      <Icon icon={LABEL_AREA_ICONS[area.prefix]} size="sm" color="secondary" />
       <StackItem size="fill">
         <VStack gap={0}>
           <Text type="supporting" weight="semibold" color="primary">
@@ -7269,7 +7309,7 @@ function CriteriaList({
           icon={<Icon icon={IconPlus} size="sm" />}
           isDisabled={question.criteria.length >= (keys?.decision.criteria ?? Infinity)}
           onClick={() => {
-            setCriteria([...question.criteria, ...newCriteria('score').slice(0, 1)]);
+            setCriteria([...question.criteria, newCriterion()]);
           }}
         />
       </HStack>

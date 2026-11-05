@@ -27,6 +27,7 @@ type ToolCallState = NonNullable<ToolCall['state']>;
 const TOOL_CALL_STATE_PHASES = [
   'running',
   'gate',
+  'background',
   'complete',
   'error',
   'cancel',
@@ -57,6 +58,9 @@ const toolCall = z.object({
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
   artifacts: z.array(z.unknown()),
+  get steps() {
+    return z.array(toolCall).optional();
+  },
 });
 true satisfies Equals<z.infer<typeof toolCall>, ToolCall>;
 
@@ -117,6 +121,7 @@ const transcriptBlock = z.discriminatedUnion('kind', [
     })),
   }),
   z.object({ ...blockId, kind: z.literal('guardrail'), guardrail: guardrailEventSchema }),
+  z.object({ ...blockId, kind: z.literal('late-results'), text: z.string() }),
   z.object({ ...blockId, kind: z.literal('error'), message: z.string() }),
   z.object({
     ...blockId,

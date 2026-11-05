@@ -50,12 +50,7 @@ import {
 } from '@theoremjs/web/client';
 import { z } from 'zod';
 import { uncompiled } from './compile.ts';
-import {
-  clearStudioRunPayload,
-  keptStudioRunIds,
-  loadStudioRunPayload,
-  type StudioRunPayload,
-} from './run-payload.ts';
+import type { StudioRunPayload } from './run-payload.ts';
 import { registerStudioTools } from './tools.ts';
 import type { StudioTraceLine } from './traces.ts';
 
@@ -88,14 +83,6 @@ export function studioRunDefines(payload: StudioRunPayload): boolean {
   } catch (err) {
     if (err instanceof TheoremError) return false;
     throw err;
-  }
-}
-
-/** Clears every kept run this package no longer defines. */
-export function clearStaleStudioRuns(store?: Storage | null): void {
-  for (const id of keptStudioRunIds(store)) {
-    const payload = loadStudioRunPayload(id, store);
-    if (!payload || !studioRunDefines(payload)) clearStudioRunPayload(id, store);
   }
 }
 

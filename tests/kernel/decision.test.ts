@@ -570,7 +570,11 @@ Deno.test('decision profile rejects model-selection fields', () => {
   }
 });
 Deno.test('decision profile rejects turn inputs', () => {
-  for (const inputs of [{ text: true }, { slots: { tone: ['plain'] } }, { maxFiles: 1 }]) {
+  for (const inputs of [
+    { text: true },
+    { options: { tone: { choices: [{ value: 'plain' }] } } },
+    { maxFiles: 1 },
+  ]) {
     assertRejects(
       () =>
         Promise.resolve().then(() =>
@@ -953,4 +957,27 @@ Deno.test('a box image the request does not hold, or on another question, makes 
       DecisionError,
       'neither a held image',
     );
+});
+
+const LINK = {
+  traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+  kind: 'retry',
+} as const;
+
+Deno.test("a decision's trace names its project, its conversation, and the trace it follows", async () => {
+  clearProfiles();
+  registerProfile(boxProfile('box-controls'));
+  const records: TraceRecord[] = [];
+  await runDecision(
+    { ...boxRequest('box-controls'), projectId: 'p1', conversationId: 'c1', links: [LINK] },
+    {
+      vault: { slot_a: 'test-key' },
+      sink: memorySink(records),
+      fetch: () => boxReply({ top: 0.1, bottom: 0.5, left: 0.2, right: 0.6 }),
+    },
+  );
+  const root = records[0]?.spans[0];
+  assertEquals(root?.attributes['theorem.project.id'], 'p1');
+  assertEquals(root?.attributes['gen_ai.conversation.id'], 'c1');
+  assertEquals(root?.links.length, 1);
 });

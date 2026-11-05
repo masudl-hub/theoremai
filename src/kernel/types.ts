@@ -25,8 +25,13 @@ import type {
   TurnStopKind,
 } from './schema.ts';
 import type { StageHandler } from './stages.ts';
+import type { ToolBackgroundService } from './tools/background.ts';
 import type { GateDecision } from './tools/gate-answer.ts';
-import type { PageToolExecution, ToolExecutionCoordinator } from './tools/operation.ts';
+import type {
+  PageToolExecution,
+  ToolExecutionCoordinator,
+  ToolOperationOutcome,
+} from './tools/operation.ts';
 import type {
   AgentCall,
   AgentCallHook,
@@ -269,8 +274,35 @@ export interface CompactionSpec {
   trigger?: (ctx: CompactionTriggerContext) => boolean | Promise<boolean>;
 }
 
+/** What every request that runs a model takes: how to stop it, and where its trace goes. */
+export interface RunControls {
+  /** Stops the run when it aborts, and cancels in-flight provider HTTP where the adapter supports it. */
+  signal?: AbortSignal;
+  /** Host-owned metadata preserved on the run's trace records; the kernel does not interpret it. */
+  metadata?: Record<string, unknown>;
+  /**
+   * W3C `traceparent` of the host span this run goes under. The run's root span joins that trace
+   * as its child; without it the run starts a new trace. A malformed value throws.
+   */
+  traceparent?: string;
+  /** Your project id, recorded on the trace. */
+  projectId?: string;
+  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
+  conversationId?: string;
+  /** Earlier traces this run follows. */
+  links?: TurnTraceLink[];
+}
+
+/** Which of the profile's models a run uses, and how hard it thinks. */
+export interface ModelChoice {
+  /** Selected model id when `profile.allowModelSelect` is true. */
+  model?: ModelId;
+  /** Selected effort alias when the binding has `allowEffortSelect`. */
+  effort?: string;
+}
+
 /** `compactHistory` input, for `timing: 'after'`: the host passes back what `done.compaction` carried. */
-export interface CompactHistoryRequest {
+export interface CompactHistoryRequest extends RunControls {
   /** The profile whose model binding carries the `compaction` spec. */
   profile: ProfileId;
   /** That binding; defaults to the profile's `defaultModel`. */
@@ -278,10 +310,6 @@ export interface CompactHistoryRequest {
   history: TurnHistoryMessage[];
   /** `done.compaction.tokens`: a failed compactor drops `toCompact` only when this is over `maxTokens`. */
   tokens: number;
-  signal?: AbortSignal;
-  traceparent?: string;
-  conversationId?: string;
-  metadata?: Record<string, unknown>;
 }
 
 /** A structured-output schema given inline. */
@@ -336,8 +364,8 @@ export interface AttachmentValidationIssue {
   fileName?: string;
 }
 
-/** Picks the structured-output schema by the value of a turn slot, with a fallback. */
-export interface StructuredBySlot {
+/** Picks the structured-output schema by the value of a turn's option, with a fallback. */
+export interface StructuredByOption {
   by: string;
   map: Record<string, string>;
   fallback: string;
@@ -354,7 +382,7 @@ export interface ValidationResult {
 /** A host function that checks one structured-output field. */
 export type ProfileValidator = (
   candidate: unknown,
-  slots?: Record<string, string>,
+  options?: Readonly<Record<string, string>>,
 ) => ValidationResult | Promise<ValidationResult>;
 
 /** A tool call the turn completed, as an item check reads it. */
@@ -366,7 +394,8 @@ export interface TurnToolResult {
 
 /** What an item check reads of the turn whose reply it is checking. */
 export interface ItemCheckTurn {
-  slots?: Record<string, string>;
+  /** The value of each option the turn set. */
+  options?: Readonly<Record<string, string>>;
   /** Every tool call the turn completed, in order, across its attempts. */
   toolResults: readonly TurnToolResult[];
 }
@@ -529,26 +558,20 @@ export interface ProfileModelFields {
   maxSteps?: number;
 }
 
-/**
- * One allowed value for an `inputs.slots` entry. `value` is what the turn sends and what
- * `{name}` fills; optional `description` is visitor-facing UI copy only.
- */
-export interface SlotChoice {
+/** One value an option can take. `description` is what a picker shows beside it. */
+export interface OptionChoice {
   value: string;
   description?: string;
 }
 
-/**
- * One named slot: optional group `label` for the UI, and its choices. A bare `string[]` is
- * still accepted on define and normalized to `{ choices: [{ value }] }`.
- */
-export interface SlotDecl {
+/** One named option: its `label` for a picker, and the values it can take. */
+export interface OptionDecl {
   label?: string;
-  choices: SlotChoice[];
+  choices: OptionChoice[];
 }
 
-/** Authoring form for one slot: legacy value list, or a labeled declaration. */
-export type SlotDeclInput = string[] | SlotDecl;
+/** A profile's options by name. Which object holds them says who drives them. */
+export type ProfileOptions = Readonly<Record<string, OptionDecl>>;
 
 /** What a profile accepts as input. */
 export interface ProfileInputsSpec {
@@ -559,12 +582,13 @@ export interface ProfileInputsSpec {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, SlotDeclInput>;
+  /** The options a person picks: a host shows each one as a picker. */
+  options?: ProfileOptions;
   context?: ProfileContextSpec;
 }
 
 /** What a live profile declares beside its ingress channels. */
-export type LiveInputsSpec = Pick<ProfileInputsSpec, 'slots' | 'context'>;
+export type LiveInputsSpec = Pick<ProfileInputsSpec, 'options' | 'context'>;
 
 /** Who may send a turn its context, and how much. */
 export interface ProfileContextSpec {
@@ -577,7 +601,7 @@ export type TurnContext = Partial<Record<ContextSender, unknown>>;
 
 /** What a profile returns: its structured schema, validation, and streaming. */
 export interface ProfileOutputsSpec {
-  structured?: StructuredSchemaId | StructuredBySlot | null;
+  structured?: StructuredSchemaId | StructuredByOption | null;
   validation?: ProfileValidationSpec;
   streaming?: ProfileStreamingSpec;
 }
@@ -597,6 +621,12 @@ export type SystemPart = string | PrivateSystemPart;
  */
 export type SystemPrompt = string | readonly SystemPart[];
 
+/** One line of a profile's prompt: text, or parts kept together. A leading `when` decides it. */
+export type SystemLine = string | readonly SystemPart[];
+
+/** A profile's prompt: a string, or lines. Every line that fits is sent, a blank line apart. */
+export type ProfileSystem = string | readonly SystemLine[];
+
 /** A stretch of the system prompt as sent, and whether a reply may repeat it. */
 export interface SystemPiece {
   text: string;
@@ -606,8 +636,9 @@ export interface SystemPiece {
 /** A profile's handle and system prompt. */
 export interface ProfileIdentity {
   handle: string;
-  system?: SystemPrompt;
-  systemByRole?: Record<string, SystemPrompt>;
+  /** The options the host's code states. A person never sees them. */
+  options?: ProfileOptions;
+  system?: ProfileSystem;
 }
 
 /** The fields every profile type shares. */
@@ -713,7 +744,7 @@ export interface DecisionAsset {
 }
 
 /** A request to `runDecision`: the profile, the state to judge, and the questions to answer. */
-export interface DecisionRequest {
+export interface DecisionRequest extends RunControls {
   profile: ProfileId;
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
@@ -724,15 +755,6 @@ export interface DecisionRequest {
    * references are sent, so pick references that cannot occur in your text by accident.
    */
   assets?: Record<string, DecisionAsset>;
-  signal?: AbortSignal;
-  /** Host-owned metadata preserved on the decision's trace record; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this decision runs under. The `decide`
-   * root joins that trace as its child; without it the decision starts a new
-   * trace. A malformed value throws.
-   */
-  traceparent?: string;
 }
 
 /** The model's answer to one decision question. */
@@ -795,14 +817,11 @@ export interface EmbeddingProfile extends Omit<ProfileCommon, 'identity' | 'outp
 export type EmbeddingTask = 'query' | 'document';
 
 /** A request to `runEmbedding`. */
-export interface EmbeddingRequest {
+export interface EmbeddingRequest extends RunControls {
   profile: ProfileId;
   model?: ModelId;
   input: EmbeddingInput | readonly EmbeddingInput[];
   task?: EmbeddingTask;
-  signal?: AbortSignal;
-  metadata?: Record<string, unknown>;
-  traceparent?: string;
 }
 
 /** One vector returned for one ordered embedding input. */
@@ -861,6 +880,23 @@ export interface SpeechProfile extends Omit<ProfileCommon, 'identity'> {
   turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
+/** A transcription profile's inputs: voice clips within byte limits, and no text. */
+export type TranscriptionInputsSpec = Required<Pick<ProfileInputsSpec, 'voice'>> &
+  Pick<ProfileInputsSpec, 'maxFiles' | 'maxBytes' | 'maxTurnBytes' | 'limitsByMime'>;
+
+/**
+ * Speech to text: a voice clip in, what was said out as the turn's text. No tools, no system
+ * prompt, and no canary, because the model follows no instruction and has nothing of the profile's to leak.
+ */
+export interface TranscriptionProfile
+  extends Omit<ProfileCommon, 'identity' | 'outputs' | 'maxSteps'> {
+  type: 'transcription';
+  identity: Pick<ProfileIdentity, 'handle'>;
+  inputs: TranscriptionInputsSpec & { text: false };
+  outputs?: undefined;
+  maxSteps?: undefined;
+}
+
 /** A profile that holds a live audio session. */
 export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
@@ -892,6 +928,7 @@ export type Profile =
   | TextProfile
   | ImageProfile
   | SpeechProfile
+  | TranscriptionProfile
   | LiveProfile
   | DecisionProfile
   | EmbeddingProfile
@@ -941,16 +978,18 @@ export interface TurnRepairRequest {
   guidance?: string;
 }
 
-/** What the user sent for a turn: text, slots, attachments, voice, and history. */
+/** What the user sent for a turn: text, options, attachments, voice, and history. */
 export interface TurnInput {
   text?: string;
-  role?: string;
-  slots?: Record<string, string>;
+  /** The value picked for each of the profile's `inputs.options`. */
+  options?: Readonly<Record<string, string>>;
   /** What the page or the host wants the model to know, by sender; the profile's `inputs.context` allows it. */
   context?: TurnContext;
   attachments?: Array<TurnBlob | TurnMediaRef>;
   voice?: TurnBlob[];
   history?: TurnHistoryMessage[];
+  /** Tool calls that settled after their turn, as the host stored them. Each counts as read in this reply. */
+  lateResults?: ToolOperationOutcome[];
   repair?: TurnRepairRequest;
   /**
    * Optional host-supplied history token count for `meter: 'history'`.
@@ -981,22 +1020,13 @@ export interface TurnTraceLink {
   stop?: TurnStopKind;
 }
 
-/** A request to `runTurn`: the profile, the input, and the host's hooks and keys. */
-export interface TurnRequest {
+/** What `runTurn` and `runSession` both take: an agent's profile, its model, and the host's hooks and keys. */
+export interface AgentRunRequest extends RunControls, ModelChoice {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundService;
   pageExecution?: PageToolExecution;
   providerState?: ProviderCheckpoint;
   profile: ProfileId;
-  projectId?: string;
-  /**
-   * Sticky routing / cache session key for OpenRouter (`session_id`).
-   * Not the same as `projectId` or Gemini `previousInteractionId`.
-   */
-  sessionId?: string;
-  /** Selected model id when `profile.allowModelSelect` is true. */
-  model?: ModelId;
-  /** Selected effort alias when the binding has `allowEffortSelect`. */
-  effort?: string;
   /**
    * Args for built-in tools on the chosen model's `builtInTools`, by tool id.
    * Each is parsed by the schema the provider's adapter declares for that tool.
@@ -1004,33 +1034,49 @@ export interface TurnRequest {
   builtInArgs?: BuiltInArgs;
   /** Host-provided dynamic system prompt combined with profile persona */
   system?: SystemPrompt;
-  /** This turn's voice, style, and speed, over `profile.speech`. Speech profiles only. */
-  speech?: TurnSpeech;
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;
-  /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this turn runs under. The turn's root
-   * span joins that trace as its child; without it the turn starts a new trace.
-   * A malformed value throws.
-   */
-  traceparent?: string;
-  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  links?: TurnTraceLink[];
+  /** This run's value for each of `profile.identity.options` it sets; `path` is the run's own. */
+  options?: Readonly<Record<string, string>>;
   /**
    * Opaque application context handed to tool `handler` / `preTool` and
    * `tools.t1Policy` as `ctx.host`. The kernel never reads, logs, traces, or
    * serializes it.
    */
   host?: unknown;
+  /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
+  credentials?: ToolCredentialSource;
   /**
-   * Optional abort signal. When aborted, THEOREM stops the turn and cancels
-   * in-flight provider HTTP where the adapter supports it.
+   * Resolves remote tool and OAuth host names before each request; a name that
+   * resolves to a private address is refused (see `fetchGuarded`).
    */
-  signal?: AbortSignal;
+  resolveHost?: ResolveHost;
+  /**
+   * Sends each request a remote tool makes (HTTP, MCP, a signed-in fetch, an image read), once
+   * that request's network checks pass. A page whose tools cannot reach a host directly sends them
+   * through its own server here. Default: the global `fetch`.
+   */
+  fetch?: typeof fetch;
+  /** Text `runTurn` and `runSession` emit stages and apply the returned affordances. A session's is set once. */
+  onStage?: StageHandler;
+  /**
+   * Runs before each agent tool call in this run, and in the turns those
+   * calls run. Shape the called agent's request (history, model, provider) or
+   * refuse the call. Omit it: the agent runs on what the model sent.
+   */
+  onAgentCall?: AgentCallHook;
+}
+
+/** A request to `runTurn`: the shared controls and the turn's input. */
+export interface TurnRequest extends AgentRunRequest {
+  /**
+   * Sticky routing / cache session key for OpenRouter (`session_id`).
+   * Not the same as `projectId` or Gemini `previousInteractionId`.
+   */
+  sessionId?: string;
+  /** This turn's voice, style, and speed, over `profile.speech`. Speech profiles only. */
+  speech?: TurnSpeech;
   /**
    * Continue a prior resumeable stop. On text profiles the turn's user message
    * is the continue instruction (no `input.text`); the host passes the partial
@@ -1043,22 +1089,29 @@ export interface TurnRequest {
    * Compared to `profile.turnBehaviour.resumption.maxContinues` when that cap is set.
    */
   continuation?: number;
+  /**
+   * Tools this reply already had when an earlier run of it paused. The turn opens with them on its
+   * list, so an answered call does not take back what the model loaded. An id `tools.allow` or the
+   * path does not grant is left out, as for `tools.t1Policy`.
+   */
+  promoted?: ToolId[];
+  /**
+   * Steps this reply already took when an earlier run of it paused. They count against `maxSteps`,
+   * so an answered call does not give the reply its steps back. Read `done.steps`.
+   */
+  stepsTaken?: number;
+  /**
+   * Reads each of this turn's events as it leaves `runTurn`, before the caller gets it. The app
+   * sets it in `TurnWiring.prepare` to act on a turn someone else runs, such as saving the reply
+   * when `done` arrives. A throw ends the turn with that error. `invokeTool` does not call it.
+   */
+  onEvent?: (event: TurnEvent) => void | Promise<void>;
+  /**
+   * Set on the turn `TurnWiring.prepare` is given for a held call that goes on once answered. No
+   * model runs and `input` is the paused turn's, so it is not a new message.
+   */
+  answersHeldCall?: true;
   input?: TurnInput;
-  /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
-  credentials?: ToolCredentialSource;
-  /**
-   * Resolves remote tool and OAuth host names before each request; a name that
-   * resolves to a private address is refused (see `fetchGuarded`).
-   */
-  resolveHost?: ResolveHost;
-  /** Text `runTurn` emits stages and applies the returned affordances. */
-  onStage?: StageHandler;
-  /**
-   * Runs before each agent tool call in this turn, and in the turns those
-   * calls run. Shape the called agent's request (history, model, provider) or
-   * refuse the call. Omit it: the agent runs on what the model sent.
-   */
-  onAgentCall?: AgentCallHook;
 }
 
 /**
@@ -1074,8 +1127,8 @@ export interface TurnWiring {
   /**
    * The turn the application runs, from the one it is given: the profile, the input with the
    * conversation's history, and the application's context as `host`. Set what the application
-   * sets per turn, such as `system`, `credentials`, `onStage`, `onAgentCall`, `path` and
-   * `metadata`. Text, image and speech turns run through it.
+   * sets per turn, such as `system`, `credentials`, `onStage`, `onEvent`, `onAgentCall`, `path`
+   * and `metadata`. Text, image and speech turns run through it.
    */
   prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
 }
@@ -1121,6 +1174,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   execution?: ToolExecutionCoordinator;
   pageExecution?: PageToolExecution;
   transport: ProviderTransport;
+  /** The protocol's `gen_ai.operation.name` for this profile type; absent when no provider is registered for the binding. */
+  operationName?: string;
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
@@ -1139,6 +1194,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   canary: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
   resolvedSystem: readonly SystemPiece[];
+  /** Which of the profile's prompt lines fit this turn, by number from 1. */
+  systemLines: readonly number[];
   /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
   host?: unknown;
 }
@@ -1157,6 +1214,8 @@ export interface ModelRequest extends Omit<ProviderGenerationConfig, 'summaries'
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
+  /** Live: the fenced context the session opens with, seeded after `history` so it lands before any input. */
+  context?: string[];
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
   /** Host abort signal. */
@@ -1172,20 +1231,12 @@ export interface TurnModel {
  * Host request to open a long-lived live session (`runSession`).
  * Profile must be `type: 'live'`.
  */
-export interface SessionRequest {
-  providerState?: ProviderCheckpoint;
-  profile: ProfileId;
-  /** Host-built system prompt merged with profile identity.system. */
-  system?: SystemPrompt;
+export interface SessionRequest extends AgentRunRequest {
   /** Override `profile.live.voice` for this session. */
   voice?: string;
-  /** As `TurnRequest.builtInArgs`. */
-  builtInArgs?: BuiltInArgs;
-  path?: string;
-  sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
-  /** The value chosen for each of the profile's `inputs.slots`. */
-  slots?: Record<string, string>;
+  /** The value picked for each of the profile's `inputs.options`. */
+  inputOptions?: Record<string, string>;
   /** What the page and the host tell the agent as the call opens; `sendContext` replaces it later. */
   context?: TurnContext;
   /** How long the caller was away before this resume, in milliseconds. The session keeps no clock across calls. */
@@ -1200,38 +1251,6 @@ export interface SessionRequest {
    * `tools.allow`; ids outside it are refused.
    */
   snapshot?: TurnToolSnapshot;
-  signal?: AbortSignal;
-  /** Host-owned metadata preserved on every record the session writes. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this session runs under. The session's
-   * root span joins that trace as its child; without it the session starts a
-   * new trace. A malformed value throws.
-   */
-  traceparent?: string;
-  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  links?: TurnTraceLink[];
-  /** Immutable for the session; there is no `setOnStage`. */
-  onStage?: StageHandler;
-  /**
-   * As `TurnRequest.onAgentCall`, for the agent tools this session's calls run.
-   * Omit it: each agent runs on what the model sent, with the session's own
-   * provider options.
-   */
-  onAgentCall?: AgentCallHook;
-  /**
-   * Default credentials for `executeTool` (per-call args override). Without one, the
-   * session keeps keys typed at its sign-in gates in memory.
-   */
-  credentials?: ToolCredentialSource;
-  /**
-   * Resolves remote tool and OAuth host names before each request; a name that
-   * resolves to a private address is refused (see `fetchGuarded`).
-   */
-  resolveHost?: ResolveHost;
-  /** Opaque host slot for stages / tool execute (per-call args override). */
-  host?: unknown;
 }
 
 /**

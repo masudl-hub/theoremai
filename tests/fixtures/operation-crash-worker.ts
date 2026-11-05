@@ -33,6 +33,7 @@ const handler = createTheoremHostHandler({
   profile: { id: name, type: 'host', tools: { allow: [name] } },
   session: () => name,
   sessionStore: {
+    capacity: durable.capacity,
     load: durable.load,
     async compareAndSwap(id, revision, state) {
       if (

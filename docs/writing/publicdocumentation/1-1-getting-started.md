@@ -191,7 +191,7 @@ In Theorem, a runtime request can **never** exceed what the profile declares:
 
 1. **Model Selection**: If a client request sends `{ model: 'gpt-4o' }`, Theorem refuses the request immediately unless the profile explicitly sets `allowModelSelect: true`.
 2. **Tool Scope**: The model can only see and execute tools explicitly listed in `tools.allow`.
-3. **Inputs & Slots**: Input text, attachments, voice clips, or context slots are rejected if the profile does not explicitly declare them.
+3. **Inputs & Options**: Input text, attachments, voice clips, options, or context are rejected if the profile does not explicitly declare them.
 
 ### What Happens When a Request Overreaches?
 

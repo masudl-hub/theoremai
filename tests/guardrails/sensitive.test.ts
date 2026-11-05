@@ -376,6 +376,10 @@ Deno.test('sensitiveSpans finds an account number only after its label', () => {
     'Sort Code: 11-11-11',
     'my account number is 123456-ABC',
     'Kontonummer 1234567890',
+    '<tr><th>bank_account_number</th><td>UTUN74778455481443</td></tr>',
+    "the sender's bank account number (484132878).",
+    '**Account Numbers:** R29776850329, Y29879355007',
+    'Mr Sam Barker, ACCT-6226419299, ECOM-347',
   ]) {
     assertEquals({ text, found: found(text, 'bank_account').length }, { text, found: 1 });
   }
@@ -384,8 +388,66 @@ Deno.test('sensitiveSpans finds an account number only after its label', () => {
     'Account Number: DE89370400440532013000',
     'account no. 1234',
     ':50A/CDE\n:57A20220512',
+    'BAI2:205:1:1:ACCT-INFO:20230222:100000000',
+    '<international_bank_account_number type="str">GB13DLQO92229868212609</international_bank_account_number><Version type="str">2014-09-01</Version>',
+    '- Account Number:\n- SSN: 334-50-6496',
   ]) {
     assertEquals({ text, found: found(text, 'bank_account') }, { text, found: [] });
+  }
+});
+
+Deno.test('sensitiveSpans finds a labelled account number written in spaced groups, whole', () => {
+  assertEquals(found('Account Number: 4401 2273 99', 'bank_account'), [
+    'Account Number: 4401 2273 99',
+  ]);
+  assertEquals(found('account number DE89 3704 0044 0532 0130 00', 'bank_account'), []);
+});
+
+Deno.test('sensitiveSpans finds an IBAN only when its check digits hold, run together or in groups of four', () => {
+  for (const iban of [
+    'DE89370400440532013000',
+    'DE89 3704 0044 0532 0130 00',
+    'GB82 WEST 1234 5698 7654 32',
+    'NO9386011117947',
+  ]) {
+    assertEquals(found(`IBAN ${iban} paid`, 'financial'), [iban]);
+  }
+  for (const text of [
+    'DE89370400440532013001',
+    'DE89 3704 0044 0532 0130 01',
+    'GB00WEST12345698765432',
+  ]) {
+    assertEquals({ text, found: found(text, 'financial') }, { text, found: [] });
+  }
+});
+
+Deno.test('sensitiveSpans finds an undashed SSN, ITIN or EIN after the field name that says which', () => {
+  for (const text of [
+    'ssn: 123456789',
+    'TIN 912-70-1234',
+    'EIN 123456789',
+    'tax_id="12-3456789"',
+    'Social Security Number 123 45 6789',
+    'My EIN is 123456789',
+    'SSN on file: 123-45-6789',
+    '<tr><th>taxid</th><td>974898687</td></tr>',
+    '<nationalidentity type="str">655347485</nationalidentity>',
+    'SSN (for identification purposes only): 173689255',
+    'National ID Number: 901236587',
+    'My tax number is 987654321',
+  ]) {
+    assertEquals({ text, found: found(text, 'ids').length > 0 }, { text, found: true });
+  }
+  for (const text of [
+    'Martin 123456789',
+    'protein 123456789',
+    'order 123456789',
+    'EIN 1234567890',
+    'EIN for the old shop was 123456789',
+    'National Park 123456789',
+    '<th>order</th><td>974898687</td>',
+  ]) {
+    assertEquals({ text, found: found(text, 'ids') }, { text, found: [] });
   }
 });
 

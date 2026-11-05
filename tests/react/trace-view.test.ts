@@ -159,6 +159,9 @@ Deno.test('a value shows by its catalog format first, then by its shape', () => 
   assertEquals(traceValueShape(undefined, 3), { kind: 'scalar', value: 3 });
   assertEquals(traceValueShape(undefined, false), { kind: 'scalar', value: false });
   assertEquals(traceValueShape(undefined, ['a', 'b']), { kind: 'list', value: ['a', 'b'] });
+  const lines = traceAttributeMeta('theorem.turn.system_lines');
+  assertEquals(traceValueShape(lines, [1, 3]), { kind: 'list', value: ['1', '3'] });
+  assertEquals(traceValueShape(undefined, [1, 3]), { kind: 'stored' });
   assertEquals(traceValueShape(undefined, { a: 1 }), { kind: 'stored' });
   const fields = {
     a: { label: 'A', doc: 'The a.', format: 'text' as const, group: 'record' as const },

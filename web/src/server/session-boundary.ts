@@ -24,8 +24,11 @@ import {
 import { checkRequest } from './request-check.ts';
 import { sessionStateStore } from './session-authority.ts';
 import { theoremSession } from './session-identity.ts';
-import { resolveSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
-import { DEFAULT_OPERATION_RETENTION_MS, type TheoremSessionStore } from './session-store.ts';
+import {
+  DEFAULT_OPERATION_RETENTION_MS,
+  detachedReply,
+  type TheoremSessionStore,
+} from './session-store.ts';
 import { sessionToolCoordinator } from './tool-operations.ts';
 import { liveSessionOpen } from './turn-input.ts';
 
@@ -35,13 +38,16 @@ export interface SessionBoundaryOptions {
   sessionStore: TheoremSessionStore;
   gateTtlMs?: number;
   operationRetentionMs?: number;
-  sessionLimits?: Partial<TheoremSessionLimits>;
+  /** As `TheoremHandlerOptions.pageStatesTurn`: refuses a live call's `stated` unless set. */
+  pageStatesTurn?: boolean;
   pageToolBroker?: PageToolBroker;
+  /** How long the page has to answer a tool call it runs, in milliseconds. Unset, it waits. */
+  pageToolTimeoutMs?: number;
 }
 
 export type PreparedLiveOpen = Pick<
   SessionRequest,
-  'history' | 'slots' | 'context' | 'providerState' | 'awayMs'
+  'history' | 'inputOptions' | 'context' | 'providerState' | 'awayMs' | 'path' | 'options'
 >;
 
 export interface TheoremSessionBoundary {
@@ -70,12 +76,10 @@ export async function createTheoremSessionBoundary(
   const retention = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
   if (!Number.isSafeInteger(retention) || retention <= 0)
     throw new TheoremError('config', labelText('error.config'));
-  const limits = resolveSessionLimits(options.sessionLimits);
   const store = sessionStateStore(
     options.sessionStore,
     resolveGateTtlMs('session boundary', options.gateTtlMs),
     retention,
-    limits,
   );
   // invariant: Refuse unavailable or malformed authority before an upstream connection opens.
   await store.read(id);
@@ -83,6 +87,7 @@ export async function createTheoremSessionBoundary(
     store,
     id,
     options.pageToolBroker ?? createMemoryPageToolBroker(),
+    options.pageToolTimeoutMs,
   );
   return {
     pageExecution: page.execution,
@@ -92,6 +97,9 @@ export async function createTheoremSessionBoundary(
     toolExecution: sessionToolCoordinator(store, id),
     async prepareLiveOpen(raw, server) {
       const open = checkRequest(liveOpenMessageSchema, raw, 'live open');
+      if (open.stated && !options.pageStatesTurn) {
+        throw new TheoremError('request', labelText('error.request'));
+      }
       const prepared = liveSessionOpen(open, server);
       const state = await store.read(id);
       const providerState = await requireOwnedCheckpoint(
@@ -101,7 +109,9 @@ export async function createTheoremSessionBoundary(
       );
       if (
         providerState &&
-        Object.values(state.operations).some((operation) => operation.status !== 'settled')
+        Object.values(state.operations).some(
+          (operation) => operation.status !== 'settled' && !detachedReply(operation),
+        )
       ) {
         throw new TheoremError(
           'conflict',
@@ -129,11 +139,9 @@ export async function createTheoremSessionBoundary(
     async recordCheckpoint(checkpoint) {
       const identity = await checkpointIdentity(checkpoint);
       await store.mutate(id, async (state) => {
-        state.providerCheckpoints = retainedCheckpointIdentities(
-          state.providerCheckpoints,
-          [await checkpointOwnershipKey(identity, state.operations)],
-          limits.maxCheckpoints,
-        );
+        state.providerCheckpoints = retainedCheckpointIdentities(state.providerCheckpoints, [
+          await checkpointOwnershipKey(identity, state.operations),
+        ]);
       });
     },
   };

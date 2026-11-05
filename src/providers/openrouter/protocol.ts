@@ -22,6 +22,60 @@ const cache: z.ZodType<CacheSpec> = z
   })
   .describe('Prompt caching, for models that support it.');
 
+// labels-exempt: builder field description, read by the studio and docs
+const routing: z.ZodType<OpenRouterRouting> = z
+  .strictObject({
+    only: z
+      .array(z.string())
+      .optional()
+      .describe('Upstream endpoints to allow, by slug, such as `gmicloud/fp8`.'),
+    order: z.array(z.string()).optional().describe('Upstream endpoints to try first, in order.'),
+    ignore: z.array(z.string()).optional().describe('Upstream endpoints to skip.'),
+    allow_fallbacks: z
+      .boolean()
+      .optional()
+      .describe('Whether another upstream may answer when the listed ones cannot.'),
+    require_parameters: z
+      .boolean()
+      .optional()
+      .describe('Whether every upstream must support every supplied parameter. Unset: on.'),
+    data_collection: z
+      .enum(['allow', 'deny'])
+      .optional()
+      .describe('Whether an upstream that may store and train on data can answer.'),
+    zdr: z.boolean().optional().describe('Use only endpoints with zero data retention.'),
+    enforce_distillable_text: z
+      .boolean()
+      .optional()
+      .describe('Use only models whose authors allow text distillation.'),
+    quantizations: z
+      .array(z.string())
+      .optional()
+      .describe('Quantization levels to allow, such as `fp8`.'),
+    sort: z
+      .union([z.string(), z.strictObject({ by: z.string(), partition: z.string().optional() })])
+      .optional()
+      .describe('What to order upstreams by: `price`, `throughput` or `latency`.'),
+    preferred_min_throughput: z
+      .union([z.number(), jsonObjectSchema])
+      .optional()
+      .describe('Tokens per second below which an upstream is tried later.'),
+    preferred_max_latency: z
+      .union([z.number(), jsonObjectSchema])
+      .optional()
+      .describe('Seconds above which an upstream is tried later.'),
+    max_price: z
+      .strictObject({
+        prompt: z.number().optional().describe('The most to pay per million input tokens.'),
+        completion: z.number().optional().describe('The most to pay per million output tokens.'),
+        request: z.number().optional().describe('The most to pay per request.'),
+        image: z.number().optional().describe('The most to pay per image.'),
+      })
+      .optional()
+      .describe('The prices above which an upstream is refused.'),
+  })
+  .describe('Which upstreams OpenRouter may route to. Absent: its own choice.');
+
 /** What OpenRouter's reasoning comes back as, to be sent back word for word. */
 const reasoning = z.strictObject({
   details: z.array(jsonObjectSchema),
@@ -108,6 +162,24 @@ function thinking(row: JsonObject): string {
 /** What an `openRouterOpenAi` binding sets in `options`. */
 export interface OpenRouterOptions {
   cache?: CacheSpec;
+  provider?: OpenRouterRouting;
+}
+
+/** OpenRouter's own `provider` request field, under its own names. */
+export interface OpenRouterRouting {
+  only?: string[];
+  order?: string[];
+  ignore?: string[];
+  allow_fallbacks?: boolean;
+  require_parameters?: boolean;
+  data_collection?: 'allow' | 'deny';
+  zdr?: boolean;
+  enforce_distillable_text?: boolean;
+  quantizations?: string[];
+  sort?: string | { by: string; partition?: string };
+  preferred_min_throughput?: number | JsonObject;
+  preferred_max_latency?: number | JsonObject;
+  max_price?: { prompt?: number; completion?: number; request?: number; image?: number };
 }
 
 /** Chat Completions with OpenRouter's caching, routing, web search, citations, and reasoning. */
@@ -116,12 +188,15 @@ export const openRouterOpenAi: Protocol<OpenRouterOptions> = extendProtocol(open
   name: 'OpenRouter Chat Completions',
   description:
     "Chat Completions with OpenRouter's caching, routing, web search, citations and reasoning.", // labels-exempt: builder field description, read by the studio and docs
-  options: z.strictObject({ cache: cache.optional() }),
+  options: z.strictObject({ cache: cache.optional(), provider: routing.optional() }),
   reasoning,
   body(body, at) {
     // why: its fields are Chat Completions ones; a speech request goes as openAi sends it.
     if (at.profileType !== 'text') return { body };
-    const out: JsonObject = { ...body, provider: { require_parameters: true } };
+    const out = {
+      ...body,
+      provider: { require_parameters: true, ...at.options.provider },
+    } as JsonObject;
     if (out.reasoning_effort !== undefined) {
       out.reasoning = { effort: out.reasoning_effort };
       delete out.reasoning_effort;

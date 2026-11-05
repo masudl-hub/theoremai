@@ -22,7 +22,7 @@ import {
   TAINT_GATES,
 } from '../guardrails/types.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
-import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
+import { isProfileRootField, profileFieldScope, profileKeysOf, valuesAt } from './profile-scope.ts';
 
 export { BLOCKED_REPLY_ON_BLOCK, type BlockedReplyOnBlock };
 /** The kinds of profile: each fixes which fields and models a profile may use. */
@@ -30,6 +30,7 @@ export const PROFILE_TYPES = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
   'embedding',
@@ -138,6 +139,8 @@ export const TURN_STOP_KINDS = [
   'stream_incomplete',
   /** The turn made its last allowed model call and that call asked for tools: there is no answer. */
   'step_limit',
+  /** The model finished without calling the answer tool, and no repair was left. */
+  'answer_missing',
   'interrupted',
   /** Live: model finished generating audio/text for this utterance; turn may still be open. */
   'generation_complete',
@@ -151,7 +154,12 @@ export const ITEM_FAIL_ACTIONS = ['drop', 'fix'] as const;
 /** One of {@linkcode STEP_LIMIT_MODES}. */
 export type StepLimitMode = (typeof STEP_LIMIT_MODES)[number];
 /** Every other stop resumes by another host path, or not at all. */
-export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
+export const CONTINUE_STOP_KINDS = [
+  'length',
+  'stream_incomplete',
+  'provider_error',
+  'answer_missing',
+] as const;
 /** One of {@linkcode CONTINUE_STOP_KINDS}. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
 /** The points in a turn where a stage handler runs. */
@@ -381,9 +389,9 @@ function field(
 export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
-  'identity.systemByRole',
   'labels',
-  'inputs.slots',
+  'inputs.options',
+  'identity.options',
   'inputs.limitsByMime',
   'outputs.validation.fields',
   'outputs.validation.items',
@@ -645,14 +653,16 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
   ),
   'profile.type': field(
-    "'text' | 'image' | 'speech' | 'live' | 'decision' | 'embedding' | 'host'",
-    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision, embedding, or host.',
+    "'text' | 'image' | 'speech' | 'transcription' | 'live' | 'decision' | 'embedding' | 'host'",
+    'What kind of agent this is, and so what each call gives back: text, image, speech, transcription, live, decision, embedding, or host.',
     PROFILE_TYPES,
     {
       text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',
       image: 'Makes pictures from a prompt, in the shape, size, and format the image block sets.',
       speech:
         'Gives your app a voice. Each turn reads text aloud in the voice the speech block names.',
+      transcription:
+        'Turns a voice clip into text. Each turn takes one clip and gives back what was said.',
       live: 'For talking in real time. One continuous voice and video session, rather than separate turns.',
       decision:
         'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score, or a number.',
@@ -661,24 +671,37 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     },
   ),
   identity: field(
-    '{ handle, system?, systemByRole? }',
+    '{ handle, options?, system? }',
     "The agent's display name and the system instruction it is given.",
   ),
   'identity.handle': field(
     'string',
-    'The name hosts and users see for this agent, at most 32 characters; the model never sees it. It is also the role a turn gets when it names none, so identity.systemByRole may hold an entry under it.',
+    'The name hosts and users see for this agent, at most 32 characters; the model never sees it.',
+  ),
+  'identity.options': field(
+    'Record<string, OptionDecl>',
+    'The options the host\'s code sets on runTurn, which a person never sees. A line of identity.system reads one as "when plan is free: …" and prints it as {plan}. One named path holds the turn\'s path.',
+  ),
+  'identity.options.*': field(
+    'OptionDecl',
+    '{ label?, choices: { value, description? }[] }, the same shape as inputs.options.*.',
+  ),
+  'identity.options.*.label': field(
+    'string',
+    "A person-readable title. Omit to show the option's name.",
+  ),
+  'identity.options.*.choices': field('OptionChoice[]', 'The values this option can take.'),
+  'identity.options.*.choices.*.value': field(
+    'string',
+    'The value the code sets, which `when` reads and {name} prints.',
+  ),
+  'identity.options.*.choices.*.description': field(
+    'string',
+    'What this value means. It is never sent to the model.',
   ),
   'identity.system': field(
-    'string | Array<string | { private: string }>',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; some providers send it for an image profile only with includeText on. Mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
-  ),
-  'identity.systemByRole': field(
-    'Record<string, string | Array<string | { private: string }>>',
-    'Other system instructions, picked by the role a turn names.',
-  ),
-  'identity.systemByRole.*': field(
-    'string | Array<string | { private: string }>',
-    'The instruction that replaces identity.system when a turn names this role.',
+    'string | Array<string | Array<string | { private: string }>>',
+    'The instruction the model gets, as one string or a list of lines; some providers send it for an image profile only with includeText on. A line that opens "when plan is free: …" goes only on turns where that fits, and every line that fits is sent, a blank line apart. A line can be a list of parts; mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
   ),
   models: field(
     'Record<ModelId, ModelBinding | DecisionModelBinding>',
@@ -889,7 +912,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     ATTACHMENT_ACCEPT_MIMES,
     "Types the kernel knows; a listed type it doesn't know is refused when a turn sends it.",
   ),
-  'inputs.voice': field('{ accept: string[] }', 'Lets turns send voice clips.'),
+  'inputs.voice': field(
+    '{ accept: string[] }',
+    'Lets turns send voice clips. A transcription profile must set it.',
+  ),
   'inputs.voice.accept': field(
     'string[]',
     'The audio types a voice clip may be; audio/* matches them all.',
@@ -916,27 +942,27 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.',
   ),
-  'inputs.slots': field(
-    'Record<string, string[] | SlotDecl>',
-    'Named choices a turn or a call can make. A bare string list is the allowed values; an object may add a UI label and per-choice descriptions. {name} in a prompt becomes the chosen value string.',
+  'inputs.options': field(
+    'Record<string, OptionDecl>',
+    'The options a person picks, each shown as a picker. A prompt reads one as "when reader is student: …" and prints it as {reader}.',
   ),
-  'inputs.slots.*': field(
-    'string[] | SlotDecl',
-    'Either the allowed value strings, or { label?, choices: { value, description? }[] }. Descriptions are UI-only; value is what the turn sends and what {name} fills.',
+  'inputs.options.*': field(
+    'OptionDecl',
+    '{ label?, choices: { value, description? }[] }. Value is what the turn sends and what {name} prints.',
   ),
-  'inputs.slots.*.label': field(
+  'inputs.options.*.label': field(
     'string',
-    'Visitor-facing group title for this slot in the composer (for example Source Bias). Omit to show the slot name.',
+    "Visitor-facing title for this option in the composer (for example Source Bias). Omit to show the option's name.",
   ),
-  'inputs.slots.*.choices': field(
-    'SlotChoice[]',
-    'The allowed values for this slot, each with an optional UI description.',
+  'inputs.options.*.choices': field(
+    'OptionChoice[]',
+    'The values this option can take, each with an optional UI description.',
   ),
-  'inputs.slots.*.choices.*.value': field(
+  'inputs.options.*.choices.*.value': field(
     'string',
-    'The string the turn sends for this choice and that {name} substitutes into prompts.',
+    'The value the turn sends for this choice, which `when` reads and {name} prints.',
   ),
-  'inputs.slots.*.choices.*.description': field(
+  'inputs.options.*.choices.*.description': field(
     'string',
     'Visitor-facing blurb for this choice in the composer. Never substituted into prompts.',
   ),
@@ -962,8 +988,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The shape of the reply, how it is checked, and how it streams.',
   ),
   'outputs.structured': field(
-    'StructuredSchemaId | StructuredBySlot | null',
-    'The registered JSON schema the reply must follow, which can vary by slot; register it before the profile.',
+    'StructuredSchemaId | StructuredByOption | null',
+    'The registered JSON schema the reply must follow, which can vary by option; register it before the profile.',
   ),
   image: field(
     'ProfileImageSpec',
@@ -1082,7 +1108,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'live.greeting': field(
     'string',
-    'A prompt the call sends itself when it opens new, so the agent speaks first. The visitor does not see it. It may use {slot}.',
+    'A prompt the call sends itself when it opens new, so the agent speaks first. The visitor does not see it. It may use {name}, and is not sent when an option it prints is unset.',
   ),
   'live.resumed': field(
     '{ prompt: string; afterMs?: number }',
@@ -1090,7 +1116,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'live.resumed.prompt': field(
     'string',
-    'A prompt the call sends itself when it resumes, so the agent says it is back. The visitor does not see it. It may use {slot}.',
+    'A prompt the call sends itself when it resumes, so the agent says it is back. The visitor does not see it. It may use {name}, and is not sent when an option it prints is unset.',
   ),
   'live.resumed.afterMs': field(
     'number',
@@ -1127,7 +1153,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid; a path no structured schema reaches is refused when the profile registers.',
   ),
   'outputs.validation.fields.*': field(
-    '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
+    '(candidate: unknown, options?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
     'Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.',
   ),
   'outputs.validation.items': field(
@@ -1548,7 +1574,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   },
   'registerTool.hostOnly': {
     ...field(
-      "Array<'attachments' | 'voice' | 'slots'>",
+      "Array<'attachments' | 'voice' | 'options'>",
       'Channels the called profile takes that the calling model cannot fill on an agent tool; only onAgentCall sends them. A channel the profile does not take is refused when the tool registers.',
     ),
     unset: 'The model can fill every channel the profile takes',
@@ -1605,6 +1631,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'gate',
   },
+  'registerTool.auth.preResolved': field(
+    'Partial<OAuthEndpoints & { resource: string }>',
+    "Named on the auth gate for the host's OAuth flow, so it need not find them.",
+  ),
   'registerTool.auth.scopes': field(
     'string[]',
     'The OAuth scopes the tool needs, shown when a turn stops to ask for a credential. A service asking for any other scope fails the call, with no new sign-in.',
@@ -1679,10 +1709,80 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       always_confirm: 'Asks every time.',
     },
   ),
+  'registerTool.preTool': field(
+    '(input, ctx) => StageResult | undefined',
+    "Runs before the host's pre_tool onStage.",
+  ),
+  'registerTool.exposeToModel': {
+    ...field('boolean', 'Whether the model can see and call the tool.'),
+    unset: 'The model can',
+  },
+  'registerTool.sources': field(
+    '(output) => Source[]',
+    'The sources a result cites. One that fails sourceSchema, or a throw, is a sources_invalid warning and is not cited.',
+  ),
+  'registerTool.images': field(
+    '(output) => string[]',
+    'The https addresses of pictures in the output the model should see. The kernel fetches each one through the profile network policy, without the tool credentials.',
+  ),
+  'registerTool.imageLimits': {
+    ...field(
+      'ToolImageLimits',
+      'How many of those pictures the kernel fetches, how large, and how slowly.',
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.askInputSchema': field(
+    'Record<string, unknown>',
+    '`inputSchema` with the `background` argument. The registry sets it on an `ask` tool.',
+  ),
+  'registerTool.conflictsWith': field(
+    'string[]',
+    'The built-in tools a builtin tool cannot run beside.',
+  ),
+  'registerTool.limit': {
+    ...field(
+      'HttpToolLimit',
+      "The service's own limit for one key; the kernel keeps this tool's requests within it.",
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.timeoutMs': {
+    ...field(
+      'number',
+      'How long the service may take to answer, its body read included. Past it the call fails timeout and frees its place in the limit.',
+    ),
+    unset: "As long as the caller's signal lets it",
+  },
+  'registerTool.after': {
+    ...field(
+      'boolean',
+      'Gives the model an after field on this tool: the tools called in the same step that must settle before this call starts. The kernel removes the field before the tool, the stages or a gate read the input. A name with no other call in the step fails the call wait_unknown.',
+    ),
+    unset: 'The model sets no order',
+  },
+  'registerTool.background': {
+    ...field(
+      "'always' | { afterMs: number } | 'ask' | 'never'",
+      "When the model gets its reply while the body goes on. 'always': at the hand-off. { afterMs }: once the body has run past this time. 'ask': at the hand-off if the model sets the background argument. A turn with no background service runs the tool inline.",
+    ),
+    options: ['never', 'ask', 'always', 'afterMs'],
+    optionDescriptions: {
+      never: 'The model gets its reply when the body ends.',
+      ask: 'The model chooses, call by call, whether to go on without the result.',
+      always: 'The model gets its reply at once, and the body goes on after the turn.',
+      afterMs: 'The model gets its reply once the body has run past this time.',
+    },
+    unset: "'never': the model gets its reply when the body ends",
+  },
+  'registerTool.background.afterMs': field(
+    'number',
+    'Milliseconds the body runs before the model gets its reply. A body that ends sooner answers in the turn.',
+  ),
   'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
   'registerTool.labels': field(
     'ToolLabels',
-    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
+    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. {count hit|hits} shows a number with the word for one or for any other number: '1 hit', '3 hits'. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
   ),
   'registerTool.labels.activity': {
     ...field(
@@ -1729,6 +1829,113 @@ export function fieldMeta(path: string): FieldMeta | undefined {
   if (!wildcard || !Object.hasOwn(LABEL_NOTES, key)) return undefined;
   return { ...wildcard, doc: LABEL_NOTES[key as LabelKey] };
 }
+/** A setting the catalog cannot hold: where it is written, and why. */
+export interface FieldProblem {
+  path: string;
+  message: string;
+}
+
+const isText = (value: unknown) => typeof value === 'string';
+const isTextList = (value: unknown) => Array.isArray(value) && value.every(isText);
+
+const PLAIN_KINDS: Readonly<Record<string, (value: unknown) => boolean>> = {
+  string: isText,
+  ModelId: isText,
+  ProfileId: isText,
+  ToolId: isText,
+  KeySlot: isText,
+  number: (value) => typeof value === 'number',
+  boolean: (value) => typeof value === 'boolean',
+  'string[]': isTextList,
+  'ToolId[]': isTextList,
+  'BuiltinToolId[]': isTextList,
+};
+
+/** Why `value` cannot be `meta`'s field. A range or a shape stays with the check that owns it. */
+function valueProblem(meta: FieldMeta, value: unknown): string | undefined {
+  const { options, type } = meta;
+  if (value === null) return undefined;
+  if (options && (typeof value === 'string' || /^'[^{]*$/.test(type))) {
+    if (options.includes(value as string)) return undefined;
+    return `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`;
+  }
+  const isKind = PLAIN_KINDS[type];
+  return !isKind || isKind(value) ? undefined : `has to be a ${type}.`;
+}
+
+/** Each object path of the catalog, with the keys it takes. */
+function keysByParent(fields: Record<string, FieldMeta>): Map<string, Set<string>> {
+  const children = new Map<string, Set<string>>([['', new Set()]]);
+  for (const path of Object.keys(fields)) {
+    const parent = path.includes('.') ? path.slice(0, path.lastIndexOf('.')) : '';
+    children.set(
+      parent,
+      (children.get(parent) ?? new Set()).add(path.slice(parent.length && parent.length + 1)),
+    );
+  }
+  return children;
+}
+
+/** What is wrong with the value at `at`, as the object `parent` of the catalog: its form or its keys. */
+function shapeProblems(
+  at: string,
+  value: unknown,
+  parent: string,
+  keys: Set<string>,
+  meta: FieldMeta | undefined,
+): FieldProblem[] {
+  if (value === null) return [];
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    if (!parent || /\||\[\]/.test(meta?.type ?? '')) return [];
+    return [{ path: at, message: `has to be an object of ${[...keys].join(', ')}.` }];
+  }
+  return Object.keys(value)
+    .filter((key) => !keys.has(key))
+    .map((key) => ({
+      path: at ? `${at}.${key}` : key,
+      message: `is not a setting; ${at || 'this'} takes ${[...keys].join(', ')}.`,
+    }));
+}
+
+/** The problems of `root` against `fields`, each keyed by the path of keys it names. */
+function fieldProblems(root: unknown, fields: Record<string, FieldMeta>): FieldProblem[] {
+  const problems: FieldProblem[] = [];
+  for (const [parent, keys] of keysByParent(fields)) {
+    // why: A detector's own settings are `detectProblem`'s: which it takes depends on the detector.
+    if (keys.has('*') || parent.startsWith('guardrails.detect')) continue;
+    for (const [at, value] of parent ? valuesAt(root, parent.split('.')) : [['', root] as const]) {
+      problems.push(...shapeProblems(at, value, parent, keys, fields[parent]));
+    }
+  }
+  for (const [path, meta] of Object.entries(fields)) {
+    for (const [at, value] of valuesAt(root, path.split('.'))) {
+      const message = valueProblem(meta, value);
+      if (message) problems.push({ path: at, message });
+    }
+  }
+  return problems;
+}
+
+const PROFILE_CATALOG = Object.fromEntries(
+  Object.entries(PROFILE_FIELDS).map(([path, meta]) => [profileKeysOf(path).join('.'), meta]),
+);
+
+/** Every setting in a profile definition that the catalog cannot hold. Nothing here needs a complete profile. */
+export function profileFieldProblems(profile: unknown): FieldProblem[] {
+  return fieldProblems(profile, PROFILE_CATALOG);
+}
+
+const TOOL_CATALOG = Object.fromEntries(
+  Object.entries(EXTRA_FIELDS)
+    .filter(([path]) => path.startsWith('registerTool.'))
+    .map(([path, meta]) => [path.slice('registerTool.'.length), meta]),
+);
+
+/** Every setting in a tool definition that the catalog cannot hold. Nothing here needs a complete tool. */
+export function toolFieldProblems(tool: unknown): FieldProblem[] {
+  return fieldProblems(tool, TOOL_CATALOG);
+}
+
 export { API_EXPORTS, type ApiExportMeta, REQUEST_FIELDS } from './api-catalog.ts';
 export type {
   ProfileGraphEditor,

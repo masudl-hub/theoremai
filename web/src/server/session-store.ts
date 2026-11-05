@@ -19,6 +19,7 @@ import {
   TOOL_GATE_KINDS,
   TOOL_PERMISSION,
   toolOperationOutcomeSchema,
+  toolOperationReplySchema,
   turnHistoryMessageSchema,
   turnToolSnapshotSchema,
   z,
@@ -30,16 +31,13 @@ import type {
   ToolId,
   ToolOperationIdentity,
   ToolOperationOutcome,
+  ToolOperationReply,
   ToolOperationUncertainty,
   TurnInput,
   TurnToolSnapshot,
 } from '@theoremjs/agents/kernel';
 import { gateExpired } from '@theoremjs/agents/kernel';
-import {
-  checkSessionLimits,
-  resolveSessionLimits,
-  type TheoremSessionLimits,
-} from './session-limits.ts';
+import { checkedCapacity, type TheoremSessionCapacity } from './session-limits.ts';
 
 /** A tool call the kernel paused on a gate, as the server saw it. */
 export type PendingToolGate = {
@@ -59,7 +57,7 @@ export type PendingToolGate = {
   expiresAt?: number;
 };
 
-export type SessionPageGrant = { grantId: string; expiresAt: number; resultHash?: string };
+export type SessionPageGrant = { grantId: string; expiresAt?: number; resultHash?: string };
 
 export type SessionToolOperation =
   | {
@@ -76,19 +74,38 @@ export type SessionToolOperation =
       pageGrant?: SessionPageGrant;
     })
   | (ToolOperationIdentity & {
+      status: 'background';
+      claimToken: string;
+      reply: ToolOperationReply;
+      startedAt: number;
+      detachedAt: number;
+      pageGrant?: SessionPageGrant;
+    })
+  | (ToolOperationIdentity & {
       status: 'settled';
       pageGrant?: SessionPageGrant;
       outcome: ToolOperationOutcome;
+      reply?: ToolOperationReply;
       settledAt: number;
       retainUntil?: number;
     })
   | (ToolOperationIdentity & {
       status: 'uncertain';
       pageGrant?: SessionPageGrant;
+      reply?: ToolOperationReply;
       claimToken: string;
       reason: ToolOperationUncertainty;
       detectedAt: number;
     });
+
+/** The reply the model read for a call that detached, whatever has happened to the call since. */
+export function detachedReply(operation: SessionToolOperation): ToolOperationReply | undefined {
+  return operation.status === 'background' ||
+    operation.status === 'settled' ||
+    operation.status === 'uncertain'
+    ? operation.reply
+    : undefined;
+}
 
 export const DEFAULT_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 
@@ -111,7 +128,7 @@ const blobSchema = z.strictObject({
 const inputSchema: z.ZodType<TurnInput> = z.strictObject({
   text: z.string().optional(),
   role: z.string().optional(),
-  slots: z.record(z.string(), z.string()).optional(),
+  options: z.record(z.string(), z.string()).optional(),
   context: z
     .strictObject({ client: jsonValueSchema.optional(), server: jsonValueSchema.optional() })
     .optional(),
@@ -129,6 +146,7 @@ const inputSchema: z.ZodType<TurnInput> = z.strictObject({
     .optional(),
   voice: z.array(blobSchema).optional(),
   history: z.array(turnHistoryMessageSchema).optional(),
+  lateResults: z.array(toolOperationOutcomeSchema).optional(),
   repair: z
     .strictObject({ previousOutput: z.string(), rejection: z.string(), guidance: z.string() })
     .optional(),
@@ -194,7 +212,7 @@ const identityFields = {
 };
 const pageGrant = z.strictObject({
   grantId: z.string().min(1),
-  expiresAt: z.number().finite().positive(),
+  expiresAt: z.number().finite().positive().optional(),
   resultHash: z.string().optional(),
 });
 const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('status', [
@@ -214,9 +232,19 @@ const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('s
   }),
   z.strictObject({
     ...identityFields,
+    status: z.literal('background'),
+    pageGrant: pageGrant.optional(),
+    claimToken: z.string().min(1),
+    reply: toolOperationReplySchema,
+    startedAt: z.number().finite().nonnegative(),
+    detachedAt: z.number().finite().nonnegative(),
+  }),
+  z.strictObject({
+    ...identityFields,
     status: z.literal('settled'),
     pageGrant: pageGrant.optional(),
     outcome: toolOperationOutcomeSchema,
+    reply: toolOperationReplySchema.optional(),
     settledAt: z.number().finite().nonnegative(),
     retainUntil: z.number().finite().nonnegative().optional(),
   }),
@@ -224,6 +252,7 @@ const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('s
     ...identityFields,
     status: z.literal('uncertain'),
     pageGrant: pageGrant.optional(),
+    reply: toolOperationReplySchema.optional(),
     claimToken: z.string().min(1),
     reason: z.enum(['execution_interrupted', 'settlement_write_failed', 'worker_lost']),
     detectedAt: z.number().finite().nonnegative(),
@@ -272,6 +301,11 @@ export type SessionWriteResult = { written: true; revision: string } | { written
  * store (KV, Redis, a database row) when requests can reach different instances.
  */
 export interface TheoremSessionStore {
+  /**
+   * What it holds for one session, when it has a limit. The handler fits each write to it before
+   * `compareAndSwap`. Unset, the handler writes the state whole.
+   */
+  readonly capacity?: TheoremSessionCapacity;
   load(sessionId: string): Promise<SessionSnapshot | undefined>;
   /** Compare and replace atomically; null creates only an absent session. */
   compareAndSwap(
@@ -291,11 +325,11 @@ export function emptySessionState(): TheoremSessionState {
   };
 }
 
-/** Drop gates (waiting or settled) older than `ttlMs`. */
+/** Drop gates (waiting or settled) older than `ttlMs`, or past their own `expiresAt`. */
 export function pruneGates<Gate extends { createdAt: number; expiresAt?: number }>(
   gates: Record<string, Gate>,
   now: number,
-  ttlMs: number,
+  ttlMs: number | undefined,
 ): Record<string, Gate> {
   return Object.fromEntries(
     Object.entries(gates).filter(([, gate]) =>
@@ -307,28 +341,28 @@ export function pruneGates<Gate extends { createdAt: number; expiresAt?: number 
 }
 
 export type MemorySessionStoreOptions = {
-  /** Finite authority storage bounds. */
-  sessionLimits?: Partial<TheoremSessionLimits>;
-  /** invariant: Idle retention is in milliseconds. Protected authority remains. Default 24h. */
+  /** What it holds for one session. Unset, it holds any size. */
+  capacity?: TheoremSessionCapacity;
+  /** invariant: Idle retention is in milliseconds. Protected authority remains. Unset, nothing expires. */
   ttlMs?: number;
-  /** Oldest sessions are evicted past this count. Default 10 000. */
+  /** Oldest sessions are evicted past this count. Unset, nothing is evicted. */
   maxSessions?: number;
 };
 
 export function memoryStoreLimits(options: MemorySessionStoreOptions) {
-  const ttlMs = options.ttlMs ?? 24 * 60 * 60 * 1000;
-  const maxSessions = options.maxSessions ?? 10_000;
+  const { ttlMs, maxSessions } = options;
   if (
-    !Number.isFinite(ttlMs) ||
-    ttlMs <= 0 ||
-    !Number.isSafeInteger(maxSessions) ||
-    maxSessions <= 0
+    (ttlMs !== undefined && (!Number.isFinite(ttlMs) || ttlMs <= 0)) ||
+    (maxSessions !== undefined && (!Number.isSafeInteger(maxSessions) || maxSessions <= 0))
   ) {
     throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'session_store_options', ttlMs, maxSessions },
     });
   }
-  return { ttlMs, maxSessions };
+  return {
+    ttlMs: ttlMs ?? Number.POSITIVE_INFINITY,
+    maxSessions: maxSessions ?? Number.POSITIVE_INFINITY,
+  };
 }
 
 /** A value kept per session id for the separate credential store. */
@@ -337,7 +371,7 @@ export type PerSessionStore<T> = {
   save(sessionId: string, value: T): void | Promise<void>;
 };
 
-/** A per-session value kept in process memory: forgotten when idle, oldest evicted first. */
+/** A per-session value kept in process memory, until the limits it is given. */
 export function createMemorySessionMap<T>(options: MemorySessionStoreOptions = {}): {
   load(sessionId: string): T | undefined;
   save(sessionId: string, value: T): void;
@@ -370,7 +404,7 @@ export function createMemorySessionStore(
   options: MemorySessionStoreOptions = {},
 ): TheoremSessionStore {
   const { ttlMs, maxSessions } = memoryStoreLimits(options);
-  const limits = resolveSessionLimits(options.sessionLimits);
+  const capacity = checkedCapacity(options.capacity);
   const sessions = new Map<string, { snapshot: SessionSnapshot; touched: number }>();
   const held = (entry: { snapshot: SessionSnapshot }) =>
     Object.values(entry.snapshot.state.gates).some(
@@ -391,6 +425,7 @@ export function createMemorySessionStore(
     return entry?.snapshot;
   };
   return {
+    ...(capacity ? { capacity } : {}),
     load(sessionId) {
       return Promise.resolve(structuredClone(current(sessionId)));
     },
@@ -399,13 +434,14 @@ export function createMemorySessionStore(
       if ((snapshot?.revision ?? null) !== expectedRevision)
         return Promise.resolve({ written: false });
       const state = theoremSessionStateSchema.parse(next);
-      checkSessionLimits(state, limits);
       if (!snapshot && sessions.size >= maxSessions) {
         const removable = [...sessions].find(([, entry]) => !held(entry));
         if (!removable) {
-          throw new TheoremError('unavailable', labelText('error.unavailable'), {
-            cause: { code: 'session_store_capacity' },
-          });
+          throw new TheoremError(
+            'unavailable',
+            `The memory session store holds ${maxSessions} sessions and each has work in progress, so a new one was not saved`, // labels-exempt: internal diagnostic; the user reads session.busy
+            { copy: { key: 'session.busy' }, cause: { code: 'session_store_capacity' } },
+          );
         }
         sessions.delete(removable[0]);
       }

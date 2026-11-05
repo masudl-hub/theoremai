@@ -84,7 +84,13 @@ export async function listLocalStudioModels(
 }
 
 /** The profile types a model runs for; a provider's list is filtered to the one being edited. */
-export type ListedProfileType = 'text' | 'image' | 'speech' | 'live' | 'embedding';
+export type ListedProfileType =
+  | 'text'
+  | 'image'
+  | 'speech'
+  | 'transcription'
+  | 'live'
+  | 'embedding';
 
 /** A model a provider lists, as the studio's picker shows it. */
 export interface ProviderModel {
@@ -114,12 +120,14 @@ export const KNOWN_OPENROUTER_EMBEDDING_MODELS: readonly ProviderModel[] = [
 
 /**
  * OpenRouter's `output_modalities` for each profile type: chat models for text, `/images` models
- * for image, `/audio/speech` models for speech. OpenRouter has no live models.
+ * for image, `/audio/speech` models for speech, `/audio/transcriptions` models for transcription.
+ * OpenRouter has no live models.
  */
 const OPENROUTER_OUTPUT: Record<ListedProfileType, string | undefined> = {
   text: 'text',
   image: 'image',
   speech: 'speech',
+  transcription: 'transcription',
   live: undefined,
   embedding: undefined,
 };

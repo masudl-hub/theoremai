@@ -23,6 +23,7 @@ import type {
 } from '../../../guardrails/types.ts';
 import { ANSWER_TOOL, answersByTool } from '../../answer-tool.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
+import { turnFacts } from '../../registry/options.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type { BoundSystem } from '../../system-parts.ts';
@@ -61,7 +62,10 @@ import { executeAttempt } from './steps.ts';
 import { isWithheldOnBlock, shownToHost } from './stream.ts';
 
 /** A turn whose final output the egress check blocked (withheld or replaced by policy copy). */
-const EGRESS_FILTERED_STOP: TurnStop = { kind: 'filtered', native: 'egress' };
+export const EGRESS_FILTERED_STOP = {
+  kind: 'filtered',
+  native: 'egress',
+} as const satisfies TurnStop;
 
 /** Reply text only: thoughts are not guarded output (`isGuardedOutput`). */
 function collectAttemptText(events: TurnEvent[]): string {
@@ -214,13 +218,14 @@ type ValidationOutcome =
   | { action: 'retry'; nextRequest: TurnRequest };
 
 async function evaluateValidationOutcome(args: {
+  profile: Profile;
   validation: NonNullable<ProfileOutputsSpec['validation']>;
   generation: ResolvedGeneration;
   latestStructured: unknown;
   request: TurnRequest;
   canRetry: boolean;
 }): Promise<ValidationOutcome> {
-  const { validation, generation, latestStructured, request, canRetry } = args;
+  const { profile, validation, generation, latestStructured, request, canRetry } = args;
   if (latestStructured === undefined) {
     return { action: 'pass' };
   }
@@ -235,7 +240,7 @@ async function evaluateValidationOutcome(args: {
     structured.jsonSchema,
     latestStructured,
     validation.fields,
-    request.input?.slots,
+    turnFacts(profile, request),
   );
   if (failures.length === 0) return { action: 'pass' };
   if (!canRetry) return { action: 'pass', failed: failures };
@@ -533,6 +538,44 @@ function startItemFix(args: {
   return attempt;
 }
 
+/** A structured reply the attempt wrote that never parsed, and what went wrong with it. */
+function unparsedReply(
+  state: StepExecutionState,
+  generation: ResolvedGeneration,
+  profile: Profile,
+): { text: string; rejection: string; guidance?: string } | undefined {
+  if (!generation.structured) return undefined;
+  const byTool = answersByTool(generation);
+  const text = byTool ? (state.cutOffAnswer ?? '') : collectAttemptText(state.attemptEvents);
+  if (!text.trim()) return undefined;
+  if (state.lastStop?.kind === 'length') {
+    return {
+      text,
+      rejection: labelText('structured.cut_off', {}, profile.labels),
+      guidance: labelText('repair.cut_off_guidance', {}, profile.labels),
+    };
+  }
+  if (byTool) return undefined;
+  const error = findLast(state.attemptEvents, (event) => event.type === 'error');
+  if (
+    state.lastStop?.kind === 'provider_error' &&
+    error?.errorKind === 'bad_response' &&
+    !parsesAsJson(text)
+  ) {
+    return { text, rejection: labelText('structured.not_json', {}, profile.labels) };
+  }
+  return undefined;
+}
+
+function parsesAsJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function handleValidationGate(
   validation: NonNullable<ProfileOutputsSpec['validation']>,
   flow: AttemptFlowState,
@@ -550,7 +593,14 @@ async function handleValidationGate(
     reply = withRewrittenItems(fix, latestStructured);
     holdReply(state, reply, []);
   }
+  const unparsed =
+    reply === undefined && canRetry ? unparsedReply(state, flow.currentGen, profile) : undefined;
+  if (unparsed) {
+    const nextRequest = buildRepairRequest(flow.currentReq, unparsed.text, unparsed.rejection);
+    return updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
+  }
   const outcome = await evaluateValidationOutcome({
+    profile,
     validation,
     generation: flow.currentGen,
     latestStructured: reply,
@@ -563,9 +613,8 @@ async function handleValidationGate(
   }
   if (reply === undefined) return 'pass';
   if (outcome.failed) markFailed(state, outcome.failed);
-  const slots = flow.currentReq.input?.slots;
   const refused = await collectItemFailures(reply, validation.items, {
-    ...(slots ? { slots } : {}),
+    options: turnFacts(profile, flow.currentReq),
     toolResults: state.toolResults,
   });
   if (refused.length === 0) return 'pass';
@@ -593,6 +642,8 @@ function* handleMissingAnswer(
 ): Generator<TurnEvent, 'continue' | 'pass'> {
   if (latestStructured !== undefined || state.lastStop?.kind !== 'completed') return 'pass';
   if (!answersByTool(flow.currentGen)) return 'pass';
+  // why: A rewrite that gives no answer leaves the reply it was fixing; the validation gate removes the refused items.
+  if (flow.pendingItemFix) return 'pass';
   const validation = profileTurnOutputs(profile)?.validation;
   if (validation && flow.currentAttempt < (validation.maxRetries ?? 0)) {
     const rejection = labelText('structured.answer_missing', { tool: ANSWER_TOOL }, profile.labels);
@@ -608,9 +659,52 @@ function* handleMissingAnswer(
     new TheoremError('bad_response', `the model ended without calling ${ANSWER_TOOL}`), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
   recordStepEvent(failure, state);
+  state.lastStop = { kind: 'answer_missing' };
+  if (!held) yield failure;
+  return 'pass';
+}
+
+/**
+ * A structured reply the output limit cut off: a repair that asks for it again, shorter, while the
+ * budget lasts, else a `bad_response` failure. The budget is one repair, or `outputs.validation.maxRetries`.
+ *
+ * why: A cut-off reply holds no answer to check, with or without `outputs.validation`; without a
+ * repair the turn would end with none.
+ */
+function* handleCutOffReply(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  latestStructured: unknown,
+  /** True when the attempt's events go out at its end (`yieldBufferedAttemptEvents`). */
+  held: boolean,
+): Generator<TurnEvent, 'continue' | 'pass'> {
+  if (latestStructured !== undefined || flow.pendingItemFix) return 'pass';
+  const unparsed = unparsedReply(state, flow.currentGen, profile);
+  if (!unparsed?.guidance) return 'pass';
+  if (flow.currentAttempt < cutOffBudget(profile)) {
+    const nextRequest = buildRepairRequest(
+      flow.currentReq,
+      unparsed.text,
+      unparsed.rejection,
+      unparsed.guidance,
+    );
+    yield updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
+    return 'continue';
+  }
+  const failure = toErrorEvent(
+    new TheoremError('bad_response', 'the reply was cut off at the output limit'), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  recordStepEvent(failure, state);
   state.lastStop = { kind: 'provider_error' };
   if (!held) yield failure;
   return 'pass';
+}
+
+/** How many times a structured reply cut off at the output limit is repaired. */
+function cutOffBudget(profile: Profile): number {
+  const outputs = profileTurnOutputs(profile);
+  return outputs?.structured ? Math.max(1, outputs.validation?.maxRetries ?? 0) : 0;
 }
 
 /** Puts on the attempt's structured output the fields that still failed. */
@@ -645,12 +739,14 @@ async function* executeSingleAttemptCycle(args: {
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider } = args;
 
-  // invariant: Fresh maxSteps budget per validation/egress attempt. before_end inject
-  // re-entry inside this cycle still accumulates stepCount (do not reset there).
-  state.stepCount = 0;
+  // invariant: Fresh maxSteps budget per validation/egress attempt, past the steps an earlier run
+  // of this reply took. before_end inject re-entry inside this cycle still accumulates stepCount
+  // (do not reset there).
+  state.stepCount = flow.currentReq.stepsTaken ?? 0;
   // invariant: The attempt's reply spans its before_end re-entries; only a new attempt starts it again.
   state.replyText = '';
   state.replyMessages = [];
+  state.cutOffAnswer = undefined;
   // invariant: The leak check's carry is the end of this attempt's reply; a retry's is read on its own.
   state.canaryCarry = undefined;
 
@@ -737,15 +833,11 @@ async function* checkAttemptReply(
     latestStructured = projectOutbound(state.attemptEvents).structured ?? latestStructured;
   }
 
-  if (
-    (yield* handleMissingAnswer(
-      flow,
-      state,
-      profile,
-      latestStructured,
-      Boolean(validation) || judged,
-    )) === 'continue'
-  ) {
+  const held = Boolean(validation) || judged;
+  if ((yield* handleMissingAnswer(flow, state, profile, latestStructured, held)) === 'continue') {
+    return { status: 'continue' };
+  }
+  if ((yield* handleCutOffReply(flow, state, profile, latestStructured, held)) === 'continue') {
     return { status: 'continue' };
   }
 
@@ -781,6 +873,7 @@ async function* runAttemptsWithValidation(
   const maxRetries = Math.max(
     profileTurnOutputs(profile)?.validation?.maxRetries ?? 0,
     blockedReply.onBlock === 'retry' ? blockedReply.maxRetries : 0,
+    cutOffBudget(profile),
   );
   const flow: AttemptFlowState = {
     currentAttempt: 0,

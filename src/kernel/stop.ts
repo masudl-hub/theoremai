@@ -51,7 +51,9 @@ export interface ProfileTurnResumptionSpec {
    * `stream_incomplete`) again itself when this list is set and names that stop, and the
    * call gave no reply and no tool call: the turn keeps its history, its step count and
    * what it has read. A failure the same call would meet again (the provider refused the
-   * request) is not sent again. Omitted, a turn sends nothing again.
+   * request) is not sent again, except once without its files when it carried any: accepted
+   * that way, the turn goes on and `done.mediaRefused` names them. Omitted, a turn sends
+   * nothing again.
    */
   autoContinue?: ContinueStopKind[];
   /**
@@ -119,6 +121,11 @@ const FAILED_STOP_KINDS = new Set<TurnStop['kind']>(['provider_error', 'stream_i
 /** True for a stop where the model call failed; the rest either finished or were stopped on purpose. */
 export function isFailedStopKind(kind: TurnStop['kind']): boolean {
   return FAILED_STOP_KINDS.has(kind);
+}
+
+/** True for a turn that ended in failure: its model call failed, or the model never gave its answer. */
+export function isFailedTurnStop(kind: TurnStop['kind']): boolean {
+  return isFailedStopKind(kind) || kind === 'answer_missing';
 }
 
 export function stageAbortStop(

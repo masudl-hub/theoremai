@@ -135,13 +135,14 @@ Deno.test('a failed response reads whole, with no drafts', async () => {
 const LONG = ['{"finding":"', ...Array.from({ length: 5 }, () => 'x'.repeat(1024 * 1024)), '"}'];
 
 Deno.test('a body past the tool’s maxResponseBytes fails as too large', async () => {
-  const capped = { ...TOOL, maxResponseBytes: 4 * 1024 * 1024 } as ToolDefinitionInput;
+  const capped = { ...TOOL, maxResponseBytes: 64 * 1024 } as ToolDefinitionInput;
   const { settlement } = await run(() => streamed(LONG), true, capped);
   assertEquals(settlement.failure?.code, 'response_too_large');
 });
 
 Deno.test('a tool with no maxResponseBytes reads its body whole, however long', async () => {
-  const { settlement } = await run(() => streamed(LONG), true);
+  // why: Both readers cap in `cappedPieces`; the plain one reads 5 MB in a second, drafts scan it for minutes.
+  const { settlement } = await run(() => streamed(LONG), false);
   assertEquals(settlement.failure, undefined);
   assertEquals((settlement.outputRaw as { finding: string }).finding.length, 5 * 1024 * 1024);
 });

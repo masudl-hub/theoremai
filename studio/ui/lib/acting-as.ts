@@ -52,11 +52,7 @@ function keptPick(project: string): { value: unknown } | undefined {
 }
 
 function keepPick(project: string, pick: StudioActingAs | null): void {
-  try {
-    session()?.setItem(pickKey(project), JSON.stringify(pick));
-  } catch {
-    // Storage refused: the pick lasts as long as the page.
-  }
+  session()?.setItem(pickKey(project), JSON.stringify(pick));
 }
 
 /**

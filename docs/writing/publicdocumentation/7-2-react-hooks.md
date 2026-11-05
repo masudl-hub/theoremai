@@ -39,7 +39,7 @@ export function HarborApp() {
 ```
 
 The returned `iface` object exposes client-safe metadata:
-- **`inputs`**: Whether the profile accepts attachments (`inputs.files`), text, or structured slots.
+- **`inputs`**: Whether the profile accepts attachments (`inputs.files`), text, or options.
 - **`models`**: Available model aliases if the client is permitted to switch engines.
 - **`tools`**: Names and parameter schemas of client-executable page tools.
 - **`labels`**: Localized string templates for rendering user-facing errors and UI messages.

@@ -1,6 +1,6 @@
 {
  "model": "gemma-4-31b-it",
- "case": "redteam.slot-openai-key",
+ "case": "redteam.option-openai-key",
  "draws": [
   "3781e883880f90059eb4549a795015e1"
  ],

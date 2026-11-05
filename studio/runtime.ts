@@ -31,6 +31,7 @@ import {
   type ConversationView,
   type DecisionTransport,
   decisionAssets,
+  type StatedTurn,
   type TheoremConversationRequest,
   type TheoremHostCallRequest,
   type TheoremInvokeRequest,
@@ -71,6 +72,7 @@ import {
   type StudioRuntime,
   studioScope,
 } from './runtime-scope.ts';
+import { bothStages, toolReaderStage, toolReaders } from './tool-readers.ts';
 import { createStudioTraceRouter, type StudioTraceLine } from './traces.ts';
 import type { StudioSteerLine } from './transport.ts';
 
@@ -159,6 +161,7 @@ function studioRunner(args: {
   sessionPermissions: string[] | undefined;
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
   signal: AbortSignal;
   onStage?: ReturnType<typeof steerStage>;
 }): ReplyRunner {
@@ -170,14 +173,19 @@ function studioRunner(args: {
           profile: profile.id,
           execution: runtime.execution,
           pageExecution: runtime.pageExecution,
+          background: runtime.background,
           metadata,
           input: turn.input,
+          ...turn.stated,
+          ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
           providerState: turn.providerState,
           sessionPermissions: args.sessionPermissions,
           resolveHost: runtime.resolveHost,
+          fetch: runtime.fetch,
           signal,
           ...(turn.model ? { model: turn.model } : {}),
           ...(turn.effort ? { effort: turn.effort } : {}),
+          ...turn.carried,
           ...(args.onStage ? { onStage: args.onStage } : {}),
           onAgentCall: agentCallHook(scope, runtime),
         },
@@ -185,13 +193,14 @@ function studioRunner(args: {
       ),
     async compact(history, tokens, model) {
       const compacted = await scope.compactHistory(
-        { profile: profile.id, history, tokens, signal, ...(model ? { model } : {}) },
+        { profile: profile.id, history, tokens, metadata, signal, ...(model ? { model } : {}) },
         runtimeProvider(runtime, scope, profile, model),
       );
       return compacted?.history;
     },
     ...(args.model ? { model: args.model } : {}),
     ...(args.effort ? { effort: args.effort } : {}),
+    ...(args.stated ? { stated: args.stated } : {}),
     signal,
   };
 }
@@ -293,11 +302,26 @@ export async function* streamStudioTurn(
         sessionPermissions,
         ...(request.model ? { model: request.model } : {}),
         ...(request.effort ? { effort: request.effort } : {}),
+        ...(request.stated ? { stated: request.stated } : {}),
         signal,
-        onStage: steerStage(args.steer, inbox),
+        onStage: bothStages(
+          steerStage(args.steer, inbox),
+          toolReaderStage(toolReaders(args.customTools), async (reader, state) => {
+            await runtime.onReaderCall?.();
+            return scope.runDecision(
+              { profile: reader.profile, state, questions: reader.questions, signal },
+              runtimeProvider(runtime, scope, scope.profiles.get(reader.profile)),
+            );
+          }),
+        ),
       });
       if (!host || !opened) {
-        return runner.run({ input: message.input, model: request.model, effort: request.effort });
+        return runner.run({
+          input: message.input,
+          model: request.model,
+          effort: request.effort,
+          ...(request.stated ? { stated: request.stated } : {}),
+        });
       }
       const walkAway = walked.map(({ reference, invoke }) => ({
         ...reference,
@@ -374,8 +398,10 @@ function answerReplayed(
     promoted: replay.promoted,
     model: replay.model,
     resolveHost: runtime.resolveHost,
+    fetch: runtime.fetch,
     execution: runtime.execution,
     pageExecution: runtime.pageExecution,
+    background: runtime.background,
     onAgentCall: agentCallHook(scope, runtime),
   };
 }
@@ -535,10 +561,12 @@ export async function* streamStudioCall(args: {
       profile: profile.id,
       execution: args.runtime.execution,
       pageExecution: args.runtime.pageExecution,
+      background: args.runtime.background,
       name: args.call.name,
       input: args.call.input,
       sessionPermissions: args.sessionPermissions,
       resolveHost: args.runtime.resolveHost,
+      fetch: args.runtime.fetch,
       onAgentCall: agentCallHook(scope, args.runtime),
       signal: args.signal,
       metadata,

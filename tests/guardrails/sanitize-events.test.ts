@@ -82,7 +82,7 @@ type Field = [
 const base = { profile: CHAT_TAKES_OUT_INBOUND };
 const FIELDS: Field[] = [
   ['text', (bad) => ({ ...base, input: { text: bad } }), 'input', 'untrusted', 'user'],
-  ['slot', (bad) => ({ ...base, input: { slots: { a: bad } } }), 'input', 'untrusted', 'slots'],
+  ['slot', (bad) => ({ ...base, input: { options: { a: bad } } }), 'input', 'untrusted', 'options'],
   [
     'repair previousOutput',
     (bad) => ({ ...base, input: { repair: { previousOutput: bad, rejection: 'no' } } }),
@@ -158,7 +158,7 @@ Deno.test('a clean turn request reports nothing, and an empty guidance adds noth
       system: 'be brief',
       input: {
         text: 'hello',
-        slots: { a: 'x' },
+        options: { a: 'x' },
         repair: { previousOutput: 'draft', rejection: 'too long', guidance: '' },
         history: [{ role: 'user', content: 'hi' }],
       },
@@ -219,12 +219,10 @@ Deno.test('a blocked request is refused, and the event says where', () => {
   assertEquals(refusal?.copy, { key: 'detect.blocked' });
   assertThrows(() => sanitizeTurnRequest(request, profile), TheoremError);
 });
-
 Deno.test('a text file a turn sends is read at the attachment boundary', () => {
   const profile = {
     id: 'files',
     type: 'text',
-    guardrails: { detect: TAKE_OUT_INBOUND },
     inputs: {
       text: true,
       attachments: { accept: ['text/plain'] },
@@ -232,6 +230,7 @@ Deno.test('a text file a turn sends is read at the attachment boundary', () => {
       maxBytes: 1000,
       maxTurnBytes: 1000,
     },
+    guardrails: { detect: { injection: { at: { attachment: 'redact' } } } },
   } as unknown as Profile;
   const { events, request } = sanitizeTurnRequestWithEvents(
     {

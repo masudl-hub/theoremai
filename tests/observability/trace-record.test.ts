@@ -48,7 +48,7 @@ Deno.test('content is scrubbed, canary-free, and stored once by hash', async () 
   const text = `key ${SECRET} ${CANARY}`;
   const record = await build({ a: traceContent(text), b: traceContent(text) });
   const [root] = record.spans;
-  const stored = `key [omitted -sensitive] ${OMIT_CANARY}`;
+  const stored = `key [omitted - sensitive] ${OMIT_CANARY}`;
   assertEquals(contentOf(record, root?.attributes.a), stored);
   assertEquals(root?.attributes.a, root?.attributes.b);
   assertEquals(record.content, { [await sha256(stored)]: stored });
@@ -87,18 +87,18 @@ async function stored(scrub: TraceScrubSpec, detect: DetectSpec = HOST_DETECT, t
 Deno.test("a trace is cleaned with a host's patterns and detectors, whatever action the turn takes", async () => {
   assertEquals(
     await stored({}),
-    'key [omitted -sensitive] record [omitted -sensitive] project [omitted]',
+    'key [omitted - sensitive] record [omitted - sensitive] project [omitted]',
   );
 });
 
 Deno.test('a switch picks whose patterns clean the trace, apart from the turn', async () => {
   assertEquals(
     await stored({ sensitive: { theorem: false } }),
-    `key ${SECRET} record [omitted -sensitive] project [omitted]`,
+    `key ${SECRET} record [omitted - sensitive] project [omitted]`,
   );
   assertEquals(
     await stored({ sensitive: { host: false } }),
-    `key [omitted -sensitive] record ${RECORD} project Bluebird`,
+    `key [omitted - sensitive] record ${RECORD} project Bluebird`,
   );
   assertEquals(await stored({ sensitive: { theorem: false, host: false } }), STORED);
   assertEquals(await stored({ sensitive: false }), STORED);
@@ -109,10 +109,10 @@ Deno.test("on, a switch cleans with what the turn reads with; named, with Theore
     credentials: { theorem: false, patterns: [{ name: 'record', pattern: 'MRN-\\d{8}' }] },
   };
   const text = `key ${SECRET} record ${RECORD}`;
-  assertEquals(await stored({}, mine, text), `key ${SECRET} record [omitted -sensitive]`);
+  assertEquals(await stored({}, mine, text), `key ${SECRET} record [omitted - sensitive]`);
   assertEquals(
     await stored({ sensitive: { theorem: true, host: true } }, mine, text),
-    'key [omitted -sensitive] record [omitted -sensitive]',
+    'key [omitted - sensitive] record [omitted - sensitive]',
   );
 });
 

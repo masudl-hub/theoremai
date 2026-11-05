@@ -1,3 +1,4 @@
+import { Button } from '@astryxdesign/core/Button';
 import type { InputStatus } from '@astryxdesign/core/Field';
 import { FieldStatus } from '@astryxdesign/core/FieldStatus';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
@@ -25,10 +26,23 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconArrowBackUp, IconCheck, IconCode, IconCopy } from '@tabler/icons-react';
+import {
+  IconArrowBackUp,
+  IconCheck,
+  IconCode,
+  IconCopy,
+  IconPlus,
+  IconX,
+} from '@tabler/icons-react';
 import { fieldMeta } from '@theoremjs/agents';
-import { type ReactNode, useContext } from 'react';
-import { originLabel, originPlace, originShortLabel, STUDIO_PROFILE_TYPES } from '../mod.ts';
+import { lazy, type ReactNode, Suspense, useContext, useState } from 'react';
+import {
+  draftKey,
+  originLabel,
+  originPlace,
+  originShortLabel,
+  STUDIO_PROFILE_TYPES,
+} from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 import {
   ISSUE_ROW_ATTRIBUTE,
@@ -37,6 +51,7 @@ import {
   useFieldStatus,
   useRowOrigin,
 } from './inspector-context.ts';
+import { type Entry, entriesOf, entriesText } from './lib/entries.ts';
 import { tabFills } from './lib/tab-fills.ts';
 
 /**
@@ -49,7 +64,7 @@ import { tabFills } from './lib/tab-fills.ts';
  * The label column, wide enough for the longest label ("Temperature", "Attachments") on one line.
  * The template's is 80, which fits its shorter labels.
  */
-const LABEL_COLUMN = 96;
+export const LABEL_COLUMN = 96;
 
 /**
  * Whether the field at `path` must be set, and what leaving it out does, from the kernel's catalog.
@@ -132,14 +147,31 @@ export function OriginLine({ origin, onOpen }: { origin: SettingOrigin; onOpen: 
  * field the section edits (`path`) on hover, as a row's label does. Under it, `note`: only what
  * the catalog does not say, such as how the editor or the studio treats the field.
  */
+/** Rows of `path`. A field the files set in code says so once, and its rows take no edit. */
+export function OwnField({ path, children }: { path?: string; children: ReactNode }) {
+  const found = useRowOrigin(path);
+  if (!found || found.said) return children;
+  return (
+    <SaidOrigin value={found.origin}>
+      <OriginLine origin={found.origin} onOpen={found.open} />
+      <SetInCode>
+        <VStack gap={3}>{children}</VStack>
+      </SetInCode>
+    </SaidOrigin>
+  );
+}
+
 export function InspectorSection({
   title,
   path,
+  hint,
   note,
   children,
 }: {
   title?: string;
   path?: string;
+  /** The title's hover, for a section no one catalog field describes. */
+  hint?: string;
   note?: string;
   children: ReactNode;
 }) {
@@ -148,32 +180,31 @@ export function InspectorSection({
       {title}
     </Text>
   );
-  // A section whose own field the files set in code says so once, and its rows take no edit.
-  const found = useRowOrigin(path);
-  const says = found && !found.said ? found : undefined;
   return (
     <Section variant="transparent" padding={3}>
       <VStack gap={3}>
         <VStack gap={1} hAlign="start">
-          {heading && title && path !== undefined ? (
+          {heading && title && path !== undefined && (
             <CatalogHover label={title} path={path}>
               {heading}
             </CatalogHover>
-          ) : (
-            heading
           )}
+          {heading && title && path === undefined && hint !== undefined && (
+            <HoverCard
+              label={title}
+              content={
+                <VStack maxWidth={280}>
+                  <Text>{hint}</Text>
+                </VStack>
+              }
+            >
+              {heading}
+            </HoverCard>
+          )}
+          {heading && path === undefined && hint === undefined && heading}
           {note && <Text type="supporting">{note}</Text>}
         </VStack>
-        {says ? (
-          <SaidOrigin value={says.origin}>
-            <OriginLine origin={says.origin} onOpen={says.open} />
-            <SetInCode>
-              <VStack gap={3}>{children}</VStack>
-            </SetInCode>
-          </SaidOrigin>
-        ) : (
-          children
-        )}
+        <OwnField path={path}>{children}</OwnField>
       </VStack>
     </Section>
   );
@@ -352,7 +383,7 @@ export type FieldRowProps = {
  * A field row's issue status and presence, and the props its one control shares: labelled but with
  * the label hidden, since the row shows it.
  */
-function useFieldRow({ label, path, field, isRequired }: FieldRowProps) {
+export function useFieldRow({ label, path, field, isRequired }: FieldRowProps) {
   const status = useFieldStatus()(field);
   const { required, unset } = presence(path, isRequired);
   const control = { label, status, isLabelHidden: true, isRequired: required, size: 'sm' as const };
@@ -390,6 +421,113 @@ function FillRow({
 }
 
 /**
+ * The names and values of an object the draft holds as JSON text, a row each. The rows are kept
+ * here while they are typed, since a row with no name is no part of the object yet, and start
+ * again from `value` when something else changes it. `typed` takes any JSON as a value.
+ */
+export function EntriesRow({
+  label,
+  noun,
+  path,
+  field,
+  value,
+  typed = false,
+  namePlaceholder,
+  valuePlaceholder,
+  onChange,
+}: {
+  label: string;
+  /** What one row is: "Header" gives "Add header" and "Header 1 name". */
+  noun: string;
+  path: string;
+  /** The draft field whose issues show on this row. */
+  field: string;
+  value: string;
+  typed?: boolean;
+  namePlaceholder: string;
+  valuePlaceholder: string;
+  onChange: (next: string) => void;
+}) {
+  const status = useFieldStatus()(field);
+  const [entries, setEntries] = useState(() => entriesOf(value, typed));
+  const [held, setHeld] = useState(value);
+  if (value !== held) {
+    setHeld(value);
+    setEntries(entriesOf(value, typed));
+  }
+  const change = (next: Entry[]) => {
+    const text = entriesText(next, typed);
+    setEntries(next);
+    setHeld(text);
+    onChange(text);
+  };
+  return (
+    <VStack gap={1}>
+      <Tooltip content={fieldMeta(path)?.doc} hasHoverIndication={false}>
+        <Text type="label" weight="semibold">
+          {label}
+        </Text>
+      </Tooltip>
+      {entries.map((entry, at) => {
+        const row = `${noun} ${String(at + 1)}`;
+        const set = (patch: Partial<Entry>) => {
+          change(entries.map((each) => (each.key === entry.key ? { ...each, ...patch } : each)));
+        };
+        return (
+          <HStack key={entry.key} gap={1} vAlign="center">
+            <StackItem size="fill">
+              <TextInput
+                label={`${row} name`}
+                isLabelHidden
+                size="sm"
+                status={status}
+                value={entry.name}
+                placeholder={namePlaceholder}
+                onChange={(name) => {
+                  set({ name });
+                }}
+              />
+            </StackItem>
+            <StackItem size="fill">
+              <TextInput
+                label={`${row} value`}
+                isLabelHidden
+                size="sm"
+                value={entry.value}
+                placeholder={valuePlaceholder}
+                onChange={(next) => {
+                  set({ value: next });
+                }}
+              />
+            </StackItem>
+            <IconButton
+              label={`Remove ${row.toLowerCase()}`}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={IconX} size="sm" />}
+              onClick={() => {
+                change(entries.filter((each) => each.key !== entry.key));
+              }}
+            />
+          </HStack>
+        );
+      })}
+      <HStack>
+        <Button
+          label={`Add ${noun.toLowerCase()}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconPlus} size="sm" />}
+          onClick={() => {
+            change([...entries, { key: draftKey('entry'), name: '', value: '' }]);
+          }}
+        />
+      </HStack>
+    </VStack>
+  );
+}
+
+/**
  * Free text. Left blank, it shows `placeholder`, a value Tab takes up to edit (an example, or the
  * default); else `hint`, or what leaving it out does.
  */
@@ -405,21 +543,60 @@ export function TextRow(
   },
 ) {
   const { status: fieldStatus, required, unset, control } = useFieldRow(props);
-  const status = props.status ?? fieldStatus;
+  const [cut, setCut] = useState(false);
+  const note: InputStatus | undefined = cut
+    ? { type: 'warning', message: `Cut to ${props.maxLength} characters, the most it takes.` }
+    : undefined;
+  const status = props.status ?? fieldStatus ?? note;
   return (
-    <FillRow label={props.label} path={props.path} required={required} status={status}>
+    <FillRow
+      label={props.label}
+      path={props.path}
+      required={required}
+      status={props.status ?? fieldStatus}
+      note={note}
+    >
       <TextInput
         {...control}
         status={status}
         value={props.value}
         placeholder={props.placeholder ?? props.hint ?? unset}
         onKeyDown={tabFills(props.value, props.placeholder, props.onChange)}
-        // why: TextInput takes no maxLength, so what is typed or pasted past it is dropped here.
+        // why: TextInput takes no maxLength, so what is typed or pasted past it is cut here, and said.
         onChange={(next) => {
-          props.onChange(Array.from(next).slice(0, props.maxLength).join(''));
+          const chars = Array.from(next);
+          setCut(props.maxLength !== undefined && chars.length > props.maxLength);
+          props.onChange(chars.slice(0, props.maxLength).join(''));
         }}
       />
     </FillRow>
+  );
+}
+
+/** A field whose control sits under its label, with room for an `action` across from the label. */
+export function WideRow({
+  label,
+  path,
+  isRequired,
+  hasIssue,
+  action,
+  children,
+}: {
+  label: string;
+  path: string;
+  isRequired: boolean;
+  hasIssue: boolean;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <VStack gap={1} {...{ [ISSUE_ROW_ATTRIBUTE]: hasIssue || undefined }}>
+      <HStack hAlign="between" vAlign="center">
+        <RowLabel label={label} path={path} isRequired={isRequired} />
+        {action}
+      </HStack>
+      {children}
+    </VStack>
   );
 }
 
@@ -433,29 +610,80 @@ export function TextAreaRow(
     placeholder?: string;
     hint?: string;
     rows?: number;
-    hasSpellCheck?: boolean;
-    /** A status of the row's own, such as text that is not JSON; the field's issues win. */
+    /** A status of the row's own; the field's issues win. */
     status?: InputStatus;
+    action?: ReactNode;
     onChange: (next: string) => void;
   },
 ) {
-  const { label, path, value, placeholder, hint, rows = 3, hasSpellCheck = true, onChange } = props;
+  const { label, path, value, placeholder, hint, rows = 3, onChange } = props;
   const { status: fieldStatus, required, unset, control } = useFieldRow(props);
   const status = fieldStatus ?? props.status;
   return (
-    <VStack gap={1} {...{ [ISSUE_ROW_ATTRIBUTE]: fieldStatus !== undefined || undefined }}>
-      <RowLabel label={label} path={path} isRequired={required} />
+    <WideRow
+      label={label}
+      path={path}
+      isRequired={required}
+      hasIssue={fieldStatus !== undefined}
+      action={props.action}
+    >
       <TextArea
         {...control}
         status={status}
         rows={rows}
-        hasSpellCheck={hasSpellCheck}
         value={value}
         placeholder={placeholder ?? hint ?? unset}
         onKeyDown={tabFills(value, placeholder, onChange)}
         onChange={onChange}
       />
-    </VStack>
+    </WideRow>
+  );
+}
+
+const JsonCode = lazy(() =>
+  import('./code/json-code.tsx').then((code) => ({ default: code.JsonCode })),
+);
+
+/** JSON under its label, as code. Plain text holds its place until the editor has loaded. */
+export function JsonRow(
+  props: FieldRowProps & {
+    value: string;
+    placeholder?: string;
+    hint?: string;
+    /** A status of the row's own, such as text that is not JSON; the field's issues win. */
+    status?: InputStatus;
+    onChange: (next: string) => void;
+  },
+) {
+  const { label, path, value, placeholder, hint, onChange } = props;
+  const { status: fieldStatus, required, unset, control } = useFieldRow(props);
+  const status = fieldStatus ?? props.status;
+  const blank = placeholder ?? hint ?? unset;
+  return (
+    <WideRow label={label} path={path} isRequired={required} hasIssue={fieldStatus !== undefined}>
+      <Suspense
+        fallback={
+          <TextArea
+            {...control}
+            status={status}
+            rows={(value || blank || '').split('\n').length}
+            hasSpellCheck={false}
+            value={value}
+            placeholder={blank}
+            onChange={onChange}
+          />
+        }
+      >
+        <JsonCode
+          label={label}
+          value={value}
+          placeholder={blank}
+          fills={placeholder}
+          status={status}
+          onChange={onChange}
+        />
+      </Suspense>
+    </WideRow>
   );
 }
 
@@ -763,6 +991,8 @@ export type ChoiceRowProps<T extends string> = {
   value: T | '';
   options: readonly Choice<T>[];
   isDisabled?: boolean;
+  /** False for a choice that always holds a value, so it offers no way to clear it. */
+  hasClear?: boolean;
   hasSearch?: boolean;
   /** The options are still arriving. */
   isLoading?: boolean;
@@ -790,6 +1020,7 @@ export function ChoiceRow<T extends string>({
   options,
   isDisabled,
   isRequired,
+  hasClear = true,
   hasSearch,
   isLoading,
   emptyText,
@@ -836,10 +1067,10 @@ export function ChoiceRow<T extends string>({
       hasNote={Boolean(status?.message)}
     >
       <StackItem size="fill">
-        {required ? (
+        {required || !hasClear ? (
           <Selector
             {...shared}
-            isRequired
+            isRequired={required}
             value={value}
             placeholder={placeholder}
             onChange={choose}
@@ -924,6 +1155,77 @@ export function ListRow({
 /** A names row suggests nothing; every token is one the user typed. */
 const NO_SUGGESTIONS = { search: () => [], bootstrap: () => [] };
 
+/** Names as tokens, typed and committed with Enter. Duplicates and blanks never make a token. */
+export function NamesInput({
+  label,
+  status,
+  value,
+  placeholder,
+  isDisabled,
+  disabledMessage,
+  overflow = 'unfocusedInline',
+  marked,
+  onMark,
+  markHint,
+  onChange,
+}: {
+  label: string;
+  status?: InputStatus;
+  value: string[];
+  placeholder?: string;
+  isDisabled?: boolean;
+  disabledMessage?: string;
+  /** `none` keeps every token in sight, at the same height, focused or not. */
+  overflow?: 'none' | 'unfocusedInline';
+  /** The token shown as chosen. */
+  marked?: string;
+  /** Pressing a token chooses it. */
+  onMark?: (name: string) => void;
+  /** What a token's hover says: of the marked one, and of the rest. */
+  markHint?: { marked: string; other: string };
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <Tokenizer
+      label={label}
+      status={status}
+      isLabelHidden
+      size="sm"
+      value={value.map((name) => ({ id: name, label: name }))}
+      searchSource={NO_SUGGESTIONS}
+      hasCreate
+      debounceMs={0}
+      placeholder={placeholder}
+      isDisabled={isDisabled}
+      disabledMessage={disabledMessage}
+      tokenOverflowBehavior={overflow}
+      renderToken={
+        onMark &&
+        ((item, onRemove) => (
+          <Tooltip
+            content={item.label === marked ? markHint?.marked : markHint?.other}
+            isEnabled={markHint !== undefined}
+          >
+            <Token
+              label={item.label}
+              size="sm"
+              color={item.label === marked ? 'blue' : 'default'}
+              onClick={() => {
+                onMark(item.label);
+              }}
+              onRemove={onRemove}
+            />
+          </Tooltip>
+        ))
+      }
+      onChange={(items) => {
+        const names = items.map((item) => item.label.trim()).filter(Boolean);
+        onChange([...new Set(names)]);
+      }}
+    />
+  );
+}
+
 /**
  * Free-form names, typed and committed with Enter, each a token. Duplicates and blanks never make
  * it in. `disabledMessage` says why, when `isDisabled`.
@@ -958,23 +1260,14 @@ export function NamesRow({
       hasNote={Boolean(status?.message)}
     >
       <StackItem size="fill">
-        <Tokenizer
+        <NamesInput
           label={label}
           status={status}
-          isLabelHidden
-          size="sm"
-          value={value.map((name) => ({ id: name, label: name }))}
-          searchSource={NO_SUGGESTIONS}
-          hasCreate
-          debounceMs={0}
+          value={value}
           placeholder={placeholder ?? unset}
           isDisabled={isDisabled}
           disabledMessage={disabledMessage}
-          tokenOverflowBehavior="unfocusedInline"
-          onChange={(items) => {
-            const names = items.map((item) => item.label.trim()).filter(Boolean);
-            onChange([...new Set(names)]);
-          }}
+          onChange={onChange}
         />
       </StackItem>
     </InspectorRow>

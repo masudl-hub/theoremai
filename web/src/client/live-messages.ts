@@ -21,7 +21,12 @@ import {
   z,
 } from '@theoremjs/agents';
 import type { Equals } from '@theoremjs/agents/kernel';
-import { type HostErrorBody, hostErrorBodySchema } from './transport.ts';
+import {
+  type HostErrorBody,
+  hostErrorBodySchema,
+  type StatedTurn,
+  statedTurnSchema,
+} from './transport.ts';
 import {
   type MalformedEvent,
   readWireLine,
@@ -37,10 +42,16 @@ import {
 export type LiveOpenMessage = {
   type: 'open';
   history?: TurnHistoryMessage[];
-  /** The value chosen for each of the profile's `inputs.slots`. */
-  slots?: Record<string, string>;
+  /** The value chosen for each of the profile's `inputs.options`. */
+  options?: Record<string, string>;
   /** What the page tells the agent as the call opens: the client's context package. */
   context?: unknown;
+  /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
+  /** The model picked for the call, when the profile allows it. */
+  model?: string;
+  /** That model's effort, when the binding allows it. */
+  effort?: string;
   /** A call that dropped, taken up again: the provider's handle, and how long the caller was away. */
   resume?: { providerState: ProviderCheckpoint; awayMs: number };
   /** The host's own `openMessage`, for its relay to read. */
@@ -49,8 +60,11 @@ export type LiveOpenMessage = {
 const liveOpenMessage = z.object({
   type: z.literal('open'),
   history: z.array(turnHistoryMessageSchema).optional(),
-  slots: z.record(z.string(), z.string()).optional(),
+  options: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
+  stated: statedTurnSchema.optional(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
   resume: z
     .object({ providerState: providerCheckpointSchema, awayMs: z.number().nonnegative() })
     .optional(),

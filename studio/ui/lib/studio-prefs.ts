@@ -15,8 +15,6 @@ export interface StudioPrefs {
   filesToast: 'on' | 'off';
   /** Whether changing a value several agents share is asked about first. */
   askShared: 'always' | 'never';
-  /** Which tools that write ask before a run: all of them, or only the destructive ones. */
-  askWrites: 'always' | 'destructive';
 }
 
 export type StudioPref = keyof StudioPrefs;
@@ -26,7 +24,6 @@ export const PREF_DEFAULTS: StudioPrefs = {
   watch: 'on',
   filesToast: 'on',
   askShared: 'always',
-  askWrites: 'always',
 };
 
 const PREF_KEYS: Record<StudioPref, string> = {
@@ -34,7 +31,6 @@ const PREF_KEYS: Record<StudioPref, string> = {
   watch: 'theorem.studio.watch',
   filesToast: 'theorem.studio.files-toast',
   askShared: 'theorem.studio.ask-shared',
-  askWrites: 'theorem.studio.ask-writes',
 };
 
 /** Whether a kept text is a value the preference takes. */
@@ -43,7 +39,6 @@ const PREF_TAKES: { [K in StudioPref]: (kept: string) => boolean } = {
   watch: (kept) => kept === 'off',
   filesToast: (kept) => kept === 'off',
   askShared: (kept) => kept === 'never',
-  askWrites: (kept) => kept === 'destructive',
 };
 
 /** Where preferences are kept: the part of `Storage` they use. */
@@ -114,9 +109,4 @@ export function usePref<K extends StudioPref>(name: K): StudioPrefs[K] {
     () => getPref(name),
     () => PREF_DEFAULTS[name],
   );
-}
-
-/** Whether a run of a tool that writes asks first: a destructive one always, another unless the builder said not to. */
-export function writeAsks(access: string): boolean {
-  return access === 'destructive' || getPref('askWrites') === 'always';
 }

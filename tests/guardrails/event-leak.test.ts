@@ -31,7 +31,9 @@ function leakUnder(
   return eventLeak(event, turn, resolveDetect(detect), boundary);
 }
 
-const rules = (leak: ReturnType<typeof eventLeak>) => leak?.hits.map(({ rule }) => rule);
+/** The rules an event leak names, each once: a prompt echo is one hit per passage it repeats. */
+const rules = (leak: ReturnType<typeof eventLeak>) =>
+  leak ? [...new Set(leak.hits.map(({ rule }) => rule))] : undefined;
 
 Deno.test('eventLeak stops on a canary in an event, naming the canary rule', () => {
   const leak = leakUnder(text(`it is ${canary}`), 'block', 'block');

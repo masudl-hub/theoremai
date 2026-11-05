@@ -1,0 +1,112 @@
+.prompt-editor {
+  position: relative;
+}
+
+.prompt-editor [contenteditable] {
+  /* why: a long prompt scrolls inside the editor, so its toolbar stays in reach. */
+  max-height: calc(100vh - 340px);
+  overflow-y: auto;
+}
+
+.prompt-editor [contenteditable] * {
+  max-width: none;
+}
+
+.prompt-editor h1,
+.prompt-editor h2,
+.prompt-editor h3 {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4;
+  margin-block: var(--spacing-2) var(--spacing-1);
+}
+
+/* why: the panel can be narrower than the toolbar, and Private and Condition sit at its end. */
+.prompt-editor [role="toolbar"] [role="group"] {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+/* The toolbar's block menu shows its icon alone, so "Heading 2" reads as H2. */
+.prompt-editor [role="toolbar"] button[role="combobox"] > span {
+  display: none;
+}
+
+/* Private text stays as readable as the rest: a wash marks it, on the words or on whole blocks. */
+.prompt-editor [style*="--private"] {
+  background: var(--color-background-muted);
+  border-radius: var(--radius-xs, 3px);
+  box-decoration-break: clone;
+}
+
+.prompt-editor [contenteditable] [data-private] {
+  position: relative;
+  background: var(--color-background-muted);
+  margin-block: 0;
+  padding-block: 0;
+  padding-inline: var(--spacing-8) var(--spacing-2);
+}
+
+.prompt-editor [contenteditable] [data-private] [style*="--private"] {
+  background: none;
+}
+
+.prompt-editor [contenteditable] ul[data-private],
+.prompt-editor [contenteditable] ol[data-private] {
+  padding-inline-start: var(--spacing-12);
+}
+
+.prompt-editor [contenteditable] [data-private-start] {
+  border-start-start-radius: var(--radius-md, 6px);
+  border-start-end-radius: var(--radius-md, 6px);
+  padding-block-start: var(--spacing-2);
+}
+
+.prompt-editor [contenteditable] [data-private-end] {
+  border-end-start-radius: var(--radius-md, 6px);
+  border-end-end-radius: var(--radius-md, 6px);
+  padding-block-end: var(--spacing-2);
+}
+
+/* The mark at the top of a private run: nothing here is shared. */
+.prompt-editor [data-private-start]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: var(--spacing-2);
+  top: var(--spacing-2);
+  width: 16px;
+  height: 16px;
+  background: var(--color-text-secondary);
+  mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0'/%3E%3Cpath d='M15 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0'/%3E%3Cpath d='M15.861 15.896a3 3 0 0 0 4.265 4.22m.578 -3.417a3.012 3.012 0 0 0 -1.507 -1.45'/%3E%3Cpath d='M8.7 10.7l1.336 -.688m2.624 -1.352l2.64 -1.36'/%3E%3Cpath d='M8.7 13.3l6.6 3.4'/%3E%3Cpath d='M3 3l18 18'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+.prompt-hint-anchor {
+  position: absolute;
+  pointer-events: none;
+}
+
+.prompt-line-slot:not(:first-child) {
+  margin-top: var(--spacing-3);
+}
+
+.prompt-line-slot:has(.prompt-line-head) {
+  margin-bottom: var(--spacing-1);
+}
+
+/* A condition opens a stretch of the prompt: its tokens, and a line running on from them. */
+.prompt-line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.prompt-line-head::after {
+  content: "";
+  flex: 1;
+  min-width: var(--spacing-4);
+  height: 1px;
+  background: var(--color-border);
+}

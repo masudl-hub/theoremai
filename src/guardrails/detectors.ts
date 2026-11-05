@@ -32,7 +32,6 @@ import { SENSITIVE_GROUPS, WORKING_GROUPS } from './sensitive-groups.ts';
 const DETECTORS = [
   ...SENSITIVE_GROUPS,
   'injection',
-  'tool_instructions',
   'canary_leak',
   'prompt_leak',
   'marker_leak',
@@ -256,17 +255,21 @@ const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arg
 const TOOL_SHOWN_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_shown', kind));
 
 /**
- * Text on its way to the model is flagged, a tool call takes `toTool`, and what the model writes
- * or a tool shows the person is not read.
+ * Text on its way to the model is flagged, a tool call takes `toTool`, and what a tool shows the
+ * person is not read. What the model says or thinks is left out: that text goes to the person.
  */
-function everywhere(toTool: DetectAction): BoundaryActions {
+function notToPerson(toTool: DetectAction): BoundaryActions {
   return {
     ...recordOf(INBOUND_BOUNDARIES, () => 'flag' as const),
     ...recordOf(TOOL_BOUNDARIES, () => 'flag' as const),
     ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
     ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'ignore' as const),
-    ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
   };
+}
+
+/** As `notToPerson`, and what the model says or thinks is not read. */
+function everywhere(toTool: DetectAction): BoundaryActions {
+  return { ...notToPerson(toTool), ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const) };
 }
 
 /** What the model writes: a tool call takes `toTool`, what it says takes `said`, a thought `thought`. */
@@ -277,30 +280,6 @@ function leaving(toTool: DetectAction, said: DetectAction, thought: DetectAction
     reply_structured: said,
     live_reply: said,
     thought,
-  };
-}
-
-/** What a tool returns, its output, and its error text: `remote` from a tool the host did not write, `local` from a function. */
-function returned(remote: DetectAction, local: DetectAction): BoundaryActions {
-  const crossings = ['tool_output', 'tool_failure'] as const;
-  return Object.fromEntries(
-    crossings.flatMap((crossing) =>
-      TOOL_KINDS.map((kind) => [
-        toolBoundary(crossing, kind),
-        kind === 'function' ? local : remote,
-      ]),
-    ),
-  );
-}
-
-/** Where `everywhere` reads, each match only flagged: nothing the agent works with is taken out. */
-function flagged(): BoundaryActions {
-  return {
-    ...recordOf(INBOUND_BOUNDARIES, () => 'flag' as const),
-    ...recordOf(TOOL_BOUNDARIES, () => 'flag' as const),
-    ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => 'flag' as const),
-    ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'ignore' as const),
-    ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
   };
 }
 
@@ -350,36 +329,28 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     label: 'Email',
     doc: 'Email addresses.',
     group: 'data',
-    defaults: flagged(),
+    defaults: everywhere('flag'),
     patterns: true,
   },
   phone: {
     label: 'Phone',
     doc: 'Phone numbers: international, North American, and national, or any number after a phone label.',
     group: 'data',
-    defaults: flagged(),
+    defaults: everywhere('flag'),
     patterns: true,
   },
   bank_account: {
     label: 'Bank account',
     doc: 'Account, routing, and sort-code numbers after a label that names them. IBANs are `financial`.',
     group: 'data',
-    defaults: flagged(),
+    defaults: everywhere('flag'),
     patterns: true,
   },
   injection: {
     label: 'Injection',
-    doc: 'Prompt-injection phrasing, plain or disguised.',
+    doc: 'Prompt-injection phrasing, plain or disguised, and orders to the agent in what a tool returns. A match there raises taint.',
     group: 'manipulation',
-    defaults: everywhere('ignore'),
-    patterns: true,
-  },
-  tool_instructions: {
-    label: 'Tool instructions',
-    short: 'From tools',
-    doc: 'Tool output that instructs the agent. A match raises taint.',
-    group: 'manipulation',
-    defaults: returned('flag', 'ignore'),
+    defaults: notToPerson('ignore'),
     patterns: true,
   },
   canary_leak: {

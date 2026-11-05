@@ -162,6 +162,22 @@ Deno.test("a chat turn's trace reaches the page behind its events, ahead of the 
   assertEquals(stored, []);
 });
 
+Deno.test("each turn's trace names its conversation, the same id turn after turn", async () => {
+  const hello = { messages: [{ role: 'user', parts: [{ type: 'text', text: 'hello' }] }] };
+  const idOf = (sent: Line[]) => {
+    const trace = JSON.stringify(sent.find((line) => line.type === 'trace')?.record);
+    return /"gen_ai\.conversation\.id":"([^"]+)"/.exec(trace)?.[1];
+  };
+  const first = await lines('bench-chat/turn', { input: hello });
+  const ref = (first.find((line) => line.type === 'conversation') as { ref?: string } | undefined)
+    ?.ref;
+  const second = await lines('bench-chat/turn', { input: hello, conversation: ref });
+  assertEquals(typeof idOf(first), 'string');
+  assertEquals(idOf(second), idOf(first));
+  const other = await lines('bench-chat/turn', { input: hello });
+  assertEquals(idOf(other) === idOf(first), false);
+});
+
 Deno.test('a stream that ends in a failure sends its trace ahead of it, so the page reads it', async () => {
   const record = (await call('bench-tools', 'one')).find((line) => line.type === 'trace')?.record;
   const serve = withRunTraces(async () => {

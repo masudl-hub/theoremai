@@ -59,6 +59,8 @@ function project(over: Partial<SaveHost<StudioWorkspace>> = {}) {
       typeChecks: () => Promise.resolve({ ok: true, output: '' }),
       load: () => Promise.resolve(state.loads),
       stop: (loaded) => Promise.resolve(void stopped.push(loaded)),
+      running: () => false,
+      whenQuiet: (swap) => Promise.resolve(swap()),
       opened: (loaded) => loaded,
       ...over,
     },
@@ -197,6 +199,7 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   assertEquals([loads, stopped.length], [1, 1]);
 
   // Files that do not load are tried once, and the last load answers.
+  const asLoaded = files.get(SETUP) ?? '';
   failing.fails = true;
   files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
   assertEquals((await session.read()).unloaded, 'It threw.');
@@ -204,10 +207,57 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   assertEquals(session.project(), next);
   assertEquals(loads, 2);
 
+  // Put back as they loaded, they load no one again, and the page is told the failure is over.
+  files.set(SETUP, asLoaded);
+  assertEquals((await session.changed()).length, 1);
+  assertEquals((await session.read()).unloaded, undefined);
+  assertEquals(await session.changed(), []);
+  assertEquals(loads, 2);
+
+  failing.fails = true;
+  files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
+  assertEquals((await session.read()).unloaded, 'It threw.');
+
   failing.fails = false;
   files.set(SETUP, `${TEXT}\n// Mended.\n`);
   assertEquals((await session.read()).unloaded, undefined);
-  assertEquals(loads, 3);
+  assertEquals(loads, 4);
+});
+
+Deno.test('a running turn keeps its load: a read waits for nothing, a Save swaps when it ends', async () => {
+  let running = true;
+  let turnEnded = () => {};
+  let waiting = () => {};
+  const saveWaits = new Promise<void>((resume) => {
+    waiting = resume;
+  });
+  const { session, files, state, stopped } = project({
+    running: () => running,
+    whenQuiet: (swap) =>
+      new Promise((done) => {
+        turnEnded = () => {
+          running = false;
+          swap();
+          done();
+        };
+        waiting();
+      }),
+  });
+  const workspace = edited();
+  files.set(SETUP, `${TEXT}// the editor\n`);
+  await session.read();
+  assertEquals(session.project(), opened.workspace);
+  assertEquals((await session.changed()).length, 1);
+
+  files.set(SETUP, TEXT);
+  const { stamp } = await reviewed(session, workspace);
+  state.loads = startedHere(workspace);
+  const saving = session.save({ workspace, stamp });
+  await saveWaits;
+  assertEquals([session.project(), stopped], [opened.workspace, []]);
+  turnEnded();
+  assertEquals(await saving, { ok: true, written: ['example.ts'] });
+  assertEquals([session.project(), stopped], [state.loads, [opened.workspace]]);
 });
 
 Deno.test('a read of unchanged files walks them once, and twice around a load', async () => {

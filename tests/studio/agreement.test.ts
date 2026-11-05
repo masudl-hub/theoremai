@@ -40,7 +40,7 @@ Deno.test('a section left out is one written empty, read setting by setting', ()
   assertEquals(differingSettings({}, empty), []);
   // The kernel's own lists, written out, are the lists it reads a section left out as.
   const resumption = {
-    allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+    allowContinue: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'],
     autoContinue: ['length', 'stream_incomplete'],
   };
   assertEquals(differingSettings({ turnBehaviour: {} }, { turnBehaviour: { resumption } }), []);
@@ -120,5 +120,33 @@ Deno.test('a host profile differs in detect only at the tool boundaries, the one
       'guardrails.detect.ids.reply',
     ),
     true,
+  );
+});
+
+Deno.test('a prompt differs in its words, not in the white space at the end of a line or a section', () => {
+  const profile = (system: unknown) => ({ type: 'text', identity: { handle: 'a', system } });
+  assertEquals(differingSettings(profile('Be brief.\n'), profile('Be brief.')), []);
+  assertEquals(
+    differingSettings(
+      profile([['Greet. ', { private: 'Code 7731. \n' }], 'Help.\n']),
+      profile([['Greet. ', { private: 'Code 7731.' }], 'Help.']),
+    ),
+    [],
+  );
+  assertEquals(differingSettings(profile('Be brief.'), profile('Be long.')), ['identity.system']);
+});
+
+Deno.test('a prompt written as one text agrees with the lines the studio opens it to', () => {
+  const profile = (system: unknown) => ({ type: 'text', identity: { handle: 'a', system } });
+  assertEquals(differingSettings(profile('Greet.\n\nHelp.'), profile(['Greet.', 'Help.'])), []);
+  assertEquals(differingSettings(profile('Greet.\n\nHelp.'), profile(['Greet.', 'Stop.'])), [
+    'identity.system',
+  ]);
+  assertEquals(
+    differingSettings(
+      profile('Greet.\n\nwhen path is web: Help.'),
+      profile(['Greet.', 'when path is web: Help.']),
+    ),
+    ['identity.system'],
   );
 });

@@ -1,6 +1,7 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import {
   getProfile,
   projectProfile,
@@ -204,7 +205,12 @@ const fake: TurnModel = { complete: fakeComplete };
 const LONG_FLASH = 40000;
 function withTools(id: ProfileId, extra: ToolId[]) {
   const profile = getProfile(id);
-  if (profile.type === 'speech' || profile.type === 'decision' || profile.type === 'embedding') {
+  if (
+    profile.type === 'speech' ||
+    profile.type === 'transcription' ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding'
+  ) {
     throw new Error(`withTools: profile '${id}' does not support tools`);
   }
   return withProfileTools(profile, extra);
@@ -387,39 +393,39 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
   assertEquals(search.generation.builtins, ['googleSearch']);
   assertEquals(search.generation.tools.visible.includes('ask_user'), true);
 });
-Deno.test('language slot picks structured schema', () => {
+Deno.test('language option picks structured schema', () => {
   const html = resolveTurn({
     profile: 'formatter',
-    input: { text: 'x', slots: { language: 'html' } },
+    input: { text: 'x', options: { language: 'html' } },
   });
   assertEquals(html.generation.structured?.id, 'htmlTurn');
   const tsx = resolveTurn({
     profile: 'formatter',
-    input: { text: 'x', slots: { language: 'tsx' } },
+    input: { text: 'x', options: { language: 'tsx' } },
   });
   assertEquals(tsx.generation.structured?.id, 'tsxTurn');
 });
-Deno.test('a turn passes only declared slots, set to a declared choice', () => {
+Deno.test('a turn passes only declared options, set to a declared choice', () => {
   assertThrows(
-    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { language: 'py' } } }),
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', options: { language: 'py' } } }),
     TheoremError,
-    "Profile formatter: slot 'language' takes html, tsx, not 'py'",
+    "Profile formatter: option 'language' takes html, tsx, not 'py'",
   );
   assertThrows(
-    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { tone: 'dry' } } }),
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', options: { tone: 'dry' } } }),
     TheoremError,
-    "Profile formatter has no slot 'tone'",
+    "Profile formatter has no option 'tone' on inputs.options",
   );
   assertThrows(
-    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { toString: 'x' } } }),
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', options: { toString: 'x' } } }),
     TheoremError,
-    "Profile formatter has no slot 'toString'",
+    "Profile formatter has no option 'toString' on inputs.options",
   );
   // A profile that declares no slots takes none.
   assertThrows(
-    () => resolveTurn({ profile: 'chat', input: { text: 'x', slots: { language: 'html' } } }),
+    () => resolveTurn({ profile: 'chat', input: { text: 'x', options: { language: 'html' } } }),
     TheoremError,
-    "Profile chat has no slot 'language'",
+    "Profile chat has no option 'language' on inputs.options",
   );
 });
 Deno.test('disallowed tool cannot run', async () => {
@@ -542,22 +548,6 @@ Deno.test('provider tool call is dispatched', async () => {
     true,
   );
   assertDoneThenPostTurn(events);
-});
-Deno.test('role-specific system prompt still completes', async () => {
-  const events = await Array.fromAsync(
-    runTurn(
-      {
-        profile: 'selector',
-        model: 'gemini35FlashLite',
-        input: { text: 'plan', role: 'reviewer' },
-      },
-      fake,
-    ),
-  );
-  assertEquals(
-    events.some((e) => e.type === 'text'),
-    true,
-  );
 });
 Deno.test('empty text input still runs', async () => {
   const events = await Array.fromAsync(runTurn({ profile: 'chat', input: {} }, fake));
@@ -927,6 +917,108 @@ Deno.test('runTurn retries when required field is missing', async () => {
   );
   assertEquals(callCount, 2);
   assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
+});
+function unparsedReplyProfile(id: string, maxRetries?: number): void {
+  registerProfile({
+    type: 'text',
+    id,
+    identity: { handle: id },
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 1,
+    tools: { allow: [] },
+    inputs: { text: true },
+    outputs: {
+      structured: 'validTurn',
+      validation: maxRetries === undefined ? {} : { maxRetries },
+    },
+    guardrails: { quota: { perDay: 10 } },
+  });
+}
+Deno.test('a structured reply cut at length is sent back with why, and the retry answers', async () => {
+  unparsedReplyProfile('cutOffProfile', 1);
+  const repairs: string[] = [];
+  async function* mockComplete(req: ModelRequest): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    if (repairs.length === 0) {
+      repairs.push('');
+      yield { type: 'text', text: '{"code": "go"  \n\n\n' };
+      yield { type: 'done', stop: { kind: 'length' } };
+      return;
+    }
+    repairs.push(String(req.history?.at(-1)?.content));
+    yield { type: 'structured', structured: { code: 'good' } };
+  }
+  const events = await Array.fromAsync(
+    runTurn({ profile: 'cutOffProfile', input: { text: 'make code' } }, { complete: mockComplete }),
+  );
+  assertEquals(repairs.length, 2);
+  assertStringIncludes(repairs[1] ?? '', '{"code": "go"');
+  assertStringIncludes(repairs[1] ?? '', 'cut off at the output limit before its JSON ended');
+  assertStringIncludes(repairs[1] ?? '', labelText('repair.cut_off_guidance'));
+  assertEquals(
+    eventsOf(events, 'attempt').map((e) => e.reason),
+    ['validation'],
+  );
+  assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
+  assertEquals(lastOf(events, 'done')?.stop?.kind, 'completed');
+});
+Deno.test('a structured reply that is not JSON is sent back with why, and the retry answers', async () => {
+  unparsedReplyProfile('notJsonProfile', 1);
+  const repairs: string[] = [];
+  async function* mockComplete(req: ModelRequest): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    if (repairs.length === 0) {
+      repairs.push('');
+      yield { type: 'text', text: 'code: go' };
+      yield {
+        type: 'error',
+        errorKind: 'bad_response',
+        error: 'structured output was not valid JSON',
+      };
+      return;
+    }
+    repairs.push(String(req.history?.at(-1)?.content));
+    yield { type: 'structured', structured: { code: 'good' } };
+  }
+  const events = await Array.fromAsync(
+    runTurn(
+      { profile: 'notJsonProfile', input: { text: 'make code' } },
+      { complete: mockComplete },
+    ),
+  );
+  assertEquals(repairs.length, 2);
+  assertStringIncludes(repairs[1] ?? '', 'code: go');
+  assertStringIncludes(repairs[1] ?? '', 'The reply was not valid JSON.');
+  assertEquals(eventsOf(events, 'error'), []);
+  assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
+  assertEquals(lastOf(events, 'done')?.stop?.kind, 'completed');
+});
+Deno.test('a structured reply cut at length is repaired once by default, and cut again it fails', async () => {
+  unparsedReplyProfile('cutOffNoRetryProfile');
+  let calls = 0;
+  async function* mockComplete(): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    calls++;
+    yield { type: 'text', text: '{"code": "go"  \n\n\n' };
+    yield { type: 'done', stop: { kind: 'length' } };
+  }
+  const events = await Array.fromAsync(
+    runTurn(
+      { profile: 'cutOffNoRetryProfile', input: { text: 'make code' } },
+      { complete: mockComplete },
+    ),
+  );
+  assertEquals(calls, 2);
+  assertEquals(
+    eventsOf(events, 'attempt').map((e) => e.reason),
+    ['validation'],
+  );
+  assertEquals(eventsOf(events, 'structured'), []);
+  assertEquals(
+    eventsOf(events, 'error').map((e) => e.errorKind),
+    ['bad_response'],
+  );
+  assertEquals(lastOf(events, 'done')?.stop?.kind, 'provider_error');
 });
 Deno.test('runTurn validates nested required under present optional object', async () => {
   let mermaidCalls = 0;

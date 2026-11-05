@@ -31,5 +31,7 @@ export const typesafeProvider: Provider<TypesafeConnection, string> = defineProv
     checked: '2026-10-19',
     models: { 'jev-*': { input: 0.042, output: 0 } },
   },
+  // probed 2026-10-27: a working key answers 200; a wrong one 401, none 403.
+  check: { protocol: systemOne, path: '/models' },
   serves: (at) => [{ protocol: systemOne, baseUrl: at.baseUrl ?? 'https://api.typesafe.ai/v1' }],
 });

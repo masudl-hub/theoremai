@@ -40,7 +40,7 @@ Use Theorem when your application runs an AI agent and you need the agent to do 
 You describe an agent once, as a **profile**. A profile says:
 
 - which models the agent may use;
-- what the agent accepts: text, images, PDFs, audio, voice, or typed slots;
+- what the agent accepts: text, images, PDFs, audio, voice, or options;
 - what the agent must return: free text, JSON that a schema checks, images, speech, or a live audio session;
 - which tools the agent may call;
 - how every input and output is guarded.
@@ -79,7 +79,7 @@ deno add jsr:@theoremjs/agents
 npm install @theoremjs/agents zod
 ```
 
-The npm package runs on Node 20 and later and in browsers. Its type declarations need TypeScript 5.7 or later.
+The npm package runs on Node 22 and later and in browsers. Its type declarations need TypeScript 5.7 or later.
 
 ### Register a tool
 
@@ -185,9 +185,10 @@ Use the `type` field to choose what the agent does. The type sets the shape of t
 
 | Type | Runner | Takes | Returns | First-party protocols |
 | :--- | :--- | :--- | :--- | :--- |
-| `text` | `runTurn` | text, attachments, voice notes, slots, history | text, thoughts, validated JSON, tool calls | `geminiInteractions`, `openRouterOpenAi`, `openAi` |
+| `text` | `runTurn` | text, attachments, voice notes, options, history | text, thoughts, validated JSON, tool calls | `geminiInteractions`, `openRouterOpenAi`, `openAi` |
 | `image` | `runTurn` | prompt + reference images | images, optionally with interleaved text | `geminiInteractions`, `openRouterImages` |
 | `speech` | `runTurn` | text | audio (WAV, or MP3 on OpenRouter) | `geminiInteractions`, `openRouterOpenAi`, `openAi` |
+| `transcription` | `runTurn` | one voice clip | the words in the clip, as text | `openRouterTranscriptions` |
 | `live` | `runSession` | realtime mic audio, camera frames, typed text | streamed audio, transcripts, tool calls | `geminiLive` |
 | `host` | `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep` | tool calls from your own code, one at a time or as a step; the `run` pair gives how each call ended | guarded tool results | none; it never calls a model |
 | `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, boxes, or `noul` | `systemOne`, `openRouterDecisions` |
@@ -273,7 +274,7 @@ Each tool call gets an operation ID from the kernel, `ToolContext.operationId`. 
 Pass it as `execution` on the `TurnRequest`. A tool that the page answers also needs `pageExecution`, a `PageToolExecution`.
 Profile JSON and provider events cannot supply either one.
 
-- **One process.** `createMemoryToolExecution` keeps claims and outcomes in memory. It refuses new operations after `maxOperations` (256 by default). Nothing survives a restart.
+- **One process.** `createMemoryToolExecution` keeps claims and outcomes in memory. It refuses new operations after `maxOperations`, when you set it. Nothing survives a restart.
 - **Several workers.** Write a coordinator over durable shared storage. The `@theoremjs/web` server handler builds one from its session store.
 - **Replay.** Before you deliver a saved outcome on your own path, call `authorizeToolReplay`. It checks that the call is still allowed and may still be shown, and it runs no handler.
 
@@ -289,7 +290,7 @@ Theorem scans each piece of text according to where it came from.
 | :--- | :--- | :--- |
 | `trusted` | `identity.system`, written by you at startup | Passed through |
 | `assembled` | `TurnRequest.system`, built by your code per turn | Full scan |
-| `untrusted` | User text, history, slots, attachments, steering, stage injections | Full injection and sensitive-data scan |
+| `untrusted` | User text, history, options, attachments, steering, stage injections | Full injection and sensitive-data scan |
 
 - **Coming in.** `guardrails.detect` finds prompt-injection phrasing, secrets, and personal data before the model sees them. By default it flags each one and the text goes in as written. Set a detector to `redact` to replace it with a placeholder, or to `block` to stop the turn.
 - **Going out.** A **canary** is a secret token that Theorem hides in the system prompt. If the token appears in a reply, the prompt leaked, and the `canary_leak` detector reports it. The `prompt_leak` detector also reports a reply that repeats 12 or more words of the prompt. By default, both flag the leak and the reply goes out as written. Set them to `redact` or `block` in `guardrails.detect` to keep the leak from the user. When a check blocks a reply, `guardrails.blockedReply` decides what happens: the model rewrites it (`retry`) or the user gets a refusal (`refuse`).
@@ -317,7 +318,7 @@ The binding under `models` names the protocol, the registered provider ID, and t
 | Provider | ID | Protocols |
 | :--- | :--- | :--- |
 | `geminiProvider` | `gemini` | `geminiInteractions` (text, image, speech), `geminiLive` (live), `geminiEmbeddings` (embedding) |
-| `openRouterProvider` | `openrouter` | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterDecisions` (decision), `openRouterEmbeddings` (embedding) |
+| `openRouterProvider` | `openrouter` | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterTranscriptions` (transcription), `openRouterDecisions` (decision), `openRouterEmbeddings` (embedding) |
 | `typesafeProvider` | `typesafe` | `systemOne` (decision) |
 | `localProvider` | `local` | `openAi` (text, speech), `ollamaEmbeddings` (embedding), for a server such as Ollama |
 
@@ -338,12 +339,14 @@ const gateway = defineProvider({
   connection: z.strictObject({ baseUrl: z.string() }),
   key: z.string().trim().min(1),
   authorize: bearer(),
+  check: { protocol: openAi, path: "/models" },
   serves: (at) => [{ protocol: openAi, baseUrl: at.baseUrl }],
 });
 registerProvider(gateway, { connection: { baseUrl: "https://gateway.example/v1" }, keySlot: "gateway" });
 ```
 
 Use `defineProvider` for a server that speaks a protocol that Theorem has. `bearer`, `header`, and `query` put the key on each request.
+`check` names a GET that answers 2xx for a key that works and 400, 401 or 403 for one that does not. `checkKey(provider, { vault })` sends it once and returns a `KeyCheck`: `accepted`, `refused`, `unreachable`, `empty`, or `unchecked` for a provider with no `check`. The Gemini, OpenRouter and TypeSafe providers have one.
 Use `extendProtocol` for an API that nearly matches a protocol. Use `defineProtocol` for a new API shape.
 A protocol never holds a key or an address. The kernel signs and sends each request.
 
@@ -420,7 +423,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/host` / `@theoremjs/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
 | `jsr:@theoremjs/agents/interface` / `@theoremjs/agents/interface` | Headless interface projection of a profile (transcript, composer, gates) that UI packages such as `@theoremjs/react` render. |
 | `jsr:@theoremjs/agents/surface` / `@theoremjs/agents/surface` | Surfaces: the agent sees and works in a client's screen through two tools, `look` and `act`. Secrets reach the agent only as cards. |
-| `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
+| `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). `agents studio …` runs the studio the project installed. |
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 | `jsr:@theoremjs/agents/evals` / `@theoremjs/agents/evals` | Graders that read trace records and write their results as trace records through the same sink. |
 
@@ -459,9 +462,9 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `requireModelBinding` |
 | Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_START_SENSITIVITIES`, `LIVE_END_SENSITIVITIES` |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
-| Tools | `ToolContext`, `GateReference`, `gateReferenceSchema`, `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `uncheckedOutput`, `UncheckedOutput`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer` |
-| Tool execution | `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `TranscriptionProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel`, `resolveTurnSystemPrompt`, `systemLinesProblem` |
+| Tools | `ToolContext`, `GateReference`, `gateReferenceSchema`, `ToolRegistry`, `assertToolSettings`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `uncheckedOutput`, `UncheckedOutput`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer` |
+| Tool execution | `ToolBackground`, `ToolBackgroundCall`, `ToolBackgroundHandle`, `ToolBackgroundService`, `ToolOperationReply`, `toolOperationReplySchema`, `BackgroundToolEvent`, `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `StepLimitMode`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](https://github.com/masudl-hub/theoremai/blob/main/docs/contracts/stages.md) |
@@ -469,11 +472,11 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Observability | `memorySink`, `noopSink`, `readTraceparent`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `ScrubSwitch`, `ResolvedScrubSwitch`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` (file sink: `@theoremjs/agents/observability/jsonl` → `jsonlSink`, `JsonlSinkOptions`) |
 | Providers | `registerProvider`, `getProvider`, `listProviders`, `listProtocols`, `createProviderRegistry`, `defineProvider`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Provider sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `LiveToolResult`, `callProtocol`, `ProtocolCall`, `CallSetup` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |
-| Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket` |
+| Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket`, `checkKey`, `KeyCheck` |
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderStateRebuilt`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderLimits`, `providerLimitsSchema` |
 | Re-exported whole | Everything that `@theoremjs/agents/providers` exports. Its contract lists each name. |

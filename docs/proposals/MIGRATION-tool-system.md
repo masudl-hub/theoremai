@@ -1,5 +1,7 @@
 # Tool system migration
 
+**Status:** built. The registry below shipped with no shims.
+
 Ground-up tool registry rebuild (2026). **No compatibility shims.** Hosts must
 migrate once; after that the model is simpler and enforcement is consistent.
 

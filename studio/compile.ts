@@ -16,6 +16,7 @@ import {
   type SpeechProfileDefinition,
   type TextProfileDefinition,
   TheoremError,
+  type TranscriptionProfileDefinition,
 } from '@theoremjs/agents';
 import {
   BOUNDARIES,
@@ -50,6 +51,7 @@ import {
   type LiveInputsSpec,
   type ModelBinding,
   mimeAllowed,
+  optionsProblem,
   outOfScopeFields,
   type ProfileContextSpec,
   type ProfileDefinition,
@@ -57,12 +59,12 @@ import {
   type ProfileInputsSpec,
   type ProfileItemRule,
   type ProfileLiveSpec,
+  type ProfileOptions,
   type ProfileOutputsSpec,
   type ProfileSpeechSpec,
+  type ProfileSystem,
   type ProviderLimits,
-  type SlotDeclInput,
-  type SystemPrompt,
-  systemPromptProblem,
+  systemLinesProblem,
 } from '@theoremjs/agents/kernel';
 import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
 import {
@@ -83,11 +85,11 @@ import type {
   LiveDraft,
   ModelBindingDraft,
   ObservabilityDraft,
+  OptionDraft,
   OutputsDraft,
   OwnDetectorDraft,
   PatternDraft,
   PatternSourceDraft,
-  SlotDraft,
   SpeechDraft,
   StudioDraft,
   StudioProfileType,
@@ -126,7 +128,7 @@ import {
   defaultModelRequired,
   inputLimitsRequired,
 } from './requirements.ts';
-import { parseSystemMarkup, type SystemMarkup } from './system-markup.ts';
+import { parseSystemMarkup } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
@@ -135,6 +137,7 @@ export type StudioProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
   | SpeechProfileDefinition
+  | TranscriptionProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
   | EmbeddingProfileDefinition
@@ -561,36 +564,85 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   return parseRecord(raw, isString);
 }
 
-const isSystemPrompt = (value: unknown): value is SystemPrompt =>
-  systemPromptProblem(value, 'system') === undefined;
+/** The options a draft declares so far: each one named with a value, the first of a name. */
+export function draftOptions(options: readonly OptionDraft[]): OptionDraft[] {
+  const seen = new Set<string>();
+  return options.flatMap((option) => {
+    const name = option.name.trim();
+    if (!name || option.choices.length === 0 || seen.has(name)) return [];
+    seen.add(name);
+    return [{ ...option, name }];
+  });
+}
 
-/** Each role's text takes `{private: …}` sections like the system prompt; a list of parts passes as written. */
-function compileSystemByRole(
-  raw: string,
-  report: (message: string) => void,
-): Record<string, SystemPrompt> | undefined {
-  const byRole = parseRecord(raw, isSystemPrompt);
-  if (byRole === null) {
-    report(
-      'Instructions by role must be a JSON object of text, or of lists of text and { "private": text }.',
-    );
-    return undefined;
+/** A draft's options as a profile declares them. A blank label or description is left out. */
+function compileOptions(options: readonly OptionDraft[]): ProfileOptions | undefined {
+  if (options.length === 0) return undefined;
+  return Object.fromEntries(
+    options.map(({ name, label, choices }) => [
+      name,
+      {
+        ...(label.trim() ? { label: label.trim() } : {}),
+        choices: choices.map(({ value, description }) =>
+          description.trim() ? { value, description: description.trim() } : { value },
+        ),
+      },
+    ]),
+  );
+}
+
+/** Says which value an option lists twice. */
+function twiceListed({ choices }: OptionDraft): string | undefined {
+  const value = choices.find(
+    (choice, at) => choices.findIndex((each) => each.value === choice.value) !== at,
+  )?.value;
+  return value === undefined ? undefined : `${value} is listed twice.`;
+}
+
+/** What is wrong with each option, reported on its row. Gives whether any was. */
+function reportOptions(options: readonly OptionDraft[], report: Report): boolean {
+  const seen = new Set<string>();
+  let isWrong = false;
+  options.forEach((option, at) => {
+    const named = option.name.trim();
+    if (!named && option.choices.length === 0) return;
+    const declared = { [named]: { choices: option.choices.map(({ value }) => ({ value })) } };
+    const problem = !named
+      ? 'This option needs a name.'
+      : seen.has(named)
+        ? `Two options are called "${named}".`
+        : option.choices.length === 0
+          ? 'This option needs a value.'
+          : (twiceListed(option) ?? optionsProblem(declared, undefined));
+    seen.add(named);
+    if (!problem) return;
+    isWrong = true;
+    report('identity', problem, 'options', at);
+  });
+  return isWrong;
+}
+
+/** The prompt's lines and the options they read, each problem reported on the identity section. */
+function compilePrompt(draft: StudioDraft, report: Report) {
+  const parsed = parseSystemMarkup(draft.identity.system);
+  if (!parsed.ok) report('identity', parsed.message, 'system');
+  const lines = parsed.ok ? parsed.lines : [];
+  const [first] = lines;
+  const system: ProfileSystem | undefined =
+    lines.length === 0
+      ? undefined
+      : lines.length === 1 && typeof first === 'string'
+        ? first
+        : lines;
+  const isWrong = reportOptions(draft.identity.options, report);
+  const declared = draftOptions(draft.identity.options);
+  const code = compileOptions(declared.filter((option) => !option.isShownInChat));
+  const person = compileOptions(declared.filter((option) => option.isShownInChat));
+  if (system !== undefined && !isWrong) {
+    const problem = systemLinesProblem(system, code, person);
+    if (problem) report('identity', problem, 'system');
   }
-  if (!byRole) return undefined;
-  const compiled: Record<string, SystemPrompt> = {};
-  for (const [role, prompt] of Object.entries(byRole)) {
-    if (typeof prompt !== 'string') {
-      compiled[role] = prompt;
-      continue;
-    }
-    const parsed = parseSystemMarkup(prompt);
-    if (!parsed.ok) {
-      report(`${role}: ${parsed.message}`);
-      return undefined;
-    }
-    if (parsed.prompt !== undefined) compiled[role] = parsed.prompt;
-  }
-  return compiled;
+  return { system, code, person };
 }
 
 /** A record field's value, reporting `message` on `field` when it doesn't parse. */
@@ -676,6 +728,8 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail, agentInputOf: AgentToolInpu
     permission: tool.permission,
     loadTier: tool.loadTier,
     paths: paths.length ? paths : ['*'],
+    ...(tool.after ? { after: true } : {}),
+    ...(tool.background ? { background: tool.background } : {}),
     ...schemas,
   };
 }
@@ -703,7 +757,7 @@ export function agentToolInputSchema(draft: StudioDraft): Record<string, unknown
   if (type !== 'text' && type !== 'image' && type !== 'speech') return undefined;
   const inputs =
     type !== 'speech' && draftFacets(draft).includes('inputs')
-      ? compileInputs(draft.inputs, type, () => {})
+      ? compileInputs(draft.inputs, compilePrompt(draft, () => {}).person, type, () => {})
       : undefined;
   return jsonSchemaFromZod(agentToolInputFor({ type, ...(inputs ? { inputs } : {}) }), 'input');
 }
@@ -973,6 +1027,7 @@ function compileTools(
 
 function compileInputs(
   inputs: InputsDraft,
+  options: ProfileOptions | undefined,
   type: StudioProfileType,
   report: Report,
 ): ProfileInputsSpec {
@@ -1009,7 +1064,6 @@ function compileInputs(
   checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
   checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);
   const limitsByMime = compileLimitsByMime(inputs, report);
-  const slots = compileSlots(inputs, report);
   const context = compileContext(inputs, report);
   return {
     ...(inputs.text ? {} : { text: false }),
@@ -1021,7 +1075,7 @@ function compileInputs(
     ...(inputs.maxBytes !== null ? { maxBytes: inputs.maxBytes } : {}),
     ...(inputs.maxTurnBytes !== null ? { maxTurnBytes: inputs.maxTurnBytes } : {}),
     ...(limitsByMime ? { limitsByMime } : {}),
-    ...(slots ? { slots } : {}),
+    ...(options ? { options } : {}),
     ...(context ? { context } : {}),
   };
 }
@@ -1049,64 +1103,35 @@ function compileLimitsByMime(
   return entries.length ? { ...inputs.limitsByMime } : undefined;
 }
 
-/** One slot's problems, each on its row: a missing or repeated name or value. */
-function slotProblems(slot: SlotDraft, at: number, slots: readonly SlotDraft[]): string[] {
-  const name = slot.name.trim();
-  const problems: string[] = [];
-  if (!name) problems.push('Name this slot.');
-  else if (slots.findIndex((other) => other.name.trim() === name) < at) {
-    problems.push(`Another slot is called ${name}.`);
-  }
-  const values = slot.choices.map((choice) => choice.value.trim());
-  if (!values.some(Boolean)) problems.push('Give this slot a choice.');
-  if (slot.choices.some((choice, index) => !values[index] && choice.description.trim())) {
-    problems.push('Every choice with a description needs a value.');
-  }
-  const repeated = values.filter((value, index) => value && values.indexOf(value) < index);
-  for (const value of new Set(repeated)) problems.push(`${value} is a choice twice.`);
-  return problems;
-}
-
-/**
- * Each slot by name. A slot with no label and no descriptions is its list of values; any other
- * is `{ label?, choices }`. A choice left blank is left out.
- */
-function compileSlots(
+/** A call profile's inputs are its options and context, and are left out when it has neither. */
+function compileLiveInputs(
   inputs: InputsDraft,
+  options: ProfileOptions | undefined,
   report: Report,
-): Record<string, SlotDeclInput> | undefined {
-  if (!inputs.slots.length) return undefined;
-  inputs.slots.forEach((slot, at) => {
-    for (const problem of slotProblems(slot, at, inputs.slots)) {
-      report('inputs', problem, 'slots', at);
-    }
-  });
-  return Object.fromEntries(
-    inputs.slots.map((slot) => {
-      const label = slot.label.trim();
-      const choices = slot.choices
-        .filter((choice) => choice.value.trim())
-        .map((choice) => ({ value: choice.value.trim(), description: choice.description.trim() }));
-      const plain = !label && choices.every((choice) => !choice.description);
-      const decl: SlotDeclInput = plain
-        ? choices.map((choice) => choice.value)
-        : {
-            ...(label ? { label } : {}),
-            choices: choices.map(({ value, description }) =>
-              description ? { value, description } : { value },
-            ),
-          };
-      return [slot.name.trim(), decl];
-    }),
-  );
+): { inputs?: LiveInputsSpec } {
+  const context = compileContext(inputs, report);
+  if (!options && !context) return {};
+  return { inputs: { ...(options ? { options } : {}), ...(context ? { context } : {}) } };
 }
 
-/** A call profile's inputs are its slots and context, and are left out when it has neither. */
-function compileLiveInputs(inputs: InputsDraft, report: Report): { inputs?: LiveInputsSpec } {
-  const slots = compileSlots(inputs, report);
-  const context = compileContext(inputs, report);
-  if (!slots && !context) return {};
-  return { inputs: { ...(slots ? { slots } : {}), ...(context ? { context } : {}) } };
+/** The shapes an option's value picks: its schemas, and what `outputs.structured` writes. */
+function compileOptionShapes(
+  outputs: OutputsDraft,
+  fallback: string,
+  report: (nodeId: string, message: string, field?: string) => void,
+) {
+  const { option, shapes } = outputs.byOption ?? { option: '', shapes: [] };
+  const also: NonNullable<StructuredRegistration['also']> = [];
+  const map: Record<string, string> = {};
+  for (const shape of shapes) {
+    const schema = parseJsonSchema(shape.schemaJson, `The reply shape for '${shape.choice}'`);
+    if (!schema.ok) report('outputs', schema.error, 'schemaJson');
+    else {
+      also.push({ id: shape.schemaId, spec: { jsonSchema: schema.schema } });
+      map[shape.choice] = shape.schemaId;
+    }
+  }
+  return also.length ? { also, written: { by: option, map, fallback } } : undefined;
 }
 
 /** `shaped`: the type takes a structured reply and its validation (text only). */
@@ -1128,6 +1153,8 @@ function compileOutputs(
       structured = { id, spec: { jsonSchema: schema.schema } };
     }
   }
+  const byOption = structured && compileOptionShapes(outputs, structured.id, report);
+  if (structured && byOption) structured = { ...structured, also: byOption.also };
   if (validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
@@ -1149,7 +1176,7 @@ function compileOutputs(
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),
   };
   const spec: ProfileOutputsSpec = {
-    ...(structured ? { structured: structured.id } : {}),
+    ...(structured ? { structured: byOption?.written ?? structured.id } : {}),
     ...(Object.keys(validation).length ? { validation } : {}),
     ...(Object.keys(streaming).length ? { streaming } : {}),
   };
@@ -2189,15 +2216,7 @@ function assemble(
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
-  const parsedSystem: SystemMarkup =
-    typeof draft.identity.system === 'string'
-      ? parseSystemMarkup(draft.identity.system)
-      : { ok: false, message: 'The system prompt must be text.' };
-  if (!parsedSystem.ok) report('identity', parsedSystem.message, 'system');
-  const system = parsedSystem.ok ? parsedSystem.prompt : undefined;
-  const systemByRole = compileSystemByRole(draft.identity.systemByRoleJson, (message) => {
-    report('identity', message, 'systemByRoleJson');
-  });
+  const { system, code, person } = compilePrompt(draft, report);
   const modelFields = compileModels(draft, type, report, agentIdOf);
   const { outputs, structured } = facets.has('outputs')
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
@@ -2224,8 +2243,8 @@ function assemble(
     id: draft.identity.agentId.trim(),
     identity: {
       handle: draft.identity.handle.trim(),
+      ...(code ? { options: code } : {}),
       ...(system ? { system } : {}),
-      ...(systemByRole ? { systemByRole } : {}),
     },
     ...modelFields,
     ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),
@@ -2235,8 +2254,8 @@ function assemble(
     ...(!facets.has('inputs')
       ? {}
       : type === 'live'
-        ? compileLiveInputs(draft.inputs, report)
-        : { inputs: compileInputs(draft.inputs, type, report) }),
+        ? compileLiveInputs(draft.inputs, person, report)
+        : { inputs: compileInputs(draft.inputs, person, type, report) }),
     ...(outputs ? { outputs } : {}),
     ...(turnBehaviour ? { turnBehaviour } : {}),
     ...(guardrails ? { guardrails } : {}),

@@ -26,9 +26,14 @@ function bindingFor(
   return profile.models[modelId];
 }
 
+/** The fewest models a profile needs before people can pick one; below it, `allowModelSelect` shows no picker. */
+const MODEL_SELECT_MIN_MODELS = 2;
+
 /** True when the profile lets the user pick between two or more models. */
 function modelSelectEnabled(profile: ModelSelectProfile): boolean {
-  return Boolean(profile.allowModelSelect && Object.keys(profile.models).length >= 2);
+  return Boolean(
+    profile.allowModelSelect && Object.keys(profile.models).length >= MODEL_SELECT_MIN_MODELS,
+  );
 }
 
 /** True when the model lets the user pick between two or more effort levels. */
@@ -85,5 +90,6 @@ export {
   generationSelectEnabled,
   interfaceEffortOptions,
   interfaceModelOptions,
+  MODEL_SELECT_MIN_MODELS,
   modelSelectEnabled,
 };

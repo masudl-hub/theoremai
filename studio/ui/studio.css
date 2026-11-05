@@ -9,6 +9,77 @@
   width: 100%;
 }
 
+/* The alerts' copy button sits on the first title's line, which stops short of it. */
+.studio-alerts {
+  position: relative;
+}
+
+.studio-alerts > button:first-child {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+}
+
+.studio-alerts > button:first-child + * > :first-child {
+  padding-inline-end: var(--spacing-8);
+}
+
+/* An option wears no box until pointed at or typed in. */
+.option-row div:has(> input):not(:hover, :has(> input:focus, > input[aria-invalid])) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* What acts on a row stays out of sight until the row is pointed at; an option in the interface keeps its mark. */
+.option-row button[aria-label^="Remove"],
+.option-row button[aria-label$="not shown in interface"] {
+  opacity: 0;
+}
+
+.option-row:hover button[aria-label^="Remove"],
+.option-row:hover button[aria-label$="not shown in interface"],
+.option-row:focus-within button[aria-label^="Remove"],
+.option-row:focus-within button[aria-label$="not shown in interface"],
+.option-row button[aria-expanded="true"] {
+  opacity: 1;
+}
+
+/* A long value wraps inside its token, so no value is cut off at the panel's edge. */
+.option-row .astryx-tokenizer > span,
+.option-row .astryx-tokenizer > span > div {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.option-row .astryx-token {
+  height: auto;
+}
+
+.option-row .astryx-token,
+.option-row .astryx-token * {
+  overflow-wrap: anywhere;
+  text-align: start;
+  white-space: normal;
+}
+
+/* JSON in a field sits on the field's own surface. */
+.json-code {
+  overflow: hidden;
+}
+
+.json-code-host {
+  flex: 1;
+  min-width: 0;
+}
+
+.json-code .monaco-editor,
+.json-code .monaco-editor-background,
+.json-code .monaco-editor .margin {
+  background-color: transparent;
+}
+
 /* The guardrail examples scroll sideways with no bar under them. */
 .scrollbar-none {
   scrollbar-width: none;
@@ -57,32 +128,30 @@
  */
 .studio-tree-row {
   --studio-tree-fade: 0px;
-}
-
-.studio-tree-row:has(.studio-tree-action > :nth-child(2)) {
-  --studio-tree-fade: var(--spacing-8);
-}
-
-.studio-tree-row:has(.studio-tree-action > :nth-child(3)) {
-  --studio-tree-fade: calc(var(--spacing-8) * 2);
-}
-
-@media (hover: none) {
-  .studio-tree-row > button:not([data-tree-toggle]) {
-    mask-image: linear-gradient(
-      to left,
-      transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
-      #000 calc(var(--spacing-10) + var(--studio-tree-fade))
-    );
-  }
-}
-
-.studio-tree-row:is(:hover, :has(:focus-visible)) > button:not([data-tree-toggle]) {
-  mask-image: linear-gradient(
+  --studio-tree-mask: linear-gradient(
     to left,
     transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
     #000 calc(var(--spacing-10) + var(--studio-tree-fade))
   );
+}
+
+.studio-tree-row:has(.studio-tree-action > button:nth-of-type(2)) {
+  --studio-tree-fade: var(--spacing-8);
+}
+
+.studio-tree-row:has(.studio-tree-action > button:nth-of-type(3)) {
+  --studio-tree-fade: calc(var(--spacing-8) * 2);
+}
+
+@media (hover: none) {
+  .studio-tree-row button:not([data-tree-toggle], .studio-tree-action button) {
+    mask-image: var(--studio-tree-mask);
+  }
+}
+
+.studio-tree-row:is(:hover, :has(:focus-visible))
+  button:not([data-tree-toggle], .studio-tree-action button) {
+  mask-image: var(--studio-tree-mask);
 }
 
 /* A list row's badges stay on one line: past the field's width they end in an ellipsis beside the

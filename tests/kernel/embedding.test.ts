@@ -2,6 +2,8 @@ import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { createKernelScope } from '../../src/kernel/scope.ts';
+import { memorySink } from '../../src/observability/trace.ts';
+import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import { geminiProvider } from '../../src/providers/gemini/provider.ts';
 import { localProvider } from '../../src/providers/local/provider.ts';
 import { openRouterProvider } from '../../src/providers/openrouter/provider.ts';
@@ -207,4 +209,31 @@ Deno.test('a model that refuses an option is refused it when its profile registe
   );
   assertEquals(refused.kind, 'config');
   register('gemini-embedding-001');
+});
+
+const LINK = {
+  traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+  kind: 'retry',
+} as const;
+
+Deno.test("an embedding's trace names its project, its conversation, and the trace it follows", async () => {
+  const records: TraceRecord[] = [];
+  await scope().runEmbedding(
+    {
+      profile: 'local-embeddings',
+      input: 'one',
+      projectId: 'p1',
+      conversationId: 'c1',
+      links: [LINK],
+    },
+    {
+      sink: memorySink(records),
+      fetch: () =>
+        Promise.resolve(Response.json({ model: 'embeddinggemma', embeddings: [[0.1, 0.2]] })),
+    },
+  );
+  const root = records[0]?.spans[0];
+  assertEquals(root?.attributes['theorem.project.id'], 'p1');
+  assertEquals(root?.attributes['gen_ai.conversation.id'], 'c1');
+  assertEquals(root?.links.length, 1);
 });

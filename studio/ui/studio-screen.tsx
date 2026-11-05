@@ -21,7 +21,6 @@ import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { TreeList, type TreeListItemData } from '@astryxdesign/core/TreeList';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
-  IconActivity,
   IconAdjustmentsHorizontal,
   IconArrowBarToDown,
   IconArrowLeft,
@@ -71,7 +70,6 @@ import {
   createGeminiEmbeddingExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
-  createStudioRunId,
   draftFacets,
   duplicateAgent,
   editedSince,
@@ -116,7 +114,6 @@ import {
   type StudioTreeNode,
   type StudioWorkspace,
   sampleToolInput,
-  saveStudioRunPayload,
   scopedNodeId,
   setToolAllowed,
   sharedAsk,
@@ -127,22 +124,22 @@ import {
   studioTree,
   toolSpecKeyOf,
   type WorkspaceCompileResult,
-  type WriteAsk,
   withAgentDraft,
   withFilesChosen,
   withProvider,
   workspaceNodeRef,
   workspaceRunAgent,
   workspaceTree,
-  writeAsk,
 } from '../mod.ts';
 import type { StudioActingAs } from '../people.ts';
+import { slotProviders } from '../requirements.ts';
 import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import './studio.css';
 import { type ConversationView, createTraceFeed, type TraceFeed } from '@theoremjs/web/client';
 import {
   type CSSProperties,
+  createContext,
   type Dispatch,
   lazy,
   memo,
@@ -151,6 +148,7 @@ import {
   type SetStateAction,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -161,26 +159,26 @@ import {
 import { flushSync } from 'react-dom';
 import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
-import { useConfirmWrite } from './confirm-write.tsx';
 import {
-  ConfirmWrite,
+  ChangeHeld,
   GuardrailTest,
   ISSUE_ROW_ATTRIBUTE,
   LeavePage,
   ListBadges,
   LocalConnection,
   ProbedAgent,
-  ProjectAsks,
   QuestionLink,
   RowOrigins,
   RunsOn,
   WorkspaceContext,
 } from './inspector-context.ts';
 import { ActingAsContext, chatKeyOf, useActingAsState } from './lib/acting-as.ts';
+import { runsAsConversation } from './lib/conversation-types.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
-import { movePanel } from './lib/panel-motion.ts';
+import { movePanel, type PanelView } from './lib/panel-motion.ts';
 import { screenEndpoint } from './lib/project-address.ts';
 import { recordsTraces } from './lib/project-traces.ts';
+import { answerRunKeys, handOffStudioRun } from './lib/run-keys.ts';
 import { sendWhenReady } from './lib/send-when-ready.ts';
 import {
   type ChatSealer,
@@ -192,7 +190,6 @@ import { STUDIO_EXAMPLES } from './lib/studio-examples.ts';
 import { pageInputsOf, sentPageValues, usePageValues } from './lib/studio-page.ts';
 import { getPref, setPref } from './lib/studio-prefs.ts';
 import {
-  NO_ASKS,
   openInEditor,
   openProject,
   ProjectContext,
@@ -236,8 +233,10 @@ import {
 } from './studio-host.ts';
 import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
-import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
-import { usePhone } from './use-phone.ts';
+import { ProjectSave, ProjectTokens, UNDO_WINDOW, useProjectSave } from './studio-save.tsx';
+import type { OpenedTrace } from './studio-trace-replay.tsx';
+import { TraceButton } from './trace-button.tsx';
+import { useBelowDesktop } from './use-phone.ts';
 
 // The tester, Settings, the map and the code view load when they first open, or once the page is idle.
 const testerPanel = () => import('./guardrail-health.tsx');
@@ -268,13 +267,48 @@ interface TreeState {
   setDraft: (next: StudioDraft | ((draft: StudioDraft) => StudioDraft)) => void;
   /** Puts the row `ref` names back to its start; undefined while it is at its start. */
   resetOf: (ref: StudioNodeRef, label: string) => (() => void) | undefined;
+  presses: RowPresses;
+}
+
+/** One render's row actions, in the order the tree drew them. */
+interface RowPresses {
+  /** Keeps this render's handler and gives its place. */
+  add: (press: () => void) => number;
+}
+
+/** Runs the handler the tree's last render drew at a place. */
+const RowPress = createContext<(slot: number) => void>(() => undefined);
+
+/**
+ * The tree's row actions for one render, and the press that runs the latest of them.
+ * why: A click re-renders every row; a button whose place, label and icon are the same is not
+ * drawn again, and it still runs the handler of the render on screen.
+ */
+function useRowPresses(): { presses: RowPresses; press: (slot: number) => void } {
+  const shown = useRef<(() => void)[]>([]);
+  const drawn: (() => void)[] = [];
+  useLayoutEffect(() => {
+    shown.current = drawn;
+  });
+  const press = useCallback((slot: number) => {
+    shown.current[slot]?.();
+  }, []);
+  return { presses: { add: (onPress) => drawn.push(onPress) - 1 }, press };
 }
 
 /** A row's hover action: stops at the button so the row itself isn't selected. */
-function actionButton(label: string, icon: IconType, onPress: () => void) {
+const RowButton = memo(function RowButton({
+  slot,
+  label,
+  icon,
+}: {
+  slot: number;
+  label: string;
+  icon: IconType;
+}) {
+  const press = useContext(RowPress);
   return (
     <IconButton
-      key={label}
       label={label}
       variant="ghost"
       size="sm"
@@ -282,36 +316,45 @@ function actionButton(label: string, icon: IconType, onPress: () => void) {
       tooltip={label}
       onClick={(event) => {
         event.stopPropagation();
-        onPress();
+        press(slot);
       }}
     />
   );
+});
+
+function actionButton(presses: RowPresses, label: string, icon: IconType, onPress: () => void) {
+  return <RowButton key={label} slot={presses.add(onPress)} label={label} icon={icon} />;
 }
 
-function rowAction(label: string, icon: IconType, onPress: () => void) {
-  return <span className="studio-tree-action">{actionButton(label, icon, onPress)}</span>;
+function rowAction(presses: RowPresses, label: string, icon: IconType, onPress: () => void) {
+  return <span className="studio-tree-action">{actionButton(presses, label, icon, onPress)}</span>;
 }
 
 /** A row's hover actions: Reset, while it differs from its start, then the others, the x last. */
 function rowActions(
+  presses: RowPresses,
   label: string,
   reset: (() => void) | undefined,
   ...actions: ReactNode[]
 ): ReactNode {
-  const shown = [reset && actionButton(`Reset ${label}`, IconRotateClockwise, reset), ...actions];
+  const shown = [
+    reset && actionButton(presses, `Reset ${label}`, IconRotateClockwise, reset),
+    ...actions,
+  ];
   return shown.some(Boolean) ? <span className="studio-tree-action">{shown}</span> : undefined;
 }
 
 function treeItem(tree: TreeState, node: StudioTreeNode, isTop = false): TreeListItemData {
-  const { draft, scope, selectedId, onSelect, setDraft } = tree;
+  const { draft, scope, selectedId, onSelect, setDraft, presses } = tree;
   const facet = node.ref.facet;
   const id = scope(node.id);
   const isOptional = isTop && facet !== 'toolSpec' && profileGraphFacet(facet)?.optional === true;
   const actions = rowActions(
+    presses,
     node.label,
     tree.resetOf(node.ref, node.label),
     isOptional &&
-      actionButton(`Remove ${node.label}`, IconX, () => {
+      actionButton(presses, `Remove ${node.label}`, IconX, () => {
         setDraft((current) => excludeFacet(current, facet));
       }),
   );
@@ -334,7 +377,7 @@ function treeItem(tree: TreeState, node: StudioTreeNode, isTop = false): TreeLis
 
 /** An optional section the type allows but the draft leaves out: dimmed; a click adds it. */
 function offItem(
-  { scope, onSelect, setDraft }: TreeState,
+  { scope, onSelect, setDraft, presses }: TreeState,
   facet: ProfileGraphFacetId,
 ): TreeListItemData {
   const label = profileGraphFacet(facet)?.label ?? facet;
@@ -348,7 +391,7 @@ function offItem(
     startContent: (
       <Icon icon={FACET_ICON[facet as keyof typeof FACET_ICON]} size="sm" color="disabled" />
     ),
-    endContent: rowAction(`Add ${label}`, IconPlus, add),
+    endContent: rowAction(presses, `Add ${label}`, IconPlus, add),
     className: 'studio-tree-row',
     onClick: add,
   };
@@ -403,31 +446,37 @@ interface WorkspaceTreeState {
   keys: { open: boolean; toggle: () => void } | null;
 }
 
-function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
-  const { workspace, focus, selectedId, onSelect, update, setDraft, reset } = state;
+function agentItems(state: DrawnTree): TreeListItemData[] {
+  const { workspace, focus, selectedId, onSelect, update, setDraft, reset, presses } = state;
   const isOnly = workspace.agents.length === 1;
   return workspace.agents.map((agent) => {
     const draft = libraryDraft(workspace, agent.key) ?? createBlankDraft();
-    const name = agent.identity.agentId || 'this agent';
+    const name = agent.identity.agentId.trim() || 'this agent';
+    const whole = resetAgent(workspace, agent.key);
     return agentItem(
       {
         draft,
         scope: (id) => scopedNodeId(agent.key, id),
+        presses,
         selectedId,
         onSelect,
         setDraft,
+        // why: An agent at its start has every section at its start, so its rows need no reset each.
         resetOf: (ref, label) =>
-          reset(resetAgentNode(workspace, agent.key, ref), `Reset ${label} to how it started.`),
+          whole === workspace
+            ? undefined
+            : reset(resetAgentNode(workspace, agent.key, ref), `Reset ${label} to how it started.`),
       },
       agent.key === focus,
       rowActions(
+        presses,
         name,
-        reset(resetAgent(workspace, agent.key), `Reset ${name} to how it started.`),
-        actionButton(`Duplicate ${name}`, IconCopyPlus, () => {
+        reset(whole, `Reset ${name} to how it started.`),
+        actionButton(presses, `Duplicate ${name}`, IconCopyPlus, () => {
           update((current) => duplicateAgent(current, agent.key));
         }),
         !isOnly &&
-          actionButton(`Remove ${name}`, IconX, () => {
+          actionButton(presses, `Remove ${name}`, IconX, () => {
             update((current) => removeAgent(current, agent.key));
           }),
       ),
@@ -437,7 +486,7 @@ function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
 
 /** The tool library, every agent picks its tools from these: those whose name or description holds `query`. */
 function toolItems(
-  { workspace, selectedId, onSelect, update, reset }: WorkspaceTreeState,
+  { workspace, selectedId, onSelect, update, reset, presses }: DrawnTree,
   query: string,
 ) {
   const needle = query.trim().toLowerCase();
@@ -453,10 +502,11 @@ function toolItems(
           <Icon icon={tool ? toolTypeIcon(tool.toolType) : IconTool} size="sm" color="secondary" />
         ),
         endContent: rowActions(
+          presses,
           node.label,
           tool &&
             reset(resetLibraryTool(workspace, tool.key), `Reset ${node.label} to how it started.`),
-          actionButton(`Remove ${node.label}`, IconX, () => {
+          actionButton(presses, `Remove ${node.label}`, IconX, () => {
             if (tool) update((current) => removeLibraryTool(current, tool.key));
           }),
         ),
@@ -480,8 +530,8 @@ function declaredAt({ setting }: SharedEntry): string {
  * The providers every agent's models pick from, each over the agents with a model on it. A
  * provider's row opens its own settings; an agent's opens its first model there.
  */
-function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
-  const { workspace, selectedId, onSelect, update, ownsProviders, reset } = tree;
+function providerItems(tree: DrawnTree): TreeListItemData[] {
+  const { workspace, selectedId, onSelect, update, ownsProviders, reset, presses } = tree;
   return workspace.providers.map((provider) => {
     const id = providerNodeId(provider.id);
     // One a model runs on stays: its row lists the agents to move first.
@@ -492,7 +542,7 @@ function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
       return [
         {
           id: `${id}:${agent.key}`,
-          label: agent.identity.agentId || 'New agent',
+          label: agent.identity.agentId.trim() || 'Unnamed agent',
           startContent: (
             <Icon
               icon={PROFILE_TYPE_ICON[agent.identity.profileType || 'text']}
@@ -507,10 +557,11 @@ function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
       ];
     });
     const actions = rowActions(
+      presses,
       provider.id,
       reset(resetProvider(workspace, provider.id), `Reset ${provider.id} to how it started.`),
       isFree &&
-        actionButton(`Remove ${provider.id}`, IconX, () => {
+        actionButton(presses, `Remove ${provider.id}`, IconX, () => {
           update((current) => removeProvider(current, provider.id));
           const [first] = workspace.agents;
           if (selectedId === id && first) onSelect(agentNodeId(first.key));
@@ -778,6 +829,9 @@ function ToolSearchInput({ query, onChange }: { query: string; onChange: (next: 
   );
 }
 
+/** The workspace's tree as one render draws it, with that render's row actions. */
+type DrawnTree = WorkspaceTreeState & { presses: RowPresses };
+
 /** The shown list's rows, or why there are none. */
 function WorkspaceListBody({
   tree,
@@ -786,7 +840,7 @@ function WorkspaceListBody({
   query,
   listRef,
 }: {
-  tree: WorkspaceTreeState;
+  tree: DrawnTree;
   list: WorkspaceList;
   tools: TreeListItemData[];
   query: string;
@@ -828,42 +882,52 @@ function WorkspaceTreeLists({
 }) {
   const { list, setList } = tree;
   const { query, setQuery, revealSelected } = useWorkspaceList(tree.selectedId, listRef);
-  const tools = list === 'tools' ? toolItems(tree, query) : [];
+  const { presses, press } = useRowPresses();
+  const drawn: DrawnTree = { ...tree, presses };
+  const tools = list === 'tools' ? toolItems(drawn, query) : [];
   return (
-    <VStack gap={2} height="100%">
-      <WorkspaceListToggle
-        workspace={tree.workspace}
-        list={list}
-        onChange={(next) => {
-          setList(next);
-          revealSelected();
-        }}
-      />
-      {list === 'agents' ? <AddAgentMenu onAddAgent={onAddAgent} /> : null}
-      {list === 'tools' && (
-        <ToolSearchInput
-          query={query}
+    <RowPress.Provider value={press}>
+      <VStack gap={2} height="100%">
+        <WorkspaceListToggle
+          workspace={tree.workspace}
+          list={list}
           onChange={(next) => {
-            setQuery(next);
+            setList(next);
             revealSelected();
           }}
         />
-      )}
-      {list === 'tools' ? <AddToolButton tree={tree} draft={draft} /> : null}
-      {list === 'providers' && tree.keys ? <ManageKeysButton keys={tree.keys} /> : null}
-      {list === 'providers' && tree.ownsProviders ? (
-        <AddProviderButton
-          taken={tree.workspace.providers.map((provider) => provider.id)}
-          onAdd={(provider) => {
-            tree.update((current) => addProvider(current, provider));
-            tree.onSelect(providerNodeId(provider.id));
-          }}
-        />
-      ) : null}
-      <StackItem size="fill">
-        <WorkspaceListBody tree={tree} list={list} tools={tools} query={query} listRef={listRef} />
-      </StackItem>
-    </VStack>
+        {list === 'agents' ? <AddAgentMenu onAddAgent={onAddAgent} /> : null}
+        {list === 'tools' && (
+          <ToolSearchInput
+            query={query}
+            onChange={(next) => {
+              setQuery(next);
+              revealSelected();
+            }}
+          />
+        )}
+        {list === 'tools' ? <AddToolButton tree={tree} draft={draft} /> : null}
+        {list === 'providers' && tree.keys ? <ManageKeysButton keys={tree.keys} /> : null}
+        {list === 'providers' && tree.ownsProviders ? (
+          <AddProviderButton
+            taken={tree.workspace.providers.map((provider) => provider.id)}
+            onAdd={(provider) => {
+              tree.update((current) => addProvider(current, provider));
+              tree.onSelect(providerNodeId(provider.id));
+            }}
+          />
+        ) : null}
+        <StackItem size="fill">
+          <WorkspaceListBody
+            tree={drawn}
+            list={list}
+            tools={tools}
+            query={query}
+            listRef={listRef}
+          />
+        </StackItem>
+      </VStack>
+    </RowPress.Provider>
   );
 }
 
@@ -917,7 +981,7 @@ function useChatAgents(agents: StudioWorkspace['agents']): ChatAgent[] {
     () =>
       (JSON.parse(names) as [string, string][]).map(([value, agentId]) => ({
         value,
-        label: agentId || 'Unnamed agent',
+        label: agentId.trim() || 'Unnamed agent',
       })),
     [names],
   );
@@ -948,13 +1012,6 @@ function editorTitle(draft: StudioDraft, id: string): string | undefined {
   if (!ref) return undefined;
   if ('key' in ref) return nodeLabel(studioTree(draft), id);
   return profileGraphFacet(ref.facet)?.label;
-}
-
-/** The editor's heading: Tools with the tools list and no tool open; else the open node's title. */
-function headingOf(list: WorkspaceList, editing: string, title: string | undefined) {
-  return list === 'tools' && toolSpecKeyOf(editing) === undefined
-    ? profileGraphFacet('tools')?.label
-    : title;
 }
 
 /** Waits before compiling after an edit, so typing doesn't recompile on every key. */
@@ -1000,13 +1057,13 @@ function innerNodeId(id: string, focus: string): string | undefined {
   return id.startsWith(`${root}/`) ? id.slice(root.length + 1) : undefined;
 }
 
-/** Hands the compiled agent to a new tab through this browser's storage; the run route reads it back. */
-function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null) {
-  const runId = createStudioRunId();
-  saveStudioRunPayload(payload, runId);
+/** Hands the compiled agent to a new tab through the browser's keep; the run route takes it. */
+async function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null) {
+  const runId = await handOffStudioRun(payload);
   // A project's agent runs the project's code on its own page too.
   const named = project ? `&project=${encodeURIComponent(project.name)}` : '';
-  globalThis.open(`/studio/run?run=${encodeURIComponent(runId)}${named}`, '_blank', 'noopener');
+  // why: no `noopener`: the run tab asks this tab for its keys, which never leave memory.
+  globalThis.open(`/studio/run?run=${encodeURIComponent(runId)}${named}`, '_blank');
 }
 
 type Exporter = typeof import('./lib/export-agent.ts') & typeof import('./lib/zip.ts');
@@ -1177,7 +1234,7 @@ function screenReport(
   section: string | undefined,
 ) {
   return {
-    agent: draft.identity.handle || draft.identity.agentId || 'unnamed',
+    agent: draft.identity.handle || draft.identity.agentId.trim() || 'unnamed',
     type: draft.identity.profileType || 'not chosen',
     issues: compiled.ok ? 0 : compiled.issues.length,
     section,
@@ -1194,7 +1251,6 @@ type SurfacePage = {
   /** Starts the open agent's chat again, for the person runs act as. */
   newConversation: () => void;
   project: ProjectSession | null;
-  confirmWrite: (ask: WriteAsk) => Promise<boolean>;
 };
 
 /**
@@ -1253,28 +1309,36 @@ function keyAndToolMembers(
     },
     testKey: async (slot) => {
       const key = page.current.connection.vault[slot]?.trim();
-      if (!key) return { ok: false, error: 'No key in this slot.' };
-      try {
-        const response = await fetch(`${screenEndpoint()}/test-key`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key }),
-        });
-        return await response.json<unknown>();
-      } catch {
-        return { ok: false, error: "Couldn't reach the studio server." };
+      if (!key) return { slot, checks: [], note: 'No key in this slot.' };
+      const providers = slotProviders(store.getDraft(), slot);
+      if (providers.length === 0) {
+        return {
+          slot,
+          checks: [],
+          note: "No model reads this slot. A tool's key is checked by testing the tool.",
+        };
       }
+      const checks = await Promise.all(
+        providers.map(async (provider) => {
+          try {
+            const response = await fetch(`${screenEndpoint()}/test-key`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key, provider }),
+            });
+            return await response.json<object>();
+          } catch {
+            return { provider: provider.id, error: "Couldn't reach the studio server." };
+          }
+        }),
+      );
+      return { slot, checks };
     },
     toolCredential,
-    testTool: async (key, input) => {
+    testTool: (key, input) => {
       const tool = store.getDraft().toolSpecs.find((candidate) => candidate.key === key);
-      if (!tool) return { ok: false, error: 'No such tool.' };
+      if (!tool) return Promise.resolve({ ok: false, error: 'No such tool.' });
       const sample = JSON.stringify(input ?? sampleToolInput(tool.toolName, tool.inputJson) ?? {});
-      // A tool that writes runs only once the builder read the input and said so.
-      const ask = writeAsk(tool, sample);
-      if (ask && !(await page.current.confirmWrite(ask))) {
-        return { ok: false, error: 'The builder chose not to run it.' };
-      }
       return runToolProbe(tool, sample, toolCredential(key), store.getDraft().guardrails);
     },
   };
@@ -1302,7 +1366,7 @@ function runMembers(
     launch: () => {
       const result = runNow();
       if (!result) return;
-      openInNewTab(
+      void openInNewTab(
         {
           ...runPayload(result),
           connectionMode: page.current.on.mode,
@@ -1371,7 +1435,10 @@ function useLeftIssues(issues: readonly StudioIssue[], page: string, revealed: u
   const leavePage = useCallback(() => {
     const keys = new Set(before.current.map(issueKey));
     return () => {
-      setLeft(keys);
+      // why: A move that leaves the same issues behind draws the editor nothing new.
+      setLeft((was) =>
+        was.size === keys.size && [...keys].every((key) => was.has(key)) ? was : keys,
+      );
     };
   }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a move or a press of the pill is what lets them show
@@ -1391,28 +1458,31 @@ function OpenInNewTabButton({
   chattedId,
   blocked,
   connection,
+  isIconOnly,
 }: {
+  isIconOnly: boolean;
   compiled: CompiledWorkspace | undefined;
   chattedId: string;
   blocked: string | undefined;
   connection: Pick<StudioRunPayload, 'connectionMode' | 'localBaseUrl'>;
 }) {
   const project = useProject();
-  const phone = usePhone();
+  const unserved = project?.problems.find((problem) => problem.profile === chattedId);
   return (
     <Button
       label="Open in a new tab"
-      isIconOnly={phone}
+      isIconOnly={isIconOnly}
       variant="ghost"
       icon={<Icon icon={IconBrowserShare} size="sm" />}
-      isDisabled={!compiled}
+      isDisabled={!compiled || unserved !== undefined}
       tooltip={
         blocked ??
+        unserved?.message ??
         'Run this agent on a full page of its own, in a new tab, the way a person using it would see it'
       }
       onClick={() => {
         const run = compiled && workspaceRunAgent(compiled, chattedId);
-        if (run) openInNewTab({ ...runPayload(run), ...connection }, project);
+        if (run) void openInNewTab({ ...runPayload(run), ...connection }, project);
       }}
     />
   );
@@ -1496,7 +1566,7 @@ function ExportMenu({
   );
 }
 
-/** The workspace's store, kept in this tab's sessionStorage, and the open agent's draft from it. */
+/** The workspace's store, kept in this tab's records, and the open agent's draft from it. */
 function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | undefined) {
   // The settings the project's profiles share, on the agents it opened as: a change to one is
   // made on each of them.
@@ -1528,13 +1598,13 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
     [store],
   );
   useEffect(() => {
-    const flush = () => {
-      store.flush();
+    const leave = () => {
+      store.flush(true);
     };
-    globalThis.addEventListener('pagehide', flush);
+    globalThis.addEventListener('pagehide', leave);
     return () => {
-      globalThis.removeEventListener('pagehide', flush);
-      flush();
+      globalThis.removeEventListener('pagehide', leave);
+      store.flush();
     };
   }, [store]);
   const { files, refreshOrigins, filesChanged, conflict, settle, showConflict, watchFiles } =
@@ -1553,7 +1623,6 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
     update,
     shared,
     origins: files?.origins,
-    asks: files?.asks,
     files,
     refreshOrigins,
     filesChanged,
@@ -1665,15 +1734,19 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
     },
     [conflict, project, store, keep],
   );
+  const [watch, setWatch] = useState({ available: false, on: getPref('watch') === 'on' });
+  const watching = useRef(watch.on);
   useEffect(() => {
-    globalThis.addEventListener('focus', refreshOrigins);
+    // why: coming back from the editor is when its saves wait; with the watch off they keep waiting.
+    const onFocus = () => {
+      if (watching.current) refreshOrigins();
+    };
+    globalThis.addEventListener('focus', onFocus);
     return () => {
-      globalThis.removeEventListener('focus', refreshOrigins);
+      globalThis.removeEventListener('focus', onFocus);
     };
   }, [refreshOrigins]);
 
-  const [watch, setWatch] = useState({ available: false, on: getPref('watch') === 'on' });
-  const watching = useRef(watch.on);
   const setWatching = useCallback(
     (on: boolean) => {
       watching.current = on;
@@ -1833,6 +1906,24 @@ function editorIssuesOf(compiled: WorkspaceCompileResult, focus: string): Studio
 }
 
 /**
+ * The workspace as it was last edited. Opening a node or choosing whom to chat with changes no
+ * agent, tool, provider, or start.
+ * why: So those clicks compile nothing again and send the project server no new edits to load.
+ */
+function useSameContent(workspace: StudioWorkspace): StudioWorkspace {
+  const [kept, setKept] = useState(workspace);
+  const now =
+    kept.agents === workspace.agents &&
+    kept.toolSpecs === workspace.toolSpecs &&
+    kept.providers === workspace.providers &&
+    kept.starts === workspace.starts
+      ? kept
+      : workspace;
+  if (now !== kept) setKept(now);
+  return now;
+}
+
+/**
  * The workspace compiled once edits settle. Only a workspace that compiles changes the preview;
  * while one has issues, the last good agent and its conversation stay put. The chatted agent is
  * found by its key there, so renaming it doesn't lose it.
@@ -1843,11 +1934,13 @@ function useWorkspaceCompile(
   connection: StudioConnectionState,
 ) {
   const { mode, on } = connection;
-  const settled = useDebounced(workspace, COMPILE_DEBOUNCE_MS);
-  const compile = useMemo(
-    () => ({ workspace: settled, result: compileWorkspace(settled, on) }),
-    [settled, on],
+  const settled = useDebounced(useSameContent(workspace), COMPILE_DEBOUNCE_MS);
+  const { agents, toolSpecs, providers } = settled;
+  const result = useMemo(
+    () => compileWorkspace({ agents, toolSpecs, providers }, on),
+    [agents, toolSpecs, providers, on],
   );
+  const compile = useMemo(() => ({ workspace: settled, result }), [settled, result]);
   const compiled = compile.result;
   const lastGood = useLastGood(compile);
   const chatWith = workspace.chatWith;
@@ -1872,7 +1965,7 @@ function useWorkspaceCompile(
       compiled,
       payload,
       /** The workspace the payload was compiled from: the edits the preview runs. */
-      tested: lastGood?.workspace,
+      tested: compiled.ok ? compile.workspace : lastGood?.workspace,
       traced: recordsTraces(payload),
       source,
       probed,
@@ -2052,13 +2145,8 @@ function offerEditsBack(
   setAside(key, edits);
 }
 
-/** What the panel widens over the preview to hold: the map beside the editor, or Settings. */
-interface WidePanel {
-  map: boolean;
-  settings: boolean;
-}
-const NARROW: WidePanel = { map: false, settings: false };
-const isWide = (panel: WidePanel) => panel.map || panel.settings;
+/** The panel at rest: neither the map nor Settings. */
+const NARROW: PanelView = { map: false, settings: false };
 
 /**
  * Which view stands in the editor column, whether the map is open beside it, and opening a node
@@ -2074,7 +2162,7 @@ function useEditorView(store: StudioStore) {
   const wanted = useRef(NARROW);
   const shown = useRef(NARROW);
   const moves = useRef(Promise.resolve());
-  const move = useCallback((next: Partial<WidePanel>) => {
+  const move = useCallback((next: Partial<PanelView>) => {
     wanted.current = { ...wanted.current, ...next };
     moves.current = moves.current.then(async () => {
       // Only the last one asked for is worth moving to.
@@ -2088,9 +2176,7 @@ function useEditorView(store: StudioStore) {
           setSettings(to.settings);
         });
       };
-      // Settings over an open map, and back: the panel is already as wide as it goes.
-      if (isWide(to) === isWide(was)) swap();
-      else await movePanel(isWide(to), swap);
+      await movePanel(was, to, swap);
     });
   }, []);
   const setMapOpen = useCallback(
@@ -2151,6 +2237,7 @@ function usePageActions(
       setConversation((count) => count + 1);
       const dismiss = toast({
         body: message,
+        autoHideDuration: UNDO_WINDOW,
         endContent: (
           <Button
             label="Undo"
@@ -2289,7 +2376,7 @@ const TreeColumn = memo(function TreeColumn({
   return (
     <Section variant="transparent" width={TREE_WIDTH} height="100%" padding={4} dividers={['end']}>
       <VStack gap={4} height="100%">
-        <HStack gap={2} vAlign="start">
+        <HStack gap={2} vAlign="start" className="studio-nav-head">
           <StackItem size="fill">
             <VStack gap={1}>
               <Heading level={3}>theorem studio</Heading>
@@ -2478,6 +2565,7 @@ function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
         filesChanged();
         const dismiss = toast({
           body: 'Discarded every unsaved edit.',
+          autoHideDuration: UNDO_WINDOW,
           endContent: (
             <Button
               label="Undo"
@@ -2712,6 +2800,8 @@ function EditorBody({
   const { workspace, draft, focus, setDraft, update } = state;
   const project = useProject();
   const workspaceContext = useWorkspaceContext(workspace.agents, focus, update, project !== null);
+  const heldNow = () => state.store.getPending() !== undefined;
+  const isChangeHeld = useSyncExternalStore(state.store.subscribe, heldNow, heldNow);
   const provider = shownProvider(workspace, editing, project !== null, connection);
   return (
     <ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>
@@ -2719,39 +2809,41 @@ function EditorBody({
         <RunsOn.Provider value={connection.on}>
           <LocalConnection.Provider value={connection}>
             <WorkspaceContext.Provider value={workspaceContext}>
-              {provider ? (
-                <ProviderEditor
-                  workspace={workspace}
-                  provider={provider}
-                  issues={issues.filter((issue) => issue.nodeId === editing)}
-                  // The studio's own providers are the same for everyone, so they only show.
-                  onChange={
-                    project
-                      ? (next) => {
-                          update((current) => withProvider(current, next));
-                        }
-                      : undefined
-                  }
-                  // A provider the files do not hold yet is the studio's to name; code names the rest.
-                  onRename={
-                    project && !project.providers.includes(provider.id)
-                      ? (id) => {
-                          update((current) => renameProvider(current, provider.id, id));
-                        }
-                      : undefined
-                  }
-                />
-              ) : (
-                <ProfileEditor
-                  draft={draft}
-                  setDraft={setDraft}
-                  selectedId={editing}
-                  onSelect={(id) => {
-                    open(scopedNodeId(focus, id));
-                  }}
-                  issues={issues}
-                />
-              )}
+              <ChangeHeld.Provider value={isChangeHeld}>
+                {provider ? (
+                  <ProviderEditor
+                    workspace={workspace}
+                    provider={provider}
+                    issues={issues.filter((issue) => issue.nodeId === editing)}
+                    // The studio's own providers are the same for everyone, so they only show.
+                    onChange={
+                      project
+                        ? (next) => {
+                            update((current) => withProvider(current, next));
+                          }
+                        : undefined
+                    }
+                    // A provider the files do not hold yet is the studio's to name; code names the rest.
+                    onRename={
+                      project && !project.providers.includes(provider.id)
+                        ? (id) => {
+                            update((current) => renameProvider(current, provider.id, id));
+                          }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <ProfileEditor
+                    draft={draft}
+                    setDraft={setDraft}
+                    selectedId={editing}
+                    onSelect={(id) => {
+                      open(scopedNodeId(focus, id));
+                    }}
+                    issues={issues}
+                  />
+                )}
+              </ChangeHeld.Provider>
             </WorkspaceContext.Provider>
           </LocalConnection.Provider>
         </RunsOn.Provider>
@@ -2761,40 +2853,58 @@ function EditorBody({
 }
 
 /** Clears the conversation and its traces; the profile stays. */
-function ClearHistoryButton({ run }: { run: ConversationRun }) {
+function ClearHistoryButton({ onClear }: { onClear: () => void }) {
   return (
     <IconButton
       label="Clear history"
       variant="ghost"
       icon={<Icon icon={IconPlaylistX} size="sm" />}
       tooltip="Clear the conversation and its traces. Your profile stays."
-      onClick={run.clear}
+      onClick={onClear}
     />
   );
 }
 
-/** The types whose conversation a trace can hold, and so open and replay. */
-const NO_CONVERSATION = new Set(['decision', 'host', 'embedding', 'live']);
+/**
+ * Clears the chat and puts the keyboard in the new one's composer.
+ * why: the Clear history button leaves with the conversation, and focus would fall to the page.
+ */
+function useClearAndFocus(run: ConversationRun, chatRef: RefObject<TheoremChatHandle | null>) {
+  /** The run that was cleared; the next run takes the focus. */
+  const clearedRun = useRef<string>(undefined);
+  const { clear, runKey } = run;
+  useEffect(() => {
+    if (clearedRun.current === undefined || clearedRun.current === runKey) return;
+    clearedRun.current = undefined;
+    chatRef.current?.focus();
+  }, [runKey, chatRef]);
+  return useCallback(() => {
+    clearedRun.current = runKey;
+    clear();
+  }, [clear, runKey]);
+}
 
-/** Replay exchange, for a type whose conversation a trace holds. */
+/** A type whose conversation a trace holds, and so can open and replay. */
+const holdsConversation = (payload: WorkspaceCompile['payload']) =>
+  payload != null && runsAsConversation(payload.profile.type);
+
+/** Replay exchange: switches between the live conversation and the replay, which keeps its trace. */
 function ReplayExchangeButton({
-  payload,
   tracing,
+  isIconOnly,
 }: {
-  payload: WorkspaceCompile['payload'];
   tracing: { open: boolean; toggle: () => void };
+  isIconOnly: boolean;
 }) {
-  const phone = usePhone();
-  if (payload == null || NO_CONVERSATION.has(payload.profile.type)) return null;
   return (
     <Button
-      label={tracing.open ? 'Close replay' : 'Replay exchange'}
-      isIconOnly={phone}
+      label="Replay exchange"
+      isIconOnly={isIconOnly}
       variant={tracing.open ? 'secondary' : 'ghost'}
       tooltip={
         tracing.open
-          ? 'Back to the live conversation'
-          : 'Open a recorded conversation (a .trace.json file) to see what happened, then replay its messages through this agent as it is now and compare'
+          ? 'Back to the live conversation. The trace stays loaded.'
+          : 'Open a recorded conversation (a .json or .jsonl trace file) to see what happened, then replay its messages through this agent as it is now and compare'
       }
       icon={<Icon icon={IconFileImport} size="sm" />}
       aria-pressed={tracing.open}
@@ -2815,6 +2925,7 @@ function PreviewHeader({
   testing,
   tracing,
   setSheet,
+  onClear,
 }: {
   store: StudioStore;
   chatAgents: ChatAgent[];
@@ -2828,12 +2939,12 @@ function PreviewHeader({
   /** The imported trace's console, over the conversation. */
   tracing: { open: boolean; toggle: () => void };
   setSheet: (sheet: Sheet) => void;
+  onClear: () => void;
 }) {
-  const traceLabel = trace.open ? 'Hide trace' : 'View trace';
-  const phone = usePhone();
+  const { ref, below: iconsOnly } = useBelowDesktop();
   const { compiled } = compile;
   return (
-    <Section variant="transparent" paddingInline={3} paddingBlock={0}>
+    <Section ref={ref} variant="transparent" paddingInline={3} paddingBlock={0}>
       <HStack gap={2} vAlign="center">
         <SheetButton
           label="Back to the editor"
@@ -2846,27 +2957,18 @@ function PreviewHeader({
         </StackItem>
         <StackItem size="static">
           <HStack gap={1} vAlign="center">
-            <ActingAsButton />
+            <ActingAsButton isIconOnly={iconsOnly} />
             {compile.payload && run.isUsed && !testing && !tracing.open && (
-              <ClearHistoryButton run={run} />
+              <ClearHistoryButton onClear={onClear} />
             )}
-            {!testing && <ReplayExchangeButton payload={compile.payload} tracing={tracing} />}
+            {!testing && holdsConversation(compile.payload) && (
+              <ReplayExchangeButton tracing={tracing} isIconOnly={iconsOnly} />
+            )}
             {(compile.traced || tracing.open) && !testing ? (
-              <Button
-                label={traceLabel}
-                isIconOnly={phone}
-                variant={trace.open ? 'secondary' : 'ghost'}
-                tooltip={
-                  trace.open
-                    ? 'Close the trace'
-                    : 'See how each reply was made, step by step: every model and tool call, guardrail check and gate, with its timing'
-                }
-                icon={<Icon icon={IconActivity} size="sm" />}
-                aria-pressed={trace.open}
-                onClick={trace.toggle}
-              />
+              <TraceButton open={trace.open} onToggle={trace.toggle} isIconOnly={iconsOnly} />
             ) : null}
             <OpenInNewTabButton
+              isIconOnly={iconsOnly}
               compiled={compiled.ok ? compiled : undefined}
               chattedId={compile.chattedId}
               blocked={compile.blocked}
@@ -2942,6 +3044,7 @@ function PreviewBody({
   traceOpen,
   testing,
   tracing,
+  replaying,
   feedOf,
   onIssue,
 }: {
@@ -2954,8 +3057,10 @@ function PreviewBody({
   profileId: string | undefined;
   traceOpen: boolean;
   testing: boolean;
-  /** The imported trace's console, shown over the conversation while it is open. */
+  /** The imported trace's console, once opened; kept while the live conversation shows. */
   tracing: ReactNode;
+  /** The console shows in the conversation's place. */
+  replaying: boolean;
   /** The feed each runner's trace records land in. */
   feedOf: (runKey: string) => TraceFeed;
   onIssue: (node: string) => void;
@@ -2964,8 +3069,12 @@ function PreviewBody({
   /** Why the project's server does not run this profile: its files say, not the editor. */
   const unserved = useProject()?.problems.find((problem) => problem.profile === profileId);
   const pageInputs = useMemo(() => (payload ? pageInputsOf(payload) : null), [payload]);
-  const [pageValues] = usePageValues(chatWith);
+  const [pageValues, setPageValues] = usePageValues(chatWith);
   const sent = useMemo(() => sentPageValues(pageInputs, pageValues), [pageInputs, pageValues]);
+  const statedOf = useCallback(
+    (of: StudioRunPayload) => sentPageValues(pageInputsOf(of), pageValues).stated,
+    [pageValues],
+  );
   const shown: KeptRun | null =
     payload && !unserved
       ? {
@@ -2981,7 +3090,11 @@ function PreviewBody({
               if (ref) saveConversation(run.chatKey, run.sealer, ref);
               else clearConversation(run.chatKey);
             },
-            slots: sent.slots,
+            options: sent.options,
+            onOptionsChange: (options: Record<string, string>) => {
+              setPageValues({ ...pageValues, options: { ...pageValues.options, ...options } });
+            },
+            statedOf,
             context: sent.context,
             tested,
           },
@@ -3007,32 +3120,33 @@ function PreviewBody({
               </Suspense>
             )}
           </RaisedPane>
-        ) : (
-          tracing
-        )
+        ) : null
       }
     >
-      <VStack height="100%">
-        <StackItem size="fill">
-          {blocked}
-          {kept.map(([key, { props }]) => {
-            const isShown = shown !== null && key === run.runKey;
-            return (
-              // Hidden, not unmounted: a call it is running goes on, and what it showed stays.
-              <div key={key} style={{ display: isShown ? 'contents' : 'none' }}>
-                <StudioRunner
-                  {...props}
-                  mode={connection.mode}
-                  runtime={connection.runtime}
-                  trace={traced ? traceOpen : undefined}
-                  chatRef={isShown ? chatRef : undefined}
-                  traces={feedOf(key)}
-                />
-              </div>
-            );
-          })}
-        </StackItem>
-      </VStack>
+      {/* Hidden, not unmounted: the replay and what it showed stay for the way back. */}
+      <div style={{ display: replaying ? 'contents' : 'none' }}>{tracing}</div>
+      <div style={{ display: replaying ? 'none' : 'contents' }}>
+        <VStack height="100%">
+          <StackItem size="fill">
+            {blocked}
+            {kept.map(([key, { props }]) => {
+              const isShown = shown !== null && key === run.runKey;
+              return (
+                // Hidden, not unmounted: a call it is running goes on, and what it showed stays.
+                <div key={key} style={{ display: isShown ? 'contents' : 'none' }}>
+                  <StudioRunner
+                    {...props}
+                    runtime={connection.runtime}
+                    trace={traced ? traceOpen : undefined}
+                    chatRef={isShown ? chatRef : undefined}
+                    traces={feedOf(key)}
+                  />
+                </div>
+              );
+            })}
+          </StackItem>
+        </VStack>
+      </div>
     </InPlace>
   );
 }
@@ -3049,7 +3163,9 @@ type KeptRun = {
     | 'conversationView'
     | 'initialText'
     | 'onConversationChange'
-    | 'slots'
+    | 'options'
+    | 'onOptionsChange'
+    | 'statedOf'
     | 'context'
     | 'tested'
   >;
@@ -3142,23 +3258,30 @@ const PreviewPane = memo(function PreviewPane({
   testing: boolean;
 }) {
   const [traceOpen, setTraceOpen] = useState(false);
-  const [imported, setTracing] = useState(false);
-  // why: The guardrail test covers an imported trace too; closing the test shows it again.
-  const tracing = imported && !testing;
+  const [replaying, setReplaying] = useState(false);
+  const [openedTrace, setOpenedTrace] = useState<OpenedTrace>();
   const feedOf = useRunFeeds(run.generation);
   const profileId = chatAgents.find((agent) => agent.value === chatWith)?.label;
   const sendNext = useSendAfterResume(chatRef, run.runKey);
+  const clearChat = useClearAndFocus(run, chatRef);
   const { payload } = compile;
+  const replay = replaying && holdsConversation(payload);
+  // why: the console stays mounted while it holds a file, so the way back finds its replay as it was.
   const traceView =
-    tracing && payload ? (
+    payload && (replay || openedTrace) ? (
       <Suspense fallback={null}>
         <TraceReplay
           payload={payload}
           runtime={connection.runtime}
           trace={traceOpen}
+          opened={openedTrace}
+          onOpened={setOpenedTrace}
+          onClear={() => {
+            setOpenedTrace(undefined);
+          }}
           onLive={({ conversation, view, text }) => {
             run.resume(conversation, view);
-            setTracing(false);
+            setReplaying(false);
             sendNext(text);
           }}
         />
@@ -3169,6 +3292,7 @@ const PreviewPane = memo(function PreviewPane({
       <VStack height="100%">
         <PreviewHeader
           store={store}
+          onClear={clearChat}
           chatAgents={chatAgents}
           chatWith={chatWith}
           compile={compile}
@@ -3182,9 +3306,9 @@ const PreviewPane = memo(function PreviewPane({
           }}
           testing={testing}
           tracing={{
-            open: tracing,
+            open: replay,
             toggle: () => {
-              setTracing((open) => !open);
+              setReplaying(!replay);
             },
           }}
           setSheet={setSheet}
@@ -3200,6 +3324,7 @@ const PreviewPane = memo(function PreviewPane({
             traceOpen={traceOpen}
             testing={testing}
             tracing={traceView}
+            replaying={replay}
             feedOf={feedOf}
             onIssue={onIssue}
           />
@@ -3221,12 +3346,30 @@ function useScreenReport(
 }
 
 /** Everything the page holds: the workspace, its connection, the editor's view, the compile, and the run. */
+/** Hands the run tabs this tab opened the keys it holds when they ask. */
+function useRunKeysAnswer(vault: StudioConnectionState['vault']) {
+  const held = useRef(vault);
+  held.current = vault;
+  useEffect(
+    () =>
+      answerRunKeys(() =>
+        Object.fromEntries(
+          Object.entries(held.current).filter((entry): entry is [string, string] =>
+            Boolean(entry[1]),
+          ),
+        ),
+      ),
+    [],
+  );
+}
+
 /** What the page opens on: the studio's own loader data, or an open project's. */
 function useStudioPage(opened: StudioOpened) {
   const { onReport } = useStudioHost();
   const state = useStudioWorkspace(opened.start, opened.project);
   const { store, workspace, draft, focus } = state;
   const connection = useWorkspaceConnection(workspace);
+  useRunKeysAnswer(connection.vault);
   const view = useEditorView(store);
   const frame = useStudioFrame();
   const selected = selectedNode(workspace, focus);
@@ -3285,10 +3428,8 @@ function useStudioPage(opened: StudioOpened) {
   );
   useArrivalToast(opened, store);
   const { replaceWorkspace, copy } = usePageActions(store, view, run.setConversation);
-  const asking = useConfirmWrite();
   const openKeys = useOpenKeys(view.setKeysOpen);
   const chatRef = useStudioSurface(store, {
-    confirmWrite: asking.confirm,
     on: connection.on,
     connection,
     replaceWorkspace,
@@ -3320,7 +3461,6 @@ function useStudioPage(opened: StudioOpened) {
     copy,
     chatRef,
     title,
-    asking,
     project,
     actingAs,
   };
@@ -3334,7 +3474,7 @@ function useStudioPage(opened: StudioOpened) {
 function Studio({ opened }: { opened: StudioOpened }) {
   const page = useStudioPage(opened);
   const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
-  const { goToIssue, sheet, setSheet, run, copy, chatRef, title, asking, project, actingAs } = page;
+  const { goToIssue, sheet, setSheet, run, copy, chatRef, title, project, actingAs } = page;
   const { questionLink } = page;
   const { store, draft } = state;
   const tree = useWorkspaceTree(state, view, selected, setSheet);
@@ -3363,85 +3503,80 @@ function Studio({ opened }: { opened: StudioOpened }) {
   return (
     <ProjectContext.Provider value={project}>
       <ActingAsContext.Provider value={actingAs}>
-        <ConfirmWrite value={asking.confirm}>
-          <ProjectAsks value={state.asks ?? NO_ASKS}>
-            {asking.dialog}
-            <SharedChange store={state.store} />
-            <SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
-              <QuestionLink value={questionLink}>
-                <GuardrailTest.Provider value={guardrailTest}>
-                  <Layout
-                    ref={frame.layoutCallbackRef}
-                    className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
-                    padding={0}
-                    start={
-                      <SidePanel
-                        frame={frame}
-                        tree={tree}
-                        draft={draft}
-                        onAddAgent={addAgentFrom}
-                        setSheet={setSheet}
-                        settings={
-                          view.settingsOpen &&
-                          project && (
-                            <SettingsPane
-                              state={state}
-                              connection={connection}
-                              project={project}
-                              setConversation={run.setConversation}
-                            />
-                          )
-                        }
-                        map={
-                          view.mapOpen && (
-                            <Suspense fallback={null}>
-                              <StudioMap
-                                workspace={state.workspace}
-                                shared={state.shared}
-                                selected={view.keysOpen ? '' : selected}
-                                onOpen={view.open}
-                                onClose={closeMap}
-                              />
-                            </Suspense>
-                          )
-                        }
-                      >
-                        <EditorColumn
-                          heading={view.keysOpen ? 'Keys' : headingOf(tree.list, editing, title)}
+        <SharedChange store={state.store} />
+        <SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
+          <QuestionLink value={questionLink}>
+            <GuardrailTest.Provider value={guardrailTest}>
+              <Layout
+                ref={frame.layoutCallbackRef}
+                className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
+                padding={0}
+                start={
+                  <SidePanel
+                    frame={frame}
+                    tree={tree}
+                    draft={draft}
+                    onAddAgent={addAgentFrom}
+                    setSheet={setSheet}
+                    settings={
+                      view.settingsOpen &&
+                      project && (
+                        <SettingsPane
                           state={state}
                           connection={connection}
-                          view={view}
-                          compile={compile}
-                          selected={selected}
-                          editing={editing}
-                          frame={frame}
-                          issueReveal={issueReveal}
-                          goToIssue={goToIssue}
-                          copy={copy}
-                          setSheet={setSheet}
+                          project={project}
+                          setConversation={run.setConversation}
                         />
-                      </SidePanel>
+                      )
                     }
-                    content={
-                      <PreviewPane
-                        store={store}
-                        chatAgents={chatAgents}
-                        chatWith={state.workspace.chatWith}
-                        compile={compile}
-                        run={run}
-                        connection={connection}
-                        chatRef={chatRef}
-                        setSheet={setSheet}
-                        onIssue={goToIssue}
-                        testing={testing && Boolean(compile.payload)}
-                      />
+                    map={
+                      view.mapOpen && (
+                        <Suspense fallback={null}>
+                          <StudioMap
+                            workspace={state.workspace}
+                            shared={state.shared}
+                            selected={view.keysOpen ? '' : selected}
+                            onOpen={view.open}
+                            onClose={closeMap}
+                          />
+                        </Suspense>
+                      )
                     }
+                  >
+                    <EditorColumn
+                      heading={view.keysOpen ? 'Keys' : title}
+                      state={state}
+                      connection={connection}
+                      view={view}
+                      compile={compile}
+                      selected={selected}
+                      editing={editing}
+                      frame={frame}
+                      issueReveal={issueReveal}
+                      goToIssue={goToIssue}
+                      copy={copy}
+                      setSheet={setSheet}
+                    />
+                  </SidePanel>
+                }
+                content={
+                  <PreviewPane
+                    store={store}
+                    chatAgents={chatAgents}
+                    chatWith={state.workspace.chatWith}
+                    compile={compile}
+                    run={run}
+                    connection={connection}
+                    chatRef={chatRef}
+                    setSheet={setSheet}
+                    onIssue={goToIssue}
+                    testing={testing && Boolean(compile.payload)}
                   />
-                </GuardrailTest.Provider>
-              </QuestionLink>
-            </SaveScope>
-          </ProjectAsks>
-        </ConfirmWrite>
+                }
+              />
+            </GuardrailTest.Provider>
+          </QuestionLink>
+        </SaveScope>
       </ActingAsContext.Provider>
     </ProjectContext.Provider>
   );
@@ -3529,6 +3664,7 @@ function useWorkspaceTree(
             update(() => to);
             const dismiss = toast({
               body,
+              autoHideDuration: UNDO_WINDOW,
               endContent: (
                 <Button
                   label="Undo"
@@ -3689,7 +3825,7 @@ function SharedLine({
   const others = entry.agents.flatMap((key) => {
     const agent = workspace.agents.find((each) => each.key === key);
     return agent && !selected.startsWith(`${agentNodeId(key)}/`)
-      ? [agent.identity.agentId || 'New agent']
+      ? [agent.identity.agentId.trim() || 'Unnamed agent']
       : [];
   });
   const count = others.length;
@@ -3708,24 +3844,28 @@ function SharedLine({
 /** Over a node one place in the project's files sets whole: what sets it, where, and the way there. */
 function OriginBanner({
   origin,
-  partly,
+  unloaded,
   onOpen,
 }: {
   origin: SettingOrigin;
-  /** The origin sets only the rows the files do not write themselves. */
-  partly: boolean;
+  /** Files that stopped loading hide every definition in them. */
+  unloaded: boolean;
   onOpen: () => void;
 }) {
   const place = originPlace(origin);
+  const broken = unloaded && origin.kind === 'unfound';
   // The cause is the title. Here: what it does to this page, then the way out.
-  const effect = partly ? 'The greyed rows are read-only here.' : 'Read-only here.';
-  const way = place ? `Edit it at ${place}.` : originWay(origin);
+  const way = broken
+    ? 'The alert above says what stopped them.'
+    : place
+      ? `Edit it at ${place}.`
+      : originWay(origin);
   return (
     <Section variant="transparent" padding={3}>
       <Banner
         status="info"
-        title={originLabel(origin)}
-        description={`${effect} ${way}`}
+        title={broken ? 'Your files stopped loading' : originLabel(origin)}
+        description={`Read-only here. ${way}`}
         endContent={place && <Button label="Open" variant="ghost" size="sm" onClick={onOpen} />}
       />
     </Section>
@@ -3771,8 +3911,7 @@ function EditorColumn({
     const scope = state.origins && nodeOrigins(state.workspace, state.origins, selected);
     return scope ? { scope, open: openOrigin } : null;
   }, [state.origins, state.workspace, selected, openOrigin]);
-  const whole = rowOrigins?.scope.section;
-  const said = over ? undefined : (whole ?? rowOrigins?.scope.partly);
+  const said = over ? undefined : rowOrigins?.scope.section;
   return (
     <VStack height="100%">
       <EditorToolbar
@@ -3823,7 +3962,7 @@ function EditorColumn({
       {said && (
         <OriginBanner
           origin={said}
-          partly={!whole}
+          unloaded={state.files?.unloaded !== undefined}
           onOpen={() => {
             openOrigin(said);
           }}

@@ -10,6 +10,7 @@ import {
   workspaceFromDraft,
 } from '../mod.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
+import { tab } from './tab.ts';
 
 const example = createExampleDraft();
 const named = (agentId: string) => ({
@@ -34,7 +35,7 @@ const SITES: SharedSites = {
 
 /** A store on `desk`, `shop`, and `yard`, with `desk` open. Each test has its own tab. */
 function opened() {
-  sessionStorage.clear();
+  tab.clear();
   const workspace = ['shop', 'yard'].reduce(
     (held, id) => addAgent(held, named(id)),
     workspaceFromDraft(named('desk')),

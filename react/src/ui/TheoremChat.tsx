@@ -10,7 +10,7 @@ import {
   type ComposerProfileInterface,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
-import type { PageTools } from '@theoremjs/web/client';
+import type { ChatController, PageTools, StatedTurn } from '@theoremjs/web/client';
 import {
   type ConversationView,
   createHttpTransport,
@@ -27,6 +27,7 @@ import {
 } from 'react';
 import { parseAspectRatio } from '../client/image-output.ts';
 import {
+  type SendTextOptions,
   type SentTurn,
   type UseTheoremChatOptions,
   useTheoremChat,
@@ -66,13 +67,15 @@ export type TheoremChatProps = {
    */
   detectCodeLanguage?: boolean;
   /**
-   * The value chosen for each of the profile's `inputs.slots`, sent with every turn. A slot you
+   * The value chosen for each of the profile's `inputs.options`, sent with every turn. An option you
    * name is fixed to that value; one you leave out gets a selector in the composer bar, beside
    * the model's, starting at its first allowed value.
    */
-  slots?: Record<string, string>;
-  /** Told each time the visitor chooses a slot in the composer, with every slot's value. */
-  onSlotsChange?: (slots: Record<string, string>) => void;
+  options?: Record<string, string>;
+  /** Told each time the visitor chooses an option in the composer, with every option's value. */
+  onOptionsChange?: (options: Record<string, string>) => void;
+  /** Which prompt lines each turn gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
   /**
    * What the page wants the agent to know: any JSON. The latest value goes with every
    * turn, and the profile's `inputs.context.from` must list `client`.
@@ -86,7 +89,7 @@ export type TheoremChatProps = {
   /** Every event of every turn, as it arrives: also the ones the chat shows nothing for. */
   onTurnEvent?: UseTheoremChatOptions['onTurnEvent'];
   placeholder?: string;
-  /** Shown above the centred composer before the first message. Default: the agent's handle and a prompt. */
+  /** Shown above the centred composer before the first message. Default: the agent's handle and a prompt; `null` shows nothing. */
   emptyState?: ReactNode;
   density?: 'compact' | 'balanced' | 'spacious';
   /**
@@ -139,7 +142,7 @@ export type TheoremChatProps = {
    * forget it.
    */
   onConversationChange?: (ref: string | undefined) => void;
-  /** Lets the host send a message as the composer would; see {@link TheoremChatHandle}. */
+  /** Lets the host send a message as the composer would, stop a reply, or focus the composer; see {@link TheoremChatHandle}. */
   chatRef?: Ref<TheoremChatHandle>;
   /**
    * `false` leaves the composer out: the chat is the transcript alone, and your own control sends
@@ -151,12 +154,19 @@ export type TheoremChatProps = {
 /** What a host can do to a mounted {@link TheoremChat}. */
 export type TheoremChatHandle = {
   /**
-   * Sends `text` and optional `files` as the user, and resolves with the blocks the turn added once the reply is done;
+   * Sends `text`, and what `options` adds, as the user, and resolves with the blocks the turn added once the reply is done;
    * `null` when the chat can't take a message now (a reply is streaming, or waits on a gate).
    */
-  send: (text: string, files?: readonly File[]) => Promise<SentTurn | null>;
+  send: (text: string, options?: SendTextOptions) => Promise<SentTurn | null>;
   /** Stops the reply that is streaming, as the composer's stop button does. */
   stop: () => void;
+  /** Puts the keyboard in the composer. */
+  focus: () => void;
+  /**
+   * The chat's controller, for a host that drives it from outside, as a composer shared by
+   * several chats does. See `createChatController` in `@theoremjs/web/client`.
+   */
+  controller: ChatController;
 };
 
 /**
@@ -237,7 +247,7 @@ function ChatComposerForChat({
       onStop={chat.handleStop}
       onMenuAction={chat.handleMenuAction}
       onGenerationChange={chat.handleGenerationChange}
-      slotChoices={chat.slotChoices}
+      optionChoices={chat.optionChoices}
       onPendingMove={chat.handlePendingMove}
       onPendingRemove={(id) => {
         chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
@@ -275,8 +285,9 @@ function ChatBody({
   onConversationChange,
   chatRef,
   composer: hasComposer = true,
-  slots,
-  onSlotsChange,
+  options,
+  onOptionsChange,
+  stated,
   context,
   pageTools,
   onTurnEvent,
@@ -292,17 +303,14 @@ function ChatBody({
     initialVoice,
     initialPending,
     onConversationChange,
-    slots,
-    onSlotsChange,
+    options,
+    onOptionsChange,
+    stated,
     context,
     pageTools,
     onTurnEvent,
   });
-  const { sendText, handleStop } = chat;
-  useImperativeHandle(chatRef, () => ({ send: sendText, stop: handleStop }), [
-    sendText,
-    handleStop,
-  ]);
+  const { sendText, handleStop, controller } = chat;
   const blocks = useMemo(
     () => [...chat.blocks, ...chat.streamBlocks],
     [chat.blocks, chat.streamBlocks],
@@ -310,6 +318,18 @@ function ChatBody({
   const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
   const landing = blocks.length === 0;
   const inputRef = useRef<ChatComposerInputHandle | null>(null);
+  useImperativeHandle(
+    chatRef,
+    () => ({
+      send: sendText,
+      stop: handleStop,
+      focus: () => {
+        inputRef.current?.focus();
+      },
+      controller,
+    }),
+    [sendText, handleStop, controller],
+  );
   const composerRef = useGlide<HTMLElement>(landing, () => inputRef.current?.focus());
   const inspector = useTraceInspector(iface, transport.traces, trace);
   const header = <SidePanelHeader floating>{inspector.toggle}</SidePanelHeader>;
@@ -377,7 +397,7 @@ function ChatLanding({
   return (
     <VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
       <ChatColumn maxWidth={maxWidth}>
-        {emptyState ?? (
+        {emptyState === undefined ? (
           <VStack gap={1}>
             <Text type="supporting" as="h2">
               {handle}
@@ -386,6 +406,8 @@ function ChatLanding({
               {t('@theorem.chat.greeting')}
             </Text>
           </VStack>
+        ) : (
+          emptyState
         )}
       </ChatColumn>
       {composer && (
@@ -422,7 +444,12 @@ function ChatThread({
   }) {
   return (
     <VStack height="100%">
+      {/* why: ChatLayout's dock frosts the transcript above the composer, and offers no way to turn it off. */}
+      <style href="theorem-chat-thread" precedence="default">
+        {'.theorem-chat-thread > :last-child > div:empty { display: none; }'}
+      </style>
       <ChatLayout
+        className="theorem-chat-thread"
         density={density}
         scrollRef={scrollRef}
         // why: Scrolling past either end does not bounce the transcript and its docked composer.

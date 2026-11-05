@@ -26,9 +26,12 @@ export function checkRequest<T>(schema: z.ZodType<T>, raw: unknown, what: string
   return parsed.data;
 }
 
-function liveFrame(text: string): unknown {
-  const limit = requestByteLimit();
-  if (text.length > limit || new TextEncoder().encode(text).byteLength > limit)
+function liveFrame(text: string, maxBytes: number | undefined): unknown {
+  const limit = requestByteLimit(maxBytes);
+  if (
+    limit !== undefined &&
+    (text.length > limit || new TextEncoder().encode(text).byteLength > limit)
+  )
     throw new TheoremError('request', labelText('error.request'));
   try {
     return JSON.parse(text) as unknown;
@@ -42,17 +45,18 @@ function liveFrame(text: string): unknown {
 
 /**
  * One text frame from the live client, as a relay reads it: JSON that passes
- * `liveClientMessageSchema`, else a `request` error.
+ * `liveClientMessageSchema`, else a `request` error. A frame over `maxBytes`, when set, is refused.
  */
-export function parseLiveClientMessage(text: string): LiveClientMessage {
-  return checkRequest(liveClientMessageSchema, liveFrame(text), 'live message');
+export function parseLiveClientMessage(text: string, maxBytes?: number): LiveClientMessage {
+  return checkRequest(liveClientMessageSchema, liveFrame(text, maxBytes), 'live message');
 }
 
 /**
  * The live client's first frame, as a relay reads it before it opens the
- * session: JSON that passes `liveOpenMessageSchema`, else a `request` error.
+ * session: JSON that passes `liveOpenMessageSchema`, else a `request` error. A frame over
+ * `maxBytes`, when set, is refused.
  */
-export function parseLiveOpenMessage(text: string): LiveOpenMessage {
+export function parseLiveOpenMessage(text: string, maxBytes?: number): LiveOpenMessage {
   // labels-exempt: internal diagnostic; the user reads the error kind's wording
-  return checkRequest(liveOpenMessageSchema, liveFrame(text), 'live open message');
+  return checkRequest(liveOpenMessageSchema, liveFrame(text, maxBytes), 'live open message');
 }

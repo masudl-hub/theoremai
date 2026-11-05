@@ -6,13 +6,13 @@ export {
 } from './audio-level.ts';
 export {
   type ChatController,
+  type ChatOptionPicks,
   type ChatOptions,
-  type ChatSlotDecl,
-  type ChatSlots,
   type ChatState,
   type ChatUpdate,
   createChatController,
   type MessageDelivery,
+  type SendTextOptions,
   type SentTurn,
 } from './chat.ts';
 export {
@@ -116,7 +116,7 @@ export {
   type LiveState,
   liveState,
 } from './live/live-state.ts';
-export type { LiveGateAnswer, LiveToolGatePrompt } from './live/live-tool.ts';
+export type { LiveGateAnswer, LiveGateReply, LiveToolGatePrompt } from './live/live-tool.ts';
 export type { LiveConnection } from './live-client.ts';
 export { LiveSessionClient } from './live-client.ts';
 export type { ExecuteToolOnRelay, LiveSocket } from './live-messages.ts';
@@ -146,11 +146,13 @@ export {
   fieldLabel,
   fieldReading,
   humanize,
+  isPart,
   isPlain,
   isProse,
   isRow,
   json,
   type ListRow,
+  layoutChars,
   MAX_ROWS,
   type PlainReading,
   plainReading,
@@ -212,9 +214,11 @@ export {
   hostError,
   isTheoremStreamError,
   type MalformedEvent,
+  type NotifyLine,
   postJson,
   postNdjson,
   readNdjsonStream,
+  type StatedTurn,
   type TheoremConversationRequest,
   type TheoremInvokeRequest,
   type TheoremReplay,

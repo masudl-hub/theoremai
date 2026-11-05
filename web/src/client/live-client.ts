@@ -31,7 +31,10 @@ import {
   liveTranscriptFromEvidence,
   shouldForwardMicFrame,
 } from './live/live-mic-forward.ts';
+import type { PageTools } from './live/live-page-tool.ts';
 import type { LiveConnectPhase, LiveSessionStatus } from './live/live-state.ts';
+import type { LiveGateReply, LiveToolGatePrompt } from './live/live-tool.ts';
+import { runLiveToolCall } from './live/run-live-tool-call.ts';
 import { isPermissionDeniedError } from './live-errors.ts';
 import {
   type ExecuteToolOnRelay,
@@ -44,7 +47,7 @@ import {
 } from './live-messages.ts';
 import { MIC_CAPTURE_PROCESSOR, micCaptureWorkletUrl } from './mic-capture.ts';
 import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample.ts';
-import { type ClientTurnEvent, hostError } from './transport.ts';
+import { type ClientTurnEvent, hostError, type StatedTurn } from './transport.ts';
 import { issuedOperationId } from './turn-client.ts';
 
 type LiveToolCall = {
@@ -96,8 +99,14 @@ export interface LiveClientOptions {
   profile?: string;
   /** The host's own JSON for its relay, sent as the open message's `host`. */
   openMessage?: Record<string, unknown>;
-  /** The value chosen for each of the profile's `inputs.slots`, fixed for the call. */
-  slots?: Record<string, string>;
+  /** The value chosen for each of the profile's `inputs.options`, fixed for the call. */
+  options?: Record<string, string>;
+  /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
+  /** The model picked for the call, when the profile allows it. */
+  model?: string;
+  /** That model's effort, when the binding allows it. */
+  effort?: string;
   /** What the page tells the agent as the call opens; `setContext` replaces it during the call. */
   context?: unknown;
   relayUrl?: string;
@@ -125,14 +134,16 @@ export interface LiveClientOptions {
    */
   onSessionEnded?: (session: SessionEventOf<'ended'>) => void;
   /**
-   * The model called a tool. The host runs it with `executeToolOnRelay` and
-   * answers its gates; the session answers the model. A throw reaches `onError`.
+   * The page's tools, by name. The client runs each call the model makes on the relay, and
+   * answers a call dispatched to the page with the tool of that name. A call the page has no
+   * tool for, or whose tool throws, is answered with no answer, so the turn never waits on it.
    */
-  onToolCall: (
-    name: string,
-    args: Record<string, unknown>,
-    meta: { callId: string; operationId: string },
-  ) => Promise<void>;
+  pageTools?: PageTools;
+  /**
+   * The host's answer to a gate on a call: ask the user, then send what
+   * `continueGatedToolInvocation` makes of their answer. Without it, every gate is refused.
+   */
+  onGate?: (prompt: LiveToolGatePrompt) => Promise<LiveGateReply>;
   /** The relay opened the call: the id it gave the call, and the profile it runs. */
   onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
   onVolumeLevel?: (level: number, isUser: boolean) => void;
@@ -342,11 +353,14 @@ export class LiveSessionClient {
 
   /** The first message: the call's values, and the handle and time away when it takes a dropped call up again. */
   private openMessage(): LiveOpenMessage {
-    const { slots, openMessage: host } = this.options;
+    const { options, stated, model, effort, openMessage: host } = this.options;
     return {
       type: 'open',
       ...(this.history.length ? { history: structuredClone(this.history) } : {}),
-      ...(slots ? { slots } : {}),
+      ...(options ? { options } : {}),
+      ...(stated ? { stated } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
       ...(this.context === undefined ? {} : { context: this.context }),
       ...(this.providerState
         ? {
@@ -600,7 +614,12 @@ export class LiveSessionClient {
     for (const call of runnableTools) {
       this.toolChain = this.toolChain
         .then(() =>
-          this.options.onToolCall(call.name, call.arguments, {
+          runLiveToolCall({
+            executeToolOnRelay: (args) => this.executeToolOnRelay(args),
+            pageTools: this.options.pageTools,
+            onGate: this.options.onGate,
+            name: call.name,
+            toolArgs: call.arguments,
             callId: call.id,
             operationId: issuedOperationId(call),
           }),
@@ -798,7 +817,7 @@ export class LiveSessionClient {
   }
 
   /** The relay runs `LiveSession.executeTool`; see `ExecuteToolOnRelay`. */
-  executeToolOnRelay(args: Parameters<ExecuteToolOnRelay>[0]): Promise<LiveToolStep> {
+  private executeToolOnRelay(args: Parameters<ExecuteToolOnRelay>[0]): Promise<LiveToolStep> {
     const socket = this.ws;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       throw new TheoremError('request', 'live session is not connected'); // labels-exempt: internal diagnostic
@@ -903,12 +922,23 @@ export class LiveSessionClient {
   }
 
   /**
-   * The call's slot values. An open call is taken up again with them when the provider gave a
+   * The call's option values. An open call is taken up again with them when the provider gave a
    * handle; with none, the next call has them.
    */
-  public setSlots(slots: Record<string, string> | undefined): void {
-    if (JSON.stringify(slots) === JSON.stringify(this.options.slots)) return;
-    this.options = { ...this.options, slots };
+  public setOptions(options: Record<string, string> | undefined): void {
+    if (JSON.stringify(options) === JSON.stringify(this.options.options)) return;
+    this.options = { ...this.options, options };
+    this.takeUpAgain();
+  }
+
+  /** The call's prompt lines, as `setOptions` takes its options. */
+  public setStated(stated: StatedTurn | undefined): void {
+    if (JSON.stringify(stated) === JSON.stringify(this.options.stated)) return;
+    this.options = { ...this.options, stated };
+    this.takeUpAgain();
+  }
+
+  private takeUpAgain(): void {
     if (this.providerState && !this.opening && this.ws?.readyState === WebSocket.OPEN) {
       this.handleDrop();
     }

@@ -322,10 +322,13 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
               duration_ms: 0.4,
               hits: [
                 {
-                  rule: 'detect.tool_instructions',
+                  rule: 'detect.injection',
                   severity: 'high',
                   match: 'ignore previous',
                 },
+                // why: with the match stripped, two places the rule matched read the same and fold into one row.
+                { rule: 'detect.injection', severity: 'high' },
+                { rule: 'detect.injection', severity: 'high' },
               ],
               provenance: { tool: 'search_places' },
             },
@@ -345,13 +348,23 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
   );
   assertEquals(hit?.hits, [
     {
-      rule: 'detect.tool_instructions',
-      ruleLabel: 'Tool instructions',
+      rule: 'detect.injection',
+      ruleLabel: 'Injection',
       ruleDoc:
-        'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+        'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". In what a tool returns, also a tool\'s text that instructed the agent: beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each such match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
       severity: 'high',
       severityLabel: 'High',
       match: 'ignore previous',
+      count: 1,
+    },
+    {
+      rule: 'detect.injection',
+      ruleLabel: 'Injection',
+      ruleDoc:
+        'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". In what a tool returns, also a tool\'s text that instructed the agent: beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each such match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+      severity: 'high',
+      severityLabel: 'High',
+      count: 2,
     },
   ]);
 });

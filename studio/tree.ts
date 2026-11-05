@@ -70,7 +70,7 @@ function branchNodes(draft: StudioDraft, facet: ProfileGraphFacetId): StudioTree
     return draft.modelBindings.map((binding) => ({
       id: modelBindingNodeId(binding.key),
       ref: { facet: 'modelBinding', key: binding.key },
-      label: binding.modelId.trim() || facetLabel('modelBinding'),
+      label: binding.modelId.trim() || 'Unnamed model',
       children: [],
     }));
   }
@@ -83,7 +83,7 @@ export function toolSpecNodes(toolSpecs: StudioDraft['toolSpecs']): StudioTreeNo
   return toolSpecs.map((tool) => ({
     id: toolSpecNodeId(tool.key),
     ref: { facet: 'toolSpec', key: tool.key },
-    label: tool.toolName.trim() || facetLabel('toolSpec'),
+    label: tool.toolName.trim() || 'Unnamed tool',
     children: [],
   }));
 }
@@ -103,7 +103,7 @@ export function studioTree(draft: StudioDraft): StudioTreeNode {
   return {
     id: 'identity',
     ref: { facet: 'identity' },
-    label: draft.identity.agentId.trim() || facetLabel('identity'),
+    label: draft.identity.agentId.trim() || 'Unnamed agent',
     children,
   };
 }

@@ -126,7 +126,7 @@ const selector: ProfileDefinition = {
   id: 'selector',
   identity: {
     handle: 'primary',
-    systemByRole: { primary: 'You are Primary.', reviewer: 'You are Reviewer.' },
+    system: 'You are Primary.',
   },
   models: {
     gemini35FlashLite: {
@@ -171,7 +171,7 @@ const formatter: ProfileDefinition = {
   inputs: {
     text: true,
     attachments: { accept: FORMATTER_ATTACH },
-    slots: { language: ['html', 'tsx'] },
+    options: { language: { choices: [{ value: 'html' }, { value: 'tsx' }] } },
     ...CHAT_MEDIA_LIMITS,
   },
   outputs: {

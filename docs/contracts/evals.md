@@ -190,6 +190,7 @@ is `wrong` until it is added to the case. The exception is a turn that stopped
 no label and `errorType: 'provider_error'`, the trial errors, and it counts
 toward neither accuracy nor pass^k. An answer given before the provider failed
 is graded as usual. Other stops (`length`, `stream_incomplete`, …) stay `wrong`.
+So does `answer_missing`: the agent had its say and did not give its answer.
 
 Latency is two readings, not one. `budget.maxTimeToFirstChunkMs` is the
 provider's share: from the successful HTTP try (or the Live response's first

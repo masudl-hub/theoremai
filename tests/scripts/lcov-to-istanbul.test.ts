@@ -27,3 +27,25 @@ Deno.test('LCOV source ranges include nested functions without changing recorded
     await Deno.remove(directory, { recursive: true });
   }
 });
+
+Deno.test('a file recorded by several runs has its hits summed', async () => {
+  const directory = await Deno.makeTempDir();
+  try {
+    const source = `${directory}/shared.ts`;
+    const input = `${directory}/input.lcov`;
+    const output = `${directory}/output.json`;
+    await Deno.writeTextFile(source, 'export function shared() {\n  return 1;\n}\n');
+    const run = (hits: number) =>
+      `SF:${source}\nFN:1,shared\nFNDA:${hits},shared\nDA:1,${hits}\nDA:2,${hits}\nend_of_record\n`;
+    await Deno.writeTextFile(input, run(2) + run(0) + run(3));
+    const result = await new Deno.Command('node', {
+      args: ['scripts/lcov-to-istanbul.mjs', input, output],
+    }).output();
+    assertEquals(result.code, 0, new TextDecoder().decode(result.stderr));
+    const data = JSON.parse(await Deno.readTextFile(output))[source];
+    assertEquals(data.f, { '0': 5 });
+    assertEquals(Object.values(data.s), [5, 5]);
+  } finally {
+    await Deno.remove(directory, { recursive: true });
+  }
+});

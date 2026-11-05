@@ -124,7 +124,7 @@ Deno.test('toErrorEvent carries the builder world only', () => {
   assertEquals(ev, { type: 'error', errorKind: 'unavailable', errorInternal: 'Gemini HTTP 503' });
   const odd = toErrorEvent({ notAnError: true });
   assertEquals(odd.errorKind, 'internal');
-  assertEquals(odd.errorInternal, '[object Object]');
+  assertEquals(odd.errorInternal, 'notAnError: true');
 });
 
 Deno.test('toErrorEvent keeps a failure copy for the host boundary', () => {
@@ -170,6 +170,28 @@ Deno.test('withPublicLabels words a failed tool step with its tool name', () => 
   const labels = { 'error.blocked': "Sorry, '{tool}' wasn't allowed." };
   assertEquals(failure(labels)?.error, "Sorry, 'send_email' wasn't allowed.");
   assertEquals(failure(labels)?.message, 'blocked host');
+});
+
+Deno.test('withPublicLabels says a tool, not the model, could not be reached', () => {
+  const ev: TurnEvent = {
+    type: 'tool',
+    tool: {
+      name: 'web_search',
+      callId: 'c1',
+      at: 0,
+      phase: 'error',
+      failure: { code: 'network_error', kind: 'network', message: 'Failed to fetch' },
+    },
+  };
+  const failure = (labels?: LabelOverrides) =>
+    toolEventsOf([withPublicLabels(ev, labels)], 'error')[0]?.failure;
+  assertEquals(failure()?.error, "Sorry, a tool couldn't be reached. Please try again.");
+  const labels = { 'tool.unreachable': "Sorry, '{tool}' couldn't be reached." };
+  assertEquals(failure(labels)?.error, "Sorry, 'web_search' couldn't be reached.");
+  assertEquals(
+    failure({ 'error.network': 'Model copy.' })?.error,
+    labelDefault('tool.unreachable'),
+  );
 });
 
 Deno.test('withPublicLabels leaves other events untouched', () => {
@@ -237,4 +259,15 @@ Deno.test('describeError returns the raw detail', () => {
   assertEquals(describeError(42), '42');
   assertEquals(describeError(null), 'null');
   assertEquals(describeError(new Error('')), 'Error');
+});
+
+Deno.test('describeError names a plain-object cause by its scalar fields', () => {
+  const err = new TheoremError('unavailable', 'not saved', {
+    cause: { code: 'session_state_capacity', limit: 'maxOperations', value: 128, nested: {} },
+  });
+  assertEquals(
+    describeError(err),
+    'not saved\ncaused by: code: session_state_capacity, limit: maxOperations, value: 128',
+  );
+  assertEquals(describeError(new Error('x', { cause: {} })), 'x\ncaused by: [object Object]');
 });

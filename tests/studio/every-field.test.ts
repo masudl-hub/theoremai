@@ -12,10 +12,11 @@ import {
   typesafeProvider,
 } from '../../mod.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
-import { LABEL_KEYS, labelPlaceholders } from '../../src/guardrails/labels.ts';
+import { labelPlaceholders } from '../../src/guardrails/labels.ts';
 import { catalogPathFor } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
+import { PROFILE_LABEL_KEYS } from '../../studio/label-areas.ts';
 import { connectionFields, kernelDefinitions } from '../../studio/providers.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -196,7 +197,7 @@ const PROFILES = [
     inputs: {},
     tools: { allow: [] },
     labels: Object.fromEntries(
-      LABEL_KEYS.map((key) => [
+      PROFILE_LABEL_KEYS.map((key) => [
         key,
         `Worded for ${key}. ${labelPlaceholders(key)
           .map((name) => `{${name}}`)
@@ -209,8 +210,13 @@ const PROFILES = [
     id: 'every-text',
     identity: {
       handle: 'writer',
-      system: ['You write.', { private: 'House rules.' }],
-      systemByRole: { admin: 'You write for staff.' },
+      options: {
+        plan: {
+          label: 'Plan',
+          choices: [{ value: 'free', description: 'No cost.' }, { value: 'paid' }],
+        },
+      },
+      system: [['You write.', { private: 'House rules.' }]],
     },
     models: {
       main: {
@@ -268,8 +274,8 @@ const PROFILES = [
       maxBytes: 1_000_000,
       maxTurnBytes: 2_000_000,
       limitsByMime: { 'image/png': 500_000 },
-      slots: {
-        role: ['admin', 'guest'],
+      options: {
+        role: { choices: [{ value: 'admin' }, { value: 'guest' }] },
         tone: {
           label: 'Tone',
           choices: [{ value: 'plain', description: 'Short words.' }, { value: 'warm' }],

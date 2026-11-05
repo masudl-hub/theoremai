@@ -1,6 +1,6 @@
 {
  "model": "gemma-4-26b-a4b-it",
- "case": "redteam.slot-pem",
+ "case": "redteam.option-pem",
  "draws": [
   "7c0e434d22d9cb831634e11a9d6eb9f9"
  ],

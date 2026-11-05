@@ -15,7 +15,9 @@ import { base64ToBytes, bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
 import {
   buildChatMessages,
+  httpError,
   resolveResponseFormat,
+  statedError,
   wireTools,
 } from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
@@ -62,13 +64,19 @@ function requestBody(context: ProtocolContext, request: ProtocolRequest): JsonOb
   return JSON.parse(JSON.stringify(body)) as JsonObject;
 }
 
-/** An error row inside a 200 reply: thrown, so a quota refusal before any output can still fall back. */
-function errorRow(row: JsonObject): void {
+/**
+ * An error row inside a 200 reply: thrown, so a quota refusal before any output can still fall back.
+ * why: a reply the provider already began was accepted, so a 4xx in it is the stream breaking, not a refusal.
+ */
+function errorRow(row: JsonObject, reply: Reply): void {
   const error = asRecord(row.error);
   if (!error) return;
   const status = typeof error.code === 'number' ? error.code : 502;
-  const message = typeof error.message === 'string' ? error.message : JSON.stringify(error);
-  throw new TheoremError(kindOfHttpStatus(status), message);
+  const kind = kindOfHttpStatus(status);
+  throw new TheoremError(
+    reply.response && kind === 'unsupported' ? 'unavailable' : kind,
+    statedError(row) ?? JSON.stringify(error),
+  );
 }
 
 function citations(part: Record<string, unknown>, reply: Reply): ProtocolEvent[] {
@@ -118,7 +126,7 @@ function partEvents(
 }
 
 function rowEvents(row: JsonObject, reply: Reply, request: ProtocolRequest, stream: boolean) {
-  errorRow(row);
+  errorRow(row, reply);
   const events: ProtocolEvent[] = [];
   const identity = foldResponse(reply.response, openAiResponse(row));
   reply.response = identity.known;
@@ -206,7 +214,9 @@ export const openAi: Protocol<Record<string, never>> = defineProtocol({
   name: 'OpenAI Chat Completions',
   description: 'The Chat Completions shape that OpenAI and most compatible servers speak.', // labels-exempt: builder field description, read by the studio and docs
   endpoints: { text: '/chat/completions', speech: '/audio/speech' },
+  operationNames: { text: 'chat', speech: 'generate_content' },
   options: z.strictObject({}),
+  error: (failure) => httpError(failure, 'Chat Completions'),
   create(context) {
     return {
       async *complete(request) {

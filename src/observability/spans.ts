@@ -1,5 +1,5 @@
 const OMIT_INJECTION = '[omitted - injection]';
-const OMIT_SENSITIVE = '[omitted -sensitive]';
+const OMIT_SENSITIVE = '[omitted - sensitive]';
 const OMIT_CANARY = '[omitted - canary]';
 const OMIT_PROMPT = '[omitted - instructions]';
 const OMIT_IMAGE = '[omitted - image]';

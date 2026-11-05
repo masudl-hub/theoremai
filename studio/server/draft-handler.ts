@@ -14,6 +14,7 @@
 import { type ProfileDefinition, type ResolveHost, TheoremError, z } from '@theoremjs/agents';
 import { clientError } from '@theoremjs/agents/host';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { RegisteredProvider } from '@theoremjs/agents/kernel';
 import {
   checkRequest,
   createMemoryPageToolBroker,
@@ -38,6 +39,7 @@ import {
   theoremTurnRequestSchema,
 } from '@theoremjs/web/server';
 import { newConversationKey } from '../conversation-key.ts';
+import { FORWARD_ROUTE } from '../forwarded-fetch.ts';
 import type { LentKeys } from '../lent-keys.ts';
 import type { StructuredRegistration, ToolRegistration } from '../registrations.ts';
 import {
@@ -54,6 +56,7 @@ import { draftDecide } from './draft-decide.ts';
 import { draftEmbedding } from './draft-embedding.ts';
 import { draftProbe, type ProbeEntry } from './draft-probe.ts';
 import { errorJson, ndjsonEventStream } from './draft-replies.ts';
+import { forwardRequest } from './forward.ts';
 import { testConnection } from './test-connection.ts';
 import { testKey } from './test-key.ts';
 
@@ -73,8 +76,8 @@ export type StudioDraftHandlerOptions = {
   lent?: LentRuntime;
   /**
    * Spends one of `kind` for whoever sent `request`, before it runs. Throw a `TheoremError` to refuse
-   * it: the screen reads the error's wording. Every decision, host tool call, and agent tool turn on
-   * the lent keys passes through it. Default: nothing is counted.
+   * it: the screen reads the error's wording. Every decision, host tool call, agent tool turn, and
+   * passage a tool's reader reads on the lent keys passes through it. Default: nothing is counted.
    */
   spend?: (kind: StudioSpend, request: Request) => void | Promise<void>;
   /**
@@ -103,6 +106,8 @@ export type StudioDraftHandlerOptions = {
    * whatever the draft says, so no visitor reaches the host's own network.
    */
   draftNetwork?: boolean;
+  /** The project's providers: a key is checked on them, and a probed draft's models name them. */
+  projectProviders?: () => readonly RegisteredProvider[];
 };
 
 /**
@@ -201,6 +206,7 @@ export function createStudioDraftHandler(
     execution: boundary.toolExecution,
     pageExecution: boundary.pageExecution,
     onAgentCall: agentCall(request),
+    onReaderCall: spend && (() => spend('decision', request)),
   });
 
   /** A draft as a run takes it. */
@@ -392,10 +398,23 @@ export function createStudioDraftHandler(
     const path = new URL(request.url).pathname;
     const route = path.startsWith(`${STUDIO_BASE}/`) ? path.slice(STUDIO_BASE.length + 1) : '';
     const routes: Record<string, (request: Request) => Promise<Response>> = {
-      probe: (asked) => draftProbe(asked, options.onProbePassed, defer ?? (() => {})),
-      'test-key': testKey,
+      probe: (asked) =>
+        draftProbe(
+          asked,
+          options.onProbePassed,
+          defer ?? (() => {}),
+          options.projectProviders?.() ?? [],
+        ),
+      'test-key': (asked) =>
+        testKey(asked, {
+          resolveHost,
+          draftNetwork: options.draftNetwork,
+          projectProviders: options.projectProviders,
+        }),
       'test-connection': (asked) =>
         testConnection(asked, { resolveHost, draftNetwork: options.draftNetwork }),
+      [FORWARD_ROUTE]: (asked) =>
+        forwardRequest(asked, { resolveHost, draftNetwork: options.draftNetwork }),
       ...(lent ? lentRoutes(lent) : {}),
     };
     if (!Object.hasOwn(routes, route)) return Promise.resolve(notFound());

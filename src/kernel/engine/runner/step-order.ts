@@ -18,7 +18,7 @@ export interface StepOrder {
  * A promise and the function that settles it. `Promise.withResolvers` would do, but the React
  * package compiles the kernel against ES2023, which lacks it.
  */
-function settleable<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+export function settleable<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve: (value: T) => void = () => undefined;
   const promise = new Promise<T>((settle) => {
     resolve = settle;

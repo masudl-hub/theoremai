@@ -100,7 +100,7 @@ export type SetupExport = 'questions' | 'images';
 /** The setup module's `export const <name>`, when it writes one. */
 export function setupExport(
   source: ts.SourceFile,
-  name: SetupExport,
+  name: SetupExport | 'entry',
 ): ts.VariableDeclaration | undefined {
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement)) continue;
@@ -486,6 +486,29 @@ function providerId(project: ProjectSource, at: Located, depth: number): Located
     : undefined;
 }
 
+/** The objects a spread picks between, or undefined when it does not pick. */
+function branches(from: ts.Expression): ts.Expression[] | undefined {
+  const node = unwrapped(from);
+  if (ts.isConditionalExpression(node)) return [node.whenTrue, node.whenFalse];
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+  )
+    return [node.right];
+  return undefined;
+}
+
+/** Whether a spread of this adds nothing: `{}`, `undefined`, `null` or `false`. */
+function isNothing(node: ts.Expression): boolean {
+  const value = unwrapped(node);
+  if (ts.isObjectLiteralExpression(value)) return value.properties.length === 0;
+  return (
+    value.kind === ts.SyntaxKind.NullKeyword ||
+    value.kind === ts.SyntaxKind.FalseKeyword ||
+    (ts.isIdentifier(value) && value.text === 'undefined')
+  );
+}
+
 /**
  * The object an expression writes out: an object literal, or a provider's `model()` call. Each
  * spread is followed to the object it names. Undefined for anything else.
@@ -509,6 +532,8 @@ export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectS
     const inner = step(project, inside(from), depth + 1);
     // A spread of nothing adds nothing.
     if (inner === MISSING) return;
+    const chosen = branches(inner.node);
+    if (chosen && chosenSpread(chosen.map((node) => ({ ...inner, node })))) return;
     const held = shapeOf(project, inner, depth + 1);
     if (!held) {
       shape.open = { node: written, source: at.source, after: new Set() };
@@ -521,6 +546,25 @@ export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectS
       shape.entries.set(entry.key, entry);
       if (!sure || sure.has(entry.key)) shape.open?.after.add(entry.key);
     }
+  };
+  /**
+   * A spread that picks between objects (`cond ? { a } : {}`, `cond && { a }`) sets each key of
+   * each one in code, at the key: which one holds is the code's. False when one cannot be read.
+   */
+  const chosenSpread = (chosen: Located[]): boolean => {
+    const shapes: ObjectShape[] = [];
+    for (const branch of chosen) {
+      const inner = step(project, branch, depth + 1);
+      if (inner === MISSING || isNothing(inner.node)) continue;
+      const held = shapeOf(project, inner, depth + 1);
+      if (!held || held.open) return false;
+      shapes.push(held);
+    }
+    for (const held of shapes) {
+      for (const { key, property, source } of held.entries.values())
+        put({ key, source, ...(property ? { property } : {}) });
+    }
+    return true;
   };
   if (ts.isObjectLiteralExpression(node)) {
     shape.own = { node, source: at.source };
@@ -1253,19 +1297,9 @@ function theoremEntries(root: string, read: ReadFile): Set<string> {
 
 /** The path the setup's `entry` export names, as it writes it: a string the walk follows as an import. */
 function namedEntry(setup: ts.SourceFile): string | undefined {
-  for (const statement of setup.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
-      continue;
-    }
-    for (const declaration of statement.declarationList.declarations) {
-      const value = declaration.initializer && unwrapped(declaration.initializer);
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === 'entry' && value) {
-        if (ts.isStringLiteralLike(value)) return value.text;
-      }
-    }
-  }
-  return undefined;
+  const initializer = setupExport(setup, 'entry')?.initializer;
+  const value = initializer && unwrapped(initializer);
+  return value && ts.isStringLiteralLike(value) ? value.text : undefined;
 }
 
 /** The application entry the setup at `setupFile` names, as a path, read from the file as it is now. */

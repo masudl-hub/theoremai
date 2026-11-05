@@ -2,6 +2,7 @@ import { labelText, TheoremError, type TurnEvent } from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   type ComposerProfileInterface,
+  defaultInterfaceEffort,
   foldTurnEvents,
   type GatedToolContext,
   type InterfaceTurnSession,
@@ -37,19 +38,24 @@ function resolveEffort(
   session: InterfaceTurnSession,
   modelId: string | undefined,
 ): string | undefined {
-  if (!modelId || !Object.hasOwn(iface.models, modelId)) return undefined;
+  const picked = session.selectedEffort;
+  if (!modelId || !Object.hasOwn(iface.models, modelId)) return picked;
   const binding = iface.models[modelId];
-  if (!binding.allowEffortSelect) return undefined;
-  return session.selectedEffort ?? binding.defaultEffort;
+  if (binding.allowEffortSelect) return picked ?? binding.defaultEffort;
+  return picked === defaultInterfaceEffort(iface, modelId) ? undefined : picked;
 }
 
-/** Model / effort selection the host should honour for this session. */
+/**
+ * Model / effort selection the host should honour for this session.
+ * invariant: a pick the profile cannot honour goes to the host, which refuses the turn; it is
+ * never dropped for the default. Its own defaults go unsaid where it lets no one pick.
+ */
 function generationFields(
   iface: ComposerProfileInterface,
   session: InterfaceTurnSession,
 ): { model?: string; effort?: string } {
   const modelId = resolveModelId(iface, session);
-  const model = iface.allowModelSelect ? modelId : undefined;
+  const model = iface.allowModelSelect || modelId !== defaultModel(iface) ? modelId : undefined;
   const effort = resolveEffort(iface, session, modelId);
   return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
 }

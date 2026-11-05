@@ -56,6 +56,10 @@ export interface SaveHost<Loaded> {
   /** Loads the project from disk. Throws what it printed when it does not start. */
   load(): Promise<Loaded>;
   stop(loaded: Loaded): Promise<void>;
+  /** Whether a load is running a turn or a call now. */
+  running(): boolean;
+  /** Calls `swap` when no load is running anything. Nothing starts between that and the swap. */
+  whenQuiet(swap: () => void): Promise<void>;
   /** The workspace a load opened as. */
   opened(loaded: Loaded): StudioWorkspace;
   /** The profiles a load registered that the studio could not open, by id. They are not unregistered. */
@@ -420,10 +424,13 @@ export function createSaveSession<Loaded>(
       await host.stop(next);
       return refusal('differs', differs);
     }
-    const old = project;
-    project = next;
-    loadedFrom = from;
-    unloaded = undefined;
+    let old = project;
+    await host.whenQuiet(() => {
+      old = project;
+      project = next;
+      loadedFrom = from;
+      unloaded = undefined;
+    });
     await host.stop(old);
     return undefined;
   };
@@ -435,8 +442,9 @@ export function createSaveSession<Loaded>(
   ): Promise<boolean> => {
     const now = heldIn(files);
     if (now === loadedFrom) unloaded = undefined;
-    // Files that did not load are not tried again until they change.
-    else if (unloaded?.from !== now) {
+    // Files that did not load are not tried again until they change. A running turn keeps its
+    // load: the page is told of the files again when the turn ends.
+    else if (unloaded?.from !== now && !host.running()) {
       said?.({ again: true });
       const refused = await reload(() => [], now);
       if (refused) unloaded = { from: now, printed: refused.detail.join('\n') };
@@ -571,8 +579,10 @@ export function createSaveSession<Loaded>(
     changed: () =>
       inTurn(() => {
         const now = held();
-        if (now === loadedFrom) return Promise.resolve([]);
-        const [was, is] = [loadedFrom, now].map(
+        // invariant: files put back after a load that failed are news; the page still says it failed.
+        const last = unloaded?.from ?? loadedFrom;
+        if (now === last) return Promise.resolve([]);
+        const [was, is] = [last, now].map(
           (text) => new Map(JSON.parse(text) as [string, string][]),
         );
         const files = [...new Set([...(was?.keys() ?? []), ...(is?.keys() ?? [])])];

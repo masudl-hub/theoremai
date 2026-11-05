@@ -7,6 +7,7 @@ import {
   type SourceFile,
   workspaceSource,
 } from '../../mod.ts';
+import { runsAsConversation } from './conversation-types.ts';
 
 const PACKAGES = [
   '@theoremjs/agents',
@@ -34,9 +35,8 @@ const HOST_ENDPOINT = '/api/host';
 const EMBEDDING_ENDPOINT = '/api/embedding';
 
 /** Turn profiles run through `createTheoremHandler`; live profiles run through a relay. */
-const NOT_TURNS = new Set(['live', 'decision', 'host', 'embedding']);
 function servesTurns({ profile }: CompiledStudio): boolean {
-  return !NOT_TURNS.has(profile.type);
+  return runsAsConversation(profile.type);
 }
 
 /** The `keySlot` and `fallbackKeySlot` an object names, when they are strings. */
@@ -145,30 +145,15 @@ function browserFile(
   };
 }
 
-/** Allowed value strings from a slot declaration (legacy list or `{ choices }`). */
-function slotChoiceValues(decl: unknown): string[] {
-  if (Array.isArray(decl)) {
-    return decl.filter((value): value is string => typeof value === 'string');
-  }
-  if (!decl || typeof decl !== 'object' || Array.isArray(decl)) return [];
-  const choices = (decl as { choices?: unknown }).choices;
-  if (!Array.isArray(choices)) return [];
-  return choices.flatMap((choice) => {
-    if (!choice || typeof choice !== 'object' || Array.isArray(choice)) return [];
-    const value = (choice as { value?: unknown }).value;
-    return typeof value === 'string' ? [value] : [];
-  });
-}
-
-/** What the agent takes from its page and its server: `inputs.slots` and `inputs.context`. */
+/** What the agent takes from its page and its server: `inputs.options` and `inputs.context`. */
 function pageInputs({ profile }: CompiledStudio) {
   const inputs = 'inputs' in profile ? profile.inputs : undefined;
-  const raw = inputs && 'slots' in inputs ? (inputs.slots ?? {}) : {};
-  const slots = Object.entries(raw).map(
-    ([name, decl]) => [name, slotChoiceValues(decl)] as [string, string[]],
+  const declared = inputs && 'options' in inputs ? (inputs.options ?? {}) : {};
+  const options = Object.entries(declared).map(
+    ([name, decl]) => [name, decl.choices.map(({ value }) => value)] as const,
   );
   const context = inputs && 'context' in inputs ? inputs.context : undefined;
-  return { slots, from: context?.from ?? [] };
+  return { options, from: context?.from ?? [] };
 }
 
 /** The chat's prop for the tools this page answers: a function per tool, returning its output. */
@@ -185,15 +170,15 @@ function pageToolsProp(agent: CompiledStudio): string[] {
   ];
 }
 
-/** The chat's props for what the page supplies: a value per slot, and its context. */
+/** The chat's props for what the page supplies: a value per option, and its context. */
 function pageProps(agent: CompiledStudio): string[] {
-  const { slots, from } = pageInputs(agent);
-  const picked = slots.map(
+  const { options, from } = pageInputs(agent);
+  const picked = options.map(
     ([name, allowed]) => `${JSON.stringify(name)}: ${JSON.stringify(allowed.at(0) ?? '')}`,
   );
   return [
-    ...slots.map(([name, allowed]) => `// ${name}: ${allowed.join(' | ')}`),
-    ...(slots.length > 0 ? [`slots={{ ${picked.join(', ')} }}`] : []),
+    ...options.map(([name, allowed]) => `// ${name}: ${allowed.join(' | ')}`),
+    ...(options.length > 0 ? [`options={{ ${picked.join(', ')} }}`] : []),
     ...(from.includes('client')
       ? ['// What this page tells the agent: any JSON.', 'context={{}}']
       : []),

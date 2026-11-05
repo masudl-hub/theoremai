@@ -1,6 +1,6 @@
 # Steer a background call: tell a running agent tool something new
 
-**Status:** proposal. Masud chose this option on 2026-11-04. No code exists yet. Names in this document that the code does not have yet are marked *(new)*.
+**Status:** building. Masud chose this option on 2026-11-04. The kernel part is built on branch 0.3.3, with its tests in `tests/kernel/steer-background-calls.test.ts`; it is not yet in a release.
 
 **Reader:** a Theorem maintainer, Masud, and the Bonsai team.
 **Job:** say how a host gives a detached agent tool call a new message while it runs.
@@ -65,15 +65,15 @@ A steer goes through three states:
 ```mermaid
 stateDiagram-v2
     [*] --> waiting: steer() answers queued
-    waiting --> joined: lands at post_tool or before_end
+    waiting --> joined: lands at pre_turn, post_tool or before_end
     waiting --> unread: the call settles first
     joined --> [*]
     unread --> [*]
 ```
 
-- **Waiting.** `steer` answers `{ queued: true }`. The steer waits for the job turn's next stage that takes an inject: `post_tool` or `before_end` (see `STAGE_AFFORDANCE_MATRIX`). It does not cut a model call that is running.
+- **Waiting.** `steer` answers `{ queued: true }`. The steer waits for the job turn's next stage that takes an inject: `pre_turn`, `post_tool` or `before_end` (see `STAGE_AFFORDANCE_MATRIX`). It does not cut a model call that is running.
 - **Joined.** The kernel lands the steer as a user message, with its id as the `InjectUnit` id. The job turn emits its `stage` event with `injected`, and the host gets it as in section 2. The next model call reads it.
-- **Unread.** If the call settles with the steer still waiting, the id is in `unreadSteers` *(new)* when `done` resolves. This includes a stop, and a job on its last step, where `injectWouldExceedMaxSteps` refuses every inject.
+- **Unread.** If the call settles with the steer still waiting, the id is in `unreadSteers` when `done` resolves. This includes a stop, and a job on its last step, where `injectWouldExceedMaxSteps` refuses every inject.
 
 A steer that the kernel refuses at once answers `{ queued: false }` with a reason:
 
@@ -81,8 +81,8 @@ A steer that the kernel refuses at once answers `{ queued: false }` with a reaso
 | --- | --- |
 | `settled` | The call has settled or been marked |
 | `stopped` | The host called `stop` and the call has not settled yet |
-| `not_agent` *(new)* | The call is a function tool. It has no turn to steer |
-| `steering_off` *(new)* | `profileAllowsInject` is false for the called agent's profile, for example `turnBehaviour.allowSteering: false` |
+| `not_agent` | The call is a function tool. It has no turn to steer |
+| `steering_off` | `profileAllowsInject` is false for the called agent's profile, for example `turnBehaviour.allowSteering: false` |
 
 The gate is the called profile's own. A tool has no second switch beside it.
 
@@ -92,13 +92,17 @@ The gate is the called profile's own. A tool has no second switch beside it.
 
 `CoordinatedExecution.detach` builds the handle. The job turn runs inside `executeAgentTool`, under `AgentCaller.run`. The call's `signal` already goes this way. The steer queue goes with it:
 
-- `CoordinatedExecution` creates the queue when it takes the claim, and `steer` writes to it.
-- The handler's `ToolContext` carries the queue beside `signal`. `executeAgentTool` passes it to `AgentCaller.run`.
-- `createAgentCaller` passes it to `RunNestedTurn` beside `agentDepth`. `TurnRequest` does not change, so a request body cannot set it.
+- `coordinateTool` creates a `SteerQueue` for a call that can detach, and the handle's `steer` writes to it.
+- The queue rides beside the call's other hooks (`ToolCallHooks`, then `ToolStageSupport`), as `spent` does. `executeAgentTool` passes it to `AgentCaller.run`. A call that takes no steers (`ToolDetach.refuseSteers`) never hands it on.
+- `createAgentCaller` passes it to `RunNestedTurn` beside `agentDepth`, and the job's turn keeps it on its state. `TurnRequest` does not change, so a request body cannot set it.
 
 ### 5.2 Where steers land
 
-At `post_tool` and `before_end` of the job turn, the kernel adds the waiting steers to the injects of that stage, after the host's own. They go through `runStage`, so the profile's guardrails sanitize them as any inject. A steer leaves the queue only when its messages land. A stage that refuses the inject leaves it waiting.
+At `pre_turn` and `before_end` of the job turn, the kernel adds the waiting steers to the injects of that stage, after the host's own, and both land together. A stage the host aborts lands neither.
+
+At `post_tool`, steers land once a step, after every call's own `post_tool` inject. The step's calls can run side by side, and each has its own `post_tool`, so a steer given to each would land twice.
+
+Steers go through `sanitizeInjects`, the same guardrail path as the host's injects. They land only where the host's inject could: a stage that takes one, a profile that allows it, and a step that `injectWouldExceedMaxSteps` does not refuse. A steer leaves the queue only when its message joins the history. A stage that refuses the inject leaves it waiting.
 
 ### 5.3 Reach
 
@@ -114,7 +118,8 @@ The host gets the handle only at the hand-off, through `ToolBackgroundService.de
 
 ## 6. Tests
 
-- Each row of the section 2 table, through `steer` instead of a hook: the steer lands at `post_tool`, lands at `before_end`, and is unread at the step limit.
+- Each row of the section 2 table, through `steer` instead of a hook: the steer lands at `post_tool`, lands at `before_end`, and is unread at the step limit. A steer given before the job's turn starts lands at `pre_turn`.
+- A step whose calls run side by side lands a steer once.
 - The `injected` event names the steer's id, and the host's service gets it.
 - Each refusal reason, from a real call in that state.
 - A stop with a steer waiting: `done` lists it as unread.

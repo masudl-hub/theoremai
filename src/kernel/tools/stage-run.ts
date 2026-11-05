@@ -17,6 +17,7 @@ import { type ToolCallBase, toolEvent } from './events.ts';
 import { operationWireValue } from './operation.ts';
 import { type GateDetails, gateDetails, isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
+import type { SteerQueue } from './steer.ts';
 import type { ModelToolResult, ToolContext, ToolFailure, ToolGate, ToolLabels } from './types.ts';
 
 /** How a call's wait for other calls in its step ended: they settled, or the wait cannot end. */
@@ -49,6 +50,8 @@ export interface ToolStageSupport {
   bodyEnded?: () => void;
   /** Told what an agent tool's turn has spent so far. */
   spent?: (tokens: TurnTokens) => void;
+  /** A detached agent call's steers, which its agent's own turn reads. */
+  steers?: SteerQueue;
 }
 
 function defaultToolStageSupport(ctx: ToolContext): ToolStageSupport {

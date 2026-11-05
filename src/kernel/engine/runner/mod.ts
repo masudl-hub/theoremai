@@ -37,6 +37,7 @@ import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
 import { assertBackgroundCoordinator, type ToolBackgroundSupport } from '../../tools/background.ts';
 import { cloneTurnToolSnapshot, expandT1Policy, promoteTurnTools } from '../../tools/resolve.ts';
+import type { SteerQueue } from '../../tools/steer.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
 import { keptReply, turnDoneOf } from '../../turn-events.ts';
 import type {
@@ -147,6 +148,7 @@ function runNestedTurn(args: {
   canaries: string[];
   agentDepth: number;
   compacting?: TraceCtx['compacting'];
+  steers?: SteerQueue;
 }): AsyncGenerator<TurnEvent> {
   const ctx = newTraceCtx(
     args.registry,
@@ -156,6 +158,7 @@ function runNestedTurn(args: {
   );
   ctx.agentDepth = args.agentDepth;
   if (args.compacting) ctx.compacting = args.compacting;
+  if (args.steers) ctx.steers = args.steers;
   ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
   return runTracedTurn(
     ctx,
@@ -390,6 +393,7 @@ async function* emitTurn(args: {
   trace: TurnTraceState;
   agents: AgentCaller | undefined;
   background: ToolBackgroundSupport | undefined;
+  steers: SteerQueue | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
 }): AsyncGenerator<TurnEvent> {
@@ -403,6 +407,7 @@ async function* emitTurn(args: {
     trace: args.trace,
     ...(args.agents ? { agents: args.agents } : {}),
     ...(args.background ? { background: args.background } : {}),
+    ...(args.steers ? { steers: args.steers } : {}),
   });
   args.outState.state = state;
   if (state.lateResults !== undefined) {
@@ -486,6 +491,7 @@ async function* streamTurnEvents(
     trace: ctx.trace,
     agents: ctx.agents,
     background: ctx.background,
+    steers: ctx.steers,
     outState: ctx,
   })) {
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
@@ -549,6 +555,8 @@ type TraceCtx = {
   state?: StepExecutionState;
   agents?: AgentCaller;
   background?: ToolBackgroundSupport;
+  /** Set on a detached agent call's own turn: what its host tells it while it runs. */
+  steers?: SteerQueue;
 };
 
 function newTraceCtx(

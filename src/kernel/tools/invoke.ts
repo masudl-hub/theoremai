@@ -23,6 +23,7 @@ import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { pickModel } from '../registry/resolve.ts';
 import { turnDoneOf } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
+import type { AgentCaller } from './agent.ts';
 import {
   assertBackgroundCoordinator,
   planDetach,
@@ -432,7 +433,7 @@ async function* invokeTraced(
 }
 
 /** The step a call runs in: the calls `pre_tool` sees and the wait its `waitFor` holds on. */
-type InvokeStep = Pick<ToolStageSupport, 'stepCalls' | 'wait' | 'bodyEnded' | 'spent'>;
+type InvokeStep = Pick<ToolStageSupport, 'stepCalls' | 'wait' | 'bodyEnded' | 'spent' | 'steers'>;
 
 /** One call, coordinated: replayed when its operation already ran, else executed. */
 function runCall(
@@ -449,10 +450,12 @@ function runCall(
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const operationId = request.operationId ?? crypto.randomUUID();
   const tool = registry.tools.get(request.name);
+  const agents = invokeAgentCaller(registry, request, canaries);
   const detach = planDetach({
-    tool: tool?.type === 'builtin' ? undefined : tool,
+    tool,
     input: request.input,
     support: background,
+    agents,
     base: { name: request.name, callId, operationId },
     labels: profile.labels,
   });
@@ -484,12 +487,13 @@ function runCall(
         callId,
         detach?.trace.open ?? openSpan,
         failBeforeTool,
-        canaries,
+        agents,
         beginBody,
         {
           ...step,
           ...(hooks.bodyEnded ? { bodyEnded: hooks.bodyEnded } : {}),
           ...(hooks.spent ? { spent: hooks.spent } : {}),
+          ...(hooks.steers ? { steers: hooks.steers } : {}),
         },
       ),
     (outcome) =>
@@ -513,7 +517,7 @@ async function* invokePrepared(
   callId: string,
   openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
   failBeforeTool: (end: ToolCallEnd) => void,
-  canaries: string[],
+  agents: AgentCaller,
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
   step?: InvokeStep,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
@@ -537,7 +541,7 @@ async function* invokePrepared(
   return yield* executeRegisteredTool({
     tools: registry.tools,
     beginBody,
-    agents: invokeAgentCaller(registry, request, canaries),
+    agents,
     profile,
     name: request.name,
     input: request.input,

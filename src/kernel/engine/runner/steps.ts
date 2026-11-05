@@ -60,7 +60,7 @@ import {
   refusedReport,
   restoreMedia,
 } from './refused-media.ts';
-import { applyStageInjects, recordReply } from './stages.ts';
+import { applyStageInjects, recordReply, steersToLand } from './stages.ts';
 import { modelHistory, recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import {
@@ -831,6 +831,19 @@ async function* handleModelCalls(
     const outcome = yield* applyToolSettlement(settlement, state, call);
     if (outcome === 'stop_cancelled') cancelled = true;
     if (outcome === 'gated') gated = true;
+  }
+  // why: Steers land once a step, after every call's own post_tool inject, so calls side by side never land one twice.
+  if (!cancelled && !gated && calls.length > 0) {
+    const steers = yield* steersToLand(
+      state,
+      profile,
+      'post_tool',
+      stages.injectWouldExceedMaxSteps,
+    );
+    if (steers) {
+      yield* applyStageInjects(state, 'post_tool', steers.units);
+      state.steers?.joined(steers.waiting);
+    }
   }
   if (cancelled) return false;
   if (gated) {

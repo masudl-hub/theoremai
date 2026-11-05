@@ -14,6 +14,7 @@ import type {
 } from '../types.ts';
 import { findLast } from '../util/find-last.ts';
 import { profileToolAllow } from './resolve.ts';
+import type { SteerQueue } from './steer.ts';
 import type {
   AgentToolDef,
   AgentToolInput,
@@ -38,7 +39,11 @@ interface AgentCaller {
     /** The call's `execute_tool` span; the agent's turn opens under it. */
     span?: SpanHandle;
     signal?: AbortSignal;
+    /** A detached call's steers, which only the agent's own turn reads. */
+    steers?: SteerQueue;
   }): AsyncGenerator<TurnEvent, AgentRun>;
+  /** Whether a running call of `tool` can be steered: its agent's profile allows injects. */
+  takesSteers(tool: RegisteredAgentTool): boolean;
 }
 
 /** A call that settled without a reply; the model reads `failure`. */

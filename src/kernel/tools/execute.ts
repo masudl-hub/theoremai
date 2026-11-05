@@ -1299,6 +1299,7 @@ export async function* executeRegisteredTool(
     input: args.input,
     support: args.background,
     base: { name: args.name, callId: args.callId, operationId },
+    agents: args.agents,
     labels: args.profile.labels,
   });
   return yield* coordinateTool(
@@ -1612,6 +1613,7 @@ async function* executeAgentTool(args: {
       caller: handlerCtx.profile,
       ...(span ? { span } : {}),
       ...(handlerCtx.signal ? { signal: handlerCtx.signal } : {}),
+      ...(args.stages?.steers ? { steers: args.stages.steers } : {}),
     });
     // why: A retry throws away the reply drafted so far; the drafts stop there, and the output arrives whole.
     let retried = false;

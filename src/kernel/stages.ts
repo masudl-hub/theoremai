@@ -787,8 +787,20 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
   }
 
   if (applied.inject.length === 0) return applied;
+  return { ...applied, inject: yield* sanitizeInjects(applied.inject, guardrails, span) };
+}
+
+/**
+ * `units` as the profile's guardrails let them into the conversation. What they find is reported
+ * once; a block refuses the turn.
+ */
+export function* sanitizeInjects(
+  units: readonly InjectUnit[],
+  guardrails: Profile['guardrails'],
+  span?: SpanHandle,
+): Generator<TurnEvent, InjectUnit[]> {
   const reader = boundaryReader('injected', resolveGuardrailPolicy(guardrails).detect);
-  const sanitized = applied.inject.map((unit) => ({
+  const sanitized = units.map((unit) => ({
     ...unit,
     messages: sanitizeHistory(unit.messages, reader),
   }));
@@ -799,5 +811,5 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     yield guardrailTurnEvent(event);
   }
   if (found.action === 'block') throw requestRefused('injected');
-  return { ...applied, inject: sanitized };
+  return sanitized;
 }

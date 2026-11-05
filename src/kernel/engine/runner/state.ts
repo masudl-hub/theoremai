@@ -19,6 +19,7 @@ import { isFramedToolFailure } from '../../tools/model-text.ts';
 import type { ToolOperationOutcome } from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
+import type { SteerQueue } from '../../tools/steer.ts';
 import type { MediaRefused } from '../../turn-events.ts';
 import type {
   InteractionPart,
@@ -50,6 +51,8 @@ interface StepExecutionState {
   agents?: AgentCaller;
   /** Absent where every tool runs inline: a nested turn, or no background service. */
   background?: ToolBackgroundSupport;
+  /** A detached agent call's own turn: what its host tells it while it runs. */
+  steers?: SteerQueue;
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   /** Where this turn begins in `currentHistory`: what came before is the conversation the host passed. */
@@ -235,6 +238,7 @@ function openTurnState(args: {
   allEmittedEvents?: TurnEvent[];
   agents?: AgentCaller;
   background?: ToolBackgroundSupport;
+  steers?: SteerQueue;
 }): StepExecutionState {
   const { profile, generation } = args;
   const ownTools = ownToolsOf(args.tools, profile);
@@ -258,6 +262,7 @@ function openTurnState(args: {
     ...(ownTools ? { ownTools } : {}),
     ...(args.agents ? { agents: args.agents } : {}),
     ...(args.background ? { background: args.background } : {}),
+    ...(args.steers ? { steers: args.steers } : {}),
   };
   if (profile.type === 'text') {
     if (args.request && continuesReply(args.request)) {

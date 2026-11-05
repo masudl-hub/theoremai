@@ -10,6 +10,7 @@ import { labelText } from '../../../guardrails/labels.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import { nestedTurnModel, resolveRegisteredTurnModel } from '../../provider-dispatch.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
+import { profileAllowsInject } from '../../stop.ts';
 import {
   type AgentCaller,
   type AgentRun,
@@ -17,6 +18,7 @@ import {
   agentToolOutputOf,
   splitHostInput,
 } from '../../tools/agent.ts';
+import type { SteerQueue } from '../../tools/steer.ts';
 import type { AgentCallRequest, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelBinding,
@@ -42,6 +44,7 @@ type RunNestedTurn = (args: {
   provider: TurnModel;
   parent: SpanHandle;
   agentDepth: number;
+  steers?: SteerQueue;
 }) => AsyncGenerator<TurnEvent>;
 
 /**
@@ -62,7 +65,19 @@ function createAgentCaller(args: {
   const calls = new Map<string, number>();
   const { registry, req } = args;
   return {
-    async *run({ tool, callId, input, caller, span, signal }): AsyncGenerator<TurnEvent, AgentRun> {
+    takesSteers(tool) {
+      const profile = registry.profiles.find(tool.profile);
+      return profile !== undefined && profileAllowsInject(profile);
+    },
+    async *run({
+      tool,
+      callId,
+      input,
+      caller,
+      span,
+      signal,
+      steers,
+    }): AsyncGenerator<TurnEvent, AgentRun> {
       const labels = caller.labels;
       const settled = (code: string, kind: ToolFailure['kind'], message: string): AgentRun => ({
         failure: { code, kind, message },
@@ -130,6 +145,7 @@ function createAgentCaller(args: {
           provider,
           parent: span,
           agentDepth: args.depth + 1,
+          ...(steers ? { steers } : {}),
         })) {
           events.push(event);
           yield event;

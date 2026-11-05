@@ -303,6 +303,8 @@ export type {
   ToolBackgroundCall,
   ToolBackgroundHandle,
   ToolBackgroundService,
+  ToolBackgroundSettled,
+  ToolSteerReceipt,
 } from './tools/background.ts';
 export {
   type AnsweredGate,

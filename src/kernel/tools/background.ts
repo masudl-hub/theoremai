@@ -3,6 +3,7 @@ import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
 import type { TurnEvent } from '../types.ts';
+import type { AgentCaller } from './agent.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
 import { formatToolResult } from './model-text.ts';
 import {
@@ -11,7 +12,7 @@ import {
   type ToolOperationReply,
   toolOperationReplySchema,
 } from './operation.ts';
-import type { ModelToolResult } from './types.ts';
+import type { ModelToolResult, RegisteredTool } from './types.ts';
 
 /** When the model gets its reply: at the hand-off, past a time, if it asks, or when the body ends. */
 export type ToolBackground =
@@ -46,8 +47,27 @@ export interface ToolBackgroundHandle extends ToolBackgroundCall {
    * `graceMs`, a body that ignores its signal past that time settles anyway.
    */
   stop(reason?: string, options?: { graceMs?: number }): void;
+  /**
+   * Tells the call's agent `text`, as a user message with `id`. It joins the agent's turn at the
+   * next stage that takes an inject, or never if the call settles first.
+   */
+  steer(text: string, options: { id: string }): ToolSteerReceipt;
   /** Resolves when the call has settled or been marked. */
-  done: Promise<void>;
+  done: Promise<ToolBackgroundSettled>;
+}
+
+/** Whether a steer waits for the agent's turn, or why it was refused at once. */
+export type ToolSteerReceipt =
+  | { queued: true }
+  | { queued: false; reason: 'settled' | 'stopped' | ToolSteerRefusal };
+
+/** Why a detached call takes no steers at all. */
+export type ToolSteerRefusal = 'not_agent' | 'steering_off';
+
+/** How a detached call ended, for its host. */
+export interface ToolBackgroundSettled {
+  /** Ids of steers that were queued and never landed. */
+  unreadSteers: string[];
 }
 
 /** The host's service for detached calls. Without it every tool runs inline. */
@@ -74,6 +94,8 @@ export interface ToolDetach {
   support: ToolBackgroundSupport;
   trace: DetachedToolTrace;
   reply: () => ToolOperationReply;
+  /** Why the call takes no steers; unset when its agent's turn reads them. */
+  refuseSteers?: ToolSteerRefusal;
 }
 
 const FIELD = 'background';
@@ -106,21 +128,34 @@ function detachAt(
   return background;
 }
 
+/** Why a detached call of `tool` takes no steers: only an agent whose profile allows injects does. */
+function steerRefusal(
+  tool: RegisteredTool,
+  agents: AgentCaller | undefined,
+): ToolSteerRefusal | undefined {
+  if (tool.type !== 'agent') return 'not_agent';
+  return agents?.takesSteers(tool) ? undefined : 'steering_off';
+}
+
 /** How this call detaches, or `undefined` when it runs inline. */
 export function planDetach(args: {
-  tool: { background?: ToolBackground; name: string } | undefined;
+  tool: RegisteredTool | undefined;
   input: unknown;
   support: ToolBackgroundSupport | undefined;
+  agents: AgentCaller | undefined;
   base: ToolCallBase;
   labels: Parameters<typeof labelText>[2];
 }): ToolDetach | undefined {
   const { tool, support, base, labels } = args;
-  if (!tool || !support) return undefined;
+  // why: A builtin runs at the provider, inside the model's call.
+  if (!tool || tool.type === 'builtin' || !support) return undefined;
   const at = detachAt(tool, args.input);
   if (at === undefined) return undefined;
+  const refuseSteers = steerRefusal(tool, args.agents);
   return {
     at,
     support,
+    ...(refuseSteers ? { refuseSteers } : {}),
     trace: support.openTrace(base.callId),
     reply: () => {
       const modelResult: ModelToolResult = {

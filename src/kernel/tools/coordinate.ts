@@ -3,7 +3,12 @@ import { settleable } from '../engine/runner/step-order.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import type { ToolGate } from '../turn-events.ts';
 import type { TurnEvent, TurnTokens } from '../types.ts';
-import type { ToolBackgroundCall, ToolDetach } from './background.ts';
+import type {
+  ToolBackgroundCall,
+  ToolBackgroundSettled,
+  ToolDetach,
+  ToolSteerReceipt,
+} from './background.ts';
 import { failureEvent } from './events.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
 import { formatToolFailureForModel } from './model-text.ts';
@@ -22,6 +27,7 @@ import {
   toolOperationReplySchema,
   unresolvedOperation,
 } from './operation.ts';
+import { SteerQueue } from './steer.ts';
 import type { ToolFailure } from './types.ts';
 
 class ReplayedOperation {
@@ -37,6 +43,8 @@ export interface ToolCallHooks {
   signal: AbortSignal | undefined;
   bodyEnded?: () => void;
   spent?: (tokens: TurnTokens) => void;
+  /** A detached agent call's steers, for its agent's own turn. */
+  steers?: SteerQueue;
 }
 
 export type ToolRun = (
@@ -228,16 +236,23 @@ class CoordinatedExecution {
    * Saves the reply, and only then gives the turn its answer. A failed save stops the body: the
    * model never read a reply, so the work must not go on.
    */
-  async detach(detach: ToolDetach, iterator: ToolRunIterator, pending: PendingStep) {
+  async detach(
+    detach: ToolDetach,
+    iterator: ToolRunIterator,
+    pending: PendingStep,
+    steers: SteerQueue,
+  ) {
     const { claim, coordinator, trigger } = this;
     if (!claim || !coordinator.detach || !trigger) {
       throw operationBroken('The tool detached with no claim'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     const reply = detach.reply();
-    const done = settleable<void>();
+    const done = settleable<ToolBackgroundSettled>();
     const handle = {
       ...this.call(),
       stop: (reason?: string, options?: { graceMs?: number }) => this.stop(reason, options),
+      steer: (text: string, options: { id: string }) =>
+        this.steer(detach, steers, text, options.id),
       done: done.promise,
     };
     try {
@@ -250,13 +265,27 @@ class CoordinatedExecution {
       throw error;
     }
     trigger.release();
-    this.goOn(detach, iterator, pending).finally(() => done.resolve());
+    this.goOn(detach, iterator, pending).finally(() =>
+      done.resolve({ unreadSteers: steers.close() }),
+    );
     return reply;
   }
 
   private call(): ToolBackgroundCall {
     const { operationId, callId, toolId } = this.operation;
     return { operationId, callId, toolId };
+  }
+
+  private steer(
+    detach: ToolDetach,
+    steers: SteerQueue,
+    text: string,
+    id: string,
+  ): ToolSteerReceipt {
+    if (this.committed || steers.isClosed) return { queued: false, reason: 'settled' };
+    if (this.stopped) return { queued: false, reason: 'stopped' };
+    if (detach.refuseSteers) return { queued: false, reason: detach.refuseSteers };
+    return steers.push(id, text) ? { queued: true } : { queued: false, reason: 'settled' };
   }
 
   private stop(reason: string | undefined, options: { graceMs?: number } | undefined): void {
@@ -464,6 +493,7 @@ export async function* coordinateTool(
   const trigger = detach ? new DetachTrigger(detach.at, signal) : undefined;
   const callSignal = trigger ? trigger.signal : signal;
   const execution = new CoordinatedExecution(coordinator, operation, accepted, callSignal, trigger);
+  const steers = detach ? new SteerQueue() : undefined;
   throwIfAborted(signal);
   const existing = await coordinator.lookup(operation);
   throwIfAborted(signal);
@@ -480,6 +510,7 @@ export async function* coordinateTool(
     signal: callSignal,
     spent: (tokens) => execution.spend(tokens),
     ...(trigger ? { bodyEnded: trigger.bodyEnded } : {}),
+    ...(steers && !detach?.refuseSteers ? { steers } : {}),
   });
   let handedOff = false;
   try {
@@ -487,8 +518,8 @@ export async function* coordinateTool(
     for (;;) {
       const next = await (trigger ? Promise.race([pending, trigger.fired]) : pending);
       if (next === FIRED) {
-        if (!detach) throw operationBroken('The tool detached with no plan'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        const reply = await execution.detach(detach, iterator, pending);
+        if (!detach || !steers) throw operationBroken('The tool detached with no plan'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        const reply = await execution.detach(detach, iterator, pending, steers);
         handedOff = true;
         yield reply.event;
         return { ...reply.replay };

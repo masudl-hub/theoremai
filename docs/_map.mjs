@@ -206,6 +206,7 @@ const graph = {
         'docs/proposals/background-tool-calls.md',
         'docs/proposals/honest-errors.md',
         'docs/proposals/live-slots-greeting.md',
+        'docs/proposals/steer-background-calls.md',
         'docs/proposals/turn-event-schema.md',
       ],
       owns: ['src/kernel/'],

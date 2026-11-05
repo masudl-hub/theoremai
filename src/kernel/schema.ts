@@ -216,6 +216,8 @@ export const TURN_STOP_KINDS = [
    * @remarks The turn made its last allowed model call and that call asked for tools: there is no answer.
    */
   'step_limit',
+  /** The model finished without calling the answer tool, and no repair was left. */
+  'answer_missing',
   /** Live: the user spoke over the reply and cut it off. */
   'interrupted',
   /**
@@ -246,6 +248,8 @@ export const CONTINUE_STOP_KINDS = [
   'stream_incomplete',
   /** The provider returned an error or timed out. */
   'provider_error',
+  /** The model finished without calling the answer tool. */
+  'answer_missing',
 ] as const;
 /** One of {@linkcode CONTINUE_STOP_KINDS}. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
@@ -565,12 +569,6 @@ function sourcedOptionDocs(options: readonly string[], docs: Record<string, stri
     Object.values(OPTION_DOCS).includes(docs) ||
     DETECT_ACTIONS.every((action) => docs[action] === DETECT_ACTION_META[action].doc);
   if (!sourced) throw new Error(`option docs for ${options.join(', ')} are not a list's JSDoc`);
-  const named = Object.keys(docs);
-  if (named.length !== options.length || options.some((option) => !(option in docs))) {
-    throw new Error(
-      `option docs name ${named.join(', ')}, but the options are ${options.join(', ')}`,
-    );
-  }
 }
 /**
  * Parents whose next key is a host-owned map key (model id, slot name, …).

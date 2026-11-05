@@ -807,6 +807,7 @@ export const OPTION_DOCS: Readonly<
     length: 'The reply hit the output token limit.',
     stream_incomplete: 'The connection dropped mid-reply.',
     provider_error: 'The provider returned an error or timed out.',
+    answer_missing: 'The model finished without calling the answer tool.',
   },
   DECISION_QUESTION_TYPES: {
     choice: 'One of the named options, with a confidence and a probability for each option.',
@@ -944,6 +945,7 @@ export const OPTION_DOCS: Readonly<
     stream_incomplete: 'The stream ended without the provider reporting a final status.',
     step_limit:
       'The last model call maxSteps allows asked for tools, so the turn ended with no answer.',
+    answer_missing: 'The model finished without calling the answer tool, and no repair was left.',
     interrupted: 'Live: the user spoke over the reply and cut it off.',
     generation_complete:
       'Live: the model finished generating audio or text for this utterance. The turn may still be open.',

@@ -96,8 +96,8 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'outputs.streaming.mode': { unset: 'sse', value: 'sse' },
   'outputs.streaming.streamThoughts': { unset: 'On', value: true },
   'turnBehaviour.resumption.allowContinue': {
-    unset: 'All three',
-    value: ['length', 'stream_incomplete', 'provider_error'],
+    unset: 'All four',
+    value: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'],
   },
   'turnBehaviour.resumption.autoContinue': {
     unset: 'length and stream_incomplete',

@@ -196,6 +196,7 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
     provider_error: 'Provider error',
     cancelled: 'Cancelled',
     step_limit: 'Ran out of steps',
+    answer_missing: 'No answer',
     stream_incomplete: 'Stream cut off',
     interrupted: 'Interrupted',
     generation_complete: 'Generation complete',

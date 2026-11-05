@@ -48,6 +48,7 @@ import {
   mapFound,
   mapLayout,
   mapLinkWords,
+  mapLitFamily,
   mapNoteLines,
   type SharedEntry,
   type StudioWorkspace,
@@ -214,19 +215,12 @@ function useDrag(layout: MapLayout, moved: MapPlaces, put: Put) {
   return { dragging, draggable };
 }
 
-/** The node or section under the pointer or holding focus: its lines, and what they reach, stay lit. */
+/** The node or section under the pointer or holding focus: its whole family stays lit. */
 function useLit(layout: MapLayout) {
   const [lit, setLit] = useState<string>();
   const [on, onLines] = useMemo(() => {
-    const ids = new Set<string>();
-    const lines = new Set<MapLink>();
-    if (lit === undefined) return [ids, lines];
-    ids.add(lit);
-    for (const { link, from, to } of layout.lines) {
-      if (![link.from, link.to, from, to].includes(lit)) continue;
-      lines.add(link);
-      for (const id of [link.from, link.to, from, to]) ids.add(id);
-    }
+    if (lit === undefined) return [new Set<string>(), new Set<MapLink>()];
+    const { ids, lines } = mapLitFamily(layout.lines, lit);
     return [ids, lines];
   }, [layout, lit]);
   const lights = (id: string) => ({

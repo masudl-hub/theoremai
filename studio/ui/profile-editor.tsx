@@ -40,7 +40,6 @@ import {
   IconBan,
   IconBandage,
   IconBiohazard,
-  IconBolt,
   IconBraces,
   IconBulb,
   IconBulbOff,
@@ -3435,6 +3434,7 @@ const STOP_KIND_LABEL: Record<ContinueStopKind, string> = {
   length: 'Length',
   stream_incomplete: 'Dropped stream',
   provider_error: 'Provider error',
+  answer_missing: 'No answer',
 };
 
 /** Which stops a reply is continued after: `allow` offers a Continue, `auto` continues unasked. */
@@ -3468,8 +3468,8 @@ function resumptionSays({ allow, auto }: Resumption, kind: ContinueStopKind): st
 }
 
 /**
- * The trigger's tokens: each stop picked in either column, a bolt on the ones that continue on
- * their own, the first few shown and the rest counted, as the list rows do.
+ * The trigger's tokens: each stop picked in either column, the first few shown and the rest
+ * counted, as the list rows do. A token's hover says whether it continues on its own.
  */
 function ResumptionTokens({ allow, auto }: Resumption) {
   const maxBadges = useContext(ListBadges);
@@ -3482,7 +3482,6 @@ function ResumptionTokens({ allow, auto }: Resumption) {
           key={kind}
           size="sm"
           label={STOP_KIND_LABEL[kind]}
-          icon={auto.includes(kind) ? <Icon icon={IconBolt} size="sm" /> : undefined}
           description={resumptionSays({ allow, auto }, kind)}
         />
       ))}

@@ -26,6 +26,7 @@ import {
   IconArrowLeft,
   IconBrowserShare,
   IconCheck,
+  IconClipboardText,
   IconCloud,
   IconCode,
   IconCopy,
@@ -41,7 +42,6 @@ import {
   IconRotateClockwise,
   IconSearch,
   IconSitemap,
-  IconSparkles,
   IconTool,
   IconX,
 } from '@tabler/icons-react';
@@ -1552,7 +1552,7 @@ function ExportMenu({
           description: oneLine(
             'Every file with a brief: what to install, where each goes, what to ask you.',
           ),
-          icon: <Icon icon={IconSparkles} size="sm" />,
+          icon: <Icon icon={IconClipboardText} size="sm" />,
           onClick: () => {
             if (compiled && chatted) {
               withExporter((kit) => {
@@ -2913,7 +2913,10 @@ function ReplayExchangeButton({
   );
 }
 
-/** The preview's header: back to the editor, the agent to chat with, history, trace, and Export. */
+/**
+ * The preview's header: back to the editor, the agent to chat with, history, trace, and Export;
+ * while the guardrail test is open, Close.
+ */
 function PreviewHeader({
   store,
   chatAgents,
@@ -2943,6 +2946,7 @@ function PreviewHeader({
 }) {
   const { ref, below: iconsOnly } = useBelowDesktop();
   const { compiled } = compile;
+  const test = useContext(GuardrailTest);
   return (
     <Section ref={ref} variant="transparent" paddingInline={3} paddingBlock={0}>
       <HStack gap={2} vAlign="center">
@@ -2977,6 +2981,16 @@ function PreviewHeader({
                 localBaseUrl: connection.local.baseUrl,
               }}
             />
+            {testing && test && (
+              <IconButton
+                label="Close guardrail test"
+                variant="ghost"
+                size="sm"
+                icon={<Icon icon={IconX} size="sm" />}
+                tooltip="Close the guardrail test"
+                onClick={test.toggle}
+              />
+            )}
           </HStack>
         </StackItem>
       </HStack>
@@ -3485,19 +3499,27 @@ function Studio({ opened }: { opened: StudioOpened }) {
     setMapOpen(false);
   }, [setMapOpen]);
   const [testing, setTesting] = useState(false);
+  const { mapOpen, settingsOpen } = view;
+  useEffect(() => {
+    if (mapOpen || settingsOpen) setTesting(false);
+  }, [mapOpen, settingsOpen]);
   const guardrailTest = useMemo(
     () =>
       compile.payload
         ? {
             open: testing,
             toggle: () => {
-              // why: On a phone the test shows in the preview sheet, so opening it goes there.
-              if (!testing) setSheet('preview');
+              if (!testing) {
+                // why: On a phone the test shows in the preview sheet, so opening it goes there.
+                setSheet('preview');
+                setMapOpen(false);
+                if (settingsOpen) closeSettings();
+              }
               setTesting(!testing);
             },
           }
         : null,
-    [compile.payload, testing, setSheet],
+    [compile.payload, testing, setSheet, setMapOpen, settingsOpen],
   );
 
   return (

@@ -269,11 +269,13 @@ Deno.test('resumption lists name only continue stop kinds', () => {
   for (const path of ['allowContinue', 'autoContinue']) {
     check(
       said(resumption({ [path]: ['length', 'nope'] })),
-      `Profile p: turnBehaviour.resumption.${path} may only include ContinueStopKind (length | stream_incomplete | provider_error); got 'nope'`,
+      `Profile p: turnBehaviour.resumption.${path} may only include ContinueStopKind (length | stream_incomplete | provider_error | answer_missing); got 'nope'`,
       path,
     );
     check(
-      said(resumption({ [path]: ['length', 'stream_incomplete', 'provider_error'] })),
+      said(
+        resumption({ [path]: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'] }),
+      ),
       'defined',
       `${path} ok`,
     );

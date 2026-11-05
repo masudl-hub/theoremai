@@ -335,6 +335,36 @@ export function mapFamily(map: WorkspaceMap, id: string | readonly string[]): Wo
   return { columns, links: map.links.filter((link) => kept.has(link)) };
 }
 
+/**
+ * What lights with `id`, a node or a section's row: the links on its family's paths, everything that
+ * feeds it and everything it feeds however many links away, and the nodes and rows they join. A row's
+ * family starts at its own links, not at every link of its node.
+ */
+export function mapLitFamily<End extends { link: MapLink; from: string; to: string }>(
+  ends: readonly End[],
+  id: string,
+): { ids: Set<string>; lines: Set<MapLink> } {
+  const ids = new Set([id]);
+  const lines = new Set<MapLink>();
+  const walk = (near: 'from' | 'to', far: 'from' | 'to') => {
+    const seen = new Set<string>();
+    const queue = [id];
+    for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+      for (const end of ends) {
+        if (end[near] !== next && end.link[near] !== next) continue;
+        lines.add(end.link);
+        ids.add(end.link.from).add(end.link.to).add(end.from).add(end.to);
+        if (seen.has(end[far])) continue;
+        seen.add(end[far]);
+        queue.push(end[far]);
+      }
+    }
+  };
+  walk('to', 'from');
+  walk('from', 'to');
+  return { ids, lines };
+}
+
 /** A link in words from each end: `[from's side, to's side]`, each before the other node's label. */
 const LINK_WORDS = {
   serves: ['Serves', 'Served by'],

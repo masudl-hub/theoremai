@@ -181,6 +181,7 @@ export const LABEL_KEYS = [
   'stop.provider_error',
   'stop.stream_incomplete',
   'stop.step_limit',
+  'stop.answer_missing',
   'composer.model',
   'composer.effort',
   'tool.awaiting_user',
@@ -302,6 +303,7 @@ export const CLIENT_LABEL_KEYS = [
   'stop.provider_error',
   'stop.stream_incomplete',
   'stop.step_limit',
+  'stop.answer_missing',
   'composer.model',
   'composer.effort',
 ] as const satisfies readonly LabelKey[];
@@ -597,6 +599,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'stop.provider_error': 'the model stopped with an error',
   'stop.stream_incomplete': 'the connection dropped before the reply finished',
   'stop.step_limit': 'stopped at the step limit, before an answer',
+  'stop.answer_missing': 'the model finished without giving its answer',
   'composer.model': 'Model',
   'composer.effort': 'Effort',
   'tool.awaiting_user': 'Awaiting user input ({kind}): {prompt}',
@@ -924,6 +927,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'stop.provider_error': 'Status on a reply the provider ended with an error and no error message.',
   'stop.stream_incomplete': 'Status on a reply whose stream ended before the model finished.',
   'stop.step_limit': 'Status on a turn that made its last allowed model call and got no answer.',
+  'stop.answer_missing':
+    'Status on a turn whose model finished without calling the answer tool, with no repair left.',
   'composer.model': 'Title of the model picker beside the composer.',
   'composer.effort': 'Title of the effort picker beside the composer.',
   'tool.awaiting_user':

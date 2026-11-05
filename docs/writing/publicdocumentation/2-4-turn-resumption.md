@@ -20,7 +20,7 @@ export const logisticsDesk = defineProfile({
 
   turnBehaviour: {
     resumption: {
-      allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+      allowContinue: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'],
       autoContinue: ['stream_incomplete'], // Auto-retry dropped streams without prompting
       maxContinues: 3,
     },
@@ -40,11 +40,12 @@ export const logisticsDesk = defineProfile({
 
 ## Continuing Incomplete Replies
 
-Completions can halt prematurely when reaching output token budgets or when network streams drop. Theorem standardizes continuation across three stop reasons (`ContinueStopKind`):
+Completions can halt prematurely when reaching output token budgets or when network streams drop. Theorem standardizes continuation across four stop reasons (`ContinueStopKind`):
 
 * **`'length'`**: The model reached its `maxOutputTokens` limit mid-completion.
 * **`'stream_incomplete'`**: The transport connection dropped before the provider sent final tokens.
 * **`'provider_error'`**: The provider returned a transient gateway error or timeout.
+* **`'answer_missing'`**: The model finished without calling the answer tool, and no repair was left. The turn's `bad_response` error comes first. The provider answered, so this stop does not blame it, and `autoContinue` must list `answer_missing` itself to continue it.
 
 ### Manual vs. Automated Continuations
 
@@ -118,6 +119,7 @@ Every turn emits a terminal `done` event containing a `stop: TurnStop` object. T
 | **`'length'`** | Resumeable | Output hit the model's `maxOutputTokens` budget. | `runTurn({ continueFrom })` |
 | **`'stream_incomplete'`** | Resumeable | Connection dropped before the provider sent final tokens. | `runTurn({ continueFrom })` or `autoContinue` |
 | **`'provider_error'`** | Resumeable | Provider returned a transient error or gateway timeout. | `runTurn({ continueFrom })` or `autoContinue` |
+| **`'answer_missing'`** | Resumeable | The model finished without calling the answer tool, and no repair was left. | `runTurn({ continueFrom })` or `autoContinue` |
 | **`'tool'`** | Tool Hold | Model requested tool calls returned in `done.tools`. | `invokeTool({ snapshot })` |
 | **`'gate'`** | Tool Hold | Tool execution was held pending human approval. | `invokeTool({ snapshot, resume })` |
 | **`'step_limit'`** | Budget | Tool loop exhausted `profile.maxSteps` with no answer. | None (prevent via `atStepLimit: 'answer'`) |

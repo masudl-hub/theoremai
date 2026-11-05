@@ -1315,7 +1315,7 @@ On a turn that answers by tool:
 - The answer tool's call is not a tool call to the host. Its drafts go out as `structured_draft`, read at `reply_structured`. Its input is the `structured` event.
 - The call ends the turn. Other calls in the same step do not run.
 - The step that `turnBehaviour.atStepLimit: 'answer'` leaves without tools still has the answer tool.
-- A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `provider_error`.
+- A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `answer_missing`. The provider answered, so the stop does not blame it.
 - A call the output limit cuts off is repaired as below. The repair carries the call's input as the model wrote it.
 - The tool's description is the label `structured.answer_tool`.
 - A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
@@ -1329,7 +1329,7 @@ A text or structured turn repairs a call cut at `length` only when the profile's
 | Another tool's call: its input as the model wrote it | `repair.call_cut_off` | `repair.call_cut_off_guidance` |
 | Nothing: the model reached the limit before it wrote a reply or a call | `repair.nothing_written` | `repair.nothing_written_guidance` |
 
-The repair is an `attempt` event, so the host drops the cut text it already has. Tools that ran earlier in the turn do not run again; their results stay in what the retry reads. Cut off again with no repair left, a text reply keeps its text and the turn stops at `length`, so the host can offer Continue. Every other cut fails the turn with a `bad_response` error and the stop `provider_error`.
+The repair is an `attempt` event, so the host drops the cut text it already has. Tools that ran earlier in the turn do not run again; their results stay in what the retry reads. Cut off again with no repair left, a text reply keeps its text and the turn stops at `length`, so the host can offer Continue. Every other cut fails the turn with a `bad_response` error and the stop `provider_error`. A response-format reply over `geminiInteractions` is not repaired yet: the protocol reads the cut text as JSON, so the turn fails at once with a `bad_response` error and the stop `provider_error`.
 
 On a turn that answers by response format, a reply that ended but is not valid JSON is repaired like any other reply that fails validation, while `outputs.validation.maxRetries` has a retry left. The repair carries the reply's text and the rejection `structured.not_json`. With no retry left, the turn ends with the `bad_response` error and the stop `provider_error`.
 
@@ -1714,6 +1714,7 @@ re-exports the type and owns only the resume policy below.
 | `cancelled` | User / host abort |
 | `stream_incomplete` | Stream ended without terminal reason |
 | `step_limit` | The last model call `maxSteps` allows asked for tools: they ran, and the turn has no answer. `turnBehaviour.atStepLimit: 'answer'` (`StepLimitMode`) sends that call without tools instead |
+| `answer_missing` | The model finished without calling the answer tool, and no repair was left. The turn's `bad_response` error comes first. The turn's trace marks it as failed, but it is not a failed model call, so the turn does not send the call again |
 | `interrupted` | Live barge-in |
 | `generation_complete` | Live utterance boundary |
 
@@ -1723,14 +1724,14 @@ Mappers: `turnStopFromOpenAiFinishReason`, `turnStopFromInteractionStatus`,
 ### Resume policy
 
 `allowContinue` / `autoContinue` accept only `ContinueStopKind`
-(`CONTINUE_STOP_KINDS`: `length` | `stream_incomplete` | `provider_error`).
+(`CONTINUE_STOP_KINDS`: `length` | `stream_incomplete` | `provider_error` | `answer_missing`).
 `tool` uses host `invokeTool` + `resume`. `cancelled` / `completed` / `filtered` /
 live boundaries are not continueFrom-eligible — `defineProfile` rejects them.
 
 ```ts
 turnBehaviour: {
   resumption: {
-    allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+    allowContinue: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'],
     autoContinue: ['length', 'stream_incomplete'],
   },
   // text only — omit on image/speech
@@ -1776,7 +1777,7 @@ carries the turn's public error text after the `tool.agent_failed` line.
 
 | Constant / helper | Value / role |
 | --- | --- |
-| `CONTINUE_STOP_KINDS` | length, stream_incomplete, provider_error |
+| `CONTINUE_STOP_KINDS` | length, stream_incomplete, provider_error, answer_missing |
 | `DEFAULT_ALLOW_CONTINUE` | = `CONTINUE_STOP_KINDS` |
 | `DEFAULT_AUTO_CONTINUE` | length, stream_incomplete |
 | `AUTO_CONTINUE_DELAY_MS` | `1500` — the pause before a text turn sends a failed model call again, and the suggested pause before a host's auto-continue |

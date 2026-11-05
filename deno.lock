@@ -20,6 +20,8 @@
     "npm:@stryker-mutator/core@10": "10.0.0_@types+node@22.20.5",
     "npm:@types/node@^22.20.5": "22.20.5",
     "npm:fallow@3.17.0": "3.17.0",
+    "npm:hyparquet-compressors@1.1.2": "1.1.2",
+    "npm:hyparquet@1.31.2": "1.31.2",
     "npm:intl-messageformat@^11.2.9": "11.2.15",
     "npm:refa@0.12.1": "0.12.1",
     "npm:scslre@0.3.0": "0.3.0",
@@ -1119,6 +1121,9 @@
     "function-bind@1.1.2": {
       "integrity": "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA=="
     },
+    "fzstd@0.1.1": {
+      "integrity": "sha512-dkuVSOKKwh3eas5VkJy1AW1vFpet8TA/fGmVA5krThl8YcOVE/8ZIoEA1+U1vEn5ckxxhLirSdY837azmbaNHA=="
+    },
     "gensync@1.0.0-beta.2": {
       "integrity": "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg=="
     },
@@ -1165,6 +1170,19 @@
     },
     "human-signals@8.0.1": {
       "integrity": "sha512-eKCa6bwnJhvxj14kZk5NCPc6Hb6BdsU9DZcOnmQKSnO1VKrfV0zCvtttPZUsBvjmNDn8rpcJfpwSYnHBjc95MQ=="
+    },
+    "hyparquet-compressors@1.1.2": {
+      "integrity": "sha512-0Hx6w0ZpVpNCefKy5xBYLTp6rKeZn/tsUzuliNzfKqSCdLcTQSfwATEoeedS703Y17k1qNS61HwRME5aOeNkPg==",
+      "dependencies": [
+        "fzstd",
+        "hysnappy"
+      ]
+    },
+    "hyparquet@1.31.2": {
+      "integrity": "sha512-dpVTCGkPPIdfDExa7YZGaJpuBTmLFDKGeZ6meHUj1mz/Q3qmaQHGLLqCyPBkQjfxrYNb08YTax682qeGO+zkVA=="
+    },
+    "hysnappy@1.1.1": {
+      "integrity": "sha512-/V9XcN2NtRyWjR4LYMfvnvasVVF8jbT/ej0eofBQjZel91E3D813FQ3mQC6gDSMMTCq/FJh28XHeyqr3I/oBRw=="
     },
     "iconv-lite@0.7.3": {
       "integrity": "sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==",

@@ -508,6 +508,8 @@ session_memory_in_kernel = false
 
 **Facts and policy.** Provider wire shapes and protocol metadata may ship in `@theoremjs/agents/providers`. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
 
+**Peer.** The package has one peer dependency: `zod` 4.6.6 or later. Your application installs it, and the package builds its schemas with that copy.
+
 Four properties are invariant. Where a test or a lint checks one, the table names it.
 
 | Id | Property | Check |

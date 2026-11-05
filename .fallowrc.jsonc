@@ -120,7 +120,6 @@
     "maxCognitive": 34,
     "maxCrap": 57,
     "maxUnitSize": 140,
-    "coverage": "coverage/coverage-final.json",
     "thresholdOverrides": [
       {
         "files": ["studio/ui/code/studio-code.tsx"],

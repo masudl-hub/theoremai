@@ -41,7 +41,7 @@ The screen keeps the profile it edits in the browser, as a **draft**. It sends t
 npm install -D @theoremjs/studio @theoremjs/agents @theoremjs/web
 ```
 
-The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents`, and `@theoremjs/web` versions must match exactly. The command does not need React, so it installs beside any React version, or none.
+The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents`, and `@theoremjs/web` versions must match exactly. The command does not need React, so it installs beside any React version, or none. It needs `zod` 4.6.6 or later.
 
 To show the screen in your app, also install `@theoremjs/react` at the same version, and React 19 and the design packages at the versions `@theoremjs/react` lists in `peerDependencies`:
 

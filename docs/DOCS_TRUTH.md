@@ -96,7 +96,7 @@ The `web-package` entry monitors `web/src/` and `web/package.json` the same way.
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit` against the branch's upstream, or `FALLOW_AUDIT_BASE` (uses the generated coverage report when present) |
 
-`lint:fallow` runs the test suite once, in parallel, with coverage (`npm run coverage`), then `fallow:audit`: `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`) against it. `lint:fallow:deep` runs full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
+`lint:fallow` runs the test suite once, in parallel, with coverage (`npm run coverage`), then `fallow:audit`: `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`) against it. `lint:fallow:deep` runs the same coverage step, then full-tree `health` / `dupes` / `dead-code`. Each call passes `--coverage` itself, because fallow fails when a coverage path it is given does not exist. No threshold waivers.
 
 Fallow: `docs/_map.mjs` is listed under `dynamicallyLoaded` in `.fallowrc.jsonc`
 (docs-truth imports it at runtime; static analysis cannot see the edge).

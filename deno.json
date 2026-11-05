@@ -79,7 +79,7 @@
     "hyparquet-compressors": "npm:hyparquet-compressors@1.1.2",
     "refa": "npm:refa@0.12.1",
     "scslre": "npm:scslre@0.3.0",
-    "zod": "npm:zod@^4.6.5",
+    "zod": "npm:zod@^4.6.6",
     "typescript": "npm:typescript@^6.0.3",
     "@theoremjs/react/client": "./react/src/client/index.ts",
     "@theoremjs/react/server": "./react/src/server/mod.ts",

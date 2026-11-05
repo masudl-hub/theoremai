@@ -85,7 +85,7 @@ async function startStudio(): Promise<Studio> {
   Deno.writeTextFileSync(
     join(root, 'deno.json'),
     JSON.stringify({
-      imports: { '@theoremjs/agents': 'jsr:@theoremjs/agents@^0.3.0', zod: 'npm:zod@^4.6.5' },
+      imports: { '@theoremjs/agents': 'jsr:@theoremjs/agents@^0.3.0', zod: 'npm:zod@^4.6.6' },
       links: [REPO],
     }),
   );

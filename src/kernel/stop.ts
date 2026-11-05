@@ -224,7 +224,8 @@ function openAiFinishKind(finish: string, effective: string, native: string | un
       ? { kind: 'provider_error', native }
       : { kind: 'completed', native };
   }
-  if (finish === 'length') return { kind: 'length', native };
+  // probed 2026-11-04: OpenRouter ends a call the output limit cut off with `tool_calls`; only the upstream's own reason says `length`.
+  if (finish === 'length' || effective === 'length') return { kind: 'length', native };
   if (finish === 'tool_calls' || finish === 'tool-calls') return { kind: 'tool', native };
   if (finish === 'content_filter' || finish === 'content-filter') {
     return { kind: 'filtered', native };

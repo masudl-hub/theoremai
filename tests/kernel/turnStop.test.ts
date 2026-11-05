@@ -21,6 +21,7 @@ Deno.test('turnStopFromOpenAiFinishReason maps normalized reasons', () => {
   assertEquals(turnStopFromOpenAiFinishReason('error').kind, 'provider_error');
   assertEquals(turnStopFromOpenAiFinishReason('stop', 'network_error').kind, 'provider_error');
   assertEquals(turnStopFromOpenAiFinishReason('tool_calls').kind, 'tool');
+  assertEquals(turnStopFromOpenAiFinishReason('tool_calls', 'length').kind, 'length');
   assertEquals(turnStopFromOpenAiFinishReason('content_filter').kind, 'filtered');
 });
 

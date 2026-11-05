@@ -66,18 +66,19 @@ const SECTIONS = [
 
 type Section = (typeof SECTIONS)[number];
 
-/** Every TypeScript file of the repo's own source, so the walk reaches what no entry imports. */
-function sourceFiles(): string[] {
-  const listed = new Deno.Command('git', {
-    args: ['-C', ROOT, 'ls-files', '--cached', '--others', '--exclude-standard', 'src', 'studio'],
-    stdout: 'piped',
-  }).outputSync();
-  return new TextDecoder()
-    .decode(listed.stdout)
-    .split('\n')
-    .filter((file) => /\.tsx?$/.test(file) && !file.endsWith('.d.ts'))
-    .map((file) => `${ROOT}${file}`)
-    .filter(isOwnPath);
+/**
+ * Every TypeScript file of the repo's own source, so the walk reaches what no entry imports.
+ * why: read from disk, not git, because a mutation sandbox is a copy inside an ignored folder.
+ * invariant: no symlink is followed; `studio/node_modules` links back to the repo root.
+ */
+function sourceFiles(dir = ROOT, from = ['src', 'studio']): string[] {
+  return from.flatMap((name) => {
+    const path = `${dir}${name}`;
+    const entry = Deno.lstatSync(path);
+    if (entry.isFile) return /\.tsx?$/.test(path) && !path.endsWith('.d.ts') ? [path] : [];
+    if (!entry.isDirectory || name.startsWith('.') || !isOwnPath(`${path}/`)) return [];
+    return sourceFiles(`${path}/`, [...Deno.readDirSync(path)].map((each) => each.name));
+  });
 }
 
 function program(): ts.Program {

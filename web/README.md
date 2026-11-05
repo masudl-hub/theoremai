@@ -26,6 +26,7 @@ Install `@theoremjs/web` and `@theoremjs/agents` at the same version.
 Requirements:
 
 - TypeScript 5.7 or later, for the type declarations.
+- `zod` 4.6.6 or later.
 - For voice, a bundler that resolves `new URL('./worklets/mic-capture.js', import.meta.url)`. Vite does.
 
 ## Entry points

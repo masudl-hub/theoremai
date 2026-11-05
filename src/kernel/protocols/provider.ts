@@ -126,7 +126,11 @@ const providerShape = z.object({
   traceName: z.string().min(1).optional(),
 });
 
-/** Defines a provider. Nothing in it can change a request or read a reply. */
+/**
+ * Validates a provider definition and supplies its typed model helper.
+ *
+ * @remarks Defines a provider. Nothing in it can change a request or read a reply.
+ */
 export function defineProvider<C = undefined, K = undefined>(
   definition: ProviderDefinition<C, K>,
 ): Provider<C, K> {

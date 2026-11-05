@@ -11,14 +11,27 @@ type HostPattern =
   | {
       /** What a match is called in the trace. */
       name: string;
-      /** The source of a regular expression. */
+      /**
+       * The source of a regular expression. A pattern takes this or words.
+       *
+       * @remarks The source of a regular expression.
+       */
       pattern: string;
-      /** Any of `i`, `m`, `s`, and `u`. Every match is found, so `g` is implied; `y` is refused. */
+      /**
+       * Regular-expression flags, each a letter: i ignores case, m matches ^ and $ at each line, s
+       * lets . match a line break, u reads Unicode. Not g or y: every match is always found.
+       *
+       * @remarks Any of `i`, `m`, `s`, and `u`. Every match is found, so `g` is implied; `y` is
+       * refused.
+       */
       flags?: string;
     }
   | {
       /** What a match is called in the trace. */
       name: string;
+      /**
+       * Words to match whole, whatever their case. A space in one matches any run of whitespace.
+       */
       words: readonly string[];
     };
 

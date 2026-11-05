@@ -1,7 +1,8 @@
 // invariant: "Host decides, Theorem runs": the kernel ships overridable defaults, never unreplaceable copy, so every
 // emit-site takes its string from here and `scripts/docs-truth/copy-lint.mjs` fails the build on prose elsewhere.
 
-import { TheoremError } from './theorem-error.ts';
+import { OPTION_DOCS } from '../kernel/field-docs.ts';
+import { ERROR_KINDS, type ErrorKind, TheoremError } from './theorem-error.ts';
 
 /** Values that fill a label template's `{param}` placeholders. */
 export type LabelParams = Record<string, string | number>;
@@ -639,6 +640,22 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'tool.activity_failed': "Couldn't complete {tool}",
 };
 
+/** What an error kind's label note adds to the kind's doc: by default, that it takes {tool}. */
+const ERROR_NOTE_EXTRAS: Partial<Record<ErrorKind, string>> = {
+  conflict: 'HTTP 409. Takes {tool} when one step failed.',
+  not_found: 'HTTP 404. Takes {tool} when one step failed.',
+  busy: 'HTTP 503 or 529. Takes {tool} when one step failed.',
+  network: 'A tool that could not be reached shows tool.unreachable.',
+};
+
+/** Each `error.<kind>` label's note: the kind's doc, from the JSDoc on its `ERROR_KINDS` member. */
+const ERROR_LABEL_NOTES = Object.fromEntries(
+  ERROR_KINDS.map((kind) => [
+    `error.${kind}`,
+    `Shown to the user for this failure: ${OPTION_DOCS.ERROR_KINDS[kind]} ${ERROR_NOTE_EXTRAS[kind] ?? 'Takes {tool} when one step failed.'}`,
+  ]),
+) as Record<`error.${ErrorKind}`, string>;
+
 /**
  * What each key is: when the kernel uses it, who reads it, and the placeholders it takes. For the
  * builders who replace the wording; the field catalog reads it for `labels.<key>`.
@@ -754,46 +771,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
   'quota.busy':
     'Shown to the user who sends a message while their last one is still being answered (`quotaBusy`).',
-  'error.config':
-    "Shown to the user when the turn fails because the agent's profile, a tool, or a schema is set up wrong. Takes {tool} when one step failed.",
-  'error.request':
-    'Shown to the user when the turn fails because the host called Theorem wrongly. Takes {tool} when one step failed.',
-  'error.conflict':
-    'Shown to the user when the call conflicts with something still in progress, such as a step that is not settled (HTTP 409). Takes {tool} when one step failed.',
-  'error.not_found':
-    'Shown to the user when something the call names is not there, such as a conversation that is no longer kept (HTTP 404). Takes {tool} when one step failed.',
-  'error.input':
-    'Shown to the user when they sent something the agent does not accept. Takes {tool} when one step failed.',
-  'error.action':
-    'Shown to the user when they asked for something the agent does not allow. Takes {tool} when one step failed.',
-  'error.auth':
-    'Shown to the user when a model key is missing or rejected, or its account cannot be billed. Takes {tool} when one step failed.',
-  'error.rate_limit':
-    'Shown to the user when the model provider reports too many requests, or a quota is used up. Takes {tool} when one step failed.',
-  'error.busy':
-    'Shown to the user when the model provider is up but too busy for the call (HTTP 503 or 529). Takes {tool} when one step failed.',
-  'error.unsupported':
-    'Shown to the user when the model or its route cannot serve the request. Takes {tool} when one step failed.',
-  'error.unavailable':
-    'Shown to the user when the model provider is down. Takes {tool} when one step failed.',
-  'error.bad_response':
-    'Shown to the user when the model provider answers with something that cannot be used. Takes {tool} when one step failed.',
-  'error.network':
-    'Shown to the user when the request never reached the model provider. A tool that could not be reached shows tool.unreachable.',
-  'error.timeout':
-    'Shown to the user when the model takes longer than the host allows. Takes {tool} when one step failed.',
-  'error.safety':
-    'Shown to the user when Theorem or the model provider holds the reply back. Takes {tool} when one step failed.',
-  'error.blocked':
-    "Shown to the user when a guardrail or host policy stops one of the agent's steps. Takes {tool} when one step failed.",
-  'error.declined':
-    "Shown to the user after they decline one of the agent's steps. Takes {tool} when one step failed.",
-  'error.failed':
-    "Shown to the user when one of the agent's steps runs and fails. Takes {tool} when one step failed.",
-  'error.cancelled':
-    'Shown to the user when they or the host stop the turn. Takes {tool} when one step failed.',
-  'error.internal':
-    'Shown to the user when something inside Theorem breaks. Takes {tool} when one step failed.',
+  ...ERROR_LABEL_NOTES,
   'repair.default_guidance':
     "Sent to the model when a validator rejects its output and the host gives no guidance of its own; also the Repair guidance setting's default.",
   'repair.items_guidance':
@@ -1154,7 +1132,11 @@ export function validateLabelOverrides(entries: LabelOverrides, owner: string): 
   }
 }
 
-/** Process-wide; a profile's own `labels` wins over these. */
+/**
+ * Replaces status lines for every profile in the process; a profile's own labels wins.
+ *
+ * @remarks Process-wide; a profile's own `labels` wins over these.
+ */
 export function overrideLabels(entries: LabelOverrides): void {
   validateLabelOverrides(entries, 'overrideLabels');
   for (const [key, template] of Object.entries(entries)) {
@@ -1162,7 +1144,11 @@ export function overrideLabels(entries: LabelOverrides): void {
   }
 }
 
-/** Remove every label override. */
+/**
+ * Removes every replacement that overrideLabels made.
+ *
+ * @remarks Remove every label override.
+ */
 export function resetLabels(): void {
   overrides.clear();
 }

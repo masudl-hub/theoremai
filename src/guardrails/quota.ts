@@ -51,8 +51,10 @@ function clientIp(peer: string, req: Request): string {
 }
 
 /**
- * Reserves one profile-and-client daily quota slot. The reservation stays busy
- * until `releaseSlot` is called, preventing concurrent turns from overspending.
+ * Takes a client's turn slot on a profile; it answers ok, busy, quota, or not_configured.
+ *
+ * @remarks Reserves one profile-and-client daily quota slot. The reservation stays busy until
+ * `releaseSlot` is called, preventing concurrent turns from overspending.
  */
 function takeSlot(profile: Profile, ip: string, now: number): QuotaSlotStatus {
   const quota = resolveGuardrailPolicy(profile.guardrails).quota;
@@ -77,7 +79,11 @@ function takeSlot(profile: Profile, ip: string, now: number): QuotaSlotStatus {
   return 'ok';
 }
 
-/** Releases an active quota reservation without decrementing its daily count. */
+/**
+ * Frees the turn slot that takeSlot gave.
+ *
+ * @remarks Releases an active quota reservation without decrementing its daily count.
+ */
 function releaseSlot(profile: Profile, ip: string): void {
   const slot = slots.get(slotKey(profile.id, ip));
   if (slot) {

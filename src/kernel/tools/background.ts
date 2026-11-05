@@ -14,7 +14,17 @@ import {
 import type { ModelToolResult } from './types.ts';
 
 /** When the model gets its reply: at the hand-off, past a time, if it asks, or when the body ends. */
-export type ToolBackground = 'always' | { afterMs: number } | 'ask' | 'never';
+export type ToolBackground =
+  | 'always'
+  | {
+      /**
+       * Milliseconds the body runs before the model gets its reply. A body that ends sooner answers
+       * in the turn.
+       */
+      afterMs: number;
+    }
+  | 'ask'
+  | 'never';
 
 const toolBackgroundSchema: z.ZodType<ToolBackground> = z.union([
   z.enum(['always', 'ask', 'never']),

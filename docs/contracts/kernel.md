@@ -90,6 +90,25 @@ derived from those arrays. `TURN_STAGES` / `TOOL_GATE_KINDS` /
 `abandoned`, or `expired` (the host let a sign-in link run out). `EXTRA_FIELDS`
 documents tool fields such as `auth.service`, the service a person signs in to. `REQUEST_FIELDS` documents every field of a `runTurn` request, and `API_EXPORTS` documents the exports a builder calls by name. `PROFILE_FIELDS` / `fieldMeta` document every authoring
 path so host UIs and docs hover the live kernel types instead of copying them.
+A field's text is the JSDoc description on the type that declares it, and an export's text is
+the JSDoc on its function or class (the first signature of an overloaded function).
+`deno task field-docs` walks every catalog row through its type and writes those texts to
+`FIELD_DOCS` and `EXPORT_DOCS`; the catalogs read them from there. A `@catalog <path> <text>`
+tag on a declaration claims a path: for a map's entries (`models.*`), on the map's property, or
+for a studio field whose name differs from its path. With no text, the description is used.
+Only the detector and boundary rows of `guardrails.detect` take their text from elsewhere:
+`DETECTOR_META` and `BOUNDARY_META`. The tests fail when the generated file is stale, when a row
+has no text from one of those sources, or when a `@catalog` tag names a path no catalog has.
+`PROFILE_FIELDS` and `EXTRA_FIELDS` fail to load when a field has its text in both places.
+A `registerTool` row walks both `ToolDefinitionInput` and `RegisteredTool`, and a path that both
+declare must have one text. An option's text is the JSDoc on its value in the `as const` list
+that names it, for example a value of `TURN_STOP_KINDS`. The generator writes these texts to
+`OPTION_DOCS`, keyed by list and then by value. A list that documents only some of its values
+is an error. A row's `optionDescriptions` must be an `OPTION_DOCS` entry or the texts of
+`DETECT_ACTION_META`, or the field fails to load. The trace catalog's stop, error, permission
+and compaction options, the trace's provider names (from each provider's `description`) and the
+`error.*` label notes read the same texts. The generator walks every file in `src/` and
+`studio/`, and it fails on any table that gives a documented list's values a `doc` of its own.
 Which profile types may set each path is owned by `PROFILE_FIELD_SCOPE`
 (`src/kernel/profile-scope.ts`): every field's `FieldMeta` carries its
 `profileTypes` and `profileTypesReason`, and `defineProfile` rejects a field set

@@ -1695,13 +1695,17 @@ rather than its content policy — leaving it at defaults is the safe choice.
 if (skipQuota(peer, req)) return runTurn(...);
 const ip = clientIp(peer, req);
 const status = takeSlot(profile, ip, Date.now());
-// 'ok' | 'busy' | 'quota' | 'not_configured'
+if (status === 'busy') throw quotaBusy(profile);
+if (status === 'quota') throw quotaExhausted(profile);
 try {
   await runTurn(...);
 } finally {
-  releaseSlot(profile, ip);
+  if (status === 'ok') releaseSlot(profile, ip);
 }
 ```
+
+Call `releaseSlot` only after `ok`. A `busy` answer means the client's earlier turn
+holds the slot, and releasing it there frees that turn's slot while it still runs.
 
 `clientIp` uses `cf-connecting-ip` only when the peer is loopback (`127.0.0.1`,
 `::1`, `localhost`), else the peer, else `'unknown'`. `skipQuota` is true for a

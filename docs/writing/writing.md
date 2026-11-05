@@ -92,7 +92,7 @@ Before you write, list the 5 to 10 nouns the doc rests on. Give each one name an
 
 ## Field descriptions
 
-A description of a setting (a `PROFILE_FIELDS` entry or a protocol option) is read on hover, by someone deciding what to set. It has one or two sentences, in this order:
+A description of a setting (a `PROFILE_FIELDS` entry or a protocol option) is read on hover, by someone deciding what to set. Write a catalog field's description as the JSDoc description on the type that declares it, and a map's entries as a `@catalog <path> <text>` tag on the map's property. Put notes for developers under `@remarks`. It has one or two sentences, in this order:
 
 1. What the setting changes, in the user's terms. Do not repeat the name.
 2. What the choice costs or gains, or when to change it.

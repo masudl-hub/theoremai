@@ -168,7 +168,7 @@ for await (const event of runTurn(request, provider)) {
 
 | API | Role |
 | --- | --- |
-| `registerTraceDestination(id, sink)` | Register a `TraceSink` under a non-empty id; anything without a `write` function throws `config` |
+| `registerTraceDestination(id, sink)` | Register a `TraceSink` under a non-empty id, which a profile names in `observability.writeTo`; anything without a `write` function throws `config` |
 | `getTraceDestination` / `requireTraceDestination` | Lookup (throws `TheoremError` if unregistered) |
 | `listTraceDestinationIds` / `clearTraceDestinations` | Introspection / tests |
 

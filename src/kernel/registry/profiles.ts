@@ -81,16 +81,45 @@ import { soleModelId } from './sole-model.ts';
 
 /** Not shared by host profiles, which invoke tools without a model turn. */
 export type ProfileDefinitionBase = {
+  /**
+   * The name this profile is registered and looked up by, at most 64 characters; registering the
+   * same id again replaces it.
+   */
   id: Profile['id'];
+  /** The agent's display name and the system instruction it is given. */
   identity: ProfileIdentity;
+  /**
+   * The trained AI systems that turn input into results. Each entry binds a local name to an
+   * upstream model and its call settings.
+   *
+   * @catalog models.* One model: how to reach it and the settings sent with it.
+   */
   models: Record<ModelId, ModelBinding>;
+  /** Who holds the conversation a saved provider state continues. */
   providerContinuation?: import('../checkpoint.ts').ProviderContinuationPolicy;
+  /** The model a turn gets when it doesn't pick one. */
   defaultModel?: ModelId;
+  /** Lets a turn name the model it runs on; a name the profile does not declare is refused. */
   allowModelSelect?: boolean;
+  /**
+   * The most model calls one turn may make while using tools, counted afresh for each rewrite; 1
+   * runs the tools asked for but never sends their results back. Live sessions ignore it.
+   */
   maxSteps?: number;
+  /** The shape of the reply, how it is checked, and how it streams. */
   outputs?: ProfileOutputsSpec;
+  /**
+   * Theorem checks what enters or leaves an agent’s context and generation against built-in or
+   * custom rules at each configured boundary.
+   */
   guardrails?: ProfileGuardrailsSpec;
+  /** Where this profile's traces go and what they keep. */
   observability?: ProfileObservabilitySpec;
+  /**
+   * This profile's own wording for error lines, notices, and notes to the model, by labels key.
+   *
+   * @catalog labels.* The wording for this labels key; canary.bind_note must keep its {canary} placeholder.
+   */
   labels?: LabelOverrides;
 };
 
@@ -99,33 +128,78 @@ export type EmbeddingProfileDefinition = Omit<
   ProfileDefinitionBase,
   'identity' | 'outputs' | 'maxSteps'
 > & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'embedding';
+  /** The agent's display name and the system instruction it is given. */
   identity: Pick<ProfileIdentity, 'handle'>;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: EmbeddingProfile['inputs'];
 };
 
 /** What a host writes to define a text profile. */
 export type TextProfileDefinition = ProfileDefinitionBase & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'text';
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: ProfileToolsSpec;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: ProfileInputsSpec;
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   */
   turnBehaviour?: ProfileTurnBehaviourSpec;
 };
 
 /** What a host writes to define an image profile. */
 export type ImageProfileDefinition = ProfileDefinitionBase & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'image';
+  /**
+   * How the images this profile generates are shaped and made: size, format, quality and
+   * references. Each setting is sent only where the provider has it; one it lacks is refused or
+   * ignored, as that setting says.
+   */
   image: NonNullable<ImageProfile['image']>;
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: ProfileToolsSpec;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: ImageInputsSpec;
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   */
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
 /** What a host writes to define a speech profile. */
 export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity'> & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'speech';
+  /** The agent's display name and the system instruction it is given. */
   identity: SpeechProfile['identity'];
+  /**
+   * How the profile's speech sounds and is delivered: voice, style, speed and audio format. A turn
+   * may replace voice, style and speed for that turn.
+   */
   speech: NonNullable<SpeechProfile['speech']>;
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   */
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
@@ -134,43 +208,116 @@ export type TranscriptionProfileDefinition = Omit<
   ProfileDefinitionBase,
   'identity' | 'outputs' | 'maxSteps'
 > & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'transcription';
+  /** The agent's display name and the system instruction it is given. */
   identity: TranscriptionProfile['identity'];
-  inputs: TranscriptionInputsSpec & { text?: false };
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
+  inputs: TranscriptionInputsSpec & {
+    /** Whether a turn may send text. */ text?: false;
+  };
 };
 
 /** What a host writes to define a live profile. */
 export type LiveProfileDefinition = Omit<ProfileDefinitionBase, 'maxSteps'> & {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'live';
+  /**
+   * How a realtime voice and video session runs: what it accepts from the user, the voice it
+   * answers in, when it hears the user start and stop, and how it resumes and trims its context.
+   */
   live: NonNullable<LiveProfile['live']>;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs?: LiveProfile['inputs'];
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: LiveProfileToolsSpec;
-  /** Inject gate only — resumption is `live.sessionResumption`. */
+  /**
+   * Whether a reply that stopped early can be continued, and whether a running turn can be steered.
+   *
+   * @remarks Inject gate only — resumption is `live.sessionResumption`.
+   */
   turnBehaviour?: Pick<ProfileTurnBehaviourSpec, 'allowSteering'>;
 };
 
 /** What a host writes to define a decision profile. */
 export type DecisionProfileDefinition = {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'decision';
+  /**
+   * The name this profile is registered and looked up by, at most 64 characters; registering the
+   * same id again replaces it.
+   */
   id: Profile['id'];
+  /** The agent's display name and the system instruction it is given. */
   identity: Pick<ProfileIdentity, 'handle'>;
-  /** Exactly one model. */
+  /**
+   * The trained AI systems that turn input into results. Each entry binds a local name to an
+   * upstream model and its call settings.
+   *
+   * @remarks Exactly one model.
+   * @catalog models.* One model: how to reach it and the settings sent with it.
+   */
   models: Record<ModelId, DecisionModelBinding>;
+  /** What a turn may send (text, files, voice, choices), or on a decision, the state it reads. */
   inputs: DecisionProfile['inputs'];
+  /** Names the host decision this profile makes. */
   decision: DecisionProfile['decision'];
+  /**
+   * Theorem checks what enters or leaves an agent’s context and generation against built-in or
+   * custom rules at each configured boundary.
+   */
   guardrails?: DecisionGuardrailsSpec;
+  /** Where this profile's traces go and what they keep. */
   observability?: ProfileObservabilitySpec;
+  /**
+   * This profile's own wording for error lines, notices, and notes to the model, by labels key.
+   *
+   * @catalog labels.* The wording for this labels key; canary.bind_note must keep its {canary} placeholder.
+   */
   labels?: LabelOverrides;
 };
 
 /** What a host writes to define a host profile, which runs tools and no model. */
 export type HostProfileDefinition = {
+  /**
+   * What kind of agent this is, and so what each call gives back: text, image, speech,
+   * transcription, live, decision, embedding, or host.
+   */
   type: 'host';
+  /**
+   * The name this profile is registered and looked up by, at most 64 characters; registering the
+   * same id again replaces it.
+   */
   id: Profile['id'];
+  /**
+   * The registered tools this profile may use, and how they load. Built-in tools are set per model.
+   */
   tools: HostProfileToolsSpec;
-  /** Only the guards that fire on the `invokeTool` path. */
+  /**
+   * Theorem checks what enters or leaves an agent’s context and generation against built-in or
+   * custom rules at each configured boundary.
+   *
+   * @remarks Only the guards that fire on the `invokeTool` path.
+   */
   guardrails?: HostGuardrailsSpec;
+  /** Where this profile's traces go and what they keep. */
   observability?: ProfileObservabilitySpec;
+  /**
+   * This profile's own wording for error lines, notices, and notes to the model, by labels key.
+   *
+   * @catalog labels.* The wording for this labels key; canary.bind_note must keep its {canary} placeholder.
+   */
   labels?: LabelOverrides;
 };
 
@@ -662,7 +809,11 @@ function assertIdentitySystem(input: ProfileDefinition): void {
   if (problem) throw new TheoremError('config', `Profile ${input.id} identity.system: ${problem}`); // labels-exempt: developer contract error
 }
 
-/** Validate a definition and return the profile; throws on a malformed one. */
+/**
+ * Checks a profile and returns it; a field the profile type cannot take is a config error.
+ *
+ * @remarks Validate a definition and return the profile; throws on a malformed one.
+ */
 function defineProfile(input: TextProfileDefinition): TextProfile;
 /** Validate an image definition and return the profile. */
 function defineProfile(input: ImageProfileDefinition): ImageProfile;

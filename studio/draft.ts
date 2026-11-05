@@ -413,18 +413,37 @@ export interface DecisionCriterionDraft {
 
 export interface DecisionQuestionDraft {
   key: string;
+  /** The question's name. Its answer comes back under it. */
   id: string;
+  /** The kind of answer the question takes. */
   type: DecisionQuestionType;
+  /**
+   * What to ask about the state. Name a state field in backticks, such as `photo`, and one of the
+   * decision's images by its reference, such as <ginger>. A box names what to find and the image it
+   * is in, such as the ginger in `photo`.
+   */
   instructions: string;
   /** A score's levels run from 0 at the top. */
-  criteria: DecisionCriterionDraft[] /** A box's image: one of the decision's images, such as `<ghs02>`, or a state field. Unset, the instructions say. */;
+  criteria: DecisionCriterionDraft[];
+  /**
+   * The image a box is in: one of the decision's images, such as <ghs02>, or a state field its
+   * instructions name, such as `photo`. The model is told it in the instructions.
+   *
+   * @remarks A box's image: one of the decision's images, such as `<ghs02>`, or a state field.
+   * Unset, the instructions say.
+   */
   image?: string;
 }
 
 /** A picture a decision can send, which the questions write as its name in angle brackets. */
 export interface DecisionImageDraft {
   key: string;
-  /** The reference without its brackets: `ghs02` is written `<ghs02>`. */
+  /**
+   * The reference a question writes, without its angle brackets: ghs02 is written <ghs02>.
+   * Lowercase letters, digits and _.
+   *
+   * @remarks The reference without its brackets: `ghs02` is written `<ghs02>`.
+   */
   name: string;
   mimeType: string;
   data: string;
@@ -438,6 +457,11 @@ export interface DecisionDraft {
   questions: DecisionQuestionDraft[];
   /** The application builds the questions for each decision, with the builder the setup's `questions` names. The draft holds none. */
   questionsBuilt?: true;
+  /**
+   * Pictures a decision can send. Write one's reference, such as <ghs02>, in the state or a
+   * question, and the model reads the picture there; a picture nothing references is not sent. A
+   * PNG or JPEG.
+   */
   images: DecisionImageDraft[];
 }
 

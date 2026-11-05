@@ -54,8 +54,18 @@ type TestConnectionRequest =
       pathParams?: string[];
       queryParams?: string[];
       bodyParam?: string;
+      /**
+       * Arguments for the connection test, never saved.
+       *
+       * @catalog studio.sampleInput
+       */
       sampleInput?: Record<string, unknown>;
       auth?: AuthProbe;
+      /**
+       * A credential for this tool's connection tests, kept in the tab and never saved.
+       *
+       * @catalog studio.testCredential
+       */
       testCredential?: string;
     }
   | {
@@ -64,6 +74,11 @@ type TestConnectionRequest =
       mcpToolName?: string;
       headers?: Record<string, string>;
       auth?: AuthProbe;
+      /**
+       * A credential for this tool's connection tests, kept in the tab and never saved.
+       *
+       * @catalog studio.testCredential
+       */
       testCredential?: string;
     };
 

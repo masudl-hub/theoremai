@@ -174,6 +174,7 @@ export interface InjectedMessages {
 
 /** Why a turn or live utterance ended. */
 export interface TurnStop {
+  /** Why the turn ended, on the done event: its stop.kind. */
   kind: TurnStopKind;
   native?: string;
 }

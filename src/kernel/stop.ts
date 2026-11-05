@@ -39,26 +39,38 @@ export const AUTO_CONTINUE_DELAY_MS = 1_500;
 /** Which stops a profile offers Continue for, and which the host continues on its own. */
 export interface ProfileTurnResumptionSpec {
   /**
-   * The host's UI policy for offering Continue: the kernel does not refuse a `continueFrom`
-   * outside it, since a continue is one more turn the host could send as plain text anyway.
-   * Omit → length / stream_incomplete / provider_error; `[]` = none.
+   * Which early stops the host offers the user a Continue for; the kernel doesn't refuse a continue
+   * after other stops.
+   *
+   * @remarks The host's UI policy for offering Continue: the kernel does not refuse a
+   * `continueFrom` outside it, since a continue is one more turn the host could send as plain text
+   * anyway. Omit → length / stream_incomplete / provider_error; `[]` = none.
    */
   allowContinue?: ContinueStopKind[];
   /**
-   * Omit → length / stream_incomplete; `[]` = none. Apart from `allowContinue`: a stop can be
-   * continued without Continue being offered for it. The host sends the `continueFrom` turn
-   * with `continuation`. A text turn also sends a failed model call (`provider_error`,
-   * `stream_incomplete`) again itself when this list is set and names that stop, and the
-   * call gave no reply and no tool call: the turn keeps its history, its step count and
-   * what it has read. A failure the same call would meet again (the provider refused the
-   * request) is not sent again, except once without its files when it carried any: accepted
-   * that way, the turn goes on and `done.mediaRefused` names them. Named here, `length` also
-   * repairs a call the output limit cut off: the model gets back what it wrote, or that it
-   * wrote nothing, and is asked again to fit. Omitted, a turn sends nothing again.
+   * Which early stops are continued without asking, whether or not allowContinue offers a Continue
+   * for them. When set, a text turn sends a listed failed model call that gave no reply again
+   * itself; the host continues the rest. Naming length also repairs a call the output limit cut
+   * off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.
+   *
+   * @remarks Omit → length / stream_incomplete; `[]` = none. Apart from `allowContinue`: a stop can
+   * be continued without Continue being offered for it. The host sends the `continueFrom` turn with
+   * `continuation`. A text turn also sends a failed model call (`provider_error`,
+   * `stream_incomplete`) again itself when this list is set and names that stop, and the call gave
+   * no reply and no tool call: the turn keeps its history, its step count and what it has read. A
+   * failure the same call would meet again (the provider refused the request) is not sent again,
+   * except once without its files when it carried any: accepted that way, the turn goes on and
+   * `done.mediaRefused` names them. Named here, `length` also repairs a call the output limit cut
+   * off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.
+   * Omitted, a turn sends nothing again.
    */
   autoContinue?: ContinueStopKind[];
   /**
-   * Compared against `TurnRequest.continuation`; omit → no count cap. Also how many model
+   * How many times one reply may be continued; once set, each continue must say which one it is.
+   * Also how many model calls one text turn sends again itself, failed calls and cut-off repairs
+   * together (one when unset).
+   *
+   * @remarks Compared against `TurnRequest.continuation`; omit → no count cap. Also how many model
    * calls one text turn sends again itself, failed calls and cut-off repairs together; omit → one.
    */
   maxContinues?: number;
@@ -76,12 +88,20 @@ export function isContinueStopKind(kind: string): kind is ContinueStopKind {
  * interfaces always project `canStop: true` because `TurnRequest.signal` is always wired.
  */
 export interface ProfileTurnBehaviourSpec {
+  /** Continuing a reply that stopped early; live uses sessionResumption instead. */
   resumption?: ProfileTurnResumptionSpec;
-  /** Default true on text / live. Gates injects only; stage events still emit. */
+  /**
+   * Lets your onStage hook add messages to a running turn. Text profiles also let the user steer.
+   *
+   * @remarks Default true on text / live. Gates injects only; stage events still emit.
+   */
   allowSteering?: boolean;
   /**
-   * Text only. What the last model call under `maxSteps` may do. Omit = `'stop'`: it may call
-   * tools, and if it does the turn stops as `step_limit`. `'answer'` sends it without tools.
+   * What happens when a turn reaches maxSteps while the model still wants tools: the turn stops
+   * with no answer, or the last call is made without tools so it answers.
+   *
+   * @remarks Text only. What the last model call under `maxSteps` may do. Omit = `'stop'`: it may
+   * call tools, and if it does the turn stops as `step_limit`. `'answer'` sends it without tools.
    */
   atStepLimit?: StepLimitMode;
 }
@@ -92,6 +112,7 @@ export interface ProfileTurnBehaviourSpec {
  * no mid-turn inject to steer.
  */
 export interface MediaTurnBehaviourSpec {
+  /** Continuing a reply that stopped early; live uses sessionResumption instead. */
   resumption?: ProfileTurnResumptionSpec;
 }
 

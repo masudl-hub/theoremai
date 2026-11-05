@@ -60,11 +60,21 @@ type DetectAction = (typeof DETECT_ACTIONS)[number];
 
 /** The addresses `ungiven_images` or `ungiven_links` lets through beyond the ones the model was given. */
 interface UrlAllow {
-  /** Hostnames let through whatever their URL, such as the host's own CDN. */
+  /**
+   * Hostnames whose images load whatever their URL, such as your own CDN.
+   *
+   * @catalog guardrails.detect.ungiven_links.allow.hosts Hostnames whose links pass whatever their
+   * URL; the hosts ungiven_images allows pass too.
+   *
+   * @remarks Hostnames let through whatever their URL, such as the host's own CDN.
+   */
   hosts?: readonly string[];
   /**
-   * Whether a URL a tool returned counts as given. Default true. A tool result can offer the
-   * model URLs to pick from, and the pick tells their server something; false closes that
+   * Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user,
+   * and history gave.
+   *
+   * @remarks Whether a URL a tool returned counts as given. Default true. A tool result can offer
+   * the model URLs to pick from, and the pick tells their server something; false closes that
    * channel, and keeps only what the system prompt, the user, and host history gave.
    */
   fromTools?: boolean;
@@ -72,35 +82,70 @@ interface UrlAllow {
 
 /** The names `tool_leak` lets through. */
 interface NameAllow {
-  /** Names of tools or parameters that are innocent in a reply, such as a tool called `search`. */
+  /**
+   * Names of tools or parameters that are not read for, such as a tool called search.
+   *
+   * @remarks Names of tools or parameters that are innocent in a reply, such as a tool called
+   * `search`.
+   */
   names?: readonly string[];
 }
 
 /** A detector's setting in full. */
 interface DetectorConfig {
-  /** The action at every boundary. Left out, each boundary keeps its default. */
+  /**
+   * What a match of this detector does at every boundary it reads, unless `at` names that boundary.
+   *
+   * @remarks The action at every boundary. Left out, each boundary keeps its default.
+   */
   action?: DetectAction;
-  /** An action for the boundaries it names, over `action` or the default. */
+  /**
+   * An action per boundary, over action or the default.
+   *
+   * @remarks An action for the boundaries it names, over `action` or the default.
+   */
   at?: Partial<Record<Boundary, DetectAction>>;
   /**
-   * Whether Theorem's own patterns run. Default true. With `patterns` it gives the four choices:
-   * both, only Theorem's, only the host's (`false` with patterns), or none (`false` without).
-   * A detector that takes no patterns refuses it.
+   * Whether Theorem’s own patterns run. Off with no patterns of your own turns the detector off.
+   *
+   * @remarks Whether Theorem's own patterns run. Default true. With `patterns` it gives the four
+   * choices: both, only Theorem's, only the host's (`false` with patterns), or none (`false`
+   * without). A detector that takes no patterns refuses it.
    */
   theorem?: boolean;
-  /** The host's own patterns, read on the text as written. A detector that takes no patterns refuses them. */
+  /**
+   * Your own patterns, each a name and a regular expression or a list of words. A match takes this
+   * detector’s action.
+   *
+   * @remarks The host's own patterns, read on the text as written. A detector that takes no
+   * patterns refuses them.
+   */
   patterns?: readonly HostPattern[];
-  /** The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`). Patterns need it. */
+  /**
+   * The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed
+   * whenever patterns is set.
+   *
+   * @remarks The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`).
+   * Patterns need it.
+   */
   compiled?: CompiledPatterns;
   /**
    * One line telling the model what to leave out, sent when this detector blocks a reply that is
-   * then retried. Left out, the labels' `detect.hint.<detector>`. Only beside `patterns`: the
-   * labels' hint describes Theorem's patterns, not the host's.
+   * then retried. Set it beside patterns of your own.
+   *
+   * @remarks One line telling the model what to leave out, sent when this detector blocks a reply
+   * that is then retried. Left out, the labels' `detect.hint.<detector>`. Only beside `patterns`:
+   * the labels' hint describes Theorem's patterns, not the host's.
    */
   hint?: string;
   /**
-   * What the detector lets through: for `ungiven_images` and `ungiven_links` the addresses besides
-   * the given ones, for `tool_leak` the names that are innocent. Any other detector refuses it.
+   * What passes besides the URLs the model was given this turn.
+   *
+   * @catalog guardrails.detect.tool_leak.allow The names that are innocent in a reply.
+   *
+   * @remarks What the detector lets through: for `ungiven_images` and `ungiven_links` the addresses
+   * besides the given ones, for `tool_leak` the names that are innocent. Any other detector refuses
+   * it.
    */
   allow?: UrlAllow | NameAllow;
 }
@@ -132,23 +177,48 @@ type HostFind = (text: string, context: { boundary?: Boundary }) => readonly Hos
 interface HostDetectorConfig {
   /** What an editor and the trace call it. */
   label: string;
-  /** The action at every boundary. Left out, only the boundaries `at` names are read. */
+  /**
+   * What a match does, at every boundary.
+   *
+   * @remarks The action at every boundary. Left out, only the boundaries `at` names are read.
+   */
   action?: DetectAction;
-  /** An action for the boundaries it names, over `action`. */
+  /**
+   * An action per boundary, over action.
+   *
+   * @remarks An action for the boundaries it names, over `action`.
+   */
   at?: Partial<Record<Boundary, DetectAction>>;
-  /** Its patterns, read on the text as written. */
+  /**
+   * Its patterns, each a name and a regular expression or a list of words, read on the text as
+   * written.
+   *
+   * @remarks Its patterns, read on the text as written.
+   */
   patterns?: readonly HostPattern[];
-  /** The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`). Patterns need it. */
+  /**
+   * The table your patterns compile to, from compileDetect or `agents detect-compile`. Needed
+   * whenever patterns is set.
+   *
+   * @remarks The table compiled for `patterns` (`compilePatterns`, `agents detect-compile`).
+   * Patterns need it.
+   */
   compiled?: CompiledPatterns;
   /**
-   * Its own reading. As a reply streams, a `find` reads the text held so far, and the last
+   * Its own reading, for what patterns cannot say: a function that returns where the matches start
+   * and end. It runs on every text crossing a boundary the detector reads, so it returns at once.
+   *
+   * @remarks Its own reading. As a reply streams, a `find` reads the text held so far, and the last
    * `HOST_FIND_HOLD` characters stay held (`HOST_FIND_HOLD_LIVE` in a Live reply): a match is
    * caught whole when it is no longer than that.
    */
   find?: HostFind;
   /**
    * One line telling the model what to leave out, sent when this detector blocks a reply that is
-   * then retried. Left out, the labels' `detect.hint.own`, which names the label.
+   * then retried.
+   *
+   * @remarks One line telling the model what to leave out, sent when this detector blocks a reply
+   * that is then retried. Left out, the labels' `detect.hint.own`, which names the label.
    */
   hint?: string;
 }

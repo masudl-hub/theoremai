@@ -61,7 +61,11 @@ export const providerWarningSchema: z.ZodType<ProviderWarning> = z.strictObject(
 
 export interface ProviderContinuationPolicy {
   /**
-   * Who holds the conversation a checkpoint continues. `'host'` (unset) passes the covered
+   * Who holds the conversation a checkpoint continues: the host passes history back, the provider
+   * keeps it and the checkpoint travels alone, or the profile is stateless and every request stands
+   * alone.
+   *
+   * @remarks Who holds the conversation a checkpoint continues. `'host'` (unset) passes the covered
    * history back with the checkpoint. `'provider'` passes the checkpoint alone: the provider's
    * stored conversation is the history, and a turn that goes elsewhere needs the host's history.
    * `'stateless'` keeps no conversation: a request that carries history or a checkpoint is refused,

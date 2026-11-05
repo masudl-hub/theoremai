@@ -10,6 +10,7 @@ import type {
   TrustLevel,
 } from '../guardrails/types.ts';
 import type { GuardrailCheck } from '../kernel/engine/turn-trace.ts';
+import { OPTION_DOCS } from '../kernel/field-docs.ts';
 import type {
   CompactionMeter,
   CompactionOutcome,
@@ -21,6 +22,10 @@ import type {
 } from '../kernel/schema.ts';
 import type { StageAffordance } from '../kernel/stages.ts';
 import type { EmbeddingTask, SessionEventKind } from '../kernel/types.ts';
+import { geminiProvider } from '../providers/gemini/provider.ts';
+import { localProvider } from '../providers/local/provider.ts';
+import { openRouterProvider } from '../providers/openrouter/provider.ts';
+import { typesafeProvider } from '../providers/typesafe/provider.ts';
 import type { TraceSpan } from './trace-span.ts';
 
 /** How a value reads: the unit or shape a viewer formats it by. */
@@ -165,79 +170,67 @@ const TRACE_FIELDS = {
   links: { label: 'Links', doc: 'Earlier traces this span follows.' },
 } satisfies Record<string, TraceOptionMeta>;
 
+/**
+ * Each value's label, with its doc from the JSDoc on its list's member (`OPTION_DOCS`). A value
+ * the list does not document throws.
+ */
+function listed<K extends string>(
+  docs: Readonly<Record<string, string>>,
+  labels: Record<K, string>,
+): Record<K, TraceOptionMeta> {
+  const entries = Object.entries<string>(labels).map(([value, label]) => {
+    const doc = docs[value];
+    if (!doc) throw new Error(`${value}: its list does not document it`);
+    return [value, { label, doc }] as const;
+  });
+  return Object.fromEntries(entries) as Record<K, TraceOptionMeta>;
+}
+
 const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = {
-  completed: { label: 'Completed', doc: 'The model finished its answer.' },
-  length: { label: 'Hit output limit', doc: 'The model stopped at its output token limit.' },
-  tool: {
-    label: 'Handed tool to host',
-    doc: 'Stopped to hand a tool call back to the host. Deprecated: approval now stops as “Waiting for approval”.',
-  },
-  gate: {
-    label: 'Waiting for approval',
-    doc: 'A tool call needs confirmation, permission, or sign-in before it runs; the host resumes it.',
-  },
-  filtered: {
-    label: 'Filtered',
-    doc: 'A safety filter or the output guardrail held the answer back.',
-  },
-  provider_error: { label: 'Provider error', doc: 'The provider reported an error.' },
-  cancelled: { label: 'Cancelled', doc: 'The user or host stopped it.' },
-  step_limit: {
-    label: 'Ran out of steps',
-    doc: 'The last model call the profile allows asked for tools, so the turn ended without an answer.',
-  },
-  stream_incomplete: {
-    label: 'Stream cut off',
-    doc: "The provider's stream ended before the answer was complete.",
-  },
-  interrupted: { label: 'Interrupted', doc: 'The user spoke over a Live response.' },
-  generation_complete: {
-    label: 'Generation complete',
-    doc: 'Live: the model finished generating this response; the turn may still be open.',
-  },
+  ...listed(OPTION_DOCS.TURN_STOP_KINDS, {
+    completed: 'Completed',
+    length: 'Hit output limit',
+    tool: 'Handed tool to host',
+    gate: 'Waiting for approval',
+    filtered: 'Filtered',
+    provider_error: 'Provider error',
+    cancelled: 'Cancelled',
+    step_limit: 'Ran out of steps',
+    stream_incomplete: 'Stream cut off',
+    interrupted: 'Interrupted',
+    generation_complete: 'Generation complete',
+  } satisfies Record<TurnStopKind, string>),
   go_away: {
     label: 'Closed by provider',
     doc: 'Live: the provider warned the session would end, then closed it.',
   },
 };
 
-const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
-  config: { label: 'Setup', doc: 'The profile, tool, or schema is set up wrong.' },
-  request: { label: 'Host request', doc: 'The host called theorem wrongly.' },
-  conflict: {
-    label: 'Conflict',
-    doc: 'The call conflicts with the state it acts on, such as an operation that is still running or not settled.',
-  },
-  not_found: {
-    label: 'Not found',
-    doc: 'Something the call names by id is not there, such as a conversation the store no longer holds.',
-  },
-  input: { label: 'User input', doc: 'The user sent input the profile does not accept.' },
-  action: { label: 'Not allowed', doc: 'The user asked for something the profile does not allow.' },
-  auth: {
-    label: 'Credentials',
-    doc: 'A missing or rejected credential, or an account that cannot be billed.',
-  },
-  rate_limit: { label: 'Rate limit', doc: 'Too many requests, or a quota used up.' },
-  unsupported: { label: 'Unsupported', doc: 'The model or route cannot serve this request.' },
-  busy: { label: 'Busy', doc: 'The provider is up but too busy for the call.' },
-  unavailable: { label: 'Unavailable', doc: 'The provider is down.' },
-  bad_response: {
-    label: 'Unusable response',
-    doc: 'The provider answered with something that cannot be used.',
-  },
-  network: { label: 'Network', doc: 'The request never reached the provider.' },
-  timeout: { label: 'Timeout', doc: 'The model took longer than the host allowed.' },
-  safety: { label: 'Safety', doc: 'theorem or the provider held the reply back.' },
-  blocked: {
-    label: 'Blocked',
-    doc: "A guardrail or host policy stopped one of the agent's steps.",
-  },
-  declined: { label: 'Declined', doc: "The user declined one of the agent's steps." },
-  failed: { label: 'Failed', doc: "One of the agent's steps ran and failed." },
-  cancelled: { label: 'Cancelled', doc: 'The user or host stopped the turn.' },
-  internal: { label: 'Internal', doc: 'A theorem invariant broke.' },
-};
+const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = listed(
+  OPTION_DOCS.ERROR_KINDS,
+  {
+    config: 'Setup',
+    request: 'Host request',
+    conflict: 'Conflict',
+    not_found: 'Not found',
+    input: 'User input',
+    action: 'Not allowed',
+    auth: 'Credentials',
+    rate_limit: 'Rate limit',
+    unsupported: 'Unsupported',
+    busy: 'Busy',
+    unavailable: 'Unavailable',
+    bad_response: 'Unusable response',
+    network: 'Network',
+    timeout: 'Timeout',
+    safety: 'Safety',
+    blocked: 'Blocked',
+    declined: 'Declined',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
+    internal: 'Internal',
+  } satisfies Record<ErrorKind, string>,
+);
 
 /** `error.type`: an error kind, or the failing stop. An HTTP status or exception shows as is. */
 const ERROR_TYPE_OPTIONS: Readonly<Record<string, TraceOptionMeta>> = {
@@ -269,11 +262,13 @@ const TOOL_ORIGIN_OPTIONS: Readonly<Record<ToolOrigin, TraceOptionMeta>> = {
   delegated: { label: 'Another agent', doc: 'A specialist agent the tool ran.' },
 };
 
-const TOOL_PERMISSION_OPTIONS: Readonly<Record<ToolPermission, TraceOptionMeta>> = {
-  auto: { label: 'Automatic', doc: 'Runs without asking.' },
-  session_consent: { label: 'Ask once', doc: 'Asks once per session, then remembers the answer.' },
-  always_confirm: { label: 'Always ask', doc: 'Asks before every call.' },
-};
+const TOOL_PERMISSION_OPTIONS: Readonly<Record<ToolPermission, TraceOptionMeta>> = listed(
+  OPTION_DOCS.TOOL_PERMISSION,
+  { auto: 'Automatic', session_consent: 'Ask once', always_confirm: 'Always ask' } satisfies Record<
+    ToolPermission,
+    string
+  >,
+);
 
 const LINK_KINDS: Readonly<Record<'resume' | 'continue' | 'retry' | 'trial', TraceOptionMeta>> = {
   resume: { label: 'Resumes', doc: 'Picks up a call that stopped for approval.' },
@@ -339,11 +334,12 @@ const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceO
   speech: { label: 'Speech', doc: 'The model answers in audio.' },
 };
 
-const PROVIDERS: Readonly<Record<'gcp.gemini' | 'openrouter' | 'typesafe', TraceOptionMeta>> = {
-  'gcp.gemini': { label: 'Google Gemini', doc: "Google's Gemini API." },
-  openrouter: { label: 'OpenRouter', doc: 'The OpenRouter gateway.' },
-  typesafe: { label: 'TypeSafe', doc: "TypeSafe's native decision API." },
-};
+const PROVIDERS: Readonly<Record<string, TraceOptionMeta>> = Object.fromEntries(
+  [geminiProvider, localProvider, openRouterProvider, typesafeProvider].map((provider) => [
+    provider.traceName ?? provider.id,
+    { label: provider.name, doc: provider.description },
+  ]),
+);
 
 const USAGE_SIDES: Readonly<Record<'input' | 'output', TraceOptionMeta>> = {
   input: { label: 'Input', doc: 'Tokens the model read.' },
@@ -575,30 +571,23 @@ const RETRY_REASONS: Readonly<Record<'egress' | 'validation', TraceOptionMeta>> 
   validation: { label: 'Invalid JSON', doc: 'The structured output did not match its schema.' },
 };
 
-const COMPACTION_TIMING_OPTIONS: Readonly<Record<CompactionTiming, TraceOptionMeta>> = {
-  before: { label: 'Before the turn', doc: 'Compacts before the turn runs.' },
-  after: { label: 'After the turn', doc: 'Signals the host to compact after the turn.' },
-};
+const COMPACTION_TIMING_OPTIONS: Readonly<Record<CompactionTiming, TraceOptionMeta>> = listed(
+  OPTION_DOCS.COMPACTION_TIMINGS,
+  { before: 'Before the turn', after: 'After the turn' } satisfies Record<CompactionTiming, string>,
+);
 
-const COMPACTION_METER_OPTIONS: Readonly<Record<CompactionMeter, TraceOptionMeta>> = {
-  history: { label: 'History', doc: 'Counts tokens across earlier turns.' },
-  input: {
-    label: 'Whole input',
-    doc: "Counts the turn's whole input: instructions, history, and attachments.",
-  },
-};
+const COMPACTION_METER_OPTIONS: Readonly<Record<CompactionMeter, TraceOptionMeta>> = listed(
+  OPTION_DOCS.COMPACTION_METERS,
+  { history: 'History', input: 'Whole input' } satisfies Record<CompactionMeter, string>,
+);
 
-const COMPACTION_OUTCOME_OPTIONS: Readonly<Record<CompactionOutcome, TraceOptionMeta>> = {
-  compacted: { label: 'Compacted', doc: 'A summary replaced the earlier messages.' },
-  deferred: {
-    label: 'Kept whole',
-    doc: 'The compactor failed and the history still fits, so it was kept and compaction runs again next turn.',
-  },
-  dropped: {
-    label: 'Dropped',
-    doc: 'The compactor failed and the history no longer fits, so the earlier messages were dropped.',
-  },
-};
+const COMPACTION_OUTCOME_OPTIONS: Readonly<Record<CompactionOutcome, TraceOptionMeta>> = listed(
+  OPTION_DOCS.COMPACTION_OUTCOMES,
+  { compacted: 'Compacted', deferred: 'Kept whole', dropped: 'Dropped' } satisfies Record<
+    CompactionOutcome,
+    string
+  >,
+);
 
 /** `theorem.session` kinds: provider session signals (a finished response is its own record). */
 const SESSION_KINDS: Readonly<

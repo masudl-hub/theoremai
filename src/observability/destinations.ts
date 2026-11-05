@@ -15,7 +15,11 @@ function isTraceSink(value: unknown): value is TraceSink {
   );
 }
 
-/** Register a trace sink under an id; throws when the id is empty. */
+/**
+ * Stores a place to write traces under an id, so that a profile can name it in observability.
+ *
+ * @remarks Register a trace sink under an id; throws when the id is empty.
+ */
 function registerTraceDestination(id: string, destination: TraceSink): void {
   const key = id.trim();
   if (!key) {

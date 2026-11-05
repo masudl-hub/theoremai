@@ -39,6 +39,11 @@ export type StudioToolSpecSeed = {
   activityPast?: string;
   activityFailed?: string;
   request?: string;
+  /**
+   * What a function tool returns in the studio, unless a demo handler has its name.
+   *
+   * @catalog studio.stubOutput
+   */
   stubOutputJson?: string;
   /** A function tool the page answers; the studio's page answers with the stub. */
   answeredBy?: 'page';
@@ -66,6 +71,11 @@ export type StudioToolSpecSeed = {
   stageAgentKey?: string;
   /** An agent tool's calls in one turn of its caller; `null` or absent: no cap but max steps. */
   maxCallsPerTurn?: number | null;
+  /**
+   * The kind of credential the tool expects, or none.
+   *
+   * @catalog studio.authType
+   */
   authType?: StudioAuthType;
   authSlot?: string;
   authService?: string;

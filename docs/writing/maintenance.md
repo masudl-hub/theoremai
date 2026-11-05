@@ -42,7 +42,7 @@ A comment is documentation that no check reads, so it goes stale first. The code
 
 `npm run lint:docs` runs `scripts/docs-truth/comment-kinds.mjs`. It fails on a `//` or block comment in `src/`, `web/src/`, `react/src/`, or `mod.ts` that has no tag. Delete a comment that restates the next line, narrates a step, or marks a section. A comment that is stale is deleted, not reworded.
 
-The same check fails on any suppression comment (`biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable`, `@ts-expect-error`) in any scanned folder, tests and scripts included. Fix the cause. JSDoc is not checked here: it states what an export is for, and the kernel catalog owns the text of profile fields.
+The same check fails on any suppression comment (`biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable`, `@ts-expect-error`) in any scanned folder, tests and scripts included. Fix the cause. JSDoc is not checked here: it states what an export is for. The JSDoc description of a catalog field or of an export that `API_EXPORTS` names is the catalog's text for it, and `tests/kernel/field-docs.test.ts` checks it.
 
 ## Layer 3: find affected docs yourself
 

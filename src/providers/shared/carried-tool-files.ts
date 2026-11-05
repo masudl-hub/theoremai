@@ -38,16 +38,22 @@ export function withCarriedToolFiles(
       out.push(msg);
       continue;
     }
-    out.push({
-      ...msg,
-      parts: (msg.parts ?? []).map((part) =>
-        holds.has(part.type) ? part : carriedFileMarker(part),
-      ),
-    });
+    out.push(withMarkers(msg, (part) => holds.has(part.type)));
     carried.push(carriedFilesLead(msg), ...files);
   }
   flush();
   return out;
+}
+
+/** The message with each part `stays` rejects swapped for its carried-file marker. */
+function withMarkers(
+  msg: TurnHistoryMessage,
+  stays: (part: InteractionPart) => boolean,
+): TurnHistoryMessage {
+  return {
+    ...msg,
+    parts: (msg.parts ?? []).map((part) => (stays(part) ? part : carriedFileMarker(part))),
+  };
 }
 
 const ASSISTANT_FILES_LEAD: InteractionPart = { type: 'text', text: 'Files the assistant sent:' };
@@ -73,12 +79,7 @@ export function withCarriedAssistantFiles(
       out.push(msg);
       continue;
     }
-    out.push({
-      ...msg,
-      parts: (msg.parts ?? []).map((part) =>
-        part.type === 'text' ? part : carriedFileMarker(part),
-      ),
-    });
+    out.push(withMarkers(msg, (part) => part.type === 'text'));
     carried.push(ASSISTANT_FILES_LEAD, ...files);
   }
   if (carried.length > 0) out.push({ role: 'user', parts: carried });

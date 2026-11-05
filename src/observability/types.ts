@@ -7,19 +7,45 @@ import type { TraceAttributes } from './trace-span.ts';
 
 /** Which payloads land in each TraceRecord. Omitted keys use resolved defaults. */
 export interface TraceIncludeSpec {
-  /** Scrubbed provider rows and frames (`theorem.upstream.row` events). Default: true. */
+  /**
+   * Keeps each row the provider sent back, scrubbed, as it arrived, with media bytes replaced by
+   * their sha256.
+   *
+   * @remarks Scrubbed provider rows and frames (`theorem.upstream.row` events). Default: true.
+   */
   upstreamLog?: boolean;
-  /** Scrubbed outbound request bodies (`theorem.wire.request` events). Default: false. */
+  /**
+   * Keeps each request body sent to the provider, scrubbed.
+   *
+   * @remarks Scrubbed outbound request bodies (`theorem.wire.request` events). Default: false.
+   */
   outboundWire?: boolean;
-  /** The provider's raw grounding payload (`raw` on `theorem.grounding` events). Default: false. */
+  /**
+   * Keeps the provider's raw payload on grounding results such as search citations; upstreamLog
+   * rows keep their own copy.
+   *
+   * @remarks The provider's raw grounding payload (`raw` on `theorem.grounding` events). Default:
+   * false.
+   */
   evidenceRaw?: boolean;
-  /** Usage attributes (`gen_ai.usage.*`, `theorem.usage.*`). Default: true. */
+  /**
+   * Keeps token counts and other usage figures on spans; upstreamLog rows keep their own.
+   *
+   * @remarks Usage attributes (`gen_ai.usage.*`, `theorem.usage.*`). Default: true.
+   */
   usage?: boolean;
-  /** Guardrail decisions (`theorem.guardrail` events). Default: true. */
+  /**
+   * Keeps each guardrail decision.
+   *
+   * @remarks Guardrail decisions (`theorem.guardrail` events). Default: true.
+   */
   guardrailDecisions?: boolean;
   /**
-   * Keep `GuardrailHit.match` (the exact matched text) on guardrail events. Default: false;
-   * debugging only, so treat the store like server logs when enabled.
+   * Keeps the exact text each guardrail matched, unscrubbed, on the trace and the host's event
+   * stream; for debugging only.
+   *
+   * @remarks Keep `GuardrailHit.match` (the exact matched text) on guardrail events. Default:
+   * false; debugging only, so treat the store like server logs when enabled.
    */
   guardrailMatchPreview?: boolean;
 }
@@ -37,50 +63,98 @@ export type ScrubSwitch = boolean | { theorem?: boolean; host?: boolean };
  * their actions: a detector set to `ignore` in the turn still cleans the trace. Defaults are on.
  */
 export interface TraceScrubSpec {
-  /** The data detectors (`ids`, `financial`, `network`, `credentials`) and the host's own. Default: true. */
+  /**
+   * Removes what the data detectors (IDs, Financial, Network, Credentials) and your own detectors
+   * find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem,
+   * host } picks Theorem's patterns, yours, or both for the trace alone.
+   *
+   * @remarks The data detectors (`ids`, `financial`, `network`, `credentials`) and the host's own.
+   * Default: true.
+   */
   sensitive?: ScrubSwitch;
-  /** `injection`, with the orders to the agent it finds in what a tool returns. Default: true. */
+  /**
+   * Removes what Injection and Tool instructions find from stored traces. On, it cleans with the
+   * patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours, or both
+   * for the trace alone.
+   *
+   * @remarks `injection`, with the orders to the agent it finds in what a tool returns. Default:
+   * true.
+   */
   injection?: ScrubSwitch;
-  /** Never persist the canary token. It is Theorem's alone, so the host side adds nothing. Default: true. */
+  /**
+   * Removes the canary token from stored traces. The canary is Theorem's, so { theorem: false }
+   * keeps it.
+   *
+   * @remarks Never persist the canary token. It is Theorem's alone, so the host side adds nothing.
+   * Default: true.
+   */
   canary?: ScrubSwitch;
 }
 
 /** Omit the whole block for no tracing. */
 export interface ProfileObservabilitySpec {
   /**
-   * `false` is off, a string is a `registerTraceDestination` id, a TraceSink is an inline writer.
-   * `runTurn(..., sink)` still overrides this for one call.
+   * Where traces go: a registered destination id, your own writer, or false. An unregistered id
+   * fails the turn at the start. A sink passed to runTurn replaces it.
+   *
+   * @remarks `false` is off, a string is a `registerTraceDestination` id, a TraceSink is an inline
+   * writer. `runTurn(..., sink)` still overrides this for one call.
    */
   writeTo?: false | string | TraceSink;
 
   /**
-   * Fraction of traces to record, 0–1 inclusive. Default: 1. Decided by trace id, so every
+   * The share of traces kept, from 0 to 1, each kept or dropped whole; a sink passed straight to
+   * runTurn keeps every trace.
+   *
+   * @remarks Fraction of traces to record, 0–1 inclusive. Default: 1. Decided by trace id, so every
    * record of one trace is kept or dropped together.
    */
   sampleRate?: number;
 
+  /** Which optional parts of a trace are kept. */
   include?: TraceIncludeSpec;
 
-  /** Stamped on every record as `TraceRecord.resource`, e.g. `{ 'service.name': 'harbor' }`. */
+  /**
+   * Attributes stamped on every trace, such as service.name.
+   *
+   * @remarks Stamped on every record as `TraceRecord.resource`, e.g. `{ 'service.name': 'harbor'
+   * }`.
+   */
   resource?: TraceAttributes;
 
-  /** Defaults stay on even when `guardrails.detect` is `ignore`. */
+  /**
+   * What is removed from stored traces, separately from the turn's guardrails.
+   *
+   * @remarks Defaults stay on even when `guardrails.detect` is `ignore`.
+   */
   scrub?: TraceScrubSpec;
 
   /**
-   * Days to keep each record, handed to every destination with the record
-   * (`TraceWriteContext`): the JSONL writer prunes by it, a host store computes
-   * its own expiry from it. `<= 0` keeps records forever. Default: 14.
+   * Days a trace file is kept, by its UTC day. The next write removes old files. 0 or less keeps
+   * all.
+   *
+   * @remarks Days to keep each record, handed to every destination with the record
+   * (`TraceWriteContext`): the JSONL writer prunes by it, a host store computes its own expiry from
+   * it. `<= 0` keeps records forever. Default: 14.
    */
   retainForDays?: number;
 
   /**
    * File size in MiB at which a file-based destination starts a new file, handed to every
+   * destination with the record. Default 32.
+   *
+   * @remarks File size in MiB at which a file-based destination starts a new file, handed to every
    * destination with the record (`TraceWriteContext`). Default: 32.
    */
   rotateAfterMiB?: number;
 
-  /** Called when record build or destination write fails. Must not throw. */
+  /**
+   * Your function called when a trace can't be built or written; the turn carries on, and a
+   * destination's own error handler takes priority. An unregistered writeTo id is a config error
+   * instead.
+   *
+   * @remarks Called when record build or destination write fails. Must not throw.
+   */
   onWriteError?: (err: unknown) => void;
 }
 

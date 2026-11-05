@@ -7,7 +7,21 @@ export interface StudioBrowserConnection {
   /** One vault for every provider; each model reads the slot it names. */
   vault: KeyVault;
   /** A local model that needs a token names a slot, like any other model. */
-  local: { baseUrl: string };
+  local: {
+    /**
+     * Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls
+     * it directly.
+     *
+     * @catalog local.baseUrl
+     */
+    baseUrl: string;
+  };
+  /**
+   * Whether tools that reach other hosts (HTTP and MCP) may run while a local model is in use.
+   * Off, a run with a local model reaches no host.
+   *
+   * @catalog studio.remoteTools
+   */
   remoteTools: boolean;
 }
 

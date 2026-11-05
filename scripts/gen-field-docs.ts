@@ -77,7 +77,10 @@ function sourceFiles(dir = ROOT, from = ['src', 'studio']): string[] {
     const entry = Deno.lstatSync(path);
     if (entry.isFile) return /\.tsx?$/.test(path) && !path.endsWith('.d.ts') ? [path] : [];
     if (!entry.isDirectory || name.startsWith('.') || !isOwnPath(`${path}/`)) return [];
-    return sourceFiles(`${path}/`, [...Deno.readDirSync(path)].map((each) => each.name));
+    return sourceFiles(
+      `${path}/`,
+      [...Deno.readDirSync(path)].map((each) => each.name),
+    );
   });
 }
 

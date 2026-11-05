@@ -433,6 +433,7 @@ export type {
   ToolBackgroundService,
   ToolBackgroundSettled,
   ToolSteerReceipt,
+  ToolSteerRefusal,
 } from './src/kernel/tools/background.ts';
 export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';

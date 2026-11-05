@@ -305,6 +305,7 @@ export type {
   ToolBackgroundService,
   ToolBackgroundSettled,
   ToolSteerReceipt,
+  ToolSteerRefusal,
 } from './tools/background.ts';
 export {
   type AnsweredGate,

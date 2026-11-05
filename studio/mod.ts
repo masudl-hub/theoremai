@@ -247,6 +247,7 @@ export {
   mapLayout,
   mapLinkEnds,
   mapLinkWords,
+  mapLitFamily,
   mapNeighbours,
   mapNoteLines,
   type WorkspaceMap,

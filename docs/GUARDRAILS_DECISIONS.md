@@ -120,7 +120,7 @@ They trained on Modal GPUs for $24.44 of a $30 credit. A Kaggle TPU job for the 
 
 **What we learned.**
 
-- Arm A (S, N, PA and X) is the best.
+- Arm A (S, N, PA and X) is the best on the sets the data aimed at.
 - On krishna it catches 78.3% instead of 61.1%, and flags 4.8% of harmless prompts instead of 22.7%.
 - It catches 81.1% of siem instead of 24.3%, and 66.5% of BEC instead of 53.8%.
 - It flags fewer harmless emails. SpamAssassin goes from 21.6% to 12.4%, and Ling from 14.1% to 0%.
@@ -130,22 +130,45 @@ They trained on Modal GPUs for $24.44 of a $30 credit. A Kaggle TPU job for the 
 
 **A finding on the way.** `m22` flags 21% of SpamAssassin and 14% of Ling harmless email: mailing-list threads, quoted replies, and list footers. Both sets stay hold-outs.
 
-**What we kept.** Arm A as the candidate successor to `m22`, called m22A.
+**What we kept.** Arm A for a fuller test. Stage 8 shows that it is not the successor.
+
+## Stage 8: judge against the rivals (A85, R5)
+
+**Question.** Is arm A better than `m22` on every set `m22` was judged on? Which added part cost the page attacks?
+
+**What went wrong first.** We compared the models in three ways in one day, and each way told a different story.
+
+- At one shared **line**, A looked much worse on pages. Each arm moves its own line, so part of each gap was the line, not the model.
+- At the same false alarm rate on each set, most of the gaps went away. A still ranks page attacks a little worse: waab AUC 0.997 against 0.992.
+- A count of sets won or lost hides the size of each gap. One set turned on one row.
+
+**Ruling R5.** We compete with BrowseSafe. Where Prompt Guard 2 beats BrowseSafe, we compete with Prompt Guard 2. On each set, we read each rival at the threshold it ships with. Our model must catch at least as much at the same false alarm rate. A round is judged by this **rival bar** alone. Two models side by side are ruled out, because each text is then read twice.
+
+**What we learned.**
+
+- Neither `m22` nor any arm meets the bar.
+- Both trail Prompt Guard 2 far on chat prompts. On krishna, Prompt Guard 2 catches 89.4% at 0.1% false alarms, and both of ours catch 0.4%. On sahil it catches 85.2%, `m22` 45.5% and A 33.9%.
+- Both trail BrowseSafe on short orders inside data (arpi), on Reddit comments (WARP reddit) and on BrowseSafe's own test pages (BSB test). The gaps are 2 to 9 points.
+- A passes business email fraud and wainject text, where `m22` fails. A fails by more on sahil, WARP reddit and `ad-clean`.
+- On waab, both rivals catch 1% or less, so waab does not decide a round.
+- Part X, the system-prompt extraction data, is what cost the page attacks. The two arms without X, B and D, rank waab attacks better than `m22`. Every arm with X ranks them worse. X also does not close the chat-prompt gap.
+
+**What we dropped.** Arm A as the successor. `m22` stays.
 
 ## Where we are (4/11)
 
-The m22A plan has four steps:
+The next round of data:
 
-1. Score arm A on every set `m22` was judged on in A79, and on the 300 Bonsai pages. Running on this Mac; it will be row A85.
-2. Read the rows arm A gets wrong.
-3. Set a threshold for each kind of text the agent reads.
-4. Build arm A as 8-bit ONNX and time it. It has `m22`'s shape, so it should take the same time.
+1. Leave out part X.
+2. Add chat prompts, attack and harmless, from sources that no scored set uses. This is the largest gap, against Prompt Guard 2.
+3. Add short orders inside data and comments, for the gaps against BrowseSafe.
+4. Judge every arm by the rival bar alone.
 
 Still open:
 
-- Attacks of about 20 tokens, such as ASB's, stay uncaught by every model.
+- Attacks of about 20 tokens, such as ASB's, stay uncaught by `m22`.
 - In-wild harmless pages stay flagged at about 24%. They discuss prompt injection, so they look like attacks.
-- On chat prompts, Prompt Guard 2 still leads on some sets.
+- Each arm ran once. Gaps of a few points on small sets can be noise.
 
 ## Glossary
 
@@ -157,9 +180,11 @@ Still open:
 - **Hijack:** text that tries to take control of the agent. A bare harmful request is not a hijack, and neither is a persona alone.
 - **Hold-out:** a set we score but never tune on and never publish.
 - **Layer cut:** a model with some of its layers removed. It is faster but loses accuracy.
+- **Line:** the threshold above which a model flags a row.
 - **The 1% line:** the threshold at which a model flags 1% of the harmless `bsafe-validate` pages. Each model gets its own line, so models compare at the same false alarm rate on pages.
 - **ONNX, 8-bit:** a file format that runs a model without PyTorch. 8-bit stores each weight in 8 bits instead of 32, so the file is about 4 times smaller.
 - **Recall, catch rate:** the share of attacks a detector flags.
+- **Rival bar:** ruling R5. On each set, our model must catch at least as much as BrowseSafe, and as Prompt Guard 2 where it beats BrowseSafe, at the same false alarm rate as that rival at its shipped threshold.
 - **Row:** one text with one label, for example one web page or one email.
 - **Row labels (MIL):** training on the row's own label, attack or harmless. Only the window the model ranks highest in each row takes the loss. The alternative is to copy the teacher's score on every window.
 - **Student:** a smaller model trained to copy a larger one, the **teacher**.

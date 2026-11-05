@@ -6,10 +6,12 @@ import {
   type ToolSpecDraft,
 } from '../../studio/draft.ts';
 import {
+  type MapLinkKind,
   mapFamily,
   mapFound,
   mapLayout,
   mapLinkWords,
+  mapLitFamily,
   mapNeighbours,
   workspaceMap,
 } from '../../studio/map.ts';
@@ -458,6 +460,28 @@ Deno.test("a node's family is what feeds it and what it feeds, however far, and 
     ['serves', 'runs', 'allows'],
   );
   assertEquals(mapFamily(map, 'no such node').columns, []);
+});
+
+Deno.test('a lit node lights what feeds it and what it feeds, however far, and a lit section its own lines on', () => {
+  const end = (from: string, to: string, kind: MapLinkKind, row?: string) => ({
+    link: { from: row ?? from, to, kind },
+    from,
+    to,
+  });
+  const ends = [
+    end('provider', 'model', 'serves'),
+    end('setting', 'model', 'sets'),
+    end('model', 'desk', 'runs'),
+    end('model', 'shop', 'runs'),
+    end('desk', 'find', 'allows', 'desk#tools'),
+    end('desk', 'note', 'summarised'),
+  ];
+  const lit = (id: string) => [...mapLitFamily(ends, id).ids].sort();
+  // `desk`: both of the model's feeds behind it, and both of its own ends ahead; `shop` beside it is not lit.
+  assertEquals(lit('desk'), ['desk', 'desk#tools', 'find', 'model', 'note', 'provider', 'setting']);
+  assertEquals(lit('find'), ['desk', 'desk#tools', 'find', 'model', 'provider', 'setting']);
+  assertEquals(lit('desk#tools'), ['desk', 'desk#tools', 'find']);
+  assertEquals(mapLitFamily(ends, 'nothing').lines.size, 0);
 });
 
 Deno.test('a search finds nodes by name or note, whatever the case, and shows the family of each', () => {

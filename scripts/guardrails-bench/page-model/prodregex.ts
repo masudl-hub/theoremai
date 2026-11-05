@@ -1,7 +1,15 @@
 // Which rows today's kernel regex detectors fire on, per set file. Reads text only as strings.
 import '/Users/masudlewis/Development/theoremai/tests/fixtures/test-host.ts';
 import { DETECTORS } from '/Users/masudlewis/Development/theoremai/src/guardrails/eval/mod.ts';
-import { TextLineStream } from 'jsr:@std/streams@1/text-line-stream';
+async function* lines(path: string) {
+  let rest = '';
+  for await (const chunk of (await Deno.open(path)).readable.pipeThrough(new TextDecoderStream())) {
+    const parts = (rest + chunk).split('\n');
+    rest = parts.pop()!;
+    yield* parts;
+  }
+  yield rest;
+}
 const K = `${Deno.env.get('HOME')}/Development/.guardrail-data/kaggle`;
 const out = Deno.args[0];
 const FILES: Record<string, string> = {
@@ -14,8 +22,7 @@ const dir = DETECTORS.find((d) => d.id === 'tool-directives')!;
 for (const [name, path] of Object.entries(FILES)) {
   const t0 = Date.now();
   const flags: number[] = [];
-  const f = await Deno.open(path);
-  for await (const line of f.readable.pipeThrough(new TextDecoderStream()).pipeThrough(new TextLineStream())) {
+  for await (const line of lines(path)) {
     if (!line) continue;
     const text = JSON.parse(line).text ?? '';
     flags.push((inj.fires(text) ? 1 : 0) + (dir.fires(text) ? 2 : 0));

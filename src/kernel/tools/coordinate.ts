@@ -478,6 +478,17 @@ function savedResult(known: Awaited<ReturnType<ToolExecutionCoordinator['lookup'
   return undefined;
 }
 
+/** A detaching call's trigger and steers, and the hooks its body gets from them. */
+function detaching(detach: ToolDetach, signal: AbortSignal | undefined) {
+  const trigger = new DetachTrigger(detach.at, signal);
+  const steers = new SteerQueue();
+  const hooks: Pick<ToolCallHooks, 'bodyEnded' | 'steers'> = {
+    bodyEnded: trigger.bodyEnded,
+    ...(detach.refuseSteers ? {} : { steers }),
+  };
+  return { plan: detach, trigger, steers, hooks };
+}
+
 export async function* coordinateTool(
   coordinator: ToolExecutionCoordinator | undefined,
   identity: Omit<ToolOperationIdentity, 'invocationHash'>,
@@ -490,10 +501,10 @@ export async function* coordinateTool(
   if (!coordinator) return yield* run(undefined, { signal });
   const accepted = jsonObjectSchema.parse(operationWireValue(invocation));
   const operation = { ...identity, invocationHash: await toolInvocationHash(accepted) };
-  const trigger = detach ? new DetachTrigger(detach.at, signal) : undefined;
+  const detached = detach ? detaching(detach, signal) : undefined;
+  const trigger = detached?.trigger;
   const callSignal = trigger ? trigger.signal : signal;
   const execution = new CoordinatedExecution(coordinator, operation, accepted, callSignal, trigger);
-  const steers = detach ? new SteerQueue() : undefined;
   throwIfAborted(signal);
   const existing = await coordinator.lookup(operation);
   throwIfAborted(signal);
@@ -509,8 +520,7 @@ export async function* coordinateTool(
   const iterator = run((input) => execution.beginBody(input), {
     signal: callSignal,
     spent: (tokens) => execution.spend(tokens),
-    ...(trigger ? { bodyEnded: trigger.bodyEnded } : {}),
-    ...(steers && !detach?.refuseSteers ? { steers } : {}),
+    ...detached?.hooks,
   });
   let handedOff = false;
   try {
@@ -518,8 +528,8 @@ export async function* coordinateTool(
     for (;;) {
       const next = await (trigger ? Promise.race([pending, trigger.fired]) : pending);
       if (next === FIRED) {
-        if (!detach || !steers) throw operationBroken('The tool detached with no plan'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        const reply = await execution.detach(detach, iterator, pending, steers);
+        if (!detached) throw operationBroken('The tool detached with no plan'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        const reply = await execution.detach(detached.plan, iterator, pending, detached.steers);
         handedOff = true;
         yield reply.event;
         return { ...reply.replay };

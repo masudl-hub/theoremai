@@ -129,9 +129,8 @@ function createAgentCaller(args: {
       }
 
       const { speech, ...sent } = modelInput;
-      const events: TurnEvent[] = [];
-      try {
-        for await (const event of args.runNested({
+      const events = yield* nestedEvents(
+        args.runNested({
           req: {
             ...(speech ? { speech } : {}),
             ...fields,
@@ -146,21 +145,32 @@ function createAgentCaller(args: {
           parent: span,
           agentDepth: args.depth + 1,
           ...(steers ? { steers } : {}),
-        })) {
-          events.push(event);
-          yield event;
-        }
-      } catch (err) {
-        // why: A turn refused before it starts (a file the agent does not take) throws; the caller's model reads it like any other failed call.
-        if (!(err instanceof TheoremError) || NESTED_THROWS.has(err.kind) || isAbortError(err)) {
-          throw err;
-        }
-        events.push(toErrorEvent(err));
-      }
+        }),
+      );
       throwIfAborted(signal);
       return agentRunOf(events, tool.name, tool.profile, labels);
     },
   };
+}
+
+/** Relays an agent's turn and keeps its events; a turn refused before it starts ends in its error event. */
+async function* nestedEvents(
+  turn: AsyncGenerator<TurnEvent>,
+): AsyncGenerator<TurnEvent, TurnEvent[]> {
+  const events: TurnEvent[] = [];
+  try {
+    for await (const event of turn) {
+      events.push(event);
+      yield event;
+    }
+  } catch (err) {
+    // why: A turn refused before it starts (a file the agent does not take) throws; the caller's model reads it like any other failed call.
+    if (!(err instanceof TheoremError) || NESTED_THROWS.has(err.kind) || isAbortError(err)) {
+      throw err;
+    }
+    events.push(toErrorEvent(err));
+  }
+  return events;
 }
 
 /** The provider an agent's turn runs on: the host's for this call, else the caller's, else the registry's. */

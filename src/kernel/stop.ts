@@ -52,13 +52,14 @@ export interface ProfileTurnResumptionSpec {
    * call gave no reply and no tool call: the turn keeps its history, its step count and
    * what it has read. A failure the same call would meet again (the provider refused the
    * request) is not sent again, except once without its files when it carried any: accepted
-   * that way, the turn goes on and `done.mediaRefused` names them. Omitted, a turn sends
-   * nothing again.
+   * that way, the turn goes on and `done.mediaRefused` names them. Named here, `length` also
+   * repairs a call the output limit cut off: the model gets back what it wrote, or that it
+   * wrote nothing, and is asked again to fit. Omitted, a turn sends nothing again.
    */
   autoContinue?: ContinueStopKind[];
   /**
    * Compared against `TurnRequest.continuation`; omit → no count cap. Also how many model
-   * calls one text turn sends again itself; omit → one.
+   * calls one text turn sends again itself, failed calls and cut-off repairs together; omit → one.
    */
   maxContinues?: number;
 }
@@ -153,6 +154,13 @@ export function profileTurnResumption(profile: {
 }): ProfileTurnResumptionSpec | undefined {
   if (profile.type === 'live') return undefined;
   return profile.turnBehaviour?.resumption;
+}
+
+/** How many model calls a turn sends again when the output limit cuts one off: `maxContinues` (one when unset) while `autoContinue` names `length`, else none. */
+export function cutOffRepairs(profile: Parameters<typeof profileTurnResumption>[0]): number {
+  const policy = profileTurnResumption(profile);
+  if (!policy?.autoContinue?.includes('length')) return 0;
+  return policy.maxContinues ?? 1;
 }
 
 /** Text-only, for the interface `allowSteering` projection; `profileAllowsInject` adds live. */

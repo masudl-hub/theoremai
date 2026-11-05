@@ -16,6 +16,7 @@ import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import {
   AUTO_CONTINUE_DELAY_MS,
+  cutOffRepairs,
   isFailedStopKind,
   profileAllowsInject,
   profileTurnResumption,
@@ -204,8 +205,6 @@ interface CallTally {
   replied: boolean;
   /** Where the call's text begins in the attempt's reply (`StepExecutionState.replyText`). */
   replyAt?: number;
-  /** The answer tool's arguments as the call's drafts streamed them. */
-  answerDraft: string;
   /** The provider reported the output limit, whatever stop outranks it after. */
   cut: boolean;
 }
@@ -258,29 +257,32 @@ async function* showAnswer(
 }
 
 /**
- * An answer the output limit cut off: its drafts, kept on the attempt for the repair. The call
+ * A tool call the output limit cut off, on a profile that repairs cuts (`cutOffRepairs`): its drafts,
+ * kept on the attempt for the repair. The call
  * stops at `length`, and the failure its broken arguments gave is not the turn's.
  *
  * why: A protocol hands over a call whose arguments do not parse as a bare `bad_response`, and
  * drops the call; the stream then stops it as a `provider_error`. Its drafts are what the model
  * wrote, and the cut is why it broke.
  */
-function keepCutOffAnswer(
+function keepCutOffCall(
   tally: CallTally,
   state: StepExecutionState,
-  generation: ResolvedGeneration,
+  control: OutboundStreamControl,
+  profile: Profile,
 ): void {
-  if (!tally.cut || !answersByTool(generation) || !tally.answerDraft.trim()) return;
-  if (tally.calls.some((call) => call.name === ANSWER_TOOL && !call.failure)) return;
-  state.cutOffAnswer = tally.answerDraft;
+  if (!tally.cut || !control.toolDrafts || !cutOffRepairs(profile)) return;
+  const made = new Set(tally.calls.filter((call) => !call.failure).map((call) => call.callId));
+  const cut = [...control.toolDrafts].findLast(([id, draft]) => !made.has(id) && draft.text.trim());
+  if (!cut) return;
+  state.cutOffCall = cut[1];
   tally.failures = tally.failures.filter((failure) => failure.errorKind !== 'bad_response');
   tally.stop = { kind: 'length' };
   state.lastStop = tally.stop;
 }
 
 /**
- * A tool call's preview. The answer tool's streams as the structured reply's draft, and the call
- * keeps it, for the repair of an answer the output limit cuts off (`keepCutOffAnswer`).
+ * A tool call's preview. The answer tool's streams as the structured reply's draft.
  *
  * why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
  * as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
@@ -290,9 +292,7 @@ async function* showToolDraft(
   shown: StructuredDrafts,
   generation: ResolvedGeneration,
   buffer: { holdVisible: boolean },
-  tally: CallTally,
 ): AsyncGenerator<TurnEvent> {
-  if (event.name === ANSWER_TOOL) tally.answerDraft += event.text;
   if (buffer.holdVisible) return;
   if (event.name === ANSWER_TOOL && answersByTool(generation)) yield* shown.draft(event.text);
   else yield event;
@@ -363,7 +363,8 @@ const PASSING_ERROR_KINDS: ReadonlySet<ErrorKind> = new Set([
  * A failure the same call would meet again is not sent again (`PASSING_ERROR_KINDS`).
  *
  * why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
- * nothing. A reply cut at `length` is not a failure: the same call would be cut at the same place.
+ * nothing. A reply cut at `length` is not sent again, since the same call would be cut at the same
+ * place: the attempt gate repairs it with guidance instead (`handleCutOffReply`).
  */
 function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepOutcome['resume'] {
   const { stop } = tally;
@@ -434,7 +435,6 @@ async function* executeAutonomousStep(
     text: '',
     failures: [],
     replied: false,
-    answerDraft: '',
     cut: false,
   };
   const control: OutboundStreamControl = {
@@ -478,7 +478,7 @@ async function* executeAutonomousStep(
         continue;
       }
       if (event.type === 'tool_draft') {
-        yield* showToolDraft(event, shown, generation, buffer, tally);
+        yield* showToolDraft(event, shown, generation, buffer);
         continue;
       }
       // why: The model's history keeps what it wrote; only the reply the host gets is set apart.
@@ -495,7 +495,7 @@ async function* executeAutonomousStep(
   }
 
   yield* shown.end();
-  keepCutOffAnswer(tally, state, generation);
+  keepCutOffCall(tally, state, control, profile);
   yield* showAnswer(shown, tally, { generation, state, control, buffer, call });
   keepStreamCarry(state, control);
   const resume = resumeOf(args.mayResume, profile, tally) ?? mediaResumeOf(state, profile, tally);

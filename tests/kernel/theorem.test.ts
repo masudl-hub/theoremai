@@ -931,6 +931,7 @@ function unparsedReplyProfile(id: string, maxRetries?: number): void {
       structured: 'validTurn',
       validation: maxRetries === undefined ? {} : { maxRetries },
     },
+    turnBehaviour: { resumption: { autoContinue: ['length'] } },
     guardrails: { quota: { perDay: 10 } },
   });
 }
@@ -993,7 +994,7 @@ Deno.test('a structured reply that is not JSON is sent back with why, and the re
   assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
   assertEquals(lastOf(events, 'done')?.stop?.kind, 'completed');
 });
-Deno.test('a structured reply cut at length is repaired once by default, and cut again it fails', async () => {
+Deno.test('a structured reply cut at length is repaired once when the profile resumes length, and cut again it fails', async () => {
   unparsedReplyProfile('cutOffNoRetryProfile');
   let calls = 0;
   async function* mockComplete(): AsyncGenerator<TurnEvent> {

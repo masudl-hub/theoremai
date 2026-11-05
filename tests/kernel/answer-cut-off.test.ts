@@ -6,6 +6,7 @@ import { ANSWER_TOOL } from '../../src/kernel/answer-tool.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import type { ProfileTurnResumptionSpec } from '../../src/kernel/stop.ts';
 import type {
   ModelEvent,
   ModelRequest,
@@ -17,8 +18,13 @@ import type {
 import { geminiModels } from '../fixtures/models.ts';
 
 const CUT = '{"message":"Long';
+const RESUMES_LENGTH: ProfileTurnResumptionSpec = { autoContinue: ['length'] };
 
-function cutOffProfile(id: string, validation?: ProfileValidationSpec): string {
+function cutOffProfile(
+  id: string,
+  resumption: ProfileTurnResumptionSpec = RESUMES_LENGTH,
+  validation?: ProfileValidationSpec,
+): string {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -29,6 +35,7 @@ function cutOffProfile(id: string, validation?: ProfileValidationSpec): string {
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
       outputs: { structured: 'chatTurn', ...(validation ? { validation } : {}) },
+      turnBehaviour: { resumption },
       guardrails: { quota: { perDay: 100 } },
     }),
   );
@@ -109,11 +116,14 @@ function assertRepaired(events: TurnEvent[], requests: ModelRequest[]): void {
 
 Deno.test('an answer cut off at the output limit is sent back with what it wrote, and the retry answers', async () => {
   const { model, requests } = scripted([cutOff(ANSWER_TOOL, CUT), answered({ message: 'Short' })]);
-  const events = await collect(cutOffProfile('cut_answer', { maxRetries: 1 }), model);
+  const events = await collect(
+    cutOffProfile('cut_answer', RESUMES_LENGTH, { maxRetries: 1 }),
+    model,
+  );
   assertRepaired(events, requests);
 });
 
-Deno.test('a cut-off answer is repaired once on a profile without validation', async () => {
+Deno.test('a cut-off answer is repaired once when the profile resumes length, without validation', async () => {
   const { model, requests } = scripted([cutOff(ANSWER_TOOL, CUT), answered({ message: 'Short' })]);
   const events = await collect(cutOffProfile('cut_answer_default'), model);
   assertRepaired(events, requests);
@@ -131,9 +141,12 @@ Deno.test('an answer cut off again fails as a bad response, with no structured o
   assertEquals(of(events, 'done').at(-1)?.stop.kind, 'provider_error');
 });
 
-Deno.test('validation.maxRetries raises how many times a cut-off answer is repaired', async () => {
+Deno.test('maxContinues raises how many times a cut-off answer is repaired', async () => {
   const { model, requests } = scripted([cutOff(ANSWER_TOOL, CUT)]);
-  const events = await collect(cutOffProfile('cut_answer_budget', { maxRetries: 2 }), model);
+  const events = await collect(
+    cutOffProfile('cut_answer_budget', { autoContinue: ['length'], maxContinues: 2 }),
+    model,
+  );
   assertEquals(requests.length, 3);
   assertEquals(
     of(events, 'attempt').map((e) => e.reason),
@@ -145,13 +158,46 @@ Deno.test('validation.maxRetries raises how many times a cut-off answer is repai
   );
 });
 
-Deno.test('a reply cut off inside another tool call does not start the cut-off repair', async () => {
-  const { model, requests } = scripted([cutOff('fetch_sensor', '{"sensor":"so')]);
-  const events = await collect(cutOffProfile('cut_other_tool'), model);
+Deno.test('a cut-off answer is not repaired when autoContinue does not name length', async () => {
+  const { model, requests } = scripted([cutOff(ANSWER_TOOL, CUT), answered({ message: 'Short' })]);
+  const events = await collect(
+    cutOffProfile('cut_answer_off', { autoContinue: ['stream_incomplete'] }),
+    model,
+  );
   assertEquals(requests.length, 1);
   assertEquals(of(events, 'attempt'), []);
   assertEquals(
     of(events, 'error').map((e) => e.errorKind),
     ['bad_response'],
   );
+});
+
+Deno.test('a call to another tool cut off at the output limit is sent back with its arguments, and the retry answers', async () => {
+  const raw = '{"sensor":"so';
+  const { model, requests } = scripted([
+    cutOff('fetch_sensor', raw),
+    answered({ message: 'Short' }),
+  ]);
+  const events = await collect(cutOffProfile('cut_other_tool'), model);
+  assertEquals(requests.length, 2);
+  const repair = repairOf(requests[1]);
+  assertStringIncludes(repair, raw);
+  assertStringIncludes(repair, labelText('repair.call_cut_off', { tool: 'fetch_sensor' }));
+  assertStringIncludes(repair, labelText('repair.call_cut_off_guidance', { tool: 'fetch_sensor' }));
+  assertEquals(
+    of(events, 'structured').map((e) => e.structured),
+    [{ message: 'Short' }],
+  );
+  assertEquals(of(events, 'error'), []);
+});
+
+Deno.test('a call to another tool cut off again fails as a bad response', async () => {
+  const { model, requests } = scripted([cutOff('fetch_sensor', '{"sensor":"so')]);
+  const events = await collect(cutOffProfile('cut_other_tool_twice'), model);
+  assertEquals(requests.length, 2);
+  assertEquals(
+    of(events, 'error').map((e) => e.errorKind),
+    ['bad_response'],
+  );
+  assertEquals(of(events, 'done').at(-1)?.stop.kind, 'provider_error');
 });

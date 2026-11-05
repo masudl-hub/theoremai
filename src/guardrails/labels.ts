@@ -98,6 +98,11 @@ export const LABEL_KEYS = [
   'repair.default_guidance',
   'repair.items_guidance',
   'repair.cut_off_guidance',
+  'repair.reply_cut_off',
+  'repair.call_cut_off',
+  'repair.call_cut_off_guidance',
+  'repair.nothing_written',
+  'repair.nothing_written_guidance',
   'repair.prompt_header',
   'repair.prompt_intro',
   'repair.prompt_instructions',
@@ -487,6 +492,15 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     'The previous output holds only the items that were rejected; the rest of your reply is kept. Return only these items, corrected, in the same order.',
   'repair.cut_off_guidance':
     'Your answer was cut off before it ended. Give the whole answer again, written shorter so it fits. Keep what matters most.',
+  'repair.reply_cut_off': 'The reply was cut off at the output limit before it ended.',
+  'repair.call_cut_off':
+    'The call to {tool} was cut off at the output limit before its arguments ended.',
+  'repair.call_cut_off_guidance':
+    'Your call to {tool} was cut off before its arguments ended. Call it again with arguments short enough to fit, or split the work into smaller calls.',
+  'repair.nothing_written':
+    'The output limit was reached before any reply or tool call was written.',
+  'repair.nothing_written_guidance':
+    'You reached the output limit before any reply or tool call came through. Spend less of the limit thinking, and keep any tool call short enough to fit, or split it into smaller calls.',
   'repair.prompt_header': '## OUTPUT REPAIR REQUEST',
   'repair.prompt_intro':
     'The previous assistant output was rejected by a host validator and must be revised.',
@@ -786,6 +800,16 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'Sent to the model when an item rule rejects some items of a list in its structured reply and asks for those items alone to be rewritten.',
   'repair.cut_off_guidance':
     'Sent to the model when its answer was cut off at the output limit and it is asked to give it again, shorter.',
+  'repair.reply_cut_off':
+    'The validator rejection in the repair request when a text reply was cut off at the output limit.',
+  'repair.call_cut_off':
+    "The validator rejection in the repair request when a tool call's arguments were cut off at the output limit. Takes {tool}.",
+  'repair.call_cut_off_guidance':
+    "Sent to the model when a tool call's arguments were cut off at the output limit and it is asked to make the call again, shorter or split. Takes {tool}.",
+  'repair.nothing_written':
+    'The validator rejection in the repair request when the output limit was reached before the model wrote a reply or a tool call.',
+  'repair.nothing_written_guidance':
+    'Sent to the model when it reached the output limit before writing anything, asking it to think less and answer.',
   'repair.prompt_header':
     'The heading that opens the repair request sent to the model after a validator or the egress check rejects its output.',
   'repair.prompt_intro':
@@ -1034,6 +1058,8 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'quota.exhausted': ['perDay'],
   'repair.history_heading': ['count'],
   'structured.answer_missing': TOOL,
+  'repair.call_cut_off': TOOL,
+  'repair.call_cut_off_guidance': TOOL,
   'compaction.tool_call': ['tool', 'arguments'],
   'compaction.tool_result': ['tool', 'result'],
   'compaction.tool_files': ['tool'],

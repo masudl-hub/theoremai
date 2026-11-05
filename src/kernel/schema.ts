@@ -1208,7 +1208,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.autoContinue': field(
     'ContinueStopKind[]',
-    'Which early stops are continued without asking, whether or not allowContinue offers a Continue for them. When set, a text turn sends a listed failed model call that gave no reply again itself; the host continues the rest.',
+    'Which early stops are continued without asking, whether or not allowContinue offers a Continue for them. When set, a text turn sends a listed failed model call that gave no reply again itself; the host continues the rest. Naming length also repairs a call the output limit cut off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.',
     CONTINUE_STOP_KINDS,
     {
       length: 'The reply hit the output token limit.',
@@ -1218,7 +1218,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.resumption.maxContinues': field(
     'number',
-    'How many times one reply may be continued; once set, each continue must say which one it is. Also how many failed model calls one text turn sends again itself (one when unset).',
+    'How many times one reply may be continued; once set, each continue must say which one it is. Also how many model calls one text turn sends again itself, failed calls and cut-off repairs together (one when unset).',
   ),
   'turnBehaviour.allowSteering': field(
     'boolean',

@@ -59,6 +59,8 @@ interface OutboundStreamControl {
   promptLeaks?: GuardrailHit[];
   /** What the turn's thoughts so far ended on (`ThoughtGuard.carryOut`): read in front of this call's, and replaced. */
   thoughtCarry?: string;
+  /** Each tool call's arguments as this call's drafts wrote them, before any gate, by call id. */
+  toolDrafts?: ReadonlyMap<string, { name: string; text: string }>;
 }
 
 function shouldSkipStreamEvent(event: ModelEvent, profile: Profile): boolean {
@@ -217,6 +219,8 @@ interface ShownDraft {
  */
 class ToolDrafts {
   private readonly drafts = new Map<string, ShownDraft | 'stopped'>();
+  /** Each call's arguments as the model wrote them, shown or not. */
+  readonly written = new Map<string, { name: string; text: string }>();
 
   constructor(
     private readonly policy: ResolvedGuardrailPolicy,
@@ -238,6 +242,9 @@ class ToolDrafts {
       this.close(event);
       return false;
     }
+    const written = this.written.get(event.callId) ?? { name: event.name, text: '' };
+    written.text += event.text;
+    this.written.set(event.callId, written);
     // why: A withheld reply is judged whole when its attempt ends; nothing more of it previews before then.
     if (!withheld) yield* this.release(event, timed);
     return true;
@@ -326,6 +333,16 @@ function streamContext(
   };
 }
 
+function toolDraftsFor(
+  args: StreamArgs,
+  policy: ResolvedGuardrailPolicy,
+  context: GuardrailContext,
+): ToolDrafts {
+  const drafts = new ToolDrafts(policy, context, args.tools, args.answerTool === true);
+  if (args.control) args.control.toolDrafts = drafts.written;
+  return drafts;
+}
+
 async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEvent> {
   const { profile, request, provider, call, signal, control } = args;
   /** Runs one stream check and adds the run to the call's record of that check. */
@@ -347,7 +364,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     canaryCarry,
   );
   const thoughts = await thoughtGuardFor(policy, context, thoughtCarry);
-  const drafts = new ToolDrafts(policy, context, args.tools, args.answerTool === true);
+  const drafts = toolDraftsFor(args, policy, context);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;

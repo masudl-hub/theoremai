@@ -26,6 +26,7 @@ import { resolveInputParts } from '../../registry/ingress.ts';
 import { turnFacts } from '../../registry/options.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
+import { cutOffRepairs } from '../../stop.ts';
 import type { BoundSystem } from '../../system-parts.ts';
 import type {
   AttemptReason,
@@ -538,24 +539,24 @@ function startItemFix(args: {
   return attempt;
 }
 
+/** What the repair of an attempt's reply sends back: the reply, why it failed, and how to fix it. */
+interface ReplyRepair {
+  text: string;
+  rejection: string;
+  guidance?: string;
+}
+
 /** A structured reply the attempt wrote that never parsed, and what went wrong with it. */
 function unparsedReply(
   state: StepExecutionState,
   generation: ResolvedGeneration,
   profile: Profile,
-): { text: string; rejection: string; guidance?: string } | undefined {
+): ReplyRepair | undefined {
   if (!generation.structured) return undefined;
-  const byTool = answersByTool(generation);
-  const text = byTool ? (state.cutOffAnswer ?? '') : collectAttemptText(state.attemptEvents);
+  if (state.lastStop?.kind === 'length') return cutOffReply(state, generation, profile);
+  if (answersByTool(generation)) return undefined;
+  const text = collectAttemptText(state.attemptEvents);
   if (!text.trim()) return undefined;
-  if (state.lastStop?.kind === 'length') {
-    return {
-      text,
-      rejection: labelText('structured.cut_off', {}, profile.labels),
-      guidance: labelText('repair.cut_off_guidance', {}, profile.labels),
-    };
-  }
-  if (byTool) return undefined;
   const error = findLast(state.attemptEvents, (event) => event.type === 'error');
   if (
     state.lastStop?.kind === 'provider_error' &&
@@ -565,6 +566,48 @@ function unparsedReply(
     return { text, rejection: labelText('structured.not_json', {}, profile.labels) };
   }
   return undefined;
+}
+
+/**
+ * The repair of an attempt the output limit cut off: what it wrote before the cut (a reply, a
+ * tool call's arguments, or nothing), why it stopped, and how to fit.
+ */
+function cutOffReply(
+  state: StepExecutionState,
+  generation: ResolvedGeneration,
+  profile: Profile,
+): ReplyRepair | undefined {
+  if (state.lastStop?.kind !== 'length') return undefined;
+  const labels = profile.labels;
+  const call = state.cutOffCall;
+  if (call?.name === ANSWER_TOOL && generation.structured) {
+    return {
+      text: call.text,
+      rejection: labelText('structured.cut_off', {}, labels),
+      guidance: labelText('repair.cut_off_guidance', {}, labels),
+    };
+  }
+  if (call) {
+    return {
+      text: call.text,
+      rejection: labelText('repair.call_cut_off', { tool: call.name }, labels),
+      guidance: labelText('repair.call_cut_off_guidance', { tool: call.name }, labels),
+    };
+  }
+  const text = collectAttemptText(state.attemptEvents);
+  if (!text.trim()) {
+    return {
+      text,
+      rejection: labelText('repair.nothing_written', {}, labels),
+      guidance: labelText('repair.nothing_written_guidance', {}, labels),
+    };
+  }
+  const json = generation.structured && !answersByTool(generation);
+  return {
+    text,
+    rejection: labelText(json ? 'structured.cut_off' : 'repair.reply_cut_off', {}, labels),
+    guidance: labelText('repair.cut_off_guidance', {}, labels),
+  };
 }
 
 function parsesAsJson(text: string): boolean {
@@ -665,11 +708,14 @@ function* handleMissingAnswer(
 }
 
 /**
- * A structured reply the output limit cut off: a repair that asks for it again, shorter, while the
- * budget lasts, else a `bad_response` failure. The budget is one repair, or `outputs.validation.maxRetries`.
+ * An attempt the output limit cut off: a repair that sends back what it wrote, with guidance to fit,
+ * while the budget lasts, else a `bad_response` failure. It covers a reply, a tool call whose
+ * arguments were cut, and a call that wrote nothing before the limit. It runs only when the profile's
+ * `turnBehaviour.resumption.autoContinue` names `length`, and it shares that turn's `maxContinues`
+ * with the resends of failed calls.
  *
- * why: A cut-off reply holds no answer to check, with or without `outputs.validation`; without a
- * repair the turn would end with none.
+ * why: A cut-off reply holds no answer to check, and a cut-off call cannot run; without a repair
+ * the turn would end with a partial answer or none, and the model would never know.
  */
 function* handleCutOffReply(
   flow: AttemptFlowState,
@@ -680,9 +726,12 @@ function* handleCutOffReply(
   held: boolean,
 ): Generator<TurnEvent, 'continue' | 'pass'> {
   if (latestStructured !== undefined || flow.pendingItemFix) return 'pass';
-  const unparsed = unparsedReply(state, flow.currentGen, profile);
-  if (!unparsed?.guidance) return 'pass';
-  if (flow.currentAttempt < cutOffBudget(profile)) {
+  const budget = cutOffBudget(profile);
+  if (!budget && !flow.currentGen.structured) return 'pass';
+  const unparsed = cutOffReply(state, flow.currentGen, profile);
+  if (!unparsed) return 'pass';
+  if (state.resumes < budget) {
+    state.resumes += 1;
     const nextRequest = buildRepairRequest(
       flow.currentReq,
       unparsed.text,
@@ -692,6 +741,8 @@ function* handleCutOffReply(
     yield updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
     return 'continue';
   }
+  // why: A text reply cut off is still a reply, and the host's Continue (`allowContinue`) picks it up.
+  if (!flow.currentGen.structured && !state.cutOffCall && unparsed.text.trim()) return 'pass';
   const failure = toErrorEvent(
     new TheoremError('bad_response', 'the reply was cut off at the output limit'), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
@@ -701,10 +752,10 @@ function* handleCutOffReply(
   return 'pass';
 }
 
-/** How many times a structured reply cut off at the output limit is repaired. */
+/** How many model calls a turn may send again itself when the output limit cuts one off. */
 function cutOffBudget(profile: Profile): number {
-  const outputs = profileTurnOutputs(profile);
-  return outputs?.structured ? Math.max(1, outputs.validation?.maxRetries ?? 0) : 0;
+  if (profile.type !== 'text' && !profileTurnOutputs(profile)?.structured) return 0;
+  return cutOffRepairs(profile);
 }
 
 /** Puts on the attempt's structured output the fields that still failed. */
@@ -746,7 +797,7 @@ async function* executeSingleAttemptCycle(args: {
   // invariant: The attempt's reply spans its before_end re-entries; only a new attempt starts it again.
   state.replyText = '';
   state.replyMessages = [];
-  state.cutOffAnswer = undefined;
+  state.cutOffCall = undefined;
   // invariant: The leak check's carry is the end of this attempt's reply; a retry's is read on its own.
   state.canaryCarry = undefined;
 

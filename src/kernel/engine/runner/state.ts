@@ -81,8 +81,8 @@ interface StepExecutionState {
    * text begins there: what an inject's drop cuts.
    */
   replyMessages: { message: TurnHistoryMessage; at: number }[];
-  /** The answer tool's arguments as this attempt wrote them before the output limit cut them off. */
-  cutOffAnswer?: string;
+  /** The tool call this attempt was writing when the output limit cut its arguments off. */
+  cutOffCall?: { name: string; text: string };
   /** The message `input.lateResults` opened, until the run can emit it. */
   lateResults?: string;
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */

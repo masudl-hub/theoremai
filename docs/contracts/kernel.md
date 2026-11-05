@@ -1297,11 +1297,20 @@ On a turn that answers by tool:
 - The call ends the turn. Other calls in the same step do not run.
 - The step that `turnBehaviour.atStepLimit: 'answer'` leaves without tools still has the answer tool.
 - A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `provider_error`.
-- A call the output limit cuts off is repaired as below. The repair carries the call's input as its drafts streamed it.
+- A call the output limit cuts off is repaired as below. The repair carries the call's input as the model wrote it.
 - The tool's description is the label `structured.answer_tool`.
 - A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
 
-On every structured turn, a reply cut at `length` is repaired, with or without `outputs.validation`: once, or `outputs.validation.maxRetries` times when that is more. The repair carries what the model wrote, the rejection `structured.cut_off` and the guidance `repair.cut_off_guidance`. Cut off again with no repair left, the turn fails with a `bad_response` error and the stop `provider_error`.
+A text or structured turn repairs a call cut at `length` only when the profile's `turnBehaviour.resumption.autoContinue` names `length`. It repairs up to `maxContinues` times (once when unset), and those repairs count against the same `maxContinues` as resent failed calls. Without `length` in `autoContinue`, nothing is sent again: a cut text reply stops at `length`, and a cut call or structured reply fails with `bad_response`. The repair sends back what the model wrote before the cut, with a rejection and guidance that depend on what was cut:
+
+| What the cut stopped | Rejection | Guidance |
+| --- | --- | --- |
+| A structured reply, or the answer tool's call | `structured.cut_off` | `repair.cut_off_guidance` |
+| A text reply | `repair.reply_cut_off` | `repair.cut_off_guidance` |
+| Another tool's call: its input as the model wrote it | `repair.call_cut_off` | `repair.call_cut_off_guidance` |
+| Nothing: the model reached the limit before it wrote a reply or a call | `repair.nothing_written` | `repair.nothing_written_guidance` |
+
+The repair is an `attempt` event, so the host drops the cut text it already has. Tools that ran earlier in the turn do not run again; their results stay in what the retry reads. Cut off again with no repair left, a text reply keeps its text and the turn stops at `length`, so the host can offer Continue. Every other cut fails the turn with a `bad_response` error and the stop `provider_error`.
 
 On a turn that answers by response format, a reply that ended but is not valid JSON is repaired like any other reply that fails validation, while `outputs.validation.maxRetries` has a retry left. The repair carries the reply's text and the rejection `structured.not_json`. With no retry left, the turn ends with the `bad_response` error and the stop `provider_error`.
 

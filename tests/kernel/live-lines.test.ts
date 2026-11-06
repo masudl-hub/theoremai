@@ -41,7 +41,7 @@ function lineHost(failKeep = false) {
   return { lines, kept, log };
 }
 
-async function openLines(id: string, lines?: LiveLines, log: string[] = []) {
+async function openLines(id: string, lines?: LiveLines, log: string[] = [], greeting?: string) {
   clearProfiles();
   resetTools();
   registerTool({
@@ -62,7 +62,7 @@ async function openLines(id: string, lines?: LiveLines, log: string[] = []) {
     id,
     identity: { handle: 'live', system: 'hi' },
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
-    live: { voice: 'Aoede', ingress: { text: true } },
+    live: { voice: 'Aoede', ingress: { text: true }, ...(greeting ? { greeting } : {}) },
     tools: { allow: ['live_lookup'] },
   });
   registerProfile(profile);
@@ -169,6 +169,20 @@ Deno.test('a typed line takes the id the model was given, as a spoken one does',
   await call.session.sendText('What is this leaf?');
   await call.deliver(said('A fig.'), TURN_COMPLETE);
   assertEquals(host.kept[0], { id: 'msg.1', role: 'user', text: 'What is this leaf?' });
+  await call.end();
+});
+
+Deno.test('the greeting is not a line: the first line is the first thing the user says', async () => {
+  const host = lineHost();
+  const call = await openLines('lines_greeting', host.lines, [], 'Greet the visitor.');
+  await call.deliver(said('Hello!'), TURN_COMPLETE);
+  await call.session.sendAudio(AUDIO);
+  await call.deliver(heard('Hi.'), said('How can I help?'), TURN_COMPLETE);
+  assertEquals(host.kept, [
+    { id: 'msg.2', role: 'assistant', text: 'Hello!' },
+    { id: 'msg.1', role: 'user', text: 'Hi.' },
+    { id: 'msg.4', role: 'assistant', text: 'How can I help?' },
+  ]);
   await call.end();
 });
 

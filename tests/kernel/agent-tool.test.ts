@@ -1021,6 +1021,51 @@ Deno.test("a called agent's turn has no path when the hook gives none", async ()
   assertEquals(await researcherToolsOnWeb(() => ({})), []);
 });
 
+/** The lines the researcher's turn was sent when its profile has one line for each topic. */
+async function researcherLines(onAgentCall?: AgentCallHook): Promise<string> {
+  const scope = createKernelScope();
+  scope.profiles.register(
+    defineProfile({
+      ...textProfile(RESEARCHER, RESEARCHER_SYSTEM, []),
+      identity: {
+        handle: RESEARCHER,
+        options: { topic: { choices: [{ value: 'soil' }, { value: 'light' }] } },
+        system: [
+          RESEARCHER_SYSTEM,
+          'when topic is soil: Read soil.',
+          'when topic is light: Read light.',
+        ],
+      },
+    }),
+  );
+  scope.tools.register(agentTool());
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  let system = '';
+  const routed = routedProvider();
+  const provider: TurnModel = {
+    complete(req) {
+      if (isResearcher(req)) system = req.system;
+      return routed.complete(req);
+    },
+  };
+  const req = { profile: CALLER, input: { text: 'Help' }, ...(onAgentCall ? { onAgentCall } : {}) };
+  for await (const _ of runScopedTurn(scope, req, provider)) {
+    // why: The turn runs to its end; only the researcher's lines are checked.
+  }
+  return system;
+}
+
+Deno.test("a called agent's when lines read the options the hook gives", async () => {
+  const system = await researcherLines(() => ({ options: { topic: 'soil' } }));
+  assertEquals(system.includes('Read soil.'), true);
+  assertEquals(system.includes('Read light.'), false);
+});
+
+Deno.test("a called agent's when lines fit none when the hook gives no options", async () => {
+  const system = await researcherLines();
+  assertEquals(system.includes('Read soil.') || system.includes('Read light.'), false);
+});
+
 Deno.test("a stop on the caller stops its called agent, and the caller's turn ends after the agent's", async () => {
   const stop = new AbortController();
   let agentSawStop = false;

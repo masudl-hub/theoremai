@@ -91,7 +91,7 @@ The host hook receives an `AgentCall` descriptor:
 The hook returns one of three outcomes:
 1. **`undefined`**: Executes the child agent turn with the caller's arguments as-is.
 2. **`{ refuse: string }`**: Rejects the delegation. Theorem returns the refusal message to the calling model as a tool error.
-3. **`AgentCallRequest`**: Reshapes the child invocation—overriding inputs, swapping models, naming the `path` the child turn runs on, attaching isolated stage handlers, or passing credentials via `host`.
+3. **`AgentCallRequest`**: Reshapes the child invocation—overriding inputs, swapping models, naming the `path` the child turn runs on, filling its `options` for its `when` lines, attaching isolated stage handlers, or passing credentials via `host`.
 
 ```ts
 import { runTurn, type AgentCall, type AgentCallRequest } from '@theoremjs/agents';

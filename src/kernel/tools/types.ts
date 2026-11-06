@@ -655,7 +655,8 @@ export interface AgentCall {
  * `host` is what the called agent's tools read as `ctx.host`; omit it and they
  * read none, because the caller's is not passed down. `path` is the path the
  * called agent's turn runs on; omit it and its turn has none, so it gets only
- * tools on every path (`'*'`).
+ * tools on every path (`'*'`). `options` fills the called profile's own
+ * `identity.options`, for its `when` lines; the caller's are not passed down.
  */
 export interface AgentCallRequest
   extends Partial<
@@ -670,6 +671,7 @@ export interface AgentCallRequest
       | 'conversationId'
       | 'host'
       | 'path'
+      | 'options'
     >
   > {
   model?: ModelId;

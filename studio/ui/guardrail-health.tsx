@@ -453,7 +453,9 @@ function useBenchRows(
   useEffect(() => {
     let live = true;
     fetch(`${endpoint}/bench/rows?${key}`)
-      .then((response): Promise<{ rows: BenchRow[] }> | null => (response.ok ? response.json() : null))
+      .then((response): Promise<{ rows: BenchRow[] }> | null =>
+        response.ok ? response.json() : null,
+      )
       .then((body) => {
         if (live) setRows({ key, rows: body?.rows ?? 'failed' });
       })

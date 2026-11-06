@@ -498,11 +498,14 @@ export function GuardrailTester({
   payload,
   isWide,
   aside,
+  isTimed = true,
 }: {
   payload: StudioRunPayload;
   isWide: boolean;
   /** A control for the title's end, such as a switch to another view. */
   aside?: ReactNode;
+  /** False where the probe's server can't time its own work, so no check reads 0ms. */
+  isTimed?: boolean;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -550,6 +553,7 @@ export function GuardrailTester({
           answer && (
             <TraceGuardrailsView
               records={answer.traces}
+              isTimed={isTimed}
               head={
                 <AnswerHead
                   answer={answer}

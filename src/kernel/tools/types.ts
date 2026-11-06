@@ -653,7 +653,9 @@ export interface AgentCall {
  * signal, trace parent, and hook. `provider` runs the turn; omit it to use the
  * caller's, which works only when both are on the same provider and protocol.
  * `host` is what the called agent's tools read as `ctx.host`; omit it and they
- * read none, because the caller's is not passed down.
+ * read none, because the caller's is not passed down. `path` is the path the
+ * called agent's turn runs on; omit it and its turn has none, so it gets only
+ * tools on every path (`'*'`).
  */
 export interface AgentCallRequest
   extends Partial<
@@ -667,6 +669,7 @@ export interface AgentCallRequest
       | 'onStage'
       | 'conversationId'
       | 'host'
+      | 'path'
     >
   > {
   model?: ModelId;

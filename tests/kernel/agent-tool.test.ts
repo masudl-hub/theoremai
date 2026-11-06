@@ -973,6 +973,54 @@ Deno.test("a called agent's tools read no host when the hook gives none", async 
   assertEquals(await hostSeenByAgentTools(() => ({})), [undefined]);
 });
 
+/** The tools the researcher was offered, when its `lookup` is only on the web path. */
+async function researcherToolsOnWeb(onAgentCall?: AgentCallHook): Promise<string[]> {
+  const scope = createKernelScope();
+  scope.tools.register({
+    type: 'function',
+    name: 'lookup',
+    description: 'Look something up.',
+    category: 'test',
+    access: 'read-only',
+    paths: ['web'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ found: z.string() }),
+    handler: () => ({ found: 'fact' }),
+  });
+  scope.profiles.register(textProfile(RESEARCHER, RESEARCHER_SYSTEM, ['lookup']));
+  scope.tools.register(agentTool());
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  const offered: string[] = [];
+  const routed = routedProvider();
+  const provider: TurnModel = {
+    complete(req) {
+      if (isResearcher(req)) offered.push(...(req.wireTools ?? []).map((tool) => tool.name));
+      return routed.complete(req);
+    },
+  };
+  const req = {
+    profile: CALLER,
+    input: { text: 'Help' },
+    path: 'web',
+    ...(onAgentCall ? { onAgentCall } : {}),
+  };
+  for await (const _ of runScopedTurn(scope, req, provider)) {
+    // why: The turn runs to its end; only what the researcher was offered is checked.
+  }
+  return offered;
+}
+
+Deno.test("a called agent's turn runs on the path the hook gives", async () => {
+  assertEquals(await researcherToolsOnWeb(() => ({ path: 'web' })), ['lookup']);
+});
+
+Deno.test("a called agent's turn has no path when the hook gives none", async () => {
+  assertEquals(await researcherToolsOnWeb(), []);
+  assertEquals(await researcherToolsOnWeb(() => ({})), []);
+});
+
 Deno.test("a stop on the caller stops its called agent, and the caller's turn ends after the agent's", async () => {
   const stop = new AbortController();
   let agentSawStop = false;

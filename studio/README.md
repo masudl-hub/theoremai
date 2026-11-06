@@ -11,6 +11,8 @@ Edit, run, and test Theorem agents in a studio: on your own project with one com
 
 The **studio** is a screen for one agent **profile** (see [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents)) at a time. You edit the profile as a form or as code, run it in a chat beside the editor, and probe its guardrails.
 
+In the form, the system prompt opens formatted. Private text sits on a shaded ground. A block that starts and ends on private text is one shaded box, with its bullets inside it and any shared words in it cut out. Each option is one row: its name, then its values.
+
 The screen keeps the profile it edits in the browser, as a **draft**. It sends the draft with every request to a server under `/api/studio`. You choose which server answers:
 
 ```text

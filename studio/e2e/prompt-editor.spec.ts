@@ -91,10 +91,8 @@ test('a private section with a shared quote is one block, the quote cut out of i
   page,
 }) => {
   await open(page);
-  await write(page, 'Shared intro.\n\n## Voice\n\n- Grounded: say weight then.\n- Yours.');
-  await editor(page).getByText('Voice', { exact: true }).click();
-  await page.keyboard.press('Home');
-  await page.keyboard.press('ControlOrMeta+Shift+ArrowDown');
+  await write(page, '## Voice\n\n- Grounded: say weight then.\n- Yours.');
+  await selectAll(page);
   await button(page, 'Private').click();
   await page.getByText('Grounded: say weight then.').click();
   await page.keyboard.press('Home');

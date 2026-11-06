@@ -153,10 +153,39 @@ export interface RunSessionOptions extends ProviderHostOptions {
    * the call's next result; unanswered by then, the model reads that the sign-in expired.
    */
   signInGate?: SignInGatePolicy;
+  /**
+   * Give each line of the call an id the model can cite, and hand each finished line to the
+   * host. Unset, lines get no ids and the host reads them from `events()`.
+   */
+  lines?: LiveLines;
 }
 
 /** How a sign-in gate behaves in a live session: `hold` waits for the decision, `answer` tells the model the sign-in is pending and releases the call. */
 export type SignInGatePolicy = 'hold' | 'answer';
+
+/** Who said a line of the call. */
+export type LiveLineRole = 'user' | 'assistant';
+
+/** One finished line of the call: all the user said before the model acted on it, or all the model said in one turn. */
+export type LiveLine = { id: string; role: LiveLineRole; text: string };
+
+/**
+ * The host's ids and store for the lines of a live call. The model reads a user line's note
+ * before the line (at the opening, then as each user line closes), so it can cite the line it
+ * is hearing; it reads the model's own line's note after that line is kept.
+ */
+export interface LiveLines {
+  /** A new id for a line still to come. A failure fails the open, or the line that needed it. */
+  reserve(): Promise<string>;
+  /** What the model reads to learn a line's id, in the host's words. */
+  note(line: { id: string; role: LiveLineRole }): string;
+  /**
+   * Take a finished line. The session waits for it before the model's next tool call reaches
+   * the host, so resolve once the line is the host's (queued durably), not once it is stored
+   * far away. A failure ends the session with that error.
+   */
+  keep(line: LiveLine): Promise<void>;
+}
 
 type HeldCall = {
   operationId: string;
@@ -475,28 +504,20 @@ function boundaryDoneEvents(
   return [{ type: 'done', stop: { kind: 'completed' } }];
 }
 
-function recordLiveHistory(
-  events: TurnEvent[],
-  recordUserText: (text: string) => void,
-  recordAssistantText: (text: string) => void,
-): void {
-  for (const event of events) {
-    if (event.type === 'text') recordAssistantText(event.text);
-    if (
-      event.type === 'evidence' &&
-      event.text &&
-      (event.evidence.kind === 'input_transcription' ||
-        event.evidence.kind === 'output_transcription') &&
-      !event.evidence.interim
-    ) {
-      if (event.evidence.kind === 'input_transcription') recordUserText(event.text);
-      if (
-        event.evidence.kind === 'output_transcription' &&
-        !events.some((item) => item.type === 'text')
-      )
-        recordAssistantText(event.text);
-    }
-  }
+/** The model acted on what it heard: it spoke, wrote, or called a tool. */
+function isModelAction(event: TurnEvent): boolean {
+  if (event.type === 'text' || event.type === 'media') return true;
+  if (event.type === 'tool') return event.tool.phase === undefined;
+  return event.type === 'evidence' && event.evidence.kind === 'output_transcription';
+}
+
+/** A final transcription chunk of `kind`, or `undefined`. */
+function finalTranscript(
+  event: TurnEvent,
+  kind: 'input_transcription' | 'output_transcription',
+): string | undefined {
+  if (event.type !== 'evidence' || event.evidence.kind !== kind || event.evidence.interim) return;
+  return event.text || undefined;
 }
 
 async function sealLiveCheckpoints(
@@ -591,6 +612,9 @@ function buildLiveSession(args: {
   agents: AgentCaller;
   gateTtlMs: number | undefined;
   signInGate: SignInGatePolicy;
+  lines?: LiveLines;
+  /** The first user line's id, reserved before setup so its note rides in the opening seed. */
+  firstLineId?: string;
 }): LiveSession {
   const {
     profile,
@@ -609,6 +633,7 @@ function buildLiveSession(args: {
     trace,
     gateTtlMs,
     signInGate,
+    lines,
   } = args;
   /** Grows as the user approves `session_consent` tools. */
   let sessionPermissions = args.sessionPermissions;
@@ -647,12 +672,30 @@ function buildLiveSession(args: {
   /** Serialize stage + ingress so concurrent send* cannot interleave cycles. */
   let ingressChain: Promise<void> = Promise.resolve();
 
+  const noteGiven = (text: string) => {
+    addSeenUrls(givenUrls.request, text);
+    addGivenDestinations(destinations, text);
+  };
+
+  /** Text the session wrote in the user's place (an inject): its own history entry, no line. */
   const recordUserText = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     history.push({ role: 'user', content: trimmed });
-    addSeenUrls(givenUrls.request, trimmed);
-    addGivenDestinations(destinations, trimmed);
+    noteGiven(trimmed);
+  };
+
+  /** The user's line being heard: the id its note gave the model, and the words so far. */
+  let userLine: { id: Promise<string> | undefined; text: string } = {
+    id: args.firstLineId === undefined ? undefined : Promise.resolve(args.firstLineId),
+    text: '',
+  };
+  /** What the model has said this turn: one line, kept when the turn ends. */
+  let assistantLine = '';
+
+  const hearUser = (text: string, typed: boolean) => {
+    userLine.text = typed && userLine.text ? `${userLine.text} ${text}` : `${userLine.text}${text}`;
+    noteGiven(text);
   };
 
   const recordAssistantText = (text: string) => {
@@ -901,11 +944,110 @@ function buildLiveSession(args: {
     }
   };
 
-  const ingestPreparedLiveText = (text: string) => {
+  /** `record` takes the text as it crossed, unwrapped: the user's typed line, or an inject's own entry. */
+  const ingestPreparedLiveText = (text: string, record: (crossed: string) => void) => {
     const safe = readLiveText(text);
     if (safe === undefined) return;
-    recordUserText(safe.slice(USER_OPEN.length + 1, -(USER_CLOSE.length + 1)));
+    record(safe.slice(USER_OPEN.length + 1, -(USER_CLOSE.length + 1)));
     sendInput({ type: 'text', text: safe });
+  };
+
+  /** Reserve the next user line's id and tell the model, ahead of any input sent after it. */
+  const reserveUserLine = (host: LiveLines): Promise<string> => {
+    let id = '';
+    const noted = withIngress(async () => {
+      id = await host.reserve();
+      if (!closed) connection.sendContext(host.note({ id, role: 'user' }));
+    }).then(() => id);
+    // why: A failure is reported where the id is needed, when its line closes; a line never
+    // spoken needs no id.
+    noted.catch(() => undefined);
+    return noted;
+  };
+
+  /** Close the user's line: one history entry, kept under the id the model was given. */
+  const closeUserLine = async (ending: boolean) => {
+    const { id: lineId, text: said } = userLine;
+    const text = said.trim();
+    if (!text) return;
+    userLine = { id: lines && !ending ? reserveUserLine(lines) : undefined, text: '' };
+    if (!lines || !lineId) {
+      history.push({ role: 'user', content: text });
+      return;
+    }
+    const id = await lineId;
+    history.push(
+      { role: 'system', content: lines.note({ id, role: 'user' }) },
+      { role: 'user', content: text },
+    );
+    await lines.keep({ id, role: 'user', text });
+  };
+
+  /** Close the model's line at the end of its turn: kept, then its note goes to the model. */
+  const closeAssistantLine = async (ending: boolean) => {
+    const text = assistantLine.trim();
+    assistantLine = '';
+    if (!text || !lines) return;
+    const id = await lines.reserve();
+    await lines.keep({ id, role: 'assistant', text });
+    const note = lines.note({ id, role: 'assistant' });
+    history.push({ role: 'system', content: note });
+    if (ending) return;
+    await withIngress(() => {
+      if (!closed) connection.sendContext(note);
+      return Promise.resolve();
+    });
+  };
+
+  /**
+   * Record a batch in order. The user's line closes when the model acts on it, so a tool call
+   * reaches the host only once the line before it is kept.
+   */
+  const recordLines = async (events: readonly TurnEvent[]) => {
+    const writes = events.some((event) => event.type === 'text');
+    for (const event of events) {
+      if (isModelAction(event)) await closeUserLine(false);
+      const heard = finalTranscript(event, 'input_transcription');
+      if (heard) hearUser(heard, false);
+      const said =
+        event.type === 'text'
+          ? event.text
+          : writes
+            ? undefined
+            : finalTranscript(event, 'output_transcription');
+      if (said) {
+        recordAssistantText(said);
+        assistantLine += said;
+      }
+    }
+  };
+
+  /** The turn ended: what the user said that drew no reply, then what the model said. */
+  const closeTurnLines = async () => {
+    await closeUserLine(false);
+    await closeAssistantLine(false);
+  };
+
+  let linesEnded: Promise<void> | undefined;
+  let linesEndReported = false;
+  /** Keep the lines still open as the session ends, once; no note follows, the model is gone. */
+  const startEndLines = (): Promise<void> => {
+    if (!linesEnded) {
+      linesEnded = closeUserLine(true).then(() => closeAssistantLine(true));
+      // why: `endLines` reports the failure; a session no one closes has no one to tell.
+      linesEnded.catch(() => undefined);
+    }
+    return linesEnded;
+  };
+  const endLines = async () => {
+    try {
+      await startEndLines();
+    } catch (err) {
+      // why: The stream and `close()` both end the session; the failure reaches the first only.
+      if (linesEndReported) return;
+      linesEndReported = true;
+      throw err;
+    }
   };
 
   /**
@@ -936,7 +1078,7 @@ function buildLiveSession(args: {
       }
       for (const text of texts) {
         assertLiveIngress(profile, 'text');
-        ingestPreparedLiveText(text);
+        ingestPreparedLiveText(text, recordUserText);
       }
       landed.push(unit);
     }
@@ -1248,7 +1390,7 @@ function buildLiveSession(args: {
       if (ev.type === 'guardrail') trace.outbound(ev);
     }
 
-    recordLiveHistory(gated, recordUserText, recordAssistantText);
+    await recordLines(gated);
     const sealed = await sealLiveCheckpoints(
       closesCutOff ? checkpointOfClose(gated) : gated,
       history,
@@ -1275,6 +1417,7 @@ function buildLiveSession(args: {
     // why: Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
     // provider sends no status) often have no folded `done` — still end the cycle.
     if (completeBoundary && cycle === 'open') {
+      await closeTurnLines();
       const boundaryDone = boundaryDoneEvents(ending, item.turnPhase, interrupted, withholdClose);
       for await (const ev of endCycleAroundDone(boundaryDone)) {
         yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
@@ -1335,6 +1478,7 @@ function buildLiveSession(args: {
         }
       }
       yield* drainPendingHostEvents(pendingHostEvents);
+      await endLines();
     } catch (err) {
       thrown = err;
       throw err;
@@ -1345,6 +1489,9 @@ function buildLiveSession(args: {
       else closeSocket(1000, 'session-closed', closer);
       // why: The socket is closed, so a batch still awaited resolves and the provider can finish.
       await provider.return(undefined);
+      // why: A stream that failed or that the host left still keeps its open lines; `close()`
+      // reports a line it could not keep.
+      startEndLines();
       await trace.close({ thrown });
     }
   };
@@ -1381,7 +1528,7 @@ function buildLiveSession(args: {
         assertLiveIngress(profile, 'text');
         const opened = await openCycleIfNeeded();
         if (opened.aborted) return;
-        ingestPreparedLiveText(text);
+        ingestPreparedLiveText(text, (typed) => hearUser(typed, true));
       });
     },
     sendContext(context: TurnContext): Promise<void> {
@@ -1498,9 +1645,13 @@ function buildLiveSession(args: {
         stopLapses();
         closeSocket(1000, reason, 'host');
       }
-      // why: The session record is sealed here; frames the host reads after closing are not in it.
-      await connection.flush?.();
-      return trace.close({});
+      try {
+        await endLines();
+      } finally {
+        // why: The session record is sealed here; frames the host reads after closing are not in it.
+        await connection.flush?.();
+        await trace.close({});
+      }
     },
   };
 
@@ -1559,6 +1710,13 @@ async function openTracedSession(
   const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
   assertLiveProfile(profile);
   const openingContext = req.context ? readSessionContext(profile, req.context) : undefined;
+  const { lines } = options;
+  const firstLineId = lines ? await lines.reserve() : undefined;
+  // why: The first user line's note rides in the opening seed, so the model has it before any input.
+  const seeded = [
+    ...(openingContext?.texts ?? []),
+    ...(lines && firstLineId !== undefined ? [lines.note({ id: firstLineId, role: 'user' })] : []),
+  ];
 
   if (req.snapshot) {
     gen0.tools = sessionSnapshotWithinAllow(profile, req.snapshot);
@@ -1576,7 +1734,7 @@ async function openTracedSession(
   ]);
   const completeReq: ModelRequest = {
     ...providerCompleteRequest(registry.tools, generation, system.text),
-    ...(openingContext?.texts.length ? { context: openingContext.texts } : {}),
+    ...(seeded.length ? { context: seeded } : {}),
     signal: safe.signal,
     tapUpstream: trace.sent,
   };
@@ -1643,5 +1801,6 @@ async function openTracedSession(
     agents: sessionAgentCaller(registry, req, options, trace.agentCanaries),
     gateTtlMs,
     signInGate: options.signInGate ?? 'hold',
+    ...(lines ? { lines, firstLineId } : {}),
   });
 }

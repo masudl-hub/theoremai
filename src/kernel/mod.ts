@@ -69,7 +69,13 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './engine/live-ingress.ts';
-export type { RunSessionOptions, SignInGatePolicy } from './engine/session/mod.ts';
+export type {
+  LiveLine,
+  LiveLineRole,
+  LiveLines,
+  RunSessionOptions,
+  SignInGatePolicy,
+} from './engine/session/mod.ts';
 export type { TokenCount, TokenEstimator } from './engine/token-estimate.ts';
 export {
   loadTokenEstimator,

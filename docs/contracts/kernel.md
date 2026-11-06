@@ -1817,6 +1817,43 @@ The live kernel preserves text spacing and final transcriptions that pass the ou
 A rebuilt session with portable history does not repeat the initial greeting.
 Native checkpoints do not authorize tool execution or replace tool outcomes.
 
+### Lines of a live call
+
+Use `lines` on `RunSessionOptions` when the model must cite what was said on a call by id, as a text turn cites a stored message. The host gives each line its id and stores it. The session decides where each line ends.
+
+A **line** (`LiveLine`) is one of two things:
+
+- A user line: everything the user said or typed before the model acted on it. The model acts when it speaks, writes, or calls a tool. A turn that ends with no reply also closes the user line.
+- A model line: everything the model said in one turn, across its tool calls. The turn ends with `completed` or `interrupted`.
+
+`LiveLines` has three functions:
+
+| Function | What the session does with it |
+| --- | --- |
+| `reserve()` | Gets the id for a line still to come. The first id is reserved before setup. A failure there fails the open. |
+| `note({ id, role })` | Gets the text that tells the model a line's id. The host owns the words. |
+| `keep(line)` | Hands over a finished line. A failure ends the session with that error. |
+
+The model reads a user line's note before that line:
+
+```
+open:            reserve -> note in the opening seed
+user line ends:  keep -> then the model's event (a tool call) reaches the host
+                 reserve -> note for the next user line, ahead of input sent after it
+turn ends:       keep the user line, if it got no reply
+                 reserve -> keep the model line -> note the model line
+session ends:    keep each open line; no note follows
+```
+
+- The session waits for `keep` before it delivers the model's next event. So a tool call reaches the host only after the line before it is kept. Resolve `keep` once the line is the host's (queued durably), not once it is stored far away.
+- An id that gets no words stays with the next user line.
+- Each note goes to the model as background context: it opens no turn and draws no reply.
+- History holds one entry per line. A user line's note is a `system` entry before it. A model line's note is a `system` entry after it.
+- `close()` rejects when a line open at the end cannot be kept. The failure is reported once, to `close()` or to `events()`.
+- Text a stage injects is not a user line. It keeps its own history entry and gets no id.
+
+Without `lines`, lines get no ids and no notes. History still holds one entry per user line.
+
 ### Continue turn
 
 ```ts
@@ -1972,7 +2009,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | --- | --- |
 | Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
 | Token estimate | `loadTokenEstimator`, `TOKEN_TEXT_ENCODING`, `TokenCount`, `TokenEstimator`, `sumTokens` |
-| Runner | `registerProvider`, `getProvider`, `listProviders`, `ProviderHostOptions`, `providerCheckpointSchema`, `runTurn`, `runSession`, `runDecision`, `runEmbedding`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `RunEmbeddingOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
+| Runner | `registerProvider`, `getProvider`, `listProviders`, `ProviderHostOptions`, `providerCheckpointSchema`, `runTurn`, `runSession`, `runDecision`, `runEmbedding`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `LiveLines`, `LiveLine`, `LiveLineRole`, `RunDecisionOptions`, `RunEmbeddingOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Providers | `defineProvider`, `registerProvider`, `createProviderRegistry`, `getProvider`, `listProviders`, `listProtocols`, `Provider`, `ProviderDefinition`, `RegisteredProvider`, `Registration`, `ProviderRegistry`, `ProviderTransport`, `Serve`, `PriceTable`, `ModelPrice`, `Rates`, `costFromPrices` |
 | Provider sign-in | `Authorize`, `Signer`, `bearer`, `header`, `query`, `KeyCredential`, `ApiKeyCredential`, `BearerCredential`, `RuntimeAbilities`, `endpointUrlSchema` |
 | Protocols | `defineProtocol`, `extendProtocol`, `callProtocol`, `checkKey`, `KeyCheck`, `carriesTo`, `modelOptions`, `plainWebSocket`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `Continuation` |

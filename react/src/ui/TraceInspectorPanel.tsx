@@ -209,14 +209,20 @@ export function WithTrace({
 export function TraceGuardrailsView({
   records,
   head,
+  isTimed = true,
 }: {
   records: readonly TraceRecord[];
   head?: ReactNode;
+  /**
+   * False leaves out the checks' times. Pass it where the records' clock stands still while code
+   * runs, so the times say nothing of what the checks cost.
+   */
+  isTimed?: boolean;
 }) {
   return (
     <TheoremLabelsProvider>
       <Suspense fallback={null}>
-        <TraceGuardrailsBody records={records} head={head} />
+        <TraceGuardrailsBody records={records} head={head} isTimed={isTimed} />
       </Suspense>
     </TheoremLabelsProvider>
   );

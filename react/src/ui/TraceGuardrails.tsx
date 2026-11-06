@@ -56,14 +56,22 @@ function HitWhy({ hit, format }: { hit: TraceGuardrailHit; format: Format }) {
 }
 
 /** Why a check acted: which check it was and on what, each rule it matched, and the guardrail's own reason. */
-function CheckWhy({ check, format }: { check: TraceGuardrailCheck; format: Format }) {
+function CheckWhy({
+  check,
+  format,
+  isTimed,
+}: {
+  check: TraceGuardrailCheck;
+  format: Format;
+  isTimed: boolean;
+}) {
   const separator = format.t('@theorem.panel.trace.separator');
   return (
     <VStack gap={1}>
       <Text type="supporting" color="secondary" hasTabularNumbers>
         {[
           checkName(check),
-          check.durationMs !== undefined && format.duration(check.durationMs),
+          isTimed && check.durationMs !== undefined && format.duration(check.durationMs),
           check.tool && format.t('@theorem.panel.trace.guardrails.from', { tool: check.tool }),
         ]
           .filter(Boolean)
@@ -115,10 +123,12 @@ function ActionToken({ check, format }: { check: TraceGuardrailCheck; format: Fo
 function ActedCheck({
   check,
   format,
+  isTimed,
   onSelect,
 }: {
   check: TraceGuardrailCheck;
   format: Format;
+  isTimed: boolean;
   onSelect?: ((node: TraceNode) => void) | undefined;
 }) {
   return (
@@ -129,11 +139,13 @@ function ActedCheck({
           <ActionToken check={check} format={format} />
         </HoverTip>
       }
-      description={<CheckWhy check={check} format={format} />}
+      description={<CheckWhy check={check} format={format} isTimed={isTimed} />}
       endContent={
-        <Text type="supporting" color="secondary" hasTabularNumbers>
-          {format.t('@theorem.panel.trace.offset', { duration: format.duration(check.offsetMs) })}
-        </Text>
+        isTimed ? (
+          <Text type="supporting" color="secondary" hasTabularNumbers>
+            {format.t('@theorem.panel.trace.offset', { duration: format.duration(check.offsetMs) })}
+          </Text>
+        ) : undefined
       }
       align="start"
       density="compact"
@@ -143,14 +155,18 @@ function ActedCheck({
 }
 
 /** "Input check 0.8ms, Result check ×3 0.4ms": the passes, one entry per kind of check with its count and total time. */
-function passSummary(passes: readonly TraceGuardrailCheck[], format: Format): string {
+function passSummary(
+  passes: readonly TraceGuardrailCheck[],
+  format: Format,
+  isTimed: boolean,
+): string {
   const kinds = new Map<string, { count: number; ms: number; timed: boolean }>();
   for (const check of passes) {
     const kind = kinds.get(checkName(check)) ?? { count: 0, ms: 0, timed: false };
     kinds.set(checkName(check), {
       count: kind.count + 1,
       ms: kind.ms + (check.durationMs ?? 0),
-      timed: kind.timed || check.durationMs !== undefined,
+      timed: isTimed && (kind.timed || check.durationMs !== undefined),
     });
   }
   return [...kinds]
@@ -167,23 +183,27 @@ function passSummary(passes: readonly TraceGuardrailCheck[], format: Format): st
 export function TraceGuardrails({
   checks,
   onSelect,
+  isTimed = true,
 }: {
   checks: readonly TraceGuardrailCheck[];
   /** Opens a check's step; without it a check is not a button. */
   onSelect?: (node: TraceNode) => void;
+  /** False leaves out every time: where the trace's clock stood still, each would read 0ms. */
+  isTimed?: boolean;
 }) {
   const format = useTraceFormat();
   const acted = checks.filter((check) => check.action !== 'allow');
   const passed = passSummary(
     checks.filter((check) => check.action === 'allow'),
     format,
+    isTimed,
   );
   return (
     <Stream>
       <VStack gap={1}>
         {acted.map((check) => (
           <Arrive key={check.id}>
-            <ActedCheck check={check} format={format} onSelect={onSelect} />
+            <ActedCheck check={check} format={format} isTimed={isTimed} onSelect={onSelect} />
           </Arrive>
         ))}
         {passed ? (

@@ -249,6 +249,8 @@ Drafts then run in the browser, on the builder's own keys.
 
 To call `onProbePassed` after the reply on a Worker, pass `ctx.waitUntil` as the second argument: `studio(request, (work) => ctx.waitUntil(work))`.
 
+A Worker's clock stands still while code runs, so every check of a probe there reads 0ms. Pass `isTimed={false}` to the screen's `GuardrailTester` to leave the checks' times out.
+
 ## Lend your keys
 
 Use this when visitors without a key should still run drafts: a public playground on your free-tier keys. The drafts then run on your server, so you decide what they may use.

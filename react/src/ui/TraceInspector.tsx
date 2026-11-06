@@ -539,9 +539,11 @@ export function TraceFeedBody({
 export function TraceGuardrailsBody({
   records,
   head,
+  isTimed = true,
 }: {
   records: readonly TraceRecord[];
   head?: ReactNode;
+  isTimed?: boolean;
 }) {
   const { t } = useTraceFormat();
   const roots = useMemo(() => traceTurns(traceTree(records)).map((turn) => turn.node), [records]);
@@ -549,13 +551,12 @@ export function TraceGuardrailsBody({
   return (
     <VStack gap={5} padding={4}>
       {head}
-      {roots.map((root) => (
-        <GuardrailStats key={root.id} latency={traceLatency(root)} />
-      ))}
+      {isTimed &&
+        roots.map((root) => <GuardrailStats key={root.id} latency={traceLatency(root)} />)}
       {checks.length > 0 ? (
         <VStack gap={2}>
           <SectionTitle title={t('@theorem.panel.trace.guardrails')} />
-          <TraceGuardrails checks={checks} />
+          <TraceGuardrails checks={checks} isTimed={isTimed} />
         </VStack>
       ) : null}
     </VStack>

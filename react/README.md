@@ -153,6 +153,8 @@ The profile, the keys, and the system prompt stay on the server. The browser rec
 | `@theoremjs/react/ui/icons` | The icon set of the theme |
 | `@theoremjs/react/client` | `@theoremjs/web/client`: the client logic, without the hooks |
 
+`TraceGuardrailsView` shows what trace records say of guardrails, for a host that holds a trace of its own. Pass `isTimed={false}` where the records' clock stood still while code ran, so no check reads 0ms.
+
 To draw your own figures like the trace panel does, `@theoremjs/react/ui` also exports its chart parts. `ChartCard` holds a chart under its name and one figure. `ChartStat` is one figure in a card. `RankedBars` draws one bar per `RankedBar`, in the order given, with a `TraceFill` for each. `RadialBars` draws the same rows as rings. `Sunburst` draws `SunburstNode` parts as rings, each child outside its parent.
 
 ## Chat

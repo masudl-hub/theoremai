@@ -109,7 +109,7 @@ function scoreRows(
   previous: BenchSummary | undefined,
   running?: string,
 ): ScoreRow[] {
-  const before = new Map(
+  const before = new Map<string, DetectorScore>(
     (previous?.scores ?? []).flatMap((dataset) =>
       dataset.detectors.map((d) => [`${d.dataset}/${d.detector}`, d] as const),
     ),
@@ -148,7 +148,9 @@ function DatasetName({ id, facts }: { id: string; facts: BenchDatasetFacts | und
   return (
     <HStack gap={1} align="center" wrap="wrap">
       {facts?.source ? (
-        <Link href={facts.source} isExternalLink label={id} />
+        <Link href={facts.source} isExternalLink>
+          {id}
+        </Link>
       ) : (
         <Text type="supporting">{id}</Text>
       )}
@@ -184,7 +186,7 @@ function ScoresTable({
   facts: ReadonlyMap<string, BenchDatasetFacts>;
   onOpen: (row: ScoreRow) => void;
 }) {
-  const { sortedData, sortConfig } = useTableSortableState({
+  const { sortedData, sortConfig } = useTableSortableState<ScoreRow>({
     data: rows,
     defaultSort: [{ sortKey: 'falseAlarmRate', direction: 'descending' }],
   });

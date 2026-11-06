@@ -85,6 +85,9 @@ jobs:
       - name: Install studio dependencies
         run: npm --prefix studio ci
 
+      - name: Type check studio screen
+        run: npm --prefix studio run typecheck
+
       - name: Studio tests
         run: npm --prefix studio test
 

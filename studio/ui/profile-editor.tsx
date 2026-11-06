@@ -272,6 +272,7 @@ import {
   InspectorRow,
   InspectorSection,
   JsonRow,
+  LABEL_COLUMN,
   ListRow,
   NamesInput,
   NamesRow,
@@ -644,61 +645,65 @@ function OptionRow({
   const status = useFieldStatus()('options', at);
   const row = `Option ${String(at + 1)}`;
   return (
-    <VStack gap={0} paddingBlockEnd={2} className="option-row">
-      <HStack gap={1} vAlign="center">
-        <StackItem size="fill">
-          <TextInput
-            label={`${row} name`}
-            isLabelHidden
-            size="sm"
-            status={status}
-            value={option.name}
-            placeholder="plan"
-            onChange={(name) => {
-              onChange({ name });
-            }}
-          />
-        </StackItem>
-        <Popover
-          placement="below"
-          alignment="end"
-          width={OPTION_FIELDS_WIDTH}
-          label={`${row} in interface`}
-          content={<OptionFields option={option} canShow={canShow} onChange={onChange} />}
-        >
-          <IconButton
-            label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in interface`}
-            tooltip={option.isShownInChat ? 'Shown in interface' : 'Not shown in interface'}
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={IconPencil} size="sm" />}
-          />
-        </Popover>
+    <HStack gap={1} vAlign="start" paddingBlockEnd={2} className="option-row">
+      <StackItem size="static">
+        <HStack width={LABEL_COLUMN}>
+          <StackItem size="fill">
+            <TextInput
+              label={`${row} name`}
+              isLabelHidden
+              size="sm"
+              status={status}
+              value={option.name}
+              placeholder="plan"
+              onChange={(name) => {
+                onChange({ name });
+              }}
+            />
+          </StackItem>
+        </HStack>
+      </StackItem>
+      <StackItem size="fill">
+        <NamesInput
+          label={`${row} values`}
+          value={option.choices.map(({ value }) => value)}
+          placeholder="free"
+          overflow="none"
+          marked={stated}
+          onMark={onState}
+          markHint={valueHint(
+            option.isShownInChat
+              ? fieldMeta('inputs.options.*.choices.*.value')
+              : fieldMeta('identity.options.*.choices.*.value'),
+          )}
+          onChange={(values) => {
+            onChange({ choices: optionChoices(values, option.choices) });
+          }}
+        />
+      </StackItem>
+      <Popover
+        placement="below"
+        alignment="end"
+        width={OPTION_FIELDS_WIDTH}
+        label={`${row} in interface`}
+        content={<OptionFields option={option} canShow={canShow} onChange={onChange} />}
+      >
         <IconButton
-          label={`Remove ${row.toLowerCase()}`}
+          label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in interface`}
+          tooltip={option.isShownInChat ? 'Shown in interface' : 'Not shown in interface'}
           variant="ghost"
           size="sm"
-          icon={<Icon icon={IconX} size="sm" />}
-          onClick={onRemove}
+          icon={<Icon icon={IconPencil} size="sm" />}
         />
-      </HStack>
-      <NamesInput
-        label={`${row} values`}
-        value={option.choices.map(({ value }) => value)}
-        placeholder="free"
-        overflow="none"
-        marked={stated}
-        onMark={onState}
-        markHint={valueHint(
-          option.isShownInChat
-            ? fieldMeta('inputs.options.*.choices.*.value')
-            : fieldMeta('identity.options.*.choices.*.value'),
-        )}
-        onChange={(values) => {
-          onChange({ choices: optionChoices(values, option.choices) });
-        }}
+      </Popover>
+      <IconButton
+        label={`Remove ${row.toLowerCase()}`}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconX} size="sm" />}
+        onClick={onRemove}
       />
-    </VStack>
+    </HStack>
   );
 }
 

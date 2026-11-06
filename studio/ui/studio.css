@@ -32,17 +32,50 @@
 }
 
 /* What acts on a row stays out of sight until the row is pointed at; an option in the interface keeps its mark. */
-.option-row button[aria-label^="Remove"],
+.option-row button[aria-label^="Remove"]:not(.astryx-token *),
 .option-row button[aria-label$="not shown in interface"] {
   opacity: 0;
 }
 
-.option-row:hover button[aria-label^="Remove"],
+.option-row:hover button[aria-label^="Remove"]:not(.astryx-token *),
 .option-row:hover button[aria-label$="not shown in interface"],
-.option-row:focus-within button[aria-label^="Remove"],
+.option-row:focus-within button[aria-label^="Remove"]:not(.astryx-token *),
 .option-row:focus-within button[aria-label$="not shown in interface"],
 .option-row button[aria-expanded="true"] {
   opacity: 1;
+}
+
+/*
+ * A token's remove button works as a tree row's buttons do: out of the token's flow, at its end,
+ * shown on hover or keyboard focus. A token has no tail past its name, so the button sits on its
+ * end edge, half over the token, and a short name stays readable and pressable beneath it. So a
+ * token is as wide as its name, and every token reads the same at rest.
+ */
+.astryx-tokenizer .astryx-token {
+  position: relative;
+  overflow: visible;
+}
+
+.astryx-tokenizer .astryx-token > button[aria-label^="Remove"] {
+  position: absolute;
+  inset-inline-end: calc(-1 * var(--spacing-2));
+  top: 50%;
+  translate: 0 -50%;
+  margin: 0;
+  border-radius: 999px;
+  background: inherit;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.astryx-tokenizer .astryx-token:is(:hover, :has(:focus-visible)) > button[aria-label^="Remove"] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .astryx-tokenizer .astryx-token > button[aria-label^="Remove"] {
+    opacity: 1;
+  }
 }
 
 /* A long value wraps inside its token, so no value is cut off at the panel's edge. */

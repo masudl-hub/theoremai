@@ -53,6 +53,64 @@ test('private text reads as the rest does, marked on the words or on the whole b
   await expect(page.locator('[data-private]')).toHaveText('All of it.');
 });
 
+test('a private list is one block, its bullets inside the wash', async ({ page }) => {
+  await open(page);
+  await write(page, '## Voice\n\n- One.\n- Two.');
+  await selectAll(page);
+  await button(page, 'Private').click();
+  const list = page.locator('.prompt-editor ul');
+  await expect(list).toHaveAttribute('data-private', '');
+  const background = (at: Locator) => at.evaluate((node) => getComputedStyle(node).background);
+  expect(await background(list)).not.toContain('rgba(0, 0, 0, 0)');
+  for (const item of await list.locator('li').all()) {
+    expect(await background(item)).toContain('rgba(0, 0, 0, 0)');
+  }
+});
+
+test('private items in a list that opens shared run as one block, their bullets inside the wash', async ({
+  page,
+}) => {
+  await open(page);
+  await write(page, '- Shared "the weight."\n{private: - Your voice.\n- Analogies.}');
+  const items = page.locator('.prompt-editor li');
+  await expect(page.locator('.prompt-editor ul')).not.toHaveAttribute('data-private');
+  await expect(items.nth(0)).not.toHaveAttribute('data-private');
+  await expect(items.nth(1)).toHaveAttribute('data-private-start', '');
+  await expect(items.nth(2)).toHaveAttribute('data-private-end', '');
+  for (const at of [1, 2]) {
+    const wash = await items.nth(at).evaluate((node) => {
+      const after = getComputedStyle(node, '::after');
+      return { background: after.backgroundColor, start: after.insetInlineStart };
+    });
+    expect(wash.background).not.toBe('rgba(0, 0, 0, 0)');
+    expect(Number.parseFloat(wash.start)).toBeLessThan(0);
+  }
+});
+
+test('a private section with a shared quote is one block, the quote cut out of it', async ({
+  page,
+}) => {
+  await open(page);
+  await write(page, 'Shared intro.\n\n## Voice\n\n- Grounded: say weight then.\n- Yours.');
+  await editor(page).getByText('Voice', { exact: true }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ControlOrMeta+Shift+ArrowDown');
+  await button(page, 'Private').click();
+  await page.getByText('Grounded: say weight then.').click();
+  await page.keyboard.press('Home');
+  for (const _ of 'Grounded: say ') await page.keyboard.press('ArrowRight');
+  for (const _ of 'weight') await page.keyboard.press('Shift+ArrowRight');
+  await button(page, 'Private').click();
+  await expect(page.locator('.prompt-editor h2')).toHaveAttribute('data-private-start', '');
+  await expect(page.locator('.prompt-editor ul')).toHaveAttribute('data-private-end', '');
+  await expect(page.locator('[data-private-start]')).toHaveCount(1);
+  const shared = page.locator('.prompt-editor li [data-lexical-text]:not([style*="--private"])');
+  await expect(shared).toHaveCount(1);
+  const colour = (at: Locator) => at.evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(await colour(shared)).not.toBe(await colour(page.locator('.prompt-editor ul')));
+  expect(await written(page)).toContain('} weight {private: then.');
+});
+
 test('text marked private stays private when it reaches the code', async ({ page }) => {
   await open(page);
   await write(page, 'Say hello.');

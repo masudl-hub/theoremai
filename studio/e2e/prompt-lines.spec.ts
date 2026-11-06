@@ -47,6 +47,30 @@ test('each option keeps its values in sight', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Option 2 name' })).toBeHidden();
 });
 
+test('a value token takes no room for its remove button, in any row', async ({ page }) => {
+  await open(page);
+  await declarePlan(page);
+  const values = page.getByRole('group', { name: 'Option 1 values' });
+  const token = values.locator('.astryx-token').filter({ hasText: 'paid' });
+  const remove = values.getByRole('button', { name: 'Remove paid' });
+  const width = () => token.evaluate((node) => node.getBoundingClientRect().width);
+  const shown = () => remove.evaluate((node) => getComputedStyle(node).opacity);
+  await page.getByRole('textbox', { name: 'Option 1 name' }).click();
+  const atRest = await width();
+  expect(await shown()).toBe('0');
+  await token.hover();
+  await expect.poll(shown).toBe('1');
+  expect(await width()).toBe(atRest);
+  const text = await values
+    .getByText('paid')
+    .evaluate((node) => node.getBoundingClientRect().width);
+  expect(text).toBeLessThan(atRest);
+  await values.getByText('paid').click();
+  await expect(values.locator('[data-color="blue"]')).toHaveText('paid');
+  await remove.click();
+  await expect(values).not.toContainText('paid');
+});
+
 test('the first value is stated until the builder picks another', async ({ page }) => {
   await withLines(page);
   await send(page, 'first');

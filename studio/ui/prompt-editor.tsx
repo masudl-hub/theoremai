@@ -19,6 +19,7 @@ import {
   type BaseSelection,
   type LexicalNode,
   type RangeSelection,
+  type TextNode,
 } from 'lexical';
 import {
   type ComponentProps,
@@ -200,45 +201,70 @@ function PromptTools() {
   );
 }
 
-/** Whether every word of a block is private. A block with some private words marks only those. */
-function $isWhollyPrivate(block: LexicalNode | null): boolean {
+/**
+ * Whether a block sits in the private container: it opens and closes on private words. Shared
+ * words inside it show as cut-outs; a block that opens or closes shared marks only its private
+ * words.
+ */
+function $isPrivateBlock(block: LexicalNode | null): boolean {
   if (!block || $isPromptLine(block) || !$isElementNode(block)) return false;
   const words = block.getAllTextNodes().filter((text) => text.getTextContent().trim() !== '');
-  return words.length > 0 && words.every((text) => text.getStyle().includes(PRIVATE_NAME));
+  const isPrivate = (text: TextNode | undefined) =>
+    text?.getStyle().includes(PRIVATE_NAME) === true;
+  return isPrivate(words.at(0)) && isPrivate(words.at(-1));
 }
 
-/** Blocks that are wholly private run together, marked at the top of the run. */
+/** The block beside this one, past a line's opening that states no option. */
+function $besideOf(block: LexicalNode, step: (at: LexicalNode) => LexicalNode | null) {
+  let at = step(block);
+  while ($isPromptLine(at) && at.getWhen() === null) at = step(at);
+  return at;
+}
+
+/**
+ * Private blocks run together, marked at the top of the run. In a list that is not private, its
+ * private items run together the same way, bullets and all.
+ */
 function PrivateRuns() {
   const [editor] = useLexicalComposerContext();
-  useEffect(
-    () =>
-      editor.registerUpdateListener(({ editorState }) => {
-        editorState.read(() => {
-          for (const block of $getRoot().getChildren()) {
-            const whole = $isWhollyPrivate(block);
-            const element = editor.getElementByKey(block.getKey());
-            element?.toggleAttribute('data-private', whole);
-            element?.toggleAttribute(
-              'data-private-start',
-              whole && !$isWhollyPrivate(block.getPreviousSibling()),
-            );
-            element?.toggleAttribute(
-              'data-private-end',
-              whole && !$isWhollyPrivate(block.getNextSibling()),
-            );
-          }
-        });
-      }),
-    [editor],
-  );
+  useEffect(() => {
+    const mark = (blocks: LexicalNode[], inRun: boolean) => {
+      for (const block of blocks) {
+        const whole = !inRun && $isPrivateBlock(block);
+        const element = editor.getElementByKey(block.getKey());
+        element?.toggleAttribute('data-private', whole);
+        element?.toggleAttribute(
+          'data-private-start',
+          whole && !$isPrivateBlock($besideOf(block, (at) => at.getPreviousSibling())),
+        );
+        element?.toggleAttribute(
+          'data-private-end',
+          whole && !$isPrivateBlock($besideOf(block, (at) => at.getNextSibling())),
+        );
+        if ($isElementNode(block)) {
+          const items = block
+            .getChildren()
+            .filter((child) => $isListNode(child) || $isListItemNode(child));
+          mark(items, inRun || whole);
+        }
+      }
+    };
+    return editor.registerUpdateListener(({ editorState }) => {
+      editorState.read(() => {
+        mark($getRoot().getChildren(), false);
+      });
+    });
+  }, [editor]);
   return null;
 }
 
-/** What the pointer rests on, if it is private: the whole block, or else the words. */
-const privateUnder = (target: EventTarget | null): Element | null =>
-  target instanceof Element
-    ? (target.closest('[data-private]') ?? target.closest('[style*="--private"]'))
-    : null;
+/** What the pointer rests on, if it is private: the whole block, or else the words. A shared cut-out is not. */
+const privateUnder = (target: EventTarget | null): Element | null => {
+  if (!(target instanceof Element)) return null;
+  const words = target.closest('[data-lexical-text]');
+  if (words && !words.matches('[style*="--private"]')) return null;
+  return target.closest('[data-private]') ?? words;
+};
 
 type HintBox = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
 

@@ -32,8 +32,11 @@
   display: none;
 }
 
-/* Private text stays as readable as the rest: a wash marks it, on the words or on whole blocks. */
-.prompt-editor [style*="--private"] {
+/*
+ * Private text stays as readable as the rest: a wash marks it, on the words or on whole blocks.
+ * Only text carries the word wash; a list item's marker variable is not a private word.
+ */
+.prompt-editor [data-lexical-text][style*="--private"] {
   background: var(--color-background-muted);
   border-radius: var(--radius-xs, 3px);
   box-decoration-break: clone;
@@ -47,13 +50,52 @@
   padding-inline: var(--spacing-8) var(--spacing-2);
 }
 
-.prompt-editor [contenteditable] [data-private] [style*="--private"] {
+.prompt-editor [contenteditable] [data-private] [data-lexical-text][style*="--private"] {
   background: none;
+}
+
+/* A line's opening inside a private run keeps the line's space, washed, so the run stays whole. */
+.prompt-editor [contenteditable] [data-private]:not([data-private-end]) + .prompt-line-slot {
+  margin-top: 0;
+  padding-top: var(--spacing-3);
+  background: var(--color-background-muted);
+}
+
+/* Shared words inside a private block are cut out of the wash, so they read as shared. */
+.prompt-editor [contenteditable] [data-private] [data-lexical-text]:not([style*="--private"]) {
+  background: var(--color-background-surface);
+  border-radius: var(--radius-xs, 3px);
+  box-decoration-break: clone;
 }
 
 .prompt-editor [contenteditable] ul[data-private],
 .prompt-editor [contenteditable] ol[data-private] {
   padding-inline-start: var(--spacing-12);
+}
+
+/*
+ * Private items in a list that is not wholly private sit as a private list does: the wash runs
+ * from the list's edge, over the mark and the bullets, and the items move in to the same place.
+ */
+.prompt-editor [contenteditable] li[data-private] {
+  isolation: isolate;
+  background: none;
+  margin-inline-start: calc(var(--spacing-12) - var(--spacing-6));
+  padding-inline-start: 0;
+}
+
+.prompt-editor [contenteditable] li[data-private]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: calc(-1 * var(--spacing-12)) 0;
+  z-index: -1;
+  background: var(--color-background-muted);
+  border-radius: inherit;
+}
+
+.prompt-editor [contenteditable] li[data-private-start]::before {
+  inset-inline-start: calc(var(--spacing-2) - var(--spacing-12));
 }
 
 .prompt-editor [contenteditable] [data-private-start] {
@@ -68,7 +110,7 @@
   padding-block-end: var(--spacing-2);
 }
 
-/* The mark at the top of a private run: nothing here is shared. */
+/* The mark at the top of a private run. */
 .prompt-editor [data-private-start]::before {
   content: "";
   position: absolute;

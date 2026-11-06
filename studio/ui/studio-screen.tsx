@@ -1326,7 +1326,8 @@ function keyAndToolMembers(
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ key, provider }),
             });
-            return await response.json<object>();
+            const answer: object = await response.json();
+            return answer;
           } catch {
             return { provider: provider.id, error: "Couldn't reach the studio server." };
           }

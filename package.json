@@ -79,7 +79,7 @@
     "hooks:install": "node ./scripts/hooks/install.mjs",
     "prepare": "node ./scripts/hooks/install.mjs",
     "lint": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow",
-    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run build:npm && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:web && npm run check:react && npm run build:npm:web && npm run build:npm:react && npm --prefix studio ci && npm --prefix studio test && npm run build:npm:studio && npm run lint:fallow"
+    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run build:npm && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:web && npm run check:react && npm run build:npm:web && npm run build:npm:react && npm --prefix studio ci && npm --prefix studio run typecheck && npm --prefix studio test && npm run build:npm:studio && npm run lint:fallow"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",

@@ -21,6 +21,7 @@ deno install
 | `npm run lint` | Docs truth, Deno lint, Biome, ast-grep, and Fallow. |
 | `npm run check:web` | Type-check for `@theoremjs/web`. |
 | `npm run check:react` | Type-check and theme check for `@theoremjs/react`. |
+| `npm --prefix studio run typecheck` | Strict type-check of the studio screen (`studio/ui/`), with one copy of the React and Astryx types. Run `npm run check:react` first: the screen imports `react/src`. |
 | `npm --prefix studio run test:browser` | Every studio flow in a browser, against a fake model. It takes about 15 minutes here. The `Studio browser` workflow runs it in four shards when `studio/`, `web/` or `react/` changes, and nightly. No preview waits on it. |
 | `deno publish --dry-run` | The JSR package. |
 | `npm run build:npm` | Builds the npm package into `npm/`. Run `cd npm && npm pack` to see the tarball. |

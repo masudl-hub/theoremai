@@ -160,7 +160,7 @@ Use this when your users should edit and run agents on your site: a playground, 
 
 ### 1. Add the Vite plugin
 
-`studioVite` resolves the screen's packages to your install, so your page has one copy of React and Astryx. It also serves the code editor's icons and the type declarations it checks a profile's code against.
+`studioVite` resolves the screen's packages to your install, so your page has one copy of React and Astryx. It also serves the code editor's icons and the type declarations it checks a profile's code against. The screen's source type-checks under `strict` with the standard DOM types, so your type check needs no runtime's own `fetch` types.
 
 ```ts
 // vite.config.ts

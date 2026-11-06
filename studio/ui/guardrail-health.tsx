@@ -453,7 +453,7 @@ function useBenchRows(
   useEffect(() => {
     let live = true;
     fetch(`${endpoint}/bench/rows?${key}`)
-      .then((response) => (response.ok ? response.json<{ rows: BenchRow[] }>() : null))
+      .then((response): Promise<{ rows: BenchRow[] }> | null => (response.ok ? response.json() : null))
       .then((body) => {
         if (live) setRows({ key, rows: body?.rows ?? 'failed' });
       })
@@ -763,7 +763,7 @@ function GuardrailHealth({
 
 function askBench(endpoint: string): Promise<BenchRunAnswer | null> {
   return fetch(`${endpoint}/bench`)
-    .then((response) => (response.ok ? response.json<BenchRunAnswer>() : null))
+    .then((response): Promise<BenchRunAnswer> | null => (response.ok ? response.json() : null))
     .catch(() => null);
 }
 

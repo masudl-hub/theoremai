@@ -87,7 +87,7 @@ export async function sendProbe(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...probeDraft(payload), text, only }),
     });
-    const body = await response.json<{ answers: GuardrailProbeAnswer[] } | { error?: string }>();
+    const body: { answers: GuardrailProbeAnswer[] } | { error?: string } = await response.json();
     if (response.ok && 'answers' in body) return { answers: body.answers };
     return { error: ('error' in body && body.error) || "The probe didn't run." };
   } catch {

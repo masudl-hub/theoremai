@@ -427,7 +427,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 | `jsr:@theoremjs/agents/evals` / `@theoremjs/agents/evals` | Graders that read trace records and write their results as trace records through the same sink. |
 
-The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. The same package shows the studio as a screen in your own app, with one server handler. Its README has both.
+The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. The same package shows the studio as a screen in your own app, with one server handler. Its README has both. CI type-checks that screen apart from the kernel, with `npm --prefix studio run typecheck`.
 
 `@theoremjs/agents`, `@theoremjs/web`, `@theoremjs/react`, and `@theoremjs/studio` ship together at one version. Install the ones you use at the same version. `@theoremjs/web` holds the server handlers and the browser client, with no UI framework. `@theoremjs/react` adds the React hooks and UI on top of it. Each version's changes, including what breaks and how to upgrade, are in [docs/releases](https://github.com/masudl-hub/theoremai/tree/main/docs/releases).
 

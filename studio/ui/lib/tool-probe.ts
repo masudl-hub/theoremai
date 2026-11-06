@@ -128,7 +128,8 @@ export async function runToolProbe(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...request.body, network: draftNetwork(guardrails) }),
     });
-    return await response.json<ProbeResult>();
+    const result: ProbeResult = await response.json();
+    return result;
   } catch {
     return { ok: false, error: "Couldn't reach the studio server." };
   }

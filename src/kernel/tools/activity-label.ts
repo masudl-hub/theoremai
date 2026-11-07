@@ -21,6 +21,7 @@ const JOINED = /^\+\s+/;
 /** The colon that ends a line's condition: the first one followed by a space or the line's end. */
 const WHEN_ENDS = /:(?:\s|$)/;
 const CHECK = /^(\S+) is (?:(not) )?(\S.*)$/;
+const HAS = /^(\S+) has (\S+)$/;
 
 /** One line of wording, or a list of lines read top to bottom: the first that fits is shown. */
 export type LabelTemplate = string | readonly string[];
@@ -30,8 +31,13 @@ type Side = 'input' | 'output';
 type Forms = { one: string; other: string };
 type Placeholder = { path: string; fallback?: string; forms?: Forms | 'unreadable' };
 type Route = { side: Side; keys: string[]; prefixed: boolean };
-/** `expected: null` is the check "is null". */
-export type Check = { path: string; negated: boolean; expected: string | null };
+/**
+ * `when status is archived`, or `when action has erase`: whether the group at `path` holds the
+ * field `has`. `expected: null` is the check "is null".
+ */
+export type Check =
+  | { path: string; negated: boolean; expected: string | null }
+  | { path: string; has: string };
 export type Line = { joined: boolean; when: Check[] | 'unreadable'; text: string };
 /** A line on its own, or a run of neighbouring `+` lines that show together. */
 type Entry = { joined: boolean; lines: { line: Line; number: number }[] };
@@ -93,6 +99,11 @@ function parseChecks(raw: string): Check[] | 'unreadable' {
   const checks: Check[] = [];
   // why: one space between words first, so no pattern below can try a run of spaces two ways.
   for (const part of raw.replace(/\s+/g, ' ').split(' and ')) {
+    const has = HAS.exec(part.trim());
+    if (has?.[1] && has[2]) {
+      checks.push({ path: has[1], has: has[2] });
+      continue;
+    }
     const match = CHECK.exec(part.trim());
     const [, path, not, expected] = match ?? [];
     if (!path || !expected) return 'unreadable';
@@ -141,6 +152,7 @@ export function checkHolds(check: Check, input: unknown): boolean {
   const keys = checkKeys(check.path);
   if (!keys) return false;
   const value = valueAt(input, keys);
+  if ('has' in check) return isRecord(value) && Object.hasOwn(value, check.has);
   const comparable =
     typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
   const is = check.expected === null ? value === null : comparable && `${value}` === check.expected;
@@ -409,6 +421,39 @@ function schemaLeavesAt(node: unknown, keys: readonly string[]): Leaf[] {
   return types.length === 0 && rawTypes(node).length === 0 ? [OPEN_LEAF] : [];
 }
 
+/** The field names a group at `keys` can hold, or `'any'` when the schema doesn't say. */
+function schemaFieldsAt(node: unknown, keys: readonly string[]): string[] | 'any' {
+  if (!isRecord(node) || '$ref' in node) return 'any';
+  const branches = schemaBranches(node);
+  if (branches.length) {
+    const found = branches.map((branch) => schemaFieldsAt(branch, keys));
+    return found.includes('any')
+      ? 'any'
+      : found.flatMap((fields) => (fields === 'any' ? [] : fields));
+  }
+  const [key, ...rest] = keys;
+  if (key === undefined) {
+    if (isRecord(node.properties)) return Object.keys(node.properties);
+    return schemaTypes(node).length === 0 ? 'any' : [];
+  }
+  if (schemaTypes(node).includes('array') && INDEX.test(key)) {
+    return schemaFieldsAt(node.items, rest);
+  }
+  if (isRecord(node.properties)) {
+    return Object.hasOwn(node.properties, key) ? schemaFieldsAt(node.properties[key], rest) : [];
+  }
+  return schemaTypes(node).length === 0 ? 'any' : [];
+}
+
+function hasProblem(path: string, has: string, holds: Holds['holds'], fields: string[] | 'any') {
+  if (holds !== 'group') {
+    return `"${path}" in the "when" is not a group, so it has no "${has}". "has" asks which field a group holds.`; // labels-exempt: builder diagnostic
+  }
+  if (fields === 'any' || fields.includes(has)) return undefined;
+  const itHas = fields.length ? ` It has ${oneOf(fields)}.` : ''; // labels-exempt: builder diagnostic
+  return `"${path}" never has "${has}".${itHas}`; // labels-exempt: builder diagnostic
+}
+
 /** The input's own field names, flags included: what a `when` can compare. */
 function inputFields(node: unknown): string[] {
   if (!isRecord(node)) return [];
@@ -439,8 +484,11 @@ export function checkProblem(
     const tryThese = fields.length ? ` Try ${oneOf(fields)}.` : ''; // labels-exempt: builder diagnostic
     return `"${check.path}" in the "when" is not a field of ${reads}.${tryThese}`; // labels-exempt: builder diagnostic
   }
+  if ('has' in check) {
+    return hasProblem(check.path, check.has, found.holds, schemaFieldsAt(input, keys));
+  }
   if (found.holds === 'group') {
-    return `"${check.path}" in the "when" is a list or group; a "when" compares text, a number, or true or false.`; // labels-exempt: builder diagnostic
+    return `"${check.path}" in the "when" is a list or group; a "when" compares text, a number, or true or false, or says which field a group has, like "when ${check.path} has <field>".`; // labels-exempt: builder diagnostic
   }
   const leaves = schemaLeavesAt(input, keys);
   if (check.expected === null) {
@@ -463,7 +511,7 @@ function lineProblem(
   mustShow: boolean,
 ): string | undefined {
   if (line.when === 'unreadable') {
-    return 'A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null", and "and".'; // labels-exempt: builder diagnostic
+    return 'A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null", "has", and "and".'; // labels-exempt: builder diagnostic
   }
   for (const check of line.when) {
     const problem = checkProblem(check, schemas.input);

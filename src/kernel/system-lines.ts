@@ -34,6 +34,7 @@ function lineProblem(parts: readonly SystemPart[], schema: unknown): string | un
   }
   for (const check of line.when) {
     if (check.path.includes('.')) return `"${check.path}" isn't one option.`; // labels-exempt: developer contract error
+    if ('has' in check) return 'An option is one value, so it has no fields.'; // labels-exempt: developer contract error
     if (check.expected === null) return 'An option has no null value, so "is null" never fits.'; // labels-exempt: developer contract error
     const problem = checkProblem(check, schema, 'this profile’s options');
     if (problem) return problem;

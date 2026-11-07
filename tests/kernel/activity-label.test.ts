@@ -580,14 +580,14 @@ Deno.test('a list label that cannot work is refused, with its line', () => {
   );
   assertEquals(
     problem(['when tags is red: tagging', 'saving']),
-    'Line 1: "tags" in the "when" is a list or group; a "when" compares text, a number, or true or false.',
+    'Line 1: "tags" in the "when" is a list or group; a "when" compares text, a number, or true or false, or says which field a group has, like "when tags has <field>".',
   );
   assertEquals(
     problem(['when output.saved is true: saved', 'saving']),
     'Line 1: A "when" reads what the model sent; "output.saved" is only there once the call is done.',
   );
   const unreadable =
-    'Line 1: A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null", and "and".';
+    'Line 1: A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null", "has", and "and".';
   assertEquals(problem(['when it rains', 'saving']), unreadable);
   assertEquals(problem(['when status equals inactive: archiving', 'saving']), unreadable);
   assertEquals(
@@ -680,4 +680,61 @@ Deno.test('a count with one form, or of a value that is not a number, is refused
     '{q} is not a number, so it has no plural. Count a list with {q.length hit|hits}.',
   );
   assertEquals(problem(['when q is x: {q}', '{hits.length hit|hits|some hits}']), undefined);
+});
+
+const KEYED_INPUT = {
+  type: 'object',
+  properties: {
+    action: {
+      anyOf: [
+        {
+          type: 'object',
+          properties: { save: { type: 'object', properties: { title: { type: 'string' } } } },
+        },
+        {
+          type: 'object',
+          properties: { erase: { type: 'object', properties: { id: { type: 'string' } } } },
+        },
+      ],
+    },
+    note: { type: 'string' },
+  },
+};
+
+Deno.test('a when asks which field a group has: `has`', () => {
+  const label = ['when action has erase: erasing an item', 'saving {action.save.title|an item}'];
+  assertEquals(activityLabelProblem(label, { input: KEYED_INPUT }), undefined);
+  const fill = (input: unknown) => fillActivityLabel(label, { input });
+  assertEquals(fill({ action: { erase: { id: 'a.1' } } }), 'erasing an item');
+  assertEquals(fill({ action: { save: { title: 'Fern' } } }), 'saving Fern');
+  assertEquals(fill({ action: { erase: null } }), 'erasing an item');
+  assertEquals(fill({ action: 'erase' }), 'saving an item');
+  assertEquals(fill({}), 'saving an item');
+  assertEquals(
+    fillActivityLabel(['when action has erase and note is soon: soon', 'no'], {
+      input: { action: { erase: {} }, note: 'soon' },
+    }),
+    'soon',
+  );
+});
+
+Deno.test('a `has` that cannot work is refused, with its line', () => {
+  const problem = (lines: string[]) => activityLabelProblem(lines, { input: KEYED_INPUT });
+  assertEquals(
+    problem(['when action has remove: removing', 'saving']),
+    'Line 1: "action" never has "remove". It has "save" or "erase".',
+  );
+  assertEquals(
+    problem(['when note has erase: erasing', 'saving']),
+    'Line 1: "note" in the "when" is not a group, so it has no "erase". "has" asks which field a group holds.',
+  );
+  assertEquals(
+    problem(['when actions has erase: erasing', 'saving']),
+    'Line 1: "actions" in the "when" is not a field of this tool\'s input. Try "action" or "note".',
+  );
+  assertEquals(
+    problem(['when action.save.title has erase: erasing', 'saving']),
+    'Line 1: "action.save.title" in the "when" is not a group, so it has no "erase". "has" asks which field a group holds.',
+  );
+  assertEquals(problem(['when action.save has title: titling', 'saving']), undefined);
 });

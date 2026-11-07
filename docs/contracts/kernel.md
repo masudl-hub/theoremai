@@ -476,7 +476,7 @@ runTurn({
 | A `{name}` that is no option stays as written. | `fillOptions` |
 | A value the option does not list is refused. An option name on the wrong object is refused. | `assertTurnOptions` |
 | `path` is a code option. Its value is the turn's own `path`, so `options.path` is refused. | `turnFacts`, `assertTurnOptions` |
-| A `when` reads options on either object. It uses the activity-label grammar. `+`, `is null`, and dotted names are refused. | `systemLinesProblem` |
+| A `when` reads options on either object. It uses the activity-label grammar. `+`, `is null`, `has`, and dotted names are refused. | `systemLinesProblem` |
 | One name on both objects is refused at start. A `when` that names no option is refused at start. | `systemLinesProblem` |
 | A line is a string or a list of parts. A bare `{ private }` in the list of lines is refused. | `assertSystemLines` |
 | Marks are settled on the prompt as written, so a dropped line never changes the marks of a kept line. | `pickSystemLines` |
@@ -1212,6 +1212,9 @@ labels: {
   input the model sent. The words are `is`, `is not`, `is null`, and `and`.
 - `is null` holds only when the model sent `null`. `is not` is the opposite of
   `is`, so it holds for a field the model did not send.
+- `when <path> has <field>:` holds when the group at the path holds that field.
+  It tells apart shapes that differ by their leading field, such as
+  `{ save: … }` and `{ erase: … }`: `when action has erase: erasing an item`.
 - Neighbouring lines that open with `+ ` show together. The kernel joins each
   line that fits: "renaming A to B and moving A to C".
 - The last line must always fit: no condition, and a fallback on each `{path}`.
@@ -1219,7 +1222,8 @@ labels: {
 `registerTool` throws a `config` error for a list label that cannot work. It
 names the line. The causes are: a last line that does not always fit, a line
 below one that always fits, a condition that names no input field, a condition
-that compares a value the schema never allows, and a line that opens with
+that compares a value the schema never allows, a `has` on a field that is not a
+group or names a field the group never holds, and a line that opens with
 `when` and has no readable condition. Any label is refused for a count with one
 word, or a count of a field the schema says is not a number. A one-line label can also open with a
 condition. When the condition does not hold, the transcript names the tool.

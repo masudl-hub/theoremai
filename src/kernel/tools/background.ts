@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
+import type { HookName } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
 import type { AgentCaller } from './agent.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
@@ -79,6 +80,8 @@ export interface ToolBackgroundService {
 /** A detached call's own trace record, joined to its turn through `traceparent`. */
 export interface DetachedToolTrace {
   open: (name: string, attributes: TraceAttributes) => SpanHandle;
+  /** Records a host hook's crash on the call's span, where no turn is left to read it. */
+  hookFailed: (hook: HookName, err: unknown) => void;
   end: () => void | Promise<void>;
 }
 

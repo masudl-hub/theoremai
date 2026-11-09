@@ -345,7 +345,7 @@ Deno.test('a sibling that fails after the reply does not reach the detached call
   assertEquals(phases(host.sink).at(-1), 'complete');
 });
 
-Deno.test('a failed reply save stops the body and marks the write failure', async () => {
+Deno.test('a failed reply save stops the body, fails the call and marks the write failure', async () => {
   const body = heldBody();
   const scope = scopeWith({ background: 'always', handler: body.handler });
   const memory = createMemoryToolExecution();
@@ -361,13 +361,18 @@ Deno.test('a failed reply save stops the body and marks the write failure', asyn
   const host = recording();
   const turnRun = turn(scope, caller(callJob()), { execution, background: host.service });
   const signal = await body.started.promise;
-  await assertRejects(async () => {
-    const pending = turnRun;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assertEquals(signal?.aborted, true);
-    body.release.resolve({ done: 'never read' });
-    await pending;
-  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(signal?.aborted, true);
+  body.release.resolve({ done: 'never read' });
+  const events = await turnRun;
+  const failed = events.find((event) => event.type === 'tool' && event.tool.phase === 'error');
+  assert(failed?.type === 'tool' && failed.tool.phase === 'error');
+  assertEquals(
+    [failed.tool.failure.code, failed.tool.failure.message],
+    ['hook_failed', 'store down'],
+  );
+  const done = events.find((event) => event.type === 'done');
+  assertEquals(done?.type === 'done' && done.stop?.kind, 'completed');
   assertEquals(marks, ['settlement_write_failed']);
   assertEquals(host.handles, []);
 });
@@ -668,4 +673,55 @@ Deno.test('maxOutcomeBytes covers the late outcome', async () => {
   assert(handle);
   await handle.done;
   assertEquals(await failureCode(execution, handle), 'result_too_large');
+});
+
+Deno.test('a service whose event throws still settles the call, and the crash goes on its trace', async () => {
+  const records: TraceRecord[] = [];
+  const body = heldBody();
+  const scope = scopeWith({ background: 'always', handler: body.handler });
+  const execution = createMemoryToolExecution();
+  const handles: ToolBackgroundHandle[] = [];
+  const service: ToolBackgroundService = {
+    detached: (handle) => handles.push(handle),
+    event: () => {
+      throw new Error('event sink down');
+    },
+  };
+  await turn(scope, caller(callJob()), { execution, background: service }, records);
+  const handle = handles[0];
+  assert(handle);
+  body.release.resolve({ done: 'late' });
+  await handle.done;
+  assertEquals(await failureCode(execution, handle), undefined);
+  const trace = JSON.stringify(records.at(-1));
+  assert(trace.includes('theorem.hook_failed'));
+  assert(trace.includes('event sink down'));
+});
+
+Deno.test('a late settle that fails keeps the call uncertain, and the crash goes on its trace', async () => {
+  const records: TraceRecord[] = [];
+  const body = heldBody();
+  const scope = scopeWith({ background: 'always', handler: body.handler });
+  const memory = createMemoryToolExecution();
+  const marks: string[] = [];
+  const execution: ToolExecutionCoordinator = {
+    ...memory,
+    settle: () => {
+      throw new Error('late store down');
+    },
+    markUncertain: (claim, reason) => {
+      marks.push(reason);
+      return memory.markUncertain(claim, reason);
+    },
+  };
+  const host = recording();
+  await turn(scope, caller(callJob()), { execution, background: host.service }, records);
+  const handle = host.handles[0];
+  assert(handle);
+  body.release.resolve({ done: 'late' });
+  await handle.done;
+  assertEquals(marks, ['settlement_write_failed']);
+  const trace = JSON.stringify(records.at(-1));
+  assert(trace.includes('theorem.hook_failed'));
+  assert(trace.includes('late store down'));
 });

@@ -163,6 +163,10 @@ type Verdict =
 | `redact` | `verdict.text` is released in place of the model's output |
 | `block` | The reply is blocked: see [Blocked reply](#blocked-reply) |
 
+The canary and prompt-echo checks read an event's content only. An `error` event is read
+by its public wording, never its `errorInternal`, and a `hook_failed` event has no
+content to read.
+
 ### Blocked reply
 
 `guardrails.blockedReply` sets what happens to a reply a detector blocks:

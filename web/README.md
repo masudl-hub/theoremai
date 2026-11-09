@@ -206,6 +206,7 @@ await chat.submit();
 - `update(options)` gives the controller your latest options, such as a new `context`, `options`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, `initialText`, `initialFiles`, `initialVoice`, and `initialPending` are read only when the controller is created.
 - A live call takes `stated` in its options, and `setStated(stated)` changes it during the call. As with `setOptions`, the call is taken up again with the prompt lines the new value chooses.
 - Each method is bound to the controller. Pass it as a callback as it is.
+- `state.delivery` says how far the latest message has got: `sending` while it posts, `sent` once the server has it, `delivered` once the model works on it, and `read` once the reply starts. The server's own events (`stage`, `guardrail`, `late_results`, `session`, `hook_failed`, `error`, `done`) leave it at `sent`, because they say nothing of the model. It is `null` before the first message and after its turn fails.
 
 `state.phase` is `'idle'`, `'streaming'`, or `'gated'`. The methods for the composer depend on it:
 

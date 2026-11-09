@@ -19,9 +19,10 @@ import { invokeAgentCaller } from '../engine/runner/mod.ts';
 import { inStep, runSideBySide, stepOrder } from '../engine/runner/step-order.ts';
 import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
 import { endThrownSpan, runIdentity, traceLinks } from '../engine/turn-trace.ts';
+import { hookFailed } from '../hook-failure.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { pickModel } from '../registry/resolve.ts';
-import { turnDoneOf } from '../turn-events.ts';
+import { type TurnEventOf, turnDoneOf } from '../turn-events.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../types.ts';
 import type { AgentCaller } from './agent.ts';
 import {
@@ -44,10 +45,11 @@ import {
 } from './execute.ts';
 import type { ToolOperationClaim } from './operation.ts';
 import {
+  applyT1Policy,
   cloneTurnToolSnapshot,
-  prepareTurnToolSnapshot,
   profileToolsParallel,
   promoteLoadedTools,
+  resolveTurnTools,
 } from './resolve.ts';
 import { plainToolInput } from './schema.ts';
 import type { ToolStageSupport } from './stage-run.ts';
@@ -68,13 +70,16 @@ async function prepareInvokeSnapshot(
   registry: KernelRegistry,
   request: InvokeToolRequest | InvokeToolStepRequest,
   profile: Profile,
-): Promise<TurnToolSnapshot> {
+): Promise<{ snapshot: TurnToolSnapshot; crashed?: TurnEventOf<'hook_failed'> }> {
   const req = turnRequestFromInvoke(request);
   if (profile.type === 'decision' || profile.type === 'embedding') {
     throw new TheoremError('request', `Profile ${profile.id}: type 'decision' cannot invoke tools`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);
-  return await prepareTurnToolSnapshot(registry.tools, profile, req, model);
+  const snapshot = resolveTurnTools(registry.tools, profile, req, model);
+  const t1Policy = await applyT1Policy(registry.tools, snapshot, profile, req);
+  if (!t1Policy) return { snapshot };
+  return { snapshot, crashed: hookFailed('tools.t1Policy', t1Policy.crashed) };
 }
 
 type TraceTree = ReturnType<typeof startTrace>;
@@ -182,13 +187,15 @@ function failCallBeforeTool(
 async function invokeSnapshot(
   registry: KernelRegistry,
   request: InvokeToolRequest | InvokeToolStepRequest,
-): Promise<{ profile: Profile; snapshot: TurnToolSnapshot }> {
+): Promise<{
+  profile: Profile;
+  snapshot: TurnToolSnapshot;
+  crashed?: TurnEventOf<'hook_failed'>;
+}> {
   assertBackgroundCoordinator(request.background, request.execution);
   const profile = registry.profiles.get(request.profile);
-  const snapshot = request.snapshot
-    ? cloneTurnToolSnapshot(request.snapshot)
-    : await prepareInvokeSnapshot(registry, request, profile);
-  return { profile, snapshot };
+  if (request.snapshot) return { profile, snapshot: cloneTurnToolSnapshot(request.snapshot) };
+  return { profile, ...(await prepareInvokeSnapshot(registry, request, profile)) };
 }
 
 /** A call's name and the id it goes by, known before any of its events. */
@@ -329,7 +336,8 @@ async function* invokeStepTraced(
   canaries: string[],
   background: ToolBackgroundSupport | undefined,
 ): AsyncGenerator<TurnEvent> {
-  const { profile, snapshot } = await invokeSnapshot(registry, request);
+  const { profile, snapshot, crashed } = await invokeSnapshot(registry, request);
+  if (crashed) yield crashed;
   const stepId = crypto.randomUUID();
   for (const { callId, invoke, announce } of calls) {
     if (!announce) continue;
@@ -396,7 +404,8 @@ async function* invokeTraced(
   canaries: string[],
   background: ToolBackgroundSupport | undefined,
 ): AsyncGenerator<TurnEvent> {
-  const { profile, snapshot } = await invokeSnapshot(registry, request);
+  const { profile, snapshot, crashed } = await invokeSnapshot(registry, request);
+  if (crashed) yield crashed;
 
   // why: A model's call was already announced by its turn.
   if (request.callId === undefined) {

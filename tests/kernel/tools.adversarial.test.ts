@@ -1,5 +1,6 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+import { assert } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
@@ -611,7 +612,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
   const text = secondInput?.[0]?.content ?? '';
   assertEquals(text.includes('provider_native'), true);
 });
-Deno.test('adversarial/runTurn: t1Policy async rejection fails turn', async () => {
+Deno.test('adversarial/runTurn: a t1Policy async rejection leaves T0 tools and is reported', async () => {
   flashProfile('t1_async_reject_probe', 1, {
     allow: ['stub_tool'],
     t1Policy: async () => {
@@ -619,20 +620,27 @@ Deno.test('adversarial/runTurn: t1Policy async rejection fails turn', async () =
       throw new Error('async selector misconfigured');
     },
   });
-  await assertRejects(
-    () =>
-      Array.fromAsync(
-        runTurn(
-          { profile: 't1_async_reject_probe', input: { text: 'x' } },
-          {
-            async *complete() {
-              yield { type: 'text', text: 'never' };
-            },
-          },
-        ),
-      ),
-    TheoremError,
-    'tools.t1Policy rejected',
+  const events = await Array.fromAsync(
+    runTurn(
+      { profile: 't1_async_reject_probe', input: { text: 'x' } },
+      {
+        async *complete() {
+          yield { type: 'text', text: 'answered' };
+        },
+      },
+    ),
+  );
+  const reports = events.filter((event) => event.type === 'hook_failed');
+  assertEquals(reports.length, 1);
+  const [report] = reports;
+  assert(report?.type === 'hook_failed' && report.hook === 'tools.t1Policy');
+  assert(
+    (report.errorInternal ?? '').includes('tools.t1Policy rejected: async selector misconfigured'),
+  );
+  assert(events.some((event) => event.type === 'text'));
+  assertEquals(
+    events.some((event) => event.type === 'error'),
+    false,
   );
 });
 Deno.test('adversarial/invoke: concurrent calls clone shared snapshot', async () => {

@@ -1,6 +1,8 @@
 import type { ErrorKind } from '../../../guardrails/error.ts';
 import {
+  describeError,
   errorCopyText,
+  errorKind,
   isAbortError,
   TheoremError,
   throwIfAborted,
@@ -108,17 +110,24 @@ function createAgentCaller(args: {
           `Agent tool "${tool.name}" declares host fields, which need the request's onAgentCall`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
-      const shaped = await req.onAgentCall?.({
-        tool: tool.name,
-        callId,
-        profile: tool.profile,
-        input: modelInput,
-        ...(hostInput ? { hostInput } : {}),
-        caller: caller.id,
-        depth: args.depth + 1,
-        ...(req.metadata ? { metadata: req.metadata } : {}),
-        ...(signal ? { signal } : {}),
-      });
+      let shaped: Awaited<ReturnType<NonNullable<typeof req.onAgentCall>>>;
+      try {
+        shaped = await req.onAgentCall?.({
+          tool: tool.name,
+          callId,
+          profile: tool.profile,
+          input: modelInput,
+          ...(hostInput ? { hostInput } : {}),
+          caller: caller.id,
+          depth: args.depth + 1,
+          ...(req.metadata ? { metadata: req.metadata } : {}),
+          ...(signal ? { signal } : {}),
+        });
+      } catch (err) {
+        throwIfAborted(signal);
+        // why: The hook threw before the agent was sent, so no agent turn ran.
+        return settled('hook_failed', errorKind(err), describeError(err));
+      }
       if (shaped && 'refuse' in shaped) {
         return settled('refused_by_host', 'declined', shaped.refuse);
       }

@@ -456,6 +456,19 @@ const sessionEvent = z.discriminatedUnion('kind', [
 true satisfies Equals<z.infer<typeof sessionEvent>, SessionEvent>;
 
 /** Why a tool call failed, for the builder and for the user. */
+/** The host hooks whose crash the turn survives and reports as `hook_failed`. */
+export const HOOK_NAMES = [
+  'execution',
+  'background',
+  'onStage',
+  'onEvent',
+  'tools.t1Policy',
+  'outputs.validation',
+  'compaction.trigger',
+] as const;
+/** A host hook a `hook_failed` event names. */
+export type HookName = (typeof HOOK_NAMES)[number];
+
 export interface ToolFailure {
   /** What went wrong, for the builder. Stable per failure site. */
   code: string;
@@ -1067,6 +1080,21 @@ export type TurnEvent =
       errorInternal?: string;
     }
   | ({ type: 'done' } & DoneEvent)
+  /**
+   * A host hook threw, and the turn went on without its answer. A crash at a tool call's gate
+   * fails that call instead and is reported on the call's own `tool` event.
+   */
+  | {
+      type: 'hook_failed';
+      hook: HookName;
+      /** The stage whose `onStage` threw. */
+      stage?: TurnStage;
+      /** The tool call the hook ran for. */
+      callId?: string;
+      errorKind: ErrorKind;
+      /** The thrown reason and its causes, for the builder only (`forClient` strips it). */
+      errorInternal?: string;
+    }
   | {
       type: 'error';
       errorKind: ErrorKind;
@@ -1269,6 +1297,14 @@ const TURN_EVENTS = {
     tool: toolCallEvent,
     errorInternal: z.string().optional(),
   }),
+  hook_failed: z.object({
+    type: z.literal('hook_failed'),
+    hook: z.enum(HOOK_NAMES),
+    stage: z.enum(TURN_STAGES).optional(),
+    callId: z.string().optional(),
+    errorKind: errorKindSchema,
+    errorInternal: z.string().optional(),
+  }),
   error: z.object({
     type: z.literal('error'),
     errorKind: errorKindSchema,
@@ -1301,6 +1337,7 @@ const turnEvent = z.union([
     TURN_EVENTS.stage,
     TURN_EVENTS.tool_draft,
     TURN_EVENTS.tool,
+    TURN_EVENTS.hook_failed,
     TURN_EVENTS.error,
   ]),
   TURN_EVENTS.done,

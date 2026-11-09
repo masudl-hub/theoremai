@@ -249,6 +249,21 @@ export function cloneTurnToolSnapshot(state: TurnToolSnapshot): TurnToolSnapshot
   };
 }
 
+/** Applies the profile's `t1Policy`. A policy that throws or answers wrongly leaves the T0 tools, and its error comes back. */
+export async function applyT1Policy(
+  tools: ToolRegistry,
+  state: TurnToolSnapshot,
+  profile: Profile,
+  req: TurnRequest,
+): Promise<{ crashed: unknown } | undefined> {
+  try {
+    await expandT1Policy(tools, state, profile, req);
+  } catch (crashed) {
+    return { crashed };
+  }
+  return undefined;
+}
+
 export async function expandT1Policy(
   tools: ToolRegistry,
   state: TurnToolSnapshot,

@@ -170,6 +170,11 @@ If both `InvokeToolRequest.onStage` and an ambient turn/session handler exist,
 **both** run at tool stages: tool-local ambient first is N/A; order is
 **tool `preTool` → request `onStage` → turn/session `onStage`**.
 
+A handler that throws applies nothing. At `pre_tool` it fails the call
+(`failure.code: 'hook_failed'`), and no later handler runs: the call cannot go on
+unapproved. At any other stage the turn or session yields one `hook_failed` event and
+goes on. See [kernel.md](./kernel.md#host-hook-crashes).
+
 Every stage run records one `theorem.stage` span event —
 `{ stage, affordance, hook_ms?, warnings? }` — on the span it belongs to:
 turn stages on the `invoke_agent` root, Live cycle stages on the session root,

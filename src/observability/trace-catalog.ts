@@ -1384,6 +1384,16 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
       warnings: attr('error', 'Warnings', 'list', 'Warning codes the hooks raised.'),
     },
   },
+  'theorem.hook_failed': {
+    label: 'Hook failed',
+    doc: 'A host hook threw, and the turn went on without its answer.',
+    attributes: {
+      hook: attr('error', 'Hook', 'id', 'Which host hook threw.'),
+      stage: attr('agent', 'Stage', 'text', 'The stage whose hook threw.', TURN_STAGE_OPTIONS),
+      error_kind: attr('error', 'Error', 'text', 'The kind of what it threw.', ERROR_KIND_OPTIONS),
+      reason: attr('error', 'Reason', 'content', 'What it threw, in its own words.'),
+    },
+  },
   'theorem.guardrail': {
     label: 'Guardrail',
     doc: 'A guardrail checked some text: what it did, or `allow` for a timed check that let the text through.',

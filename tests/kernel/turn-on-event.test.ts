@@ -1,6 +1,6 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { assertRejects } from '@std/assert';
+import { assert, assertStringIncludes } from '@std/assert';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -47,21 +47,27 @@ Deno.test('onEvent reads each event of a turn before the caller gets it', async 
   assertEquals(order.indexOf('read done') + 1, order.indexOf('caller done'));
 });
 
-Deno.test('a throw from onEvent ends the turn with that error', async () => {
+Deno.test('a throw from onEvent is reported once to the caller, and the turn goes on', async () => {
+  const heard: TurnEvent[] = [];
   const request = {
     profile: PROFILE,
     input: { text: 'hello' },
     onEvent: (event: TurnEvent) => {
-      if (event.type === 'done') throw new Error('save failed');
+      heard.push(event);
+      if (event.type === 'text') throw new Error('save failed');
     },
   };
-  await assertRejects(
-    async () => {
-      for await (const _event of runTurn(request, replying)) {
-        // the caller reads on until the throw
-      }
-    },
-    Error,
-    'save failed',
+  const events = await Array.fromAsync(runTurn(request, replying));
+  const reports = events.filter((event) => event.type === 'hook_failed');
+  assertEquals(reports.length, events.filter((event) => event.type === 'text').length);
+  const [report] = reports;
+  assert(report?.type === 'hook_failed');
+  assertEquals([report.hook, report.errorKind], ['onEvent', 'internal']);
+  assertStringIncludes(report.errorInternal ?? '', 'save failed');
+  assertEquals(
+    heard.some((event) => event.type === 'hook_failed'),
+    false,
   );
+  assert(events.some((event) => event.type === 'done'));
+  assert(heard.some((event) => event.type === 'done'));
 });

@@ -425,7 +425,7 @@ Deno.test('kernel replay preserves guarded read-back without dispatching the han
   assertEquals(preparations, 1);
 });
 
-Deno.test('settlement write failure retains uncertainty before the client receives completion', async () => {
+Deno.test('a settlement write failure keeps the operation uncertain, and the client reads the result and the crash', async () => {
   const memory = createMemorySessionStore();
   let rejected = false;
   let effects = 0;
@@ -475,8 +475,12 @@ Deno.test('settlement write failure retains uncertainty before the client receiv
   const failed = await post(handler, 'invoke', answer);
   assertEquals(
     failed.events.some((event) => event.type === 'tool' && event.tool.phase === 'complete'),
-    false,
+    true,
   );
+  const reports = failed.events.filter((event) => event.type === 'hook_failed');
+  assertEquals(reports.length, 1);
+  assertEquals(reports[0]?.type === 'hook_failed' && reports[0].hook, 'execution');
+  assertEquals(reports[0]?.type === 'hook_failed' && reports[0].errorInternal, undefined);
   const operation = (await memory.load(name))?.state.operations[issued.tool.operationId];
   assert(operation?.status === 'uncertain');
   assertEquals(operation.reason, 'settlement_write_failed');

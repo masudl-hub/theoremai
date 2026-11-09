@@ -314,7 +314,8 @@ export interface CompactionSpec {
    */
   meter?: CompactionMeter;
   /**
-   * Your function that decides when to compact, in place of compactAt and maxTokens.
+   * Your function that decides when to compact, in place of compactAt and maxTokens. A throw is
+   * reported as hook_failed, and compactAt and maxTokens decide.
    *
    * @remarks Replaces the default `tokens > compactAt * maxTokens` check.
    */
@@ -492,7 +493,8 @@ export type ProfileItemCheck = (
 export interface ProfileItemRule {
   /**
    * Your check on one item, given what the tools of the turn returned (turn.toolResults); its error
-   * is the reason the model reads on a rewrite and the host reads on the removed item.
+   * is the reason the model reads on a rewrite and the host reads on the removed item. A throw
+   * refuses the item, reported as hook_failed.
    */
   check: ProfileItemCheck;
   /**
@@ -513,7 +515,7 @@ export interface ProfileValidationSpec {
    * `diagram.mermaid`). Presence/required is owned by the JSON Schema; these run only for required
    * paths and for optional paths that are present.
    *
-   * @catalog outputs.validation.fields.* Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.
+   * @catalog outputs.validation.fields.* Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain. A throw is a failure, reported as hook_failed.
    */
   fields?: Record<string, ProfileValidator>;
   /**
@@ -1353,11 +1355,15 @@ export interface TurnTraceLink {
 
 /** What `runTurn` and `runSession` both take: an agent's profile, its model, and the host's hooks and keys. */
 export interface AgentRunRequest extends RunControls, ModelChoice {
-  /** Host-owned atomic tool claims and outcomes. Never sent to providers. */
+  /**
+   * Host-owned atomic tool claims and outcomes. Never sent to providers. A throw before the call
+   * runs fails the call. A throw after it ran keeps the result, marks the call uncertain and is
+   * reported as hook_failed. A TheoremError is its answer and ends the turn.
+   */
   execution?: ToolExecutionCoordinator;
   /**
    * Host-issued service for tool calls that go on after their reply. It needs a coordinator with
-   * detach. Without it every tool runs inline.
+   * detach. Without it every tool runs inline. A throw from its event goes on the call's own trace.
    */
   background?: ToolBackgroundService;
   /** Host-issued browser dispatch with a claimed operation and correlated result. */
@@ -1429,7 +1435,8 @@ export interface AgentRunRequest extends RunControls, ModelChoice {
   fetch?: typeof fetch;
   /**
    * Your function that sees each stage of a text turn or a live session, and can answer with what
-   * the stage allows.
+   * the stage allows. A throw at pre_tool fails that call. A throw at any other stage is reported as
+   * hook_failed, and the turn goes on without its answer.
    *
    * @remarks Text `runTurn` and `runSession` emit stages and apply the returned affordances. A
    * session's is set once.
@@ -1494,13 +1501,13 @@ export interface TurnRequest extends AgentRunRequest {
    */
   stepsTaken?: number;
   /**
-   * Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw ends
-   * the turn with that error.
+   * Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw goes
+   * to the caller as hook_failed, which this function does not read, and the turn goes on.
    *
    * @remarks Reads each of this turn's events as it leaves `runTurn`, before the caller gets it.
    * The app sets it in `TurnWiring.prepare` to act on a turn someone else runs, such as saving the
-   * reply when `done` arrives. A throw ends the turn with that error. `invokeTool` does not call
-   * it.
+   * reply when `done` arrives. A throw is reported to the caller as `hook_failed`, and the turn
+   * goes on. `invokeTool` does not call it.
    */
   onEvent?: (event: TurnEvent) => void | Promise<void>;
   /**

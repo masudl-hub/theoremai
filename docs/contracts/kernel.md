@@ -503,7 +503,9 @@ then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
 text). Invalid affordances yield a follow-up `stage` event with `stageWarnings`.
 AbortSignal / stage `abort` end with cancelled `done` then `post_turn`.
 `TurnRequest.onEvent` reads each event as it leaves `runTurn`, before the caller
-gets it, so an app can act on a turn someone else runs. A throw ends the turn with that error.
+gets it, so an app can act on a turn someone else runs. A throw goes to the caller as
+`hook_failed`, which `onEvent` does not read, and the turn goes on (see
+[Host hook crashes](#host-hook-crashes)).
 Live sessions emit the same stage names around utterance cycles and
 `LiveSession.executeTool` (`docs/contracts/stages.md`).
 
@@ -650,6 +652,29 @@ The kernel validates protocol events before it releases them or executes client 
 | `provider_checkpoint` | Live native checkpoint in `providerState`, with the covered portable `history` |
 | `provider_warning` | Native state mismatch: `warning.code` is `provider_state_rebuilt`; `warning.reason` identifies the mismatch |
 | `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `labels` → `overrideLabels` → default) — see [Public errors](guardrails.md#public-errors) |
+| `hook_failed` | A host hook threw and the turn went on without its answer: `hook`, `stage` (for `onStage`), `callId` (when the hook ran for a call), `errorKind`, and `errorInternal` (host logs only). See [Host hook crashes](#host-hook-crashes) |
+
+### Host hook crashes
+
+A host hook that throws never ends the turn. Only a failure of the model call
+itself does. Each crash is reported once:
+
+| Hook | A throw | Reported as |
+| --- | --- | --- |
+| `onStage` at `pre_tool`, `preTool`, `onAgentCall` | Fails the call as not started: the call cannot run unapproved | The call's `tool` `error` event, `failure.code: 'hook_failed'`, which the model reads |
+| `onStage` at any other stage | The stage applies nothing from that handler | `hook_failed`, `hook: 'onStage'` |
+| `onEvent` | The caller still gets the event | `hook_failed`, `hook: 'onEvent'`, which `onEvent` does not read |
+| `execution` `lookup` or `begin` | Fails the call as not started | The call's `tool` `error` event, `failure.code: 'hook_failed'` |
+| `execution` `settle`, `detach` or `markUncertain`, after the call ran | The model reads the real result; the call is marked uncertain | `hook_failed`, `hook: 'execution'` |
+| `tools.t1Policy` | No T2 tool loads up front | `hook_failed`, `hook: 'tools.t1Policy'` |
+| `outputs.validation` field or item check | The value fails, or the item is refused | `hook_failed`, `hook: 'outputs.validation'` |
+| `compaction.trigger` | `compactAt` and `maxTokens` decide | `hook_failed`, `hook: 'compaction.trigger'` |
+| `background` `event`, or a store crash after the reply of a call that went on | The call goes on and settles | A `theorem.hook_failed` event on the call's own trace (no turn reads it) |
+
+A `TheoremError` that `execution` `lookup` or `begin` throws is the store's
+answer, not a crash: a held operation or a full session ends the turn as before.
+A crash of `onStage`, `tools.t1Policy`, `outputs.validation` or `compaction.trigger` in a turn
+is also a `theorem.hook_failed` event on the turn's trace.
 
 ### Token usage
 
@@ -930,8 +955,9 @@ hook's `input` replaces what the model sent; its `speech` replaces the
 model's. The hook's `host` is what the called agent's tools read as `ctx.host`.
 The caller's `host` is not passed down: without the hook's, those tools read none. The hook passes
 down to the called agent's own calls, with `depth` counting up from 1.
-A hook that throws ends the caller's turn with that error: what the model should
-read instead is the hook's to catch and return as `refuse`.
+A hook that throws fails the call as not started (`hook_failed`), the model reads
+why, and the caller's turn goes on. To give the model other words, catch the error
+and return them as `refuse`.
 
 **Provider.** The called agent resolves its registered binding. The hook's `provider` and
 `InvokeToolRequest.provider` supply host options, such as a vault or fetch, for that call.
@@ -1154,7 +1180,7 @@ After the reply:
 - `post_tool` runs at the real end. Its `inject` and `abort` are removed, because no turn is open.
 - A body that returns `awaiting` settles as a failure with the code `awaiting_after_reply`.
 - An agent tool's tokens go on the late terminal event, not on `done`. A stopped agent tool reports the tokens spent so far.
-- The call writes its own trace record at its real end, joined to the turn through `traceparent`.
+- The call writes its own trace record at its real end, joined to the turn through `traceparent`. A throw from `event`, or a store crash after the reply, is a `theorem.hook_failed` event on that record: no turn reads it.
 - `maxOutcomeBytes` applies to the final outcome.
 
 The late result reaches the model only through the host, in `input.lateResults` of a later turn. The host passes the outcome it stored, once. The model reads the result as a tool result after the person's message, and the reply counts it as a read ([How long the marks last](./guardrails.md#how-long-the-marks-last)). The run emits a `late_results` event, so a history built from events holds the message, and later turns read it. A transcript keeps it in a `late-results` block and shows nothing for it. A host that passes the same outcome again adds no second message, and the marks still count. Text in `input.context` or `input.history` reads as the host's or the user's.

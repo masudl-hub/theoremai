@@ -51,10 +51,13 @@ function builderWording(event: TurnEvent): TurnEvent {
   return event;
 }
 
-/** Raw diagnostics ride on error events, an ended session's close, and a tool call's failure. */
+/** Raw diagnostics ride on error events, an ended session's close, a tool call's failure, and a hook's crash. */
 function stripErrorInternal(event: TurnEvent): TurnEvent {
   if (
-    (event.type !== 'error' && event.type !== 'session' && event.type !== 'tool') ||
+    (event.type !== 'error' &&
+      event.type !== 'session' &&
+      event.type !== 'tool' &&
+      event.type !== 'hook_failed') ||
     event.errorInternal === undefined
   ) {
     return event;

@@ -14,7 +14,8 @@ import {
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { liveSentInput } from '../../../providers/live.ts';
 import { KEY_FALLBACK_ROW, type LiveQueueItem } from '../../../providers/types.ts';
-import type { ModelEvent, TurnEventOf } from '../../turn-events.ts';
+import { detachedCrashes } from '../../hook-failure.ts';
+import type { HookName, ModelEvent, TurnEventOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   ModelBinding,
@@ -392,9 +393,11 @@ class LiveTrace {
    */
   toolRecord(callId: string): {
     open: (name: string, attributes: TraceAttributes) => SpanHandle;
+    hookFailed: (hook: HookName, err: unknown) => void;
     finish: () => void;
   } {
     let tree: TraceTree | undefined;
+    const crashes = detachedCrashes(() => tree?.root);
     return {
       open: (name, attributes) => {
         tree = startTrace(name, {
@@ -404,8 +407,9 @@ class LiveTrace {
         });
         return tree.root;
       },
+      hookFailed: (hook, err) => crashes.report(hook, err),
       finish: () => {
-        if (tree) this.write(tree.collect());
+        if (tree) this.write(crashes.into(tree.collect()));
       },
     };
   }

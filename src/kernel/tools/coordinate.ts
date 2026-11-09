@@ -1,5 +1,6 @@
-import { errorKind, type TheoremError, throwIfAborted } from '../../guardrails/error.ts';
+import { describeError, errorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { settleable } from '../engine/runner/step-order.ts';
+import { hookCrashFailure, hookFailed } from '../hook-failure.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import type { ToolGate } from '../turn-events.ts';
 import type { TurnEvent, TurnTokens } from '../types.ts';
@@ -36,6 +37,19 @@ class ReplayedOperation {
 
 class ReplayedReply {
   constructor(readonly reply: ToolOperationReply) {}
+}
+
+/** The host's operation store or background service threw. */
+class StoreCrashed {
+  constructor(readonly error: unknown) {}
+}
+
+/**
+ * A `TheoremError` from `lookup` or `begin` is the store's answer, such as a held operation or a full
+ * session, and keeps its own path; any other throw is a crash.
+ */
+function storeCrash(error: unknown): unknown {
+  return error instanceof TheoremError ? error : new StoreCrashed(error);
 }
 
 /** What the run gives a body: its stop signal, and how it tells that the body has ended. */
@@ -134,6 +148,7 @@ class CoordinatedExecution {
   private claim?: ToolOperationClaim;
   private committed = false;
   private writeFailed = false;
+  private closed = false;
   private terminal?: TerminalToolEvent;
   private stopped?: { reason?: string };
   private spent?: TurnTokens;
@@ -154,7 +169,13 @@ class CoordinatedExecution {
       ...this.operation,
       invocation: { accepted: this.accepted, preparedInput: operationWireValue(preparedInput) },
     };
-    const result = await this.coordinator.begin(operation);
+    let result: Awaited<ReturnType<ToolExecutionCoordinator['begin']>>;
+    try {
+      result = await this.coordinator.begin(operation);
+    } catch (error) {
+      throwIfAborted(this.signal);
+      throw storeCrash(error);
+    }
     if (result.kind === 'settled') throw new ReplayedOperation(result.outcome);
     if (result.kind === 'background') throw new ReplayedReply(result.reply);
     if (result.kind === 'running' || result.kind === 'uncertain') throw heldOperation(result.kind);
@@ -181,9 +202,11 @@ class CoordinatedExecution {
     return true;
   }
 
-  async finish(
-    settlement: ToolExecuteSettlement,
-  ): Promise<{ terminal?: TerminalToolEvent; settlement: ToolExecuteSettlement }> {
+  async finish(settlement: ToolExecuteSettlement): Promise<{
+    terminal?: TerminalToolEvent;
+    settlement: ToolExecuteSettlement;
+    crashed?: StoreCrashed;
+  }> {
     if (settlement.gated) {
       if (this.claim) throw gateAfterClaim(settlement.gated);
       return { settlement };
@@ -216,8 +239,14 @@ class CoordinatedExecution {
     };
     const whole = toolOperationOutcomeSchema.parse(operationWireValue(outcome));
     const saved = this.withinLimit(whole);
-    await this.save(saved);
-    return { terminal: saved.event, settlement: saved === whole ? settlement : saved.replay };
+    const kept = { terminal: saved.event, settlement: saved === whole ? settlement : saved.replay };
+    try {
+      await this.save(saved);
+    } catch (error) {
+      throwIfAborted(this.signal);
+      return { ...kept, crashed: new StoreCrashed(error) };
+    }
+    return kept;
   }
 
   private async save(outcome: ToolOperationOutcome): Promise<void> {
@@ -262,7 +291,7 @@ class CoordinatedExecution {
     } catch (error) {
       this.writeFailed = !this.signal?.aborted;
       trigger.abort();
-      throw error;
+      throw this.writeFailed ? new StoreCrashed(error) : error;
     }
     trigger.release();
     this.goOn(detach, iterator, pending).finally(() =>
@@ -304,20 +333,22 @@ class CoordinatedExecution {
     pending: PendingStep,
   ): Promise<void> {
     const { service, project } = detach.support;
+    // why: No turn reads this run, so a crash of the host's own reporter goes to the call's trace.
     const emit = async (event: TurnEvent) => {
       try {
         await service.event(project(event), this.call());
-      } catch {
-        // why: The host's sink failing does not change how the call ends.
+      } catch (error) {
+        detach.trace.hookFailed('background', error);
       }
     };
     try {
       await this.drain(iterator, pending, emit);
-    } catch {
-      // why: Nothing reads this run; `close` marks a call that did not settle.
+    } catch (error) {
+      detach.trace.hookFailed('execution', error);
     } finally {
       clearTimeout(this.graceTimer);
-      await this.close().catch(() => {});
+      const crashed = await this.close();
+      if (crashed) detach.trace.hookFailed('execution', crashed.error);
       await Promise.resolve()
         .then(() => detach.trace.end())
         .catch(() => {});
@@ -344,8 +375,11 @@ class CoordinatedExecution {
       }
     } catch (error) {
       if (this.writeFailed) throw error;
-      await this.settleStopped(emit);
-      throw error;
+      if (this.stopped) return await this.settleStopped(emit);
+      await this.settleFailed(
+        { code: 'run_failed', kind: errorKind(error), message: describeError(error) },
+        emit,
+      );
     }
   }
 
@@ -366,8 +400,9 @@ class CoordinatedExecution {
     }
     // why: No turn is open, so a post_tool inject or abort has nothing to reach.
     const { pendingInject: _inject, aborted: _aborted, ...kept } = settlement;
-    const { terminal } = await this.finish(kept);
+    const { terminal, crashed } = await this.finish(kept);
     if (terminal) await emit(terminal);
+    if (crashed) throw crashed.error;
   }
 
   /** A stop with a reason settles the call; a shutdown leaves it for `close` to mark. */
@@ -445,13 +480,32 @@ class CoordinatedExecution {
     );
   }
 
-  async close(): Promise<void> {
-    if (this.claim && !this.committed) {
+  /** Marks a call that did not settle, once. A store that throws here gives its crash back. */
+  async close(): Promise<StoreCrashed | undefined> {
+    if (this.closed || !this.claim || this.committed) return undefined;
+    this.closed = true;
+    try {
       await this.coordinator.markUncertain(
         this.claim,
         this.writeFailed ? 'settlement_write_failed' : 'execution_interrupted',
       );
+    } catch (error) {
+      return new StoreCrashed(error);
     }
+    return undefined;
+  }
+
+  /** A call the store could not start or keep: it fails, and the model reads that failure. */
+  failed(crashed: StoreCrashed): { event: TerminalToolEvent; settlement: ToolExecuteSettlement } {
+    const effects = this.claim ? 'unknown' : 'not_started';
+    const outcome = failedOutcome(
+      this.base(),
+      effects,
+      hookCrashFailure(crashed.error),
+      this.spent,
+    );
+    const settlement = this.claim ? outcome.replay : { ...outcome.replay, callNotStarted: true };
+    return { event: outcome.event, settlement };
   }
 }
 
@@ -506,7 +560,17 @@ export async function* coordinateTool(
   const callSignal = trigger ? trigger.signal : signal;
   const execution = new CoordinatedExecution(coordinator, operation, accepted, callSignal, trigger);
   throwIfAborted(signal);
-  const existing = await coordinator.lookup(operation);
+  let existing: Awaited<ReturnType<ToolExecutionCoordinator['lookup']>>;
+  try {
+    existing = await coordinator.lookup(operation);
+  } catch (error) {
+    throwIfAborted(signal);
+    const crash = storeCrash(error);
+    if (!(crash instanceof StoreCrashed)) throw crash;
+    const failed = execution.failed(crash);
+    yield failed.event;
+    return failed.settlement;
+  }
   throwIfAborted(signal);
   if (existing?.kind === 'running' || existing?.kind === 'uncertain')
     throw heldOperation(existing.kind);
@@ -535,8 +599,12 @@ export async function* coordinateTool(
         return { ...reply.replay };
       }
       if (next.done) {
-        const { terminal, settlement } = await execution.finish(next.value);
+        const { terminal, settlement, crashed } = await execution.finish(next.value);
         if (terminal) yield terminal;
+        const closeCrashed = await execution.close();
+        for (const crash of [crashed, closeCrashed]) {
+          if (crash) yield hookFailed('execution', crash.error, { callId: operation.callId });
+        }
         return settlement;
       }
       if (execution.observe(next.value)) yield next.value;
@@ -548,11 +616,20 @@ export async function* coordinateTool(
       yield saved.event;
       return saved.replay;
     }
+    if (error instanceof StoreCrashed) {
+      const failed = execution.failed(error);
+      yield failed.event;
+      const closeCrashed = await execution.close();
+      if (closeCrashed)
+        yield hookFailed('execution', closeCrashed.error, { callId: operation.callId });
+      return failed.settlement;
+    }
     throw execution.failure(error);
   } finally {
     if (!handedOff) {
       trigger?.release();
       try {
+        // why: A crash here has no reader: the turn already ends on another error, or was stopped.
         await execution.close();
       } finally {
         await iterator.return({});

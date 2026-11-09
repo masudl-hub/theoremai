@@ -5,6 +5,7 @@ import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import { requestRefused, sanitizeHistory } from '../guardrails/sanitize.ts';
 import type { SpanHandle } from '../observability/trace-span.ts';
 import { guardrailAttributes } from './engine/turn-trace.ts';
+import { hookFailed } from './hook-failure.ts';
 import type { StageApplyWarningCode, TurnStage } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
@@ -673,6 +674,8 @@ export interface RunStageArgs extends StageCallBag {
 /** Applied stage output: every handler's inject, in call order, sanitized. */
 export interface RunStageOutput extends Omit<StageApplyOutput, 'inject'> {
   inject: InjectUnit[];
+  /** At `pre_tool`, what a handler threw: the call fails with it, and no other handler runs. */
+  crashed?: { error: unknown };
 }
 
 function appliedAffordance(applied: RunStageOutput, key: StageAffordance): boolean {
@@ -705,27 +708,32 @@ function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
 /**
  * Await each handler in order and apply its return on its own, so one handler's
  * junk is that handler's warning and cannot erase another's affordance. Each
- * handler gets its own shallow context; abort wins over any handler error.
+ * handler gets its own shallow context; abort wins over any handler error. A
+ * handler that throws adds nothing; at `pre_tool` it ends the run, since the
+ * call cannot go on unapproved.
  */
 async function applyHandlers(
   handlers: readonly StageHandler[],
   ctx: StageContext,
   apply: Omit<StageApplyInput, 'result'>,
   signal?: AbortSignal,
-): Promise<StageApplyOutput[]> {
+): Promise<{ parts: StageApplyOutput[]; crashes: unknown[] }> {
   const parts: StageApplyOutput[] = [];
+  const crashes: unknown[] = [];
   for (const handler of handlers) {
     let raw: unknown;
     try {
       raw = await handler({ ...ctx });
     } catch (err) {
       throwIfAborted(signal);
-      throw err;
+      crashes.push(err);
+      if (apply.stage === 'pre_tool') break;
+      continue;
     }
     throwIfAborted(signal);
     parts.push(applyStageResult({ ...apply, result: raw }));
   }
-  return parts;
+  return { parts, crashes };
 }
 
 /** Stage events always emit, even with no handlers. */
@@ -764,14 +772,24 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
 
   const ctx: StageContext = { stage, step, history, host, ...bag };
   const startedMs = span?.msSinceStart();
-  const applied = mergeApplied(
-    await applyHandlers(
-      handlers,
-      ctx,
-      { stage, injectAllowed, injectWouldExceedMaxSteps, mutable },
-      signal,
-    ),
+  const { parts, crashes } = await applyHandlers(
+    handlers,
+    ctx,
+    { stage, injectAllowed, injectWouldExceedMaxSteps, mutable },
+    signal,
   );
+  if (stage === 'pre_tool' && crashes.length > 0) {
+    span?.event('theorem.stage', { stage, affordance: [] });
+    return { warnings: [], inject: [], crashed: { error: crashes[0] } };
+  }
+  for (const err of crashes) {
+    yield hookFailed('onStage', err, {
+      stage,
+      ...(bag.callId === undefined ? {} : { callId: bag.callId }),
+      span,
+    });
+  }
+  const applied = mergeApplied(parts);
   span?.event('theorem.stage', {
     stage,
     ...(startedMs === undefined ? {} : { hook_ms: span.msSinceStart() - startedMs }),

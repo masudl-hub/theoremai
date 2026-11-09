@@ -27,6 +27,7 @@ import {
   traceContent,
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
+import { hookFailed } from '../../hook-failure.ts';
 import { profileTypesForField } from '../../profile-scope.ts';
 import type { ProviderHostOptions } from '../../protocols/runtime.ts';
 import { hostAgentModel, nestedTurnModel } from '../../provider-dispatch.ts';
@@ -36,7 +37,7 @@ import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
 import { assertBackgroundCoordinator, type ToolBackgroundSupport } from '../../tools/background.ts';
-import { cloneTurnToolSnapshot, expandT1Policy, promoteTurnTools } from '../../tools/resolve.ts';
+import { applyT1Policy, cloneTurnToolSnapshot, promoteTurnTools } from '../../tools/resolve.ts';
 import type { SteerQueue } from '../../tools/steer.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
 import { keptReply, turnDoneOf } from '../../turn-events.ts';
@@ -66,6 +67,7 @@ import {
   type CompactionTokens,
   type CompactorRun,
   compactionMeter,
+  compactionNeeded,
   compactionResult,
   compactorHistory,
   resolveCompactionTokens,
@@ -299,6 +301,21 @@ function compactionOutcome(
   };
 }
 
+/** `shouldCompact`. A trigger that throws gives way to the token threshold, and its crash goes into `crashes`. */
+async function compactionDecided(
+  decision: CompactionTokens,
+  spec: CompactionSpec,
+  span: SpanHandle,
+  crashes: TurnEventOf<'hook_failed'>[],
+): Promise<boolean> {
+  try {
+    return await shouldCompact(decision, spec);
+  } catch (err) {
+    crashes.push(hookFailed('compaction.trigger', err, { span }));
+    return compactionNeeded(decision.tokens, spec);
+  }
+}
+
 async function compactHistoryBeforeTurn(args: {
   registry: KernelRegistry;
   owner: ProfileId;
@@ -310,12 +327,15 @@ async function compactHistoryBeforeTurn(args: {
   parent: SpanHandle;
   canaries: string[];
   signal?: AbortSignal;
+  crashes: TurnEventOf<'hook_failed'>[];
 }): Promise<TurnEventOf<'compaction'> | undefined> {
   const decision = await resolveCompactionTokens({
     spec: args.spec,
     input: args.input,
   });
-  const needed = decision !== undefined && (await shouldCompact(decision, args.spec));
+  const needed =
+    decision !== undefined &&
+    (await compactionDecided(decision, args.spec, args.parent, args.crashes));
   const attributes = compactionDecision(args.spec, decision, needed);
   if (!(needed && decision)) {
     args.parent.event('theorem.compaction', attributes);
@@ -357,6 +377,7 @@ async function attachAfterCompaction(
     input: TurnRequest['input'];
     seen: TurnEvent[];
     span: SpanHandle;
+    crashes: TurnEventOf<'hook_failed'>[];
   },
 ): Promise<TurnEventOf<'done'>> {
   if (args.history.length === 0) return event;
@@ -366,7 +387,9 @@ async function attachAfterCompaction(
     input: args.input,
     prompt,
   });
-  const needed = decision !== undefined && (await shouldCompact(decision, args.spec));
+  const needed =
+    decision !== undefined &&
+    (await compactionDecided(decision, args.spec, args.span, args.crashes));
   args.span.event('theorem.compaction', compactionDecision(args.spec, decision, needed));
   if (!(needed && decision)) return event;
   const signal: CompactionSignal = {
@@ -494,7 +517,9 @@ async function* streamTurnEvents(
     steers: ctx.steers,
     outState: ctx,
   })) {
-    const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
+    const crashes: TurnEventOf<'hook_failed'>[] = [];
+    const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec, crashes);
+    for (const crash of crashes) yield deliver(ctx, crash);
     const out = projectForObs(attached, ctx.observability);
     if (!shouldSkipStreamEvent(out, profile)) yield deliver(ctx, out);
 
@@ -702,7 +727,10 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
   }
 }
 
-/** A turn's events, each read by `req.onEvent` before the caller gets it. */
+/**
+ * A turn's events, each read by `req.onEvent` before the caller gets it. A listener that throws
+ * misses that event, and the caller gets a `hook_failed` after it, which the listener never reads.
+ */
 async function* runTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
@@ -710,8 +738,15 @@ async function* runTurnInRegistry(
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
   for await (const event of tracedTurnInRegistry(registry, req, provider, sinkOverride)) {
-    await req.onEvent?.(event);
+    let crashed: TurnEvent | undefined;
+    try {
+      await req.onEvent?.(event);
+    } catch (err) {
+      throwIfAborted(req.signal);
+      crashed = hookFailed('onEvent', err);
+    }
     yield event;
+    if (crashed) yield crashed;
   }
 }
 
@@ -745,7 +780,10 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   }
   if (sanitized.refusal) throw sanitized.refusal;
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
-  await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
+  const t1Policy = await applyT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
+  if (t1Policy) {
+    yield deliver(ctx, hookFailed('tools.t1Policy', t1Policy.crashed, { span: ctx.root }));
+  }
   promoteTurnTools(ctx.registry.tools, gen.tools, ctx.safe.promoted);
   if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
@@ -761,7 +799,9 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   throwIfAborted(ctx.safe.signal);
 
   const compactionSpec = ctx.compacting ? undefined : getCompactionSpec(profile, gen.model);
-  const compaction = await maybeCompactBefore(ctx, profile, gen, compactionSpec, provider);
+  const crashes: TurnEventOf<'hook_failed'>[] = [];
+  const compaction = await maybeCompactBefore(ctx, profile, gen, compactionSpec, provider, crashes);
+  for (const crash of crashes) yield deliver(ctx, crash);
   if (compaction) yield deliver(ctx, projectForObs(compaction, ctx.observability));
 
   ctx.system = bindSystem(gen.resolvedSystem, [
@@ -855,6 +895,7 @@ async function maybeCompactBefore(
   gen: ResolvedGeneration,
   compactionSpec: CompactionSpec | undefined,
   provider: TurnModel,
+  crashes: TurnEventOf<'hook_failed'>[],
 ): Promise<TurnEventOf<'compaction'> | undefined> {
   if (!(compactionSpec?.timing === 'before' && ctx.safe)) return undefined;
   const compactor = compactorProvider(ctx, profile, compactionSpec, provider);
@@ -870,6 +911,7 @@ async function maybeCompactBefore(
     parent: ctx.root,
     canaries: ctx.canaries,
     signal: ctx.safe.signal,
+    crashes,
   });
   if (compaction) gen.history = compaction.history;
   return compaction;
@@ -880,6 +922,7 @@ async function maybeAttachAfter(
   ctx: TraceCtx,
   gen: ResolvedGeneration,
   compactionSpec: CompactionSpec | undefined,
+  crashes: TurnEventOf<'hook_failed'>[],
 ): Promise<TurnEvent> {
   if (!(event.type === 'done' && compactionSpec?.timing === 'after' && ctx.safe)) {
     return event;
@@ -890,6 +933,7 @@ async function maybeAttachAfter(
     input: ctx.safe.input,
     seen: ctx.seen,
     span: ctx.root,
+    crashes,
   });
 }
 

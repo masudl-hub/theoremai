@@ -1,7 +1,7 @@
 import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions, runScopedTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
-import { assertRejects, assertThrows } from '@std/assert';
+import { assert, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import type { DetectSpec } from '../../src/guardrails/detectors.ts';
@@ -937,15 +937,22 @@ Deno.test('a host-only channel is out of the model input, and the hook still sen
   );
 });
 
-Deno.test("a hook that throws ends the caller's turn with its error", async () => {
-  await assertRejects(
-    () =>
-      collect(scopeWith(), routedProvider(), () => {
-        throw new Error('storage read failed');
-      }),
-    Error,
-    'storage read failed',
+Deno.test('a hook that throws fails the call as not started, and the caller goes on', async () => {
+  const events = await collect(scopeWith(), routedProvider(), () => {
+    throw new Error('storage read failed');
+  });
+  const [failed] = toolPhases(events, 'error');
+  assert(failed?.phase === 'error');
+  assertEquals(
+    [failed.failure.code, failed.failure.message],
+    ['hook_failed', 'storage read failed'],
   );
+  assertEquals(
+    events.some((event) => event.type === 'error'),
+    false,
+  );
+  const done = events.find((event) => event.type === 'done');
+  assertEquals(done?.type === 'done' && done.stop?.kind, 'completed');
 });
 
 /** What the researcher's `lookup` read as `ctx.host`, on a turn whose own host is set. */

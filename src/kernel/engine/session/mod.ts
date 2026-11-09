@@ -653,8 +653,8 @@ function buildLiveSession(args: {
     project: (event) =>
       projectGuardrailTurnEvent(withPublicLabels(event, profile.labels), includeMatch),
     openTrace: (callId) => {
-      const { open, finish } = trace.toolRecord(callId);
-      return { open, end: finish };
+      const { open, hookFailed, finish } = trace.toolRecord(callId);
+      return { open, hookFailed, end: finish };
     },
   };
 

@@ -328,6 +328,10 @@ becomes its string, and beside other keys becomes `content` (the semconv part
 field); a lone JSON reference becomes the parsed JSON, inlined recursively,
 and beside other keys a parsed object merges under them; a blob keeps its hash.
 
+A host hook that threw while the turn went on leaves a `theorem.hook_failed` event: `hook`,
+`stage` (for `onStage`), `error_kind`, and `reason`, the thrown text. A call that went on
+after its reply has it on its own record. See [kernel.md](./kernel.md#host-hook-crashes).
+
 A failed span's `error.type` is its error kind: a provider too busy for the call
 is `busy`, one that is down is `unavailable`.
 

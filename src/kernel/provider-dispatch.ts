@@ -22,9 +22,11 @@ export function resolveRegisteredTurnModel(
   const binding: ModelBinding | undefined = profile.models[modelId ?? profile.defaultModel];
   if (!binding) throw new TheoremError('config', labelText('provider.model_binding_missing'));
   assertHistoryKept(profile.providerContinuation, request?.providerState, request?.input?.history);
+  // why: A compaction trigger is the host's function, which structuredClone cannot copy, and the provider never reads compaction.
+  const { compaction: _compaction, ...wire } = binding;
   const turn = registeredTurnModel(
     registry.providers.require(binding.provider, binding.apiId),
-    structuredClone(binding),
+    structuredClone(wire),
     profile.type,
     options,
     request?.providerState,

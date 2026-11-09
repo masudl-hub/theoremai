@@ -390,7 +390,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'models.*.compaction.timing':
     'Whether the kernel compacts before the turn or tells the host to compact after it.',
   'models.*.compaction.trigger':
-    'Your function that decides when to compact, in place of compactAt and maxTokens.',
+    'Your function that decides when to compact, in place of compactAt and maxTokens. A throw is reported as hook_failed, and compactAt and maxTokens decide.',
   'models.*.defaultEffort': "The effort a turn gets when it doesn't pick one.",
   'models.*.efforts':
     'Named thinking levels. A turn picks one when allowEffortSelect is on. A provider refuses a level its model does not take. Speech ignores them, and so may an image profile without includeText.',
@@ -467,13 +467,13 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'outputs.validation.fields':
     'Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid; a path no structured schema reaches is refused when the profile registers.',
   'outputs.validation.fields.*':
-    'Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.',
+    'Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain. A throw is a failure, reported as hook_failed.',
   'outputs.validation.items':
     'Your checks on the items of a list, each keyed by the dotted path of that list in the structured reply, such as claims; a path no structured schema reaches as a list is refused when the profile registers.',
   'outputs.validation.items.*':
     'Your check on each item of this list. A refused item never fails the reply and the rest of the reply is kept.',
   'outputs.validation.items.*.check':
-    'Your check on one item, given what the tools of the turn returned (turn.toolResults); its error is the reason the model reads on a rewrite and the host reads on the removed item.',
+    'Your check on one item, given what the tools of the turn returned (turn.toolResults); its error is the reason the model reads on a rewrite and the host reads on the removed item. A throw refuses the item, reported as hook_failed.',
   'outputs.validation.items.*.onFail':
     'drop removes a refused item. fix first asks the model to rewrite the refused items alone, once and while retries remain, then removes any refused again. Removed items leave on the structured event as removed.',
   'outputs.validation.maxRetries':
@@ -583,7 +583,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     'The turn paths this tool is offered on, where * means every path; a turn with no path gets only * tools. Host profiles ignore it.',
   'registerTool.permission':
     "Whether the host must approve a call before it runs; the provider's own tools never ask.",
-  'registerTool.preTool': "Runs before the host's pre_tool onStage.",
+  'registerTool.preTool':
+    "Runs before the host's pre_tool onStage. A throw fails the call, and the model reads why.",
   'registerTool.profile':
     'The profile this agent tool runs: text, image, or speech. Register it first. Nothing it calls may stop on a gate.',
   'registerTool.serverUrl': "The MCP server's URL.",
@@ -601,7 +602,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'runTurn.answersHeldCall':
     "Set on the turn TurnWiring.prepare is given for a held call that goes on once answered: no model runs, and input is the paused turn's.",
   'runTurn.background':
-    'Host-issued service for tool calls that go on after their reply. It needs a coordinator with detach. Without it every tool runs inline.',
+    "Host-issued service for tool calls that go on after their reply. It needs a coordinator with detach. Without it every tool runs inline. A throw from its event goes on the call's own trace.",
   'runTurn.builtInArgs':
     "Args for the provider's own tools on the chosen model's builtInTools, by tool id; each is checked by the schema the provider declares for that tool.",
   'runTurn.continuation':
@@ -612,7 +613,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'runTurn.credentials': 'Where an HTTP or MCP tool gets the credential for its auth slot.',
   'runTurn.effort':
     "The effort the turn or session picks from the model's efforts; refused unless the model sets allowEffortSelect.",
-  'runTurn.execution': 'Host-owned atomic tool claims and outcomes. Never sent to providers.',
+  'runTurn.execution':
+    'Host-owned atomic tool claims and outcomes. Never sent to providers. A throw before the call runs fails the call. A throw after it ran keeps the result, marks the call uncertain and is reported as hook_failed. A TheoremError is its answer and ends the turn.',
   'runTurn.fetch':
     "Sends each request a remote tool makes, once that request's network checks pass. A page whose tools cannot reach a host directly sends them through its own server here.",
   'runTurn.host':
@@ -642,9 +644,9 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'runTurn.onAgentCall':
     'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
   'runTurn.onEvent':
-    "Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw ends the turn with that error.",
+    "Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw goes to the caller as hook_failed, which this function does not read, and the turn goes on.",
   'runTurn.onStage':
-    'Your function that sees each stage of a text turn or a live session, and can answer with what the stage allows.',
+    'Your function that sees each stage of a text turn or a live session, and can answer with what the stage allows. A throw at pre_tool fails that call. A throw at any other stage is reported as hook_failed, and the turn goes on without its answer.',
   'runTurn.options':
     "The value the host's code sets for each option in the profile's identity.options but path; an option or a value the profile does not declare is refused.",
   'runTurn.pageExecution':
@@ -693,7 +695,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'tools.parallel':
     'true: the calls of one step run side by side, and a call whose pre_tool answers waitFor starts its body once those calls settle. Left out or false: they run one at a time, in the order the model made them. A step is the calls the model makes together in a turn, or the calls a host runs through invokeToolStep.',
   'tools.t1Policy':
-    'Your function that picks, at the start of each turn, which T2 tools to load up front; the rest wait for tools.t2Loader.',
+    'Your function that picks, at the start of each turn, which T2 tools to load up front; the rest wait for tools.t2Loader. A throw loads none up front, reported as hook_failed.',
   'tools.t2Loader':
     "The function tool that loads T2 tools. It must be in allow and return { loaded: ToolId[] }. One forbidden id fails the load. Ids off the turn path are skipped. The tools it loads can be called from the next step: a step's calls see the tools as they stood when the step began.",
   turnBehaviour:

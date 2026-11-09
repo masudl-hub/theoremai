@@ -2203,23 +2203,25 @@ Deno.test('registered tool preTool deny yields unauthorized error', async () => 
   assertEquals(toolEv?.phase, 'error');
   assertStringIncludes(failureOf(toolEv)?.message ?? '', 'not authorized');
 });
-Deno.test('registered tool preTool throwing error propagates from runTurn', async () => {
+Deno.test('a registered tool whose preTool throws fails the call, and the turn goes on', async () => {
   createCanExecBotProfile('can_exec_bot_3', 'throwing_auth_tool');
-  let threw = false;
-  try {
-    await Array.fromAsync(
-      runTurn(
-        {
-          profile: 'can_exec_bot_3',
-          input: { text: 'test' },
-        },
-        createToolProvider('throwing_auth_tool'),
-      ),
-    );
-  } catch (err) {
-    threw = true;
-    assertStringIncludes(err instanceof Error ? err.message : String(err), 'auth network failure');
-  }
-  assertEquals(threw, true);
+  const events = await Array.fromAsync(
+    runTurn(
+      { profile: 'can_exec_bot_3', input: { text: 'test' } },
+      createToolProvider('throwing_auth_tool'),
+    ),
+  );
+  const toolEv = lastTool(events, 'throwing_auth_tool');
+  assertEquals(toolEv?.phase, 'error');
+  assertEquals(failureOf(toolEv)?.code, 'hook_failed');
+  assertStringIncludes(failureOf(toolEv)?.message ?? '', 'auth network failure');
+  assertEquals(
+    events.some((event) => event.type === 'error'),
+    false,
+  );
+  assertEquals(
+    events.some((event) => event.type === 'done'),
+    true,
+  );
 });
 catalogGate();

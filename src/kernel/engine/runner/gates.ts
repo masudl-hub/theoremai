@@ -22,6 +22,7 @@ import type {
   ResolvedGuardrailPolicy,
 } from '../../../guardrails/types.ts';
 import { ANSWER_TOOL, answersByTool } from '../../answer-tool.ts';
+import { hookFailed } from '../../hook-failure.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
 import { turnFacts } from '../../registry/options.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
@@ -225,8 +226,9 @@ async function evaluateValidationOutcome(args: {
   latestStructured: unknown;
   request: TurnRequest;
   canRetry: boolean;
+  crashes: unknown[];
 }): Promise<ValidationOutcome> {
-  const { profile, validation, generation, latestStructured, request, canRetry } = args;
+  const { profile, validation, generation, latestStructured, request, canRetry, crashes } = args;
   if (latestStructured === undefined) {
     return { action: 'pass' };
   }
@@ -242,6 +244,7 @@ async function evaluateValidationOutcome(args: {
     latestStructured,
     validation.fields,
     turnFacts(profile, request),
+    crashes,
   );
   if (failures.length === 0) return { action: 'pass' };
   if (!canRetry) return { action: 'pass', failed: failures };
@@ -625,6 +628,7 @@ async function handleValidationGate(
   state: StepExecutionState,
   profile: Profile,
   latestStructured: unknown,
+  crashes: unknown[],
 ): Promise<TurnEventOf<'attempt'> | 'pass'> {
   const canRetry = flow.currentAttempt < (validation.maxRetries ?? 0);
   const fix = flow.pendingItemFix;
@@ -649,6 +653,7 @@ async function handleValidationGate(
     latestStructured: reply,
     request: flow.currentReq,
     canRetry,
+    crashes,
   });
 
   if (outcome.action === 'retry') {
@@ -656,10 +661,12 @@ async function handleValidationGate(
   }
   if (reply === undefined) return 'pass';
   if (outcome.failed) markFailed(state, outcome.failed);
-  const refused = await collectItemFailures(reply, validation.items, {
-    options: turnFacts(profile, flow.currentReq),
-    toolResults: state.toolResults,
-  });
+  const refused = await collectItemFailures(
+    reply,
+    validation.items,
+    { options: turnFacts(profile, flow.currentReq), toolResults: state.toolResults },
+    crashes,
+  );
   if (refused.length === 0) return 'pass';
   const fixable = refused.filter((failure) => failure.onFail === 'fix');
   const structured = flow.currentGen.structured;
@@ -893,7 +900,18 @@ async function* checkAttemptReply(
   }
 
   if (validation) {
-    const status = await handleValidationGate(validation, flow, state, profile, latestStructured);
+    const crashes: unknown[] = [];
+    const status = await handleValidationGate(
+      validation,
+      flow,
+      state,
+      profile,
+      latestStructured,
+      crashes,
+    );
+    for (const crash of crashes) {
+      yield hookFailed('outputs.validation', crash, { span: state.trace.root });
+    }
     if (status !== 'pass') {
       yield status;
       return { status: 'continue' };

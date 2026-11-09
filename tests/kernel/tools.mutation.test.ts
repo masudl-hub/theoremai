@@ -566,21 +566,18 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
     [...denied].reverse().find((e) => asValue<ToolPhaseEvent>(e).tool?.failure),
   ).tool?.failure?.code;
   assertEquals(deniedFailure, 'not_authorized');
-  let preToolThrew = false;
-  try {
-    await run(
-      makeTool({
-        preTool: () => {
-          throw new Error('nope');
-        },
-      }),
-      { value: 1 },
-    );
-  } catch (err) {
-    preToolThrew = true;
-    assertEquals(err instanceof Error && err.message.includes('nope'), true);
-  }
-  assertEquals(preToolThrew, true);
+  const crashed = await run(
+    makeTool({
+      preTool: () => {
+        throw new Error('nope');
+      },
+    }),
+    { value: 1 },
+  );
+  const crashFailure = asValue<ToolPhaseEvent>(
+    [...crashed].reverse().find((e) => asValue<ToolPhaseEvent>(e).tool?.failure),
+  ).tool?.failure;
+  assertEquals([crashFailure?.code, crashFailure?.message], ['hook_failed', 'nope']);
   const preToolFailure = await run(
     makeTool({
       preTool: () => ({ deny: { code: 'blocked', message: 'stop' } }),

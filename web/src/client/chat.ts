@@ -260,7 +260,15 @@ type RunOptions = {
 const DELIVERY_ORDER: readonly MessageDelivery[] = ['sending', 'sent', 'delivered', 'read'];
 
 /** The server's own reports (bookkeeping, a failure, the end), which say nothing of the model having the message. */
-const SERVER_EVENTS = new Set(['stage', 'guardrail', 'late_results', 'session', 'error', 'done']);
+const SERVER_EVENTS = new Set([
+  'stage',
+  'guardrail',
+  'late_results',
+  'session',
+  'hook_failed',
+  'error',
+  'done',
+]);
 /** The reply itself (its thinking and tool calls come before it). */
 const REPLY_EVENTS = new Set(['text', 'structured', 'media']);
 

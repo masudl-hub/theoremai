@@ -248,7 +248,7 @@ export interface ToolHostHooks<TIn = unknown> {
    */
   outputSchema: Record<string, unknown>;
   /**
-   * Runs before the host's pre_tool onStage.
+   * Runs before the host's pre_tool onStage. A throw fails the call, and the model reads why.
    *
    * @remarks Runs before the host's `pre_tool` `onStage`.
    */
@@ -598,7 +598,7 @@ export interface AgentToolDef extends ToolBase {
    * them.
    */
   hostOnly?: AgentToolChannel[];
-  /** Runs before the host's pre_tool onStage. */
+  /** Runs before the host's pre_tool onStage. A throw fails the call, and the model reads why. */
   preTool?: ToolHostHooks<AgentToolInput>['preTool'];
   /**
    * Gives the model an after field on this tool: the tools called in the same step that must settle
@@ -847,7 +847,7 @@ export interface ProfileToolsSpec {
   allow: ToolId[];
   /**
    * Your function that picks, at the start of each turn, which T2 tools to load up front; the rest
-   * wait for tools.t2Loader.
+   * wait for tools.t2Loader. A throw loads none up front, reported as hook_failed.
    *
    * @remarks Returns ids already allowed with `loadTier: 'T2'` to load at turn start. Not supported
    * on `type: 'live'`.

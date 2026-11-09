@@ -1086,6 +1086,8 @@ function hostContentOf(event: ModelEvent): unknown[] {
       return [event.text];
     case 'error':
       return [event.error, event.errorCopy];
+    case 'hook_failed':
+      return [];
     case 'custom':
       return [event.data];
     case 'reasoning':

@@ -60,11 +60,19 @@ async function runFieldValidator(
   validator: ProfileValidator | undefined,
   options: Readonly<Record<string, string>> | undefined,
   failures: ValidationFailure[],
+  crashes: unknown[],
 ): Promise<void> {
   if (!validator) {
     return;
   }
-  const check: ValidationResult = await validator(value, options);
+  let check: ValidationResult;
+  try {
+    check = await validator(value, options);
+  } catch (error) {
+    // invariant: A check that cannot answer is a no.
+    crashes.push(error);
+    check = { isValid: false };
+  }
   if (check.isValid) {
     return;
   }
@@ -82,8 +90,9 @@ async function visitProperty(args: {
   fields: Record<string, ProfileValidator> | undefined;
   options: Readonly<Record<string, string>> | undefined;
   failures: ValidationFailure[];
+  crashes: unknown[];
 }): Promise<void> {
-  const { path, propSchema, child, isRequired, fields, options, failures } = args;
+  const { path, propSchema, child, isRequired, fields, options, failures, crashes } = args;
   if (isAbsent(child)) {
     if (isRequired) {
       pushMissing(path, failures);
@@ -91,12 +100,12 @@ async function visitProperty(args: {
     return;
   }
 
-  await runFieldValidator(path, child, fields?.[path], options, failures);
+  await runFieldValidator(path, child, fields?.[path], options, failures, crashes);
 
   const nested = asObjectSchema(propSchema);
   const nestedValue = nested ? asRecord(child) : null;
   if (nested && nestedValue) {
-    await walkObject(nested, nestedValue, path, fields, options, failures);
+    await walkObject(nested, nestedValue, path, fields, options, failures, crashes);
   }
 }
 
@@ -107,6 +116,7 @@ async function walkObject(
   fields: Record<string, ProfileValidator> | undefined,
   options: Readonly<Record<string, string>> | undefined,
   failures: ValidationFailure[],
+  crashes: unknown[],
 ): Promise<void> {
   const props = propertySchemas(schema);
   const required = new Set(requiredKeys(schema));
@@ -122,6 +132,7 @@ async function walkObject(
       fields,
       options,
       failures,
+      crashes,
     });
   }
 }
@@ -129,12 +140,14 @@ async function walkObject(
 /**
  * Required vs optional comes only from the JSON Schema; host field validators run for required
  * paths and for optional paths that are present. Throws when the root is not an object schema.
+ * A validator that throws fails its path, and its error goes into `crashes`.
  */
 async function collectValidationFailures(
   jsonSchema: Record<string, unknown>,
   structured: unknown,
   fields: Record<string, ProfileValidator> | undefined,
   options?: Readonly<Record<string, string>>,
+  crashes: unknown[] = [],
 ): Promise<ValidationFailure[]> {
   const root = asObjectSchema(jsonSchema);
   if (!root) {
@@ -147,7 +160,7 @@ async function collectValidationFailures(
     }
     return failures;
   }
-  await walkObject(root, structured, '', fields, options, failures);
+  await walkObject(root, structured, '', fields, options, failures, crashes);
   return failures;
 }
 
@@ -204,18 +217,28 @@ function withListAt(structured: unknown, path: string, list: unknown[]): unknown
   };
 }
 
-/** Each item an item rule refuses, in the reply's own order. A path with no list has no items. */
+/**
+ * Each item an item rule refuses, in the reply's own order. A path with no list has no items. A
+ * check that throws refuses its item, and its error goes into `crashes`.
+ */
 async function collectItemFailures(
   structured: unknown,
   items: Record<string, ProfileItemRule> | undefined,
   turn: ItemCheckTurn,
+  crashes: unknown[] = [],
 ): Promise<ItemFailure[]> {
   const failures: ItemFailure[] = [];
   for (const [path, rule] of Object.entries(items ?? {})) {
     const list = valueAt(structured, path);
     if (!Array.isArray(list)) continue;
     for (const [index, item] of list.entries()) {
-      const check = await rule.check(item, turn);
+      let check: ValidationResult;
+      try {
+        check = await rule.check(item, turn);
+      } catch (error) {
+        crashes.push(error);
+        check = { isValid: false };
+      }
       if (check.isValid) continue;
       failures.push({
         path,

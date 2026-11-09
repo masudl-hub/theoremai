@@ -1,6 +1,8 @@
 import type { z } from 'zod';
+import { throwIfAborted } from '../../guardrails/error.ts';
 import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import { hookCrashFailure } from '../hook-failure.ts';
 import { jsonObjectSchema } from '../json.ts';
 import type { ToolAccess } from '../schema.ts';
 import {
@@ -139,7 +141,12 @@ export async function* runPreToolPipeline(args: {
   let toolPreTool: StageResult | undefined;
   const { confirmed, approved, approvedAsIs } = resumeApproval(ctx.resume);
   if (tool.preTool && !approvedAsIs) {
-    toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
+    try {
+      toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
+    } catch (err) {
+      throwIfAborted(ctx.signal);
+      return { ok: false, kind: 'failed', failure: hookCrashFailure(err) };
+    }
   }
   if (!stages && toolPreTool === undefined && after.length === 0) {
     return { ok: true, input };
@@ -222,6 +229,9 @@ async function* runPreToolStages(args: {
     ...(stages.stepCalls ? { stepCalls: stages.stepCalls } : {}),
   });
 
+  if (applied.crashed) {
+    return { ok: false, kind: 'failed', failure: hookCrashFailure(applied.crashed.error) };
+  }
   if (applied.abort) {
     return { ok: false, kind: 'aborted', aborted: applied.abort };
   }

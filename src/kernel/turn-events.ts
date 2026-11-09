@@ -455,9 +455,8 @@ const sessionEvent = z.discriminatedUnion('kind', [
 ]);
 true satisfies Equals<z.infer<typeof sessionEvent>, SessionEvent>;
 
-/** Why a tool call failed, for the builder and for the user. */
 /** The host hooks whose crash the turn survives and reports as `hook_failed`. */
-export const HOOK_NAMES = [
+const HOOK_NAMES = [
   'execution',
   'background',
   'onStage',
@@ -469,6 +468,7 @@ export const HOOK_NAMES = [
 /** A host hook a `hook_failed` event names. */
 export type HookName = (typeof HOOK_NAMES)[number];
 
+/** Why a tool call failed, for the builder and for the user. */
 export interface ToolFailure {
   /** What went wrong, for the builder. Stable per failure site. */
   code: string;

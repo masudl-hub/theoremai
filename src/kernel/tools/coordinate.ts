@@ -163,6 +163,10 @@ class CoordinatedExecution {
     private trigger?: DetachTrigger,
   ) {}
 
+  get callId(): string {
+    return this.operation.callId;
+  }
+
   async beginBody(preparedInput: unknown): Promise<ToolOperationClaim> {
     throwIfAborted(this.signal);
     const operation = {
@@ -543,6 +547,44 @@ function detaching(detach: ToolDetach, signal: AbortSignal | undefined) {
   return { plan: detach, trigger, steers, hooks };
 }
 
+/** The store's saved operation, or its crash; a `TheoremError` is its answer and is thrown. */
+async function lookup(
+  coordinator: ToolExecutionCoordinator,
+  operation: ToolOperationIdentity,
+  signal: AbortSignal | undefined,
+): Promise<Awaited<ReturnType<ToolExecutionCoordinator['lookup']>> | StoreCrashed> {
+  try {
+    return await coordinator.lookup(operation);
+  } catch (error) {
+    throwIfAborted(signal);
+    const crash = storeCrash(error);
+    if (crash instanceof StoreCrashed) return crash;
+    throw crash;
+  }
+}
+
+/** Marks a call that did not settle, and reports each store crash once. */
+async function* closeReporting(
+  execution: CoordinatedExecution,
+  crashed?: StoreCrashed,
+): AsyncGenerator<TurnEvent> {
+  const closeCrashed = await execution.close();
+  for (const crash of [crashed, closeCrashed]) {
+    if (crash) yield hookFailed('execution', crash.error, { callId: execution.callId });
+  }
+}
+
+/** A call the store could not start or keep fails, and the model reads why. */
+async function* failCall(
+  execution: CoordinatedExecution,
+  crash: StoreCrashed,
+): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  const failed = execution.failed(crash);
+  yield failed.event;
+  yield* closeReporting(execution);
+  return failed.settlement;
+}
+
 export async function* coordinateTool(
   coordinator: ToolExecutionCoordinator | undefined,
   identity: Omit<ToolOperationIdentity, 'invocationHash'>,
@@ -560,17 +602,8 @@ export async function* coordinateTool(
   const callSignal = trigger ? trigger.signal : signal;
   const execution = new CoordinatedExecution(coordinator, operation, accepted, callSignal, trigger);
   throwIfAborted(signal);
-  let existing: Awaited<ReturnType<ToolExecutionCoordinator['lookup']>>;
-  try {
-    existing = await coordinator.lookup(operation);
-  } catch (error) {
-    throwIfAborted(signal);
-    const crash = storeCrash(error);
-    if (!(crash instanceof StoreCrashed)) throw crash;
-    const failed = execution.failed(crash);
-    yield failed.event;
-    return failed.settlement;
-  }
+  const existing = await lookup(coordinator, operation, signal);
+  if (existing instanceof StoreCrashed) return yield* failCall(execution, existing);
   throwIfAborted(signal);
   if (existing?.kind === 'running' || existing?.kind === 'uncertain')
     throw heldOperation(existing.kind);
@@ -601,10 +634,7 @@ export async function* coordinateTool(
       if (next.done) {
         const { terminal, settlement, crashed } = await execution.finish(next.value);
         if (terminal) yield terminal;
-        const closeCrashed = await execution.close();
-        for (const crash of [crashed, closeCrashed]) {
-          if (crash) yield hookFailed('execution', crash.error, { callId: operation.callId });
-        }
+        yield* closeReporting(execution, crashed);
         return settlement;
       }
       if (execution.observe(next.value)) yield next.value;
@@ -616,14 +646,7 @@ export async function* coordinateTool(
       yield saved.event;
       return saved.replay;
     }
-    if (error instanceof StoreCrashed) {
-      const failed = execution.failed(error);
-      yield failed.event;
-      const closeCrashed = await execution.close();
-      if (closeCrashed)
-        yield hookFailed('execution', closeCrashed.error, { callId: operation.callId });
-      return failed.settlement;
-    }
+    if (error instanceof StoreCrashed) return yield* failCall(execution, error);
     throw execution.failure(error);
   } finally {
     if (!handedOff) {

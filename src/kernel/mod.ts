@@ -383,6 +383,7 @@ export type {
   ToolAuthConfig,
   ToolContext,
   ToolLabels,
+  ToolMediaEntry,
 } from './tools/types.ts';
 export {
   awaitingUserInputSchema,
@@ -391,6 +392,7 @@ export {
   isAwaitingUserInput,
   keptReply,
   reasoningPartSchema,
+  type ToolOutputPart,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
   toolOutputPartSchema,

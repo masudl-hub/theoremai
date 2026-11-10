@@ -497,7 +497,12 @@ export type {
   ToolCallResult,
   ToolStepCallResult,
 } from './src/kernel/tools/run.ts';
-export type { ModelToolResult, PageAnswer, ToolContext } from './src/kernel/tools/types.ts';
+export type {
+  ModelToolResult,
+  PageAnswer,
+  ToolContext,
+  ToolMediaEntry,
+} from './src/kernel/tools/types.ts';
 export {
   awaitingUserInputSchema,
   type GateReference,
@@ -505,6 +510,7 @@ export {
   isAwaitingUserInput,
   keptReply,
   reasoningPartSchema,
+  type ToolOutputPart,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
   toolOutputPartSchema,

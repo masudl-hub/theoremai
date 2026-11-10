@@ -6,8 +6,14 @@ import {
   turnDestinations,
 } from '../../../guardrails/destinations.ts';
 import { addSeenUrls, type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
+import { TheoremError } from '../../../guardrails/error.ts';
 import { labelText } from '../../../guardrails/labels.ts';
-import { isLateResult, readToolData } from '../../../guardrails/tool-fence.ts';
+import {
+  isLateResult,
+  lateResultIds,
+  lateResultsMessage,
+  readToolData,
+} from '../../../guardrails/tool-fence.ts';
 import type { OwnTools } from '../../../guardrails/tool-leak.ts';
 import { isRemoteOrigin, recordTaint, wrapToolData } from '../../../guardrails/tool-result.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
@@ -87,7 +93,7 @@ interface StepExecutionState {
   /** The tool call this attempt was writing when the output limit cut its arguments off. */
   cutOffCall?: { name: string; text: string };
   /** The message `input.lateResults` opened and the calls it holds, until the run can emit it. */
-  lateResults?: { text: string; callIds: string[] };
+  lateResults?: { text: string; operationIds: string[] };
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */
   canaryCarry?: string;
   /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
@@ -196,8 +202,18 @@ function openLateResults(
   labels: Profile['labels'],
 ): void {
   if (outcomes.length === 0) return;
-  const blocks = outcomes.map(({ event, replay }) => {
-    const { name, callId, readBack = '' } = event.tool;
+  const read = new Set(state.currentHistory.flatMap(lateResultIds));
+  const unread = outcomes.filter(({ event }) => {
+    const { operationId } = event.tool;
+    if (!operationId) {
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      throw new TheoremError('request', 'A late result needs the operationId of its call');
+    }
+    return !read.has(operationId);
+  });
+  if (unread.length === 0) return;
+  const blocks = unread.map(({ event, replay }) => {
+    const { name, operationId = '', readBack = '' } = event.tool;
     const result = replay.modelResult;
     const provenance = result?.provenance ?? { origin: 'local' as const, tool: name, depth: 1 };
     if (result?.provenance) {
@@ -207,20 +223,17 @@ function openLateResults(
     addSeenUrls(state.givenUrls.tools, readBack);
     const fenced =
       readToolData(readBack).length > 0 ? readBack : wrapToolData(readBack, provenance);
-    return { callId, text: `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}` };
+    return {
+      operationId,
+      text: `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}`,
+    };
   });
-  const unread = blocks.filter(
-    (block) =>
-      !state.currentHistory.some(
-        (message) => isLateResult(message) && message.content?.includes(block.text),
-      ),
-  );
-  if (unread.length === 0) return;
-  const text = unread.map((block) => block.text).join('\n\n');
-  const message: TurnHistoryMessage = { role: 'user', content: text };
+  const text = blocks.map((block) => block.text).join('\n\n');
+  const operationIds = blocks.map((block) => block.operationId);
+  const message = lateResultsMessage(text, operationIds);
   state.givenUrls.own.add(message);
   state.currentHistory.push(message);
-  state.lateResults = { text, callIds: unread.map((block) => block.callId) };
+  state.lateResults = { text, operationIds };
 }
 
 /**

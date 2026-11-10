@@ -3,6 +3,7 @@
 
 import { TheoremError } from '../guardrails/error.ts';
 import { type LabelOverrides, labelText } from '../guardrails/labels.ts';
+import { lateResultsMessage } from '../guardrails/tool-fence.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
 import { formatToolFailureForModel, formatToolResult } from '../kernel/tools/model-text.ts';
 import { keptReply, type ToolCallRequest } from '../kernel/turn-events.ts';
@@ -247,7 +248,7 @@ function foldAssistantEvents(
     if (event.type === 'late_results') {
       flushStep();
       flushText();
-      next = [...next, { role: 'user', content: event.text }];
+      next = [...next, lateResultsMessage(event.text, event.operationIds)];
       continue;
     }
     if (event.type === 'stage' && event.injected) {
@@ -312,7 +313,7 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
       continue;
     }
     if (block.kind === 'late-results') {
-      history = [...history, { role: 'user', content: block.text }];
+      history = [...history, lateResultsMessage(block.text, block.operationIds)];
       continue;
     }
     if (block.kind === 'structured') {

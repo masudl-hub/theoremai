@@ -49,4 +49,15 @@ function isLateResult(message: TurnHistoryMessage): boolean {
   );
 }
 
-export { isLateResult, readToolData, TOOL_CLOSE };
+/** The history message `input.lateResults` opens; its metadata names the calls it holds. */
+function lateResultsMessage(text: string, operationIds: readonly string[]): TurnHistoryMessage {
+  return { role: 'user', content: text, metadata: { lateResults: [...operationIds] } };
+}
+
+/** The calls whose late results a history message holds. */
+function lateResultIds(message: TurnHistoryMessage): string[] {
+  const ids = message.metadata?.lateResults;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+}
+
+export { isLateResult, lateResultIds, lateResultsMessage, readToolData, TOOL_CLOSE };

@@ -144,10 +144,18 @@ Deno.test('an approval in the middle of a reply keeps what the reply read', asyn
 Deno.test('a late result passed once stays through an approval and on later turns', async () => {
   registerAll();
   const readBack = wrapToolData(PAGE, { origin: 'http', tool: 'research', depth: 1 });
+  const OPERATION = 'late-op';
   const late = {
     event: {
       type: 'tool',
-      tool: { phase: 'complete', name: 'research', callId: 'late', output: {}, readBack },
+      tool: {
+        phase: 'complete',
+        name: 'research',
+        callId: 'late',
+        operationId: OPERATION,
+        output: {},
+        readBack,
+      },
     },
     effects: 'completed',
     replay: {

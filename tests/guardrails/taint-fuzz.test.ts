@@ -81,12 +81,19 @@ function callFor(step: Step, index: number, pages: Map<string, string>) {
 
 const REMOTE = { origin: 'http', tool: 'research', depth: 1 } as const;
 
-function lateResult(page: string): ToolOperationOutcome {
+function lateResult(page: string, OPERATION = 'late-op'): ToolOperationOutcome {
   const readBack = wrapToolData(page, REMOTE);
   return {
     event: {
       type: 'tool',
-      tool: { phase: 'complete', name: 'research', callId: 'late', output: {}, readBack },
+      tool: {
+        phase: 'complete',
+        name: 'research',
+        callId: 'late',
+        operationId: OPERATION,
+        output: {},
+        readBack,
+      },
     },
     effects: 'completed',
     replay: { modelResult: { finding: page, modelText: readBack, provenance: REMOTE } },

@@ -314,13 +314,13 @@ export type DetachedCall = { callId: string; operationId: string };
  */
 export function unreadDetachedCalls(transcript: readonly TranscriptBlock[]): DetachedCall[] {
   const read = new Set(
-    transcript.flatMap((block) => (block.kind === 'late-results' ? block.callIds : [])),
+    transcript.flatMap((block) => (block.kind === 'late-results' ? block.operationIds : [])),
   );
   return transcript.flatMap((block) =>
     block.kind === 'tool' &&
     block.tool.state?.phase === 'background' &&
     block.tool.operationId &&
-    !read.has(block.tool.callId)
+    !read.has(block.tool.operationId)
       ? [{ callId: block.tool.callId, operationId: block.tool.operationId }]
       : [],
   );
@@ -481,7 +481,8 @@ async function* runReply(
       effort: runner.effort,
       ...(runner.stated ? { stated: runner.stated } : {}),
       ...(runner.carried ? { carried: runner.carried } : {}),
-      unread: unreadDetachedCalls(conversation.transcript),
+      // why: Late results open a reply; a reply that goes on after a pause reads them on the next one.
+      ...(runner.carried ? {} : { unread: unreadDetachedCalls(conversation.transcript) }),
     });
     for await (const event of events) {
       reply.events.push(event);

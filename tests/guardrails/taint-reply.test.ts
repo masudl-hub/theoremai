@@ -138,12 +138,22 @@ function replyRead(content: string, name = 'web_fetch'): TurnHistoryMessage[] {
   ];
 }
 
-function lateResult(modelResult: ToolOperationOutcome['replay']['modelResult']) {
+function lateResult(
+  modelResult: ToolOperationOutcome['replay']['modelResult'],
+  OPERATION = 'late-op',
+) {
   const readBack = modelResult?.modelText ?? modelResult?.finding ?? '';
   return {
     event: {
       type: 'tool',
-      tool: { phase: 'complete', name: 'research', callId: 'late', output: {}, readBack },
+      tool: {
+        phase: 'complete',
+        name: 'research',
+        callId: 'late',
+        operationId: OPERATION,
+        output: {},
+        readBack,
+      },
     },
     effects: 'completed',
     replay: { modelResult },
@@ -294,11 +304,10 @@ Deno.test('a late result passed on each run stays one message', async () => {
 Deno.test('a second late result joins the history beside the first', async () => {
   registerTools();
   const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
-  const other = lateResult({
-    finding: 'other',
-    modelText: wrapToolData('other', REMOTE),
-    provenance: REMOTE,
-  });
+  const other = lateResult(
+    { finding: 'other', modelText: wrapToolData('other', REMOTE), provenance: REMOTE },
+    'other-op',
+  );
   const { history } = await builtFromEvents('late_pair', { text: 'a', lateResults: [late] });
   const next = await builtFromEvents('late_pair_2', { history, lateResults: [late, other] });
   assertEquals(next.history.filter(isLateResult).length, 2);

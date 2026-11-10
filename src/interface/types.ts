@@ -328,7 +328,7 @@ export interface LateResultsBlock extends TranscriptBlockBase {
   kind: 'late-results';
   text: string;
   /** The calls whose results the message holds. */
-  callIds: string[];
+  operationIds: string[];
 }
 
 export interface ErrorBlock extends TranscriptBlockBase {

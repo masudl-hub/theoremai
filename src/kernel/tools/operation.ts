@@ -67,6 +67,7 @@ export interface ToolOperationOutcome {
     callNotStarted?: boolean;
     aborted?: boolean | { reason?: string };
     pendingInject?: InjectUnit[];
+    ended?: true;
   };
 }
 
@@ -202,6 +203,7 @@ export const toolOperationOutcomeSchema: z.ZodType<ToolOperationOutcome> = z.str
         }),
       )
       .optional(),
+    ended: z.literal(true).optional(),
   }),
 });
 

@@ -110,6 +110,8 @@ interface StepExecutionState {
   toolResults: TurnToolResult[];
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
+  /** A `post_tool` stage ended this attempt: no model step follows, and `before_end` does not run. */
+  endedByStage?: true;
   providerState?: import('../../checkpoint.ts').ProviderCheckpoint;
   /** Usage of the last model call; a continuation's prompt estimate extends it. */
   lastCall?: CallUsage;

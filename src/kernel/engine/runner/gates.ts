@@ -812,6 +812,7 @@ async function* executeSingleAttemptCycle(args: {
   for (;;) {
     state.attemptEvents = [];
     state.released = '';
+    delete state.endedByStage;
     state.withheldVisible = false;
     state.promptLeaks = undefined;
     const attempt = yield* executeAttempt({
@@ -835,6 +836,8 @@ async function* executeSingleAttemptCycle(args: {
     if (state.lastStop?.kind === 'cancelled') {
       return { status: 'terminal' };
     }
+    // why: A post_tool `end` closed the turn; its reply still passes the checks below.
+    if (state.endedByStage) break;
 
     const beforeEnd = yield* applyTurnStage({
       profile,

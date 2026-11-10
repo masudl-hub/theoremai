@@ -50,7 +50,7 @@ Deno.test('TURN_INJECT_STAGES excludes tool gates and post_turn', () => {
 Deno.test('STAGE_AFFORDANCE_MATRIX matches the contract table', () => {
   assertEquals(
     [...STAGE_AFFORDANCES],
-    ['inject', 'abort', 'deny', 'confirm', 'mutate', 'labelFailed', 'waitFor'],
+    ['inject', 'abort', 'deny', 'confirm', 'mutate', 'labelFailed', 'waitFor', 'end'],
   );
   assertEquals([...STAGE_AFFORDANCE_MATRIX.pre_turn], ['inject', 'abort']);
   assertEquals(
@@ -59,7 +59,7 @@ Deno.test('STAGE_AFFORDANCE_MATRIX matches the contract table', () => {
   );
   assertEquals(
     [...STAGE_AFFORDANCE_MATRIX.post_tool],
-    ['inject', 'abort', 'deny', 'mutate', 'labelFailed'],
+    ['inject', 'abort', 'deny', 'mutate', 'labelFailed', 'end'],
   );
   assertEquals([...STAGE_AFFORDANCE_MATRIX.before_end], ['inject', 'abort']);
   assertEquals([...STAGE_AFFORDANCE_MATRIX.post_turn], []);

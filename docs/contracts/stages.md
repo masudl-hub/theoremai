@@ -59,7 +59,7 @@ ceiling on host side effects.
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `waitFor`, `abort` |
-| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject` and `abort` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort` |
+| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject`, `abort`, and `end` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort`, `end` (text turns) |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 
@@ -137,6 +137,8 @@ interface StageResult {
   labelFailed?: true;
   /** pre_tool only: call ids from `stepCalls` that must settle before this call's body starts. */
   waitFor?: string[];
+  /** post_tool on a text turn only: the turn ends once the step's calls settle. */
+  end?: true;
 }
 
 type StageHandler = (
@@ -156,8 +158,10 @@ type StageHandler = (
 | `mutate` | no | yes | yes | no | no |
 | `labelFailed` | no | no | yes | no | no |
 | `waitFor` | no | yes | no | no | no |
+| `end` | no | no | yes† | no | no |
 
 \*Only when `profileAllowsInject` / session inject gate is true; otherwise no-op.
+†Only in a text turn's tool step. A live session or `invokeTool` has no turn for it to end: `end` warns `end_not_allowed` there.
 
 ### Attach points (locked)
 
@@ -181,7 +185,7 @@ Every stage run records one `theorem.stage` span event —
 `{ stage, affordance, hook_ms?, warnings? }` — on the span it belongs to:
 turn stages on the `invoke_agent` root, Live cycle stages on the session root,
 `pre_tool` / `post_tool` on that call's `execute_tool` span. `affordance` lists
-what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`, `labelFailed`, `waitFor`;
+what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`, `labelFailed`, `waitFor`, `end`;
 `[]` when nothing, or no handler ran); `hook_ms` is present only when handlers
 ran; `warnings` lists warning codes. See
 [observability.md](./observability.md#trace-records).
@@ -236,6 +240,19 @@ them (after the `injected` guardrails), and `released` when a draft
 dropped (see 7). An inject that never lands (a
 live cycle that aborts first, a refused live inject) is never reported, so a
 host that sent it knows to send it again. Unnamed injects land unreported.
+
+### `end`
+
+- At `post_tool` on a text turn, `end: true` ends the turn once every call of
+  the step has settled. Each call keeps its own result and its own `post_tool`;
+  an inject still lands in the history, but no model step reads it. The model
+  takes no further step, `before_end` does not run, and steers stay waiting.
+- The reply is what the model wrote before its calls. It still passes the
+  egress judge and `outputs.validation`, as any finished reply does.
+- `done` stops as `{ kind: 'completed' }`, then `post_turn` runs. A gate or an
+  `abort` in the same step wins.
+- Any other value warns `end_invalid`. Outside a text turn's tool step it warns
+  `end_not_allowed`.
 
 ### `abort`
 
@@ -371,6 +388,7 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 | Live reply withheld or refused | yes | yes (`filtered`) | yes |
 | Deny mid-batch | no (not ending) | no | no — batch continues |
 | Cancelled (abort affordance) | if ending | yes (`cancelled`) | yes |
+| Ended (`post_tool` `end`) | no | yes (`completed`) | yes |
 
 ### Same-round batch rules
 

@@ -22,7 +22,8 @@ export type { AwaitingUserInput, ToolGate };
 
 /**
  * What a stage handler can ask for: inject messages, abort, deny a tool call, ask for
- * confirmation, mutate it, label it failed, or have it wait for other calls in its step.
+ * confirmation, mutate it, label it failed, have it wait for other calls in its step, or end
+ * the turn once its step's calls settle.
  */
 export const STAGE_AFFORDANCES = [
   'inject',
@@ -32,6 +33,7 @@ export const STAGE_AFFORDANCES = [
   'mutate',
   'labelFailed',
   'waitFor',
+  'end',
 ] as const;
 /** One of {@linkcode STAGE_AFFORDANCES}. */
 export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
@@ -41,7 +43,7 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
   Object.freeze({
     pre_turn: Object.freeze(['inject', 'abort'] as const),
     pre_tool: Object.freeze(['abort', 'deny', 'confirm', 'mutate', 'waitFor'] as const),
-    post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate', 'labelFailed'] as const),
+    post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate', 'labelFailed', 'end'] as const),
     before_end: Object.freeze(['inject', 'abort'] as const),
     post_turn: Object.freeze([] as const),
   });
@@ -132,6 +134,12 @@ export interface StageResult {
    * starts. A call held for confirmation is held at once and does not wait.
    */
   waitFor?: string[];
+  /**
+   * `post_tool` on a text turn only: the turn ends once every call of this step has settled. The
+   * model takes no further step, `before_end` does not run, and `done` stops as `completed`. The
+   * reply is what the model wrote before its calls.
+   */
+  end?: true;
 }
 
 /** A rewrite of a tool call's input or output. */
@@ -156,6 +164,8 @@ export interface StageApplyInput {
    * `mutate` is then a `mutate_invalid` warning, never a silent no-op.
    */
   mutable?: boolean;
+  /** True on a text turn's tool step, the only place `end` has a turn to end. */
+  endAllowed?: boolean;
 }
 
 export interface InjectUnit {
@@ -174,6 +184,7 @@ export interface StageApplyOutput {
   mutate?: StageMutate;
   labelFailed?: true;
   waitFor?: string[];
+  end?: true;
   warnings: StageApplyWarning[];
 }
 
@@ -504,6 +515,33 @@ function applyWaitForField(
   }
 }
 
+function applyEndField(
+  result: Record<string, unknown>,
+  input: StageApplyInput,
+  out: StageApplyOutput,
+): void {
+  if (!('end' in result) || result.end === undefined) return;
+  if (!stageAllowsAffordance(input.stage, 'end')) {
+    warn(
+      out.warnings,
+      'affordance_not_allowed',
+      'end',
+      `end is not allowed at stage ${input.stage}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (result.end !== true) {
+    warn(out.warnings, 'end_invalid', 'end', 'end must be true'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  } else if (!input.endAllowed) {
+    warn(
+      out.warnings,
+      'end_not_allowed',
+      'end',
+      "end is ignored outside a text turn's tool step", // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else {
+    out.end = true;
+  }
+}
+
 const MUTATE_SUBJECT = { pre_tool: 'input', post_tool: 'output' } as const satisfies Partial<
   Record<TurnStage, 'input' | 'output'>
 >;
@@ -589,6 +627,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   applyMutateField(result, input, out);
   applyLabelFailedField(result, stage, out);
   applyWaitForField(result, stage, out);
+  applyEndField(result, input, out);
 
   if (out.deny && out.confirm) {
     warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -672,6 +711,7 @@ export interface RunStageArgs extends StageCallBag {
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
   mutable?: boolean;
+  endAllowed?: boolean;
   host?: unknown;
   signal?: AbortSignal;
   span?: SpanHandle;
@@ -702,6 +742,7 @@ function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
     if (part.mutate) out.mutate = part.mutate;
     if (part.labelFailed) out.labelFailed = true;
     if (part.waitFor) out.waitFor = [...new Set([...(out.waitFor ?? []), ...part.waitFor])];
+    if (part.end) out.end = true;
     if (part.inject) out.inject.push(part.inject);
   }
   if (out.deny && out.confirm) {
@@ -753,6 +794,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     injectAllowed,
     injectWouldExceedMaxSteps,
     mutable,
+    endAllowed,
     host,
     signal,
     span,
@@ -781,7 +823,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
   const { parts, crashes } = await applyHandlers(
     handlers,
     ctx,
-    { stage, injectAllowed, injectWouldExceedMaxSteps, mutable },
+    { stage, injectAllowed, injectWouldExceedMaxSteps, mutable, endAllowed },
     signal,
   );
   if (stage === 'pre_tool' && crashes.length > 0) {

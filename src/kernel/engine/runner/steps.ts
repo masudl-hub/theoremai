@@ -641,7 +641,7 @@ function* applyToolSettlement(
   settlement: ToolExecuteSettlement,
   state: StepExecutionState,
   call: ModelCall,
-): Generator<TurnEvent, 'continue' | 'stop_cancelled' | 'gated'> {
+): Generator<TurnEvent, 'continue' | 'stop_cancelled' | 'gated' | 'ended'> {
   if (settlement.aborted) {
     state.lastStop = stageAbortStop(settlement.aborted);
     return 'stop_cancelled';
@@ -672,7 +672,7 @@ function* applyToolSettlement(
       toolName: call.name,
     });
   }
-  return 'continue';
+  return settlement.ended ? 'ended' : 'continue';
 }
 
 /** A step's reply as the model reads it back: its text, then its calls with the reasoning before them. */
@@ -752,6 +752,7 @@ async function* handleModelCalls(
     history: () => state.currentHistory,
     injectAllowed: profileAllowsInject(profile),
     injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
+    endAllowed: true,
     host: generation.host,
     signal,
     stepCalls: calls.map((call) => ({ callId: call.callId, tool: call.name, input: call.shown })),
@@ -812,6 +813,7 @@ async function* handleModelCalls(
 
   let gated = false;
   let cancelled = false;
+  let ended = false;
   for (const [index, call] of calls.entries()) {
     if (call.failure) {
       yield recordProviderToolFailure(
@@ -826,9 +828,10 @@ async function* handleModelCalls(
     const outcome = yield* applyToolSettlement(settlement, state, call);
     if (outcome === 'stop_cancelled') cancelled = true;
     if (outcome === 'gated') gated = true;
+    if (outcome === 'ended') ended = true;
   }
-  // why: Steers land once a step, after every call's own post_tool inject, so calls side by side never land one twice.
-  if (!cancelled && !gated && calls.length > 0) {
+  // why: Steers land once a step, after every call's own post_tool inject, so calls side by side never land one twice; an ended turn reads nothing more, so its steers stay waiting.
+  if (!cancelled && !gated && !ended && calls.length > 0) {
     const steers = yield* steersToLand(
       state,
       profile,
@@ -843,6 +846,11 @@ async function* handleModelCalls(
   if (cancelled) return false;
   if (gated) {
     state.lastStop = { kind: 'gate' };
+    return false;
+  }
+  if (ended) {
+    state.lastStop = { kind: 'completed' };
+    state.endedByStage = true;
     return false;
   }
   return calls.length > 0;

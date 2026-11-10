@@ -41,6 +41,8 @@ export interface ToolStageSupport {
   history: () => readonly TurnHistoryMessage[];
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
+  /** True on a text turn's tool step: `post_tool` may `end` the turn. */
+  endAllowed?: boolean;
   host?: unknown;
   signal?: AbortSignal;
   span?: SpanHandle;
@@ -90,6 +92,8 @@ export type PostToolStageOutcome = {
   /** The caller re-validates and re-projects it. */
   mutate?: { output: unknown };
   labelFailed?: true;
+  /** The turn ends once the step's calls settle. */
+  end?: true;
 };
 
 /** Tool `preTool` → host `pre_tool` → mutate re-parse. */
@@ -325,6 +329,7 @@ export async function* runPostToolStages(args: {
     injectAllowed: stages.injectAllowed,
     injectWouldExceedMaxSteps: stages.injectWouldExceedMaxSteps,
     mutable,
+    ...(stages.endAllowed ? { endAllowed: true } : {}),
     host: stages.host,
     signal: stages.signal,
     span: stages.span,
@@ -337,6 +342,7 @@ export async function* runPostToolStages(args: {
     ...(applied.deny ? { deny: applied.deny } : {}),
     ...(applied.mutate && 'output' in applied.mutate ? { mutate: applied.mutate } : {}),
     ...(applied.labelFailed ? { labelFailed: true as const } : {}),
+    ...(applied.end ? { end: true as const } : {}),
     inject: applied.inject,
   };
 }

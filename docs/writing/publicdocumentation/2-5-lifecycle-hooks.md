@@ -34,7 +34,7 @@ A turn moves through up to five lifecycle stages in sequence. The handler receiv
 | :--- | :--- | :--- |
 | **`'pre_turn'`** | Fires before dispatching input to the provider. `ctx.history` contains existing messages. | `inject`, `abort` |
 | **`'pre_tool'`** | Fires after the model requests tools, before handlers execute. `ctx.stepCalls` lists all calls in the step. | `abort`, `deny`, `confirm`, `mutate`, `waitFor` |
-| **`'post_tool'`** | Fires after a tool settles or fails. `ctx.outputRaw`, `ctx.outputForModel`, `ctx.outputModel`, and `ctx.failure` are populated. | `inject`, `abort`, `deny`, `mutate`, `labelFailed` |
+| **`'post_tool'`** | Fires after a tool settles or fails. `ctx.outputRaw`, `ctx.outputForModel`, `ctx.outputModel`, and `ctx.failure` are populated. | `inject`, `abort`, `deny`, `mutate`, `labelFailed`, `end` |
 | **`'before_end'`** | Fires after final reply generation, before guardrail verdict and history commit. `ctx.reply` contains the draft answer. | `inject`, `abort` |
 | **`'post_turn'`** | Fires after all generation, tool loops, and cleanup finish, right before `done`. | *(None — read-only telemetry)* |
 
@@ -71,6 +71,19 @@ if (ctx.stage === 'pre_tool' && ctx.tool === 'generate_report') {
 ```
 
 The kernel holds `generate_report` until all identified query calls complete.
+
+### Ending the Turn After a Tool (`end`)
+
+On a text turn, a `post_tool` handler can end the turn once the step's calls settle. The model takes no further step:
+
+```ts
+// ... inside onStage
+if (ctx.stage === 'post_tool' && ctx.tool === 'submit_order' && !ctx.failure) {
+  return { end: true };
+}
+```
+
+The reply is what the model wrote before its calls, and `done` stops as `{ kind: 'completed' }`. `before_end` does not run. A live session or `invokeTool()` has no turn to end, so `end` warns `end_not_allowed` there.
 
 ---
 

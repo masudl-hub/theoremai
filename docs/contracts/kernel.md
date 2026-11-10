@@ -1271,7 +1271,7 @@ The call counts as settled for its step at the reply. `waitFor` and one-at-a-tim
 
 After the reply:
 
-- `post_tool` runs at the real end. Its `inject` and `abort` are removed, because no turn is open.
+- `post_tool` runs at the real end. Its `inject`, `abort`, and `end` are removed, because no turn is open.
 - A body that returns `awaiting` settles as a failure with the code `awaiting_after_reply`.
 - An agent tool's tokens go on the late terminal event, not on `done`. A stopped agent tool reports the tokens spent so far.
 - The call writes its own trace record at its real end, joined to the turn through `traceparent`. A store crash after the reply reaches `event` as a `hook_failed` event with the call's `callId`, and is also a `theorem.hook_failed` event on that record. A throw from `event` itself is only on that record.

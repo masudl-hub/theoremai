@@ -1,8 +1,6 @@
 import type { ErrorKind } from '../../../guardrails/error.ts';
 import {
-  describeError,
   errorCopyText,
-  errorKind,
   isAbortError,
   TheoremError,
   throwIfAborted,
@@ -10,6 +8,7 @@ import {
 } from '../../../guardrails/error.ts';
 import { labelText } from '../../../guardrails/labels.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
+import { hookCrashFailure, hookFailed } from '../../hook-failure.ts';
 import { nestedTurnModel, resolveRegisteredTurnModel } from '../../provider-dispatch.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { profileAllowsInject } from '../../stop.ts';
@@ -126,7 +125,8 @@ function createAgentCaller(args: {
       } catch (err) {
         throwIfAborted(signal);
         // why: The hook threw before the agent was sent, so no agent turn ran.
-        return settled('hook_failed', errorKind(err), describeError(err));
+        yield hookFailed('onAgentCall', err, { callId, span });
+        return { failure: hookCrashFailure(err, labels) };
       }
       if (shaped && 'refuse' in shaped) {
         return settled('refused_by_host', 'declined', shaped.refuse);

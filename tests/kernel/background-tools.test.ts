@@ -369,7 +369,16 @@ Deno.test('a failed reply save stops the body, fails the call and marks the writ
   assert(failed?.type === 'tool' && failed.tool.phase === 'error');
   assertEquals(
     [failed.tool.failure.code, failed.tool.failure.message],
-    ['hook_failed', 'store down'],
+    [
+      'hook_failed',
+      'This action has an unresolved execution. Check the destination before trying it again.',
+    ],
+  );
+  assertEquals(
+    events.flatMap((event) =>
+      event.type === 'hook_failed' ? [[event.hook, event.errorInternal]] : [],
+    ),
+    [['execution', 'store down']],
   );
   const done = events.find((event) => event.type === 'done');
   assertEquals(done?.type === 'done' && done.stop?.kind, 'completed');

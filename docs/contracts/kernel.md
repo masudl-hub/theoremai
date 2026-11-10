@@ -661,15 +661,19 @@ itself does. Each crash is reported once:
 
 | Hook | A throw | Reported as |
 | --- | --- | --- |
-| `onStage` at `pre_tool`, `preTool`, `onAgentCall` | Fails the call as not started: the call cannot run unapproved | The call's `tool` `error` event, `failure.code: 'hook_failed'`, which the model reads |
+| `onStage` at `pre_tool`, `preTool`, `onAgentCall` | Fails the call as not started: the call cannot run unapproved | `hook_failed` with the call's `callId`. The call's `tool` `error` event has `failure.code: 'hook_failed'` and the `tool.hook_failed` wording, which the model reads |
 | `onStage` at any other stage | The stage applies nothing from that handler | `hook_failed`, `hook: 'onStage'` |
 | `onEvent` | The caller still gets the event | `hook_failed`, `hook: 'onEvent'`, which `onEvent` does not read |
-| `execution` `lookup` or `begin` | Fails the call as not started | The call's `tool` `error` event, `failure.code: 'hook_failed'` |
+| `execution` `lookup` or `begin` | Fails the call as not started | `hook_failed`, `hook: 'execution'`, with the call's `callId`, and the failed call as above |
 | `execution` `settle`, `detach` or `markUncertain`, after the call ran | The model reads the real result; the call is marked uncertain | `hook_failed`, `hook: 'execution'` |
 | `tools.t1Policy` | No T2 tool loads up front | `hook_failed`, `hook: 'tools.t1Policy'` |
 | `outputs.validation` field or item check | The value fails, or the item is refused | `hook_failed`, `hook: 'outputs.validation'` |
 | `compaction.trigger` | `compactAt` and `maxTokens` decide | `hook_failed`, `hook: 'compaction.trigger'` |
 | `background` `event`, or a store crash after the reply of a call that went on | The call goes on and settles | A `theorem.hook_failed` event on the call's own trace (no turn reads it) |
+
+The hook's own error is only ever the `hook_failed` event's `errorInternal`. The model
+and a visitor read the profile's wording: `tool.hook_failed` for a call that did not
+start, `tool.execution_uncertain` for one the store lost after it started.
 
 A `TheoremError` that `execution` `lookup` or `begin` throws is the store's
 answer, not a crash: a held operation or a full session ends the turn as before.
@@ -955,9 +959,10 @@ hook's `input` replaces what the model sent; its `speech` replaces the
 model's. The hook's `host` is what the called agent's tools read as `ctx.host`.
 The caller's `host` is not passed down: without the hook's, those tools read none. The hook passes
 down to the called agent's own calls, with `depth` counting up from 1.
-A hook that throws fails the call as not started (`hook_failed`), the model reads
-why, and the caller's turn goes on. To give the model other words, catch the error
-and return them as `refuse`.
+A hook that throws fails the call as not started (`hook_failed`): the model reads the
+`tool.hook_failed` wording, the host gets the error as a `hook_failed` event, and the
+caller's turn goes on. To give the model other words, catch the error and return them
+as `refuse`.
 
 **Provider.** The called agent resolves its registered binding. The hook's `provider` and
 `InvokeToolRequest.provider` supply host options, such as a vault or fetch, for that call.

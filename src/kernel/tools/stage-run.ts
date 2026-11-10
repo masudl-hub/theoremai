@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
 import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
-import { hookCrashFailure } from '../hook-failure.ts';
+import { hookCrashFailure, hookFailed } from '../hook-failure.ts';
 import { jsonObjectSchema } from '../json.ts';
 import type { ToolAccess } from '../schema.ts';
 import {
@@ -145,7 +145,8 @@ export async function* runPreToolPipeline(args: {
       toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
     } catch (err) {
       throwIfAborted(ctx.signal);
-      return { ok: false, kind: 'failed', failure: hookCrashFailure(err) };
+      yield hookFailed('tools.preTool', err, { callId: base.callId, span: stages?.span });
+      return { ok: false, kind: 'failed', failure: hookCrashFailure(err, ctx.profile.labels) };
     }
   }
   if (!stages && toolPreTool === undefined && after.length === 0) {
@@ -230,7 +231,9 @@ async function* runPreToolStages(args: {
   });
 
   if (applied.crashed) {
-    return { ok: false, kind: 'failed', failure: hookCrashFailure(applied.crashed.error) };
+    const { error } = applied.crashed;
+    yield hookFailed('onStage', error, { stage: 'pre_tool', callId, span: stages.span });
+    return { ok: false, kind: 'failed', failure: hookCrashFailure(error, stages.profile.labels) };
   }
   if (applied.abort) {
     return { ok: false, kind: 'aborted', aborted: applied.abort };

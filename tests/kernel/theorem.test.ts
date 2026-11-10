@@ -2214,7 +2214,16 @@ Deno.test('a registered tool whose preTool throws fails the call, and the turn g
   const toolEv = lastTool(events, 'throwing_auth_tool');
   assertEquals(toolEv?.phase, 'error');
   assertEquals(failureOf(toolEv)?.code, 'hook_failed');
-  assertStringIncludes(failureOf(toolEv)?.message ?? '', 'auth network failure');
+  assertStringIncludes(failureOf(toolEv)?.message ?? '', 'did not run');
+  const failedCalls = events.flatMap((event) =>
+    event.type === 'tool' && event.tool.phase === 'error' ? [event.tool.callId] : [],
+  );
+  assertEquals(
+    events.flatMap((event) =>
+      event.type === 'hook_failed' ? [[event.hook, event.callId, event.errorInternal]] : [],
+    ),
+    failedCalls.map((callId) => ['tools.preTool', callId, 'auth network failure']),
+  );
   assertEquals(
     events.some((event) => event.type === 'error'),
     false,

@@ -1338,7 +1338,7 @@ export async function* executeRegisteredTool(
         resume: args.ctx.resume,
         snapshot: args.snapshot,
       }),
-    detach,
+    { detach, labels: args.profile.labels },
   );
 }
 
@@ -1601,6 +1601,8 @@ async function* executeAgentTool(args: {
   }
   let tokens: TurnTokens | undefined;
   const span = args.stages?.span;
+  // why: A hook's crash goes to the host as its own event, never inside the call's progress.
+  const crashes: TurnEvent[] = [];
   const handler = async function* (
     input: unknown,
     handlerCtx: ToolContext,
@@ -1627,6 +1629,10 @@ async function* executeAgentTool(args: {
         return;
       }
       const event = next.value;
+      if (event.type === 'hook_failed') {
+        crashes.push(event);
+        continue;
+      }
       if (event.type === 'tokens' || event.type === 'tool') {
         seen.push(event);
         const spent = sumTurnTokens(seen);
@@ -1656,6 +1662,7 @@ async function* executeAgentTool(args: {
   );
   for (;;) {
     const next = await exec.next();
+    yield* crashes.splice(0);
     if (next.done) return next.value;
     yield withAgentTokens(next.value, base.callId, tokens);
   }

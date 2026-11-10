@@ -584,7 +584,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'registerTool.permission':
     "Whether the host must approve a call before it runs; the provider's own tools never ask.",
   'registerTool.preTool':
-    "Runs before the host's pre_tool onStage. A throw fails the call, and the model reads why.",
+    "Runs before the host's pre_tool onStage. A throw fails the call, reported as hook_failed.",
   'registerTool.profile':
     'The profile this agent tool runs: text, image, or speech. Register it first. Nothing it calls may stop on a gate.',
   'registerTool.serverUrl': "The MCP server's URL.",

@@ -4,6 +4,7 @@ import { assert, assertEquals, assertRejects } from '@std/assert';
 import { z } from 'zod';
 import { createMemoryToolExecution, type ToolExecutionCoordinator } from '../../mod.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { forClientEvents } from '../../src/host/mod.ts';
 import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnStage } from '../../src/kernel/schema.ts';
@@ -11,6 +12,7 @@ import type { TurnEvent, TurnModel, TurnRequest } from '../../src/kernel/types.t
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 const TOOL = 'hook_crash_tool';
+const DID_NOT_RUN = 'This tool call did not run: the app hit an error before it could start.';
 const PROFILE = 'hook_crash_caller';
 let bodies = 0;
 
@@ -68,6 +70,12 @@ function reports(events: TurnEvent[]) {
   return events.flatMap((e) => (e.type === 'hook_failed' ? [e] : []));
 }
 
+/** The call id of the call that failed. */
+function failedCall(events: TurnEvent[]): string | undefined {
+  const failed = events.find((e) => e.type === 'tool' && e.tool.phase === 'error');
+  return failed?.type === 'tool' ? failed.tool.callId : undefined;
+}
+
 function toolFailures(events: TurnEvent[]) {
   return events.flatMap((e) =>
     e.type === 'tool' && e.tool.phase === 'error' && e.tool.failure
@@ -120,10 +128,31 @@ Deno.test('an onStage throw at pre_tool fails the call, and the turn goes on', a
     execution: createMemoryToolExecution(),
     onStage: crashOn('pre_tool'),
   });
-  assertEquals(toolFailures(events), [['hook_failed', 'pre_tool broke']]);
-  assertEquals(reports(events), []);
+  assertEquals(toolFailures(events), [['hook_failed', DID_NOT_RUN]]);
+  assertEquals(
+    reports(events).map((e) => [e.hook, e.stage, e.callId, e.errorInternal]),
+    [['onStage', 'pre_tool', failedCall(events), 'pre_tool broke']],
+  );
   assertEquals(bodies, before);
   assertWentOn(events);
+});
+
+Deno.test("a visitor's copy of a crashed call never holds the hook's own error", async () => {
+  const crashes = [
+    await turn({ execution: createMemoryToolExecution(), onStage: crashOn('pre_tool') }),
+    await turn({
+      execution: coordinator({
+        begin: () => {
+          throw new Error('begin down');
+        },
+      }),
+    }),
+  ];
+  for (const events of crashes) {
+    const seen = JSON.stringify(forClientEvents(events));
+    assert(!seen.includes('pre_tool broke') && !seen.includes('begin down'));
+    assert(seen.includes(DID_NOT_RUN));
+  }
 });
 
 /** The memory coordinator with one method replaced. */
@@ -140,8 +169,11 @@ for (const method of ['lookup', 'begin'] as const) {
         },
       }),
     });
-    assertEquals(toolFailures(events), [['hook_failed', `${method} down`]]);
-    assertEquals(reports(events), []);
+    assertEquals(toolFailures(events), [['hook_failed', DID_NOT_RUN]]);
+    assertEquals(
+      reports(events).map((e) => [e.hook, e.callId, e.errorInternal]),
+      [['execution', failedCall(events), `${method} down`]],
+    );
     assertWentOn(events);
   });
 

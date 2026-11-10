@@ -193,3 +193,27 @@ Deno.test('clientError words a caught failure by the same rule as forClient', ()
     errorKind: 'auth',
   });
 });
+
+Deno.test("forClient strips a called agent's diagnostics from its call's progress", () => {
+  const nested: TurnEvent = {
+    type: 'error',
+    errorKind: 'unavailable',
+    error: 'Sorry, the model is busy.',
+    errorInternal: 'HTTP 503: busy',
+  };
+  const event: TurnEvent = {
+    type: 'tool',
+    tool: {
+      name: 'ask_researcher',
+      callId: 'c1',
+      phase: 'progress',
+      at: 1,
+      data: { agent: 'researcher', event: nested },
+    },
+  };
+  const visitor = JSON.stringify(forClient(event));
+  assertEquals(visitor.includes('HTTP 503: busy'), false);
+  assertEquals(visitor.includes('Sorry, the model is busy.'), true);
+  const builder = JSON.stringify(forClient(event, { reader: 'builder' }));
+  assertEquals(builder.includes('HTTP 503: busy'), true);
+});

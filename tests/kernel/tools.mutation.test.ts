@@ -577,7 +577,18 @@ Deno.test('tools mutation coverage exercises policy and function execution trans
   const crashFailure = asValue<ToolPhaseEvent>(
     [...crashed].reverse().find((e) => asValue<ToolPhaseEvent>(e).tool?.failure),
   ).tool?.failure;
-  assertEquals([crashFailure?.code, crashFailure?.message], ['hook_failed', 'nope']);
+  assertEquals(
+    [crashFailure?.code, crashFailure?.message],
+    ['hook_failed', 'This tool call did not run: the app hit an error before it could start.'],
+  );
+  const crashReport = crashed.find((e) => asValue<{ type: string }>(e).type === 'hook_failed');
+  assertEquals(
+    [
+      asValue<{ hook: string }>(crashReport).hook,
+      asValue<{ errorInternal: string }>(crashReport).errorInternal,
+    ],
+    ['tools.preTool', 'nope'],
+  );
   const preToolFailure = await run(
     makeTool({
       preTool: () => ({ deny: { code: 'blocked', message: 'stop' } }),

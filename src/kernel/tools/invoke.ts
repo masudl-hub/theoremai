@@ -514,7 +514,7 @@ function runCall(
         resume: request.resume,
         snapshot,
       }),
-    detach,
+    { detach, labels: profile.labels },
   );
 }
 

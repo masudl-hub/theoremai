@@ -248,7 +248,7 @@ export interface ToolHostHooks<TIn = unknown> {
    */
   outputSchema: Record<string, unknown>;
   /**
-   * Runs before the host's pre_tool onStage. A throw fails the call, and the model reads why.
+   * Runs before the host's pre_tool onStage. A throw fails the call, reported as hook_failed.
    *
    * @remarks Runs before the host's `pre_tool` `onStage`.
    */
@@ -598,7 +598,7 @@ export interface AgentToolDef extends ToolBase {
    * them.
    */
   hostOnly?: AgentToolChannel[];
-  /** Runs before the host's pre_tool onStage. A throw fails the call, and the model reads why. */
+  /** Runs before the host's pre_tool onStage. A throw fails the call, reported as hook_failed. */
   preTool?: ToolHostHooks<AgentToolInput>['preTool'];
   /**
    * Gives the model an after field on this tool: the tools called in the same step that must settle

@@ -1816,6 +1816,10 @@ Unresolved tool operations use `tool.execution_uncertain` for public wording.
 This copy asks the user to check the destination before a new action.
 It does not suggest an automatic retry of the unresolved operation.
 
+A tool call that a host hook stopped before it started reads `tool.hook_failed`.
+The hook's own error never reaches the model or a visitor: it is the
+`hook_failed` event's `errorInternal`.
+
 ## Decision disclosure
 
 Decision profiles do not run the turn egress lifecycle. Their only active

@@ -101,16 +101,28 @@ function stripEvidenceRaw(event: TurnEvent): TurnEvent {
   return { ...event, evidence };
 }
 
+/** A called agent's event, which rides in its call's progress, is copied by the same rule. */
+function nestedForClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
+  if (event.type !== 'tool' || event.tool.phase !== 'progress') return event;
+  const { data } = event.tool;
+  if (typeof data !== 'object' || data === null || !('agent' in data) || !('event' in data)) {
+    return event;
+  }
+  const inner = forClient(data.event as TurnEvent, options);
+  return { ...event, tool: { ...event.tool, data: { ...data, event: inner } } };
+}
+
 /**
  * The copy of an event its reader may have. For a visitor (the default) host-only diagnostics are
  * stripped, so the copy is safe to forward to browsers or end-user SSE.
  */
 function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
+  const outer = nestedForClient(event, options);
   let out =
     options?.reader === 'builder'
-      ? builderWording(event)
+      ? builderWording(outer)
       : stripMediaRefused(
-          stripCompactionInternal(stripGuardrailInternal(stripErrorInternal(event))),
+          stripCompactionInternal(stripGuardrailInternal(stripErrorInternal(outer))),
         );
   if (!options?.includeEvidenceRaw) {
     out = stripEvidenceRaw(out);

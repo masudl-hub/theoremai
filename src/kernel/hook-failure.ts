@@ -1,4 +1,5 @@
 import { describeError, errorKind } from '../guardrails/error.ts';
+import { type LabelOverrides, labelText } from '../guardrails/labels.ts';
 import type { TraceSpan, TraceSpanEvent } from '../observability/trace-schema.ts';
 import type { SpanHandle } from '../observability/trace-span.ts';
 import type { TurnStage } from './schema.ts';
@@ -27,9 +28,17 @@ export function hookFailed(
   return event;
 }
 
-/** A call a host hook could not approve, start or keep: it fails, and the model reads why. */
-export function hookCrashFailure(err: unknown): ToolFailure {
-  return { code: 'hook_failed', kind: errorKind(err), message: describeError(err) };
+/**
+ * A call a host hook could not approve, start or keep. The model reads the profile's wording; the
+ * hook's own error reaches the host only as `hook_failed`.
+ */
+export function hookCrashFailure(
+  err: unknown,
+  labels?: LabelOverrides,
+  claimed = false,
+): ToolFailure {
+  const key = claimed ? 'tool.execution_uncertain' : 'tool.hook_failed';
+  return { code: 'hook_failed', kind: errorKind(err), message: labelText(key, {}, labels) };
 }
 
 /**

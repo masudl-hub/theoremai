@@ -191,6 +191,7 @@ export const LABEL_KEYS = [
   'tool.t2_loader_output_invalid',
   'tool.execution_uncertain',
   'tool.input_invalid',
+  'tool.hook_failed',
   'tool.input_invalid_after_mutate',
   'tool.output_invalid_after_mutate',
   'tool.handler_no_output',
@@ -610,6 +611,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'tool.execution_uncertain':
     'This action has an unresolved execution. Check the destination before trying it again.',
   'tool.input_invalid': 'Tool input validation failed',
+  'tool.hook_failed': 'This tool call did not run: the app hit an error before it could start.',
   'tool.did_not_run': "Tool '{tool}' did not run.",
   'tool.unreachable': "Sorry, a tool couldn't be reached. Please try again.",
   'tool.input_invalid_after_mutate': 'Tool input validation failed after mutate',
@@ -944,6 +946,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'tool.execution_uncertain':
     'Shown when a tool operation has no confirmed outcome and cannot execute again.',
   'tool.input_invalid': "Told to the model when a tool call's input fails the tool's input schema.",
+  'tool.hook_failed':
+    "Told to the model when a host hook threw before a tool call could start. The hook's own error goes to the host as hook_failed.",
   'tool.did_not_run':
     'Given by runTool and runToolStep for a call that never settled when the invoke gave no error of its own. Takes {tool}.',
   'tool.unreachable': 'Shown to the user when a tool call never reached its host. Takes {tool}.',

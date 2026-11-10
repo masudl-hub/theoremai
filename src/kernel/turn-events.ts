@@ -461,6 +461,8 @@ const HOOK_NAMES = [
   'background',
   'onStage',
   'onEvent',
+  'onAgentCall',
+  'tools.preTool',
   'tools.t1Policy',
   'outputs.validation',
   'compaction.trigger',
@@ -1082,7 +1084,7 @@ export type TurnEvent =
   | ({ type: 'done' } & DoneEvent)
   /**
    * A host hook threw, and the turn went on without its answer. A crash at a tool call's gate
-   * fails that call instead and is reported on the call's own `tool` event.
+   * also fails that call, which the model reads in the profile's wording.
    */
   | {
       type: 'hook_failed';

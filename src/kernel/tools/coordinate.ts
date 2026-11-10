@@ -1,4 +1,5 @@
 import { describeError, errorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
+import type { LabelOverrides } from '../../guardrails/labels.ts';
 import { settleable } from '../engine/runner/step-order.ts';
 import { hookCrashFailure, hookFailed } from '../hook-failure.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
@@ -149,6 +150,7 @@ class CoordinatedExecution {
   private committed = false;
   private writeFailed = false;
   private closed = false;
+  labels?: LabelOverrides;
   private terminal?: TerminalToolEvent;
   private stopped?: { reason?: string };
   private spent?: TurnTokens;
@@ -505,7 +507,7 @@ class CoordinatedExecution {
     const outcome = failedOutcome(
       this.base(),
       effects,
-      hookCrashFailure(crashed.error),
+      hookCrashFailure(crashed.error, this.labels, this.claim !== undefined),
       this.spent,
     );
     const settlement = this.claim ? outcome.replay : { ...outcome.replay, callNotStarted: true };
@@ -574,14 +576,14 @@ async function* closeReporting(
   }
 }
 
-/** A call the store could not start or keep fails, and the model reads why. */
+/** A call the store could not start or keep fails, and its crash is reported. */
 async function* failCall(
   execution: CoordinatedExecution,
   crash: StoreCrashed,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const failed = execution.failed(crash);
   yield failed.event;
-  yield* closeReporting(execution);
+  yield* closeReporting(execution, crash);
   return failed.settlement;
 }
 
@@ -592,15 +594,18 @@ export async function* coordinateTool(
   signal: AbortSignal | undefined,
   run: ToolRun,
   authorizeReplay?: (outcome?: ToolOperationOutcome) => void | Promise<void>,
-  detach?: ToolDetach,
+  /** A call that may finish in the background, and the profile's wording. */
+  call: { detach?: ToolDetach; labels?: LabelOverrides } = {},
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   if (!coordinator) return yield* run(undefined, { signal });
+  const { detach, labels } = call;
   const accepted = jsonObjectSchema.parse(operationWireValue(invocation));
   const operation = { ...identity, invocationHash: await toolInvocationHash(accepted) };
   const detached = detach ? detaching(detach, signal) : undefined;
   const trigger = detached?.trigger;
   const callSignal = trigger ? trigger.signal : signal;
   const execution = new CoordinatedExecution(coordinator, operation, accepted, callSignal, trigger);
+  execution.labels = labels;
   throwIfAborted(signal);
   const existing = await lookup(coordinator, operation, signal);
   if (existing instanceof StoreCrashed) return yield* failCall(execution, existing);

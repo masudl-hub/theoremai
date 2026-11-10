@@ -945,7 +945,13 @@ Deno.test('a hook that throws fails the call as not started, and the caller goes
   assert(failed?.phase === 'error');
   assertEquals(
     [failed.failure.code, failed.failure.message],
-    ['hook_failed', 'storage read failed'],
+    ['hook_failed', 'This tool call did not run: the app hit an error before it could start.'],
+  );
+  assertEquals(
+    events.flatMap((event) =>
+      event.type === 'hook_failed' ? [[event.hook, event.callId, event.errorInternal]] : [],
+    ),
+    [['onAgentCall', failed.callId, 'storage read failed']],
   );
   assertEquals(
     events.some((event) => event.type === 'error'),

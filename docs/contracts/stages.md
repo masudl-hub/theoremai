@@ -562,7 +562,11 @@ tools run only via relay `executeTool`.
 runs `invokeTool` with the held `callId` and the model's input, and the session
 process passes its events to `answerToolCall({ callId, events })`. The events
 join `events()`, the model reads the settled call's `readBack`, and a run that
-ends on a gate leaves the call open. Stages fire where the body runs.
+ends on a gate leaves the call open. Stages fire where the body runs. When the
+other process cannot answer at all, the session process settles the call with an
+`error` event of its own. Write its `readBack` with
+`formatToolResult(formatToolFailureForModel(failure))`, so the model reads the
+failure as it reads every other one.
 
 ### Not stages
 

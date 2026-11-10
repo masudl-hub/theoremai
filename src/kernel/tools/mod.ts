@@ -6,7 +6,7 @@ export {
   projectForModel,
 } from './execute.ts';
 export { askUserTool, registerHarnessTools } from './harness.ts';
-export { formatToolResult } from './model-text.ts';
+export { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 export type { ToolRegistry } from './registry.ts';
 export { assertToolSettings, createToolRegistry } from './registry.ts';
 export type { CredentialQuery, McpProtocolVersion, McpRpcResponse } from './remote.ts';

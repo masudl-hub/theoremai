@@ -459,6 +459,7 @@ export {
   credentialPlacement,
   executeHttpTool,
   executeMcpTool,
+  formatToolFailureForModel,
   formatToolResult,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,

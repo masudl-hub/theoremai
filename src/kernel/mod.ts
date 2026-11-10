@@ -342,6 +342,7 @@ export {
   executeHttpTool,
   executeMcpTool,
   executeRegisteredTool,
+  formatToolFailureForModel,
   formatToolResult,
   isUnsupportedMcpProtocolError,
   leanToolResultData,

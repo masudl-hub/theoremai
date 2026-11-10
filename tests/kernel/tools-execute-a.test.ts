@@ -14,6 +14,7 @@ import {
   projectForModel,
   type ToolExecuteSettlement,
 } from '../../src/kernel/tools/execute.ts';
+import { ToolFailed } from '../../src/kernel/tools/failed.ts';
 import { yieldHandlerSideEvent } from '../../src/kernel/tools/handler-events.ts';
 import type { ToolStageSupport } from '../../src/kernel/tools/stage-run.ts';
 import type {
@@ -573,4 +574,40 @@ Deno.test('a settlement carries the model result, the guard-tagged text, and ord
     ['running', 'complete'],
     'phases',
   );
+});
+
+Deno.test('a handler that throws ToolFailed settles under its own code, kind, and details', async () => {
+  const tool = makeTool({
+    handler: () => {
+      throw new ToolFailed({
+        code: 'name_taken',
+        kind: 'conflict',
+        message: 'Another plant is already called Ivy.',
+        details: { name: 'Ivy' },
+      });
+    },
+  });
+  const { events, settlement } = await run(tool);
+  check(
+    settlement.failure,
+    {
+      code: 'name_taken',
+      kind: 'conflict',
+      message: 'Another plant is already called Ivy.',
+      details: { name: 'Ivy' },
+    },
+    'the stated failure',
+  );
+  check(toolEventsOf(events, 'error').length, 1, 'one error event');
+  check(toolEventsOf(events, 'complete'), [], 'no completion');
+});
+
+Deno.test('a handler that throws any other error still settles as handler_error', async () => {
+  const tool = makeTool({
+    handler: () => {
+      throw new Error('boom');
+    },
+  });
+  const { settlement } = await run(tool);
+  check(settlement.failure?.code, 'handler_error', 'thrown, not stated');
 });

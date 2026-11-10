@@ -742,6 +742,7 @@ not the key.
 | `timeout` | `timeout` |
 | `request_failed`: anything else a remote call threw | that error's kind; `internal` when it is not a `TheoremError` |
 | `invalid_*`, `malformed_arguments` | `bad_response` |
+| A handler that threw `ToolFailed` (its own `code`) | its own `kind` |
 | `handler_error` from a handler that threw a `TheoremError` | that error's kind |
 | any other `handler_error`, `mcp_*`, other tool HTTP statuses | `failed` |
 | `unknown_tool`, `not_loaded`, `not_gated`, `provider_native` | `request` |

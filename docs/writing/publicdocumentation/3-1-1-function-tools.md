@@ -179,6 +179,26 @@ return uncheckedOutput(rawPayload);
 
 The kernel runs your Zod `output` validator against the raw payload before serializing it for the model.
 
+### Stated Failures (`ToolFailed`)
+
+When the call ran but could not do what it was asked, throw `ToolFailed`. The call settles as a failure with your own `code` and `kind`. The model reads `message` and `details`. The host shows the wording for `kind`.
+
+```ts
+import { ToolFailed } from '@theoremjs/agents';
+
+// ... inside handler
+if (await names.has(input.name)) {
+  throw new ToolFailed({
+    code: 'name_taken',
+    kind: 'conflict',
+    message: `The name ${input.name} is taken. Ask for a different name.`,
+    details: { name: input.name },
+  });
+}
+```
+
+Any other error a handler throws settles as `handler_error`.
+
 ---
 
 ## Related Guides

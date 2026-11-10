@@ -310,6 +310,8 @@ export type {
   ToolSteerReceipt,
   ToolSteerRefusal,
 } from './tools/background.ts';
+export type { StatedToolFailure } from './tools/failed.ts';
+export { ToolFailed } from './tools/failed.ts';
 export {
   type AnsweredGate,
   answerGatedCall,

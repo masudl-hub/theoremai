@@ -28,7 +28,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
-import type { LabelOverrides } from '@theoremjs/agents';
+import type { LabelOverrides, ToolFailure } from '@theoremjs/agents';
 import { stopText, type TranscriptBlock } from '@theoremjs/agents/interface';
 import type { AnsweringGate } from '@theoremjs/web/client';
 import { citationsFromBlock, type SourceCitation } from '@theoremjs/web/client';
@@ -757,6 +757,16 @@ function toolUsageStats(state: SettledTool, showUsage: boolean): { stats?: React
   return showUsage && state.tokens ? { stats: <Usage tokens={state.tokens} /> } : {};
 }
 
+// why: The row already reads the failure's message, and `error` is the person's wording of the
+// same failure, so the detail holds only what the row does not say.
+function failureDetail(failure: ToolFailure): Omit<ToolFailure, 'message' | 'error'> {
+  return {
+    code: failure.code,
+    kind: failure.kind,
+    ...(failure.details === undefined ? {} : { details: failure.details }),
+  };
+}
+
 function toolCallItem(
   t: LabelText,
   id: string,
@@ -776,7 +786,10 @@ function toolCallItem(
         resultDetail: toolDetail(
           t,
           tool,
-          <ShapedData value={state.failure} title={t('@theorem.transcript.tool_error')} />,
+          <ShapedData
+            value={failureDetail(state.failure)}
+            title={t('@theorem.transcript.tool_error')}
+          />,
         ),
       };
     case 'complete':

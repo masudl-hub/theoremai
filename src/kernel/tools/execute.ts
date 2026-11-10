@@ -32,7 +32,7 @@ import { isAwaitingUserInput, type Source } from '../turn-events.ts';
 import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
-import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
+import { type AgentCaller, agentToolOrigin } from './agent.ts';
 import { planDetach, splitBackground, type ToolBackgroundSupport } from './background.ts';
 import { coordinateTool } from './coordinate.ts';
 import {
@@ -51,6 +51,7 @@ import {
   toolCallArguments,
   toolEvent,
 } from './events.ts';
+import { ToolFailed } from './failed.ts';
 import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
 import { fetchToolImages } from './image-fetch.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
@@ -931,11 +932,9 @@ export async function* executeFunction(
     output = yield* runHandler(tool.handler, input as never, handlerCtx, shown);
     checks.record();
   } catch (err) {
-    if (agent) {
-      // why: Anything but a settled failure is the host's to fix, as a compactor's is.
-      if (err instanceof AgentCallFailed) return yield* fail(err.failure);
-      throw err;
-    }
+    if (err instanceof ToolFailed) return yield* fail(err.failure);
+    // why: Anything but a settled failure is the host's to fix, as a compactor's is.
+    if (agent) throw err;
     if (signedIn.prepared && err instanceof CredentialRefusedError) {
       checks.record();
       const refused = yield* refusedCredentialOutcome(
@@ -1691,7 +1690,7 @@ async function* executeAgentTool(args: {
       const next = await run.next();
       if (next.done) {
         tokens = next.value.tokens;
-        if ('failure' in next.value) throw new AgentCallFailed(next.value.failure);
+        if ('failure' in next.value) throw new ToolFailed(next.value.failure);
         yield { kind: 'complete', output: next.value.output };
         return;
       }

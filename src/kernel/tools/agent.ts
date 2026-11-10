@@ -46,13 +46,6 @@ interface AgentCaller {
   takesSteers(tool: RegisteredAgentTool): boolean;
 }
 
-/** A call that settled without a reply; the model reads `failure`. */
-class AgentCallFailed extends Error {
-  constructor(readonly failure: ToolFailure) {
-    super(failure.message);
-  }
-}
-
 /** The agents an agent tool can run: each has a turn that takes text, which a transcription turn does not. */
 const AGENT_TOOL_TYPES: ReadonlySet<Profile['type']> = new Set(['text', 'image', 'speech']);
 
@@ -302,7 +295,6 @@ function normalizeAgent(
 
 export type { AgentCaller, AgentRun };
 export {
-  AgentCallFailed,
   agentProfileProblem,
   agentToolInputFor,
   agentToolOrigin,

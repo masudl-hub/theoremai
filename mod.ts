@@ -440,6 +440,8 @@ export type {
   ToolSteerRefusal,
 } from './src/kernel/tools/background.ts';
 export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
+export type { StatedToolFailure } from './src/kernel/tools/failed.ts';
+export { ToolFailed } from './src/kernel/tools/failed.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
 export type { MemoryToolExecutionOptions } from './src/kernel/tools/memory-execution.ts';
 export { createMemoryToolExecution } from './src/kernel/tools/memory-execution.ts';

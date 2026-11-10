@@ -257,10 +257,24 @@ Deno.test('a reply field marked exposeToModel: false reaches the host, never the
       yield* caller.complete(req);
     },
   };
-  const events = await collect(scope, provider);
+  const forModel: unknown[] = [];
+  const events: TurnEvent[] = [];
+  for await (const event of runScopedTurn(
+    scope,
+    {
+      profile: CALLER,
+      input: { text: 'Help' },
+      onStage: (ctx) => {
+        if (ctx.stage === 'post_tool') forModel.push(ctx.outputForModel);
+      },
+    },
+    provider,
+  ))
+    events.push(event);
   const [complete] = toolPhases(events, 'complete');
   assertEquals((complete as { output: unknown }).output, { structured: reply });
   assertEquals(read, ['{"structured":{"summary":"water less"}}']);
+  assertEquals(forModel, [{ structured: { summary: 'water less' } }]);
   assert(sentToResearcher.length > 0);
   assertEquals(
     sentToResearcher.some((req) => req.includes('exposeToModel')),

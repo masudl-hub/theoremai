@@ -887,6 +887,11 @@ still checked against the whole schema.
   the provider is never sent the mark.
 - **Unions.** A field that any branch of an `anyOf`, `oneOf`, or `allOf` marks is left out in
   every branch.
+- **The host can read the cut.** The `post_tool` stage gets `outputForModel` beside
+  `outputRaw`: the output as the model reads it, before it becomes text. A host that keeps its
+  own record of what the model saw stores it, so the host does not apply the marks itself. A
+  tool with no marks gives its output unchanged. It is absent when the call failed or the tool
+  sets `exposeToModel: false`.
 - **Visible.** The output schema keeps the field and the mark, so the host door's `describe`
   shows both.
 - **Refused at registration.** A mark with any value but `false`, a mark on an input field, and a

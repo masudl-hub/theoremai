@@ -54,11 +54,16 @@ function streamed(pieces: string[], init: ResponseInit = {}): Response {
   });
 }
 
-async function run(respond: () => Response, drafts: boolean, tool = TOOL) {
+async function run(
+  respond: () => Response,
+  drafts: boolean,
+  tool = TOOL,
+  handlers: ToolStageSupport['handlers'] = [],
+) {
   const scope = createTestKernelScope();
   scope.tools.register(tool);
   const stages: ToolStageSupport = {
-    handlers: [],
+    handlers,
     profile,
     step: 1,
     history: () => [],
@@ -156,7 +161,13 @@ Deno.test('a field the output schema marks exposeToModel: false is in the output
     }),
   } as ToolDefinitionInput;
   const body = '{"finding":"Soil is dry.","photoUrl":"https://img.example/soil.png"}';
-  const { settlement } = await run(() => streamed([body]), false, marked);
+  const forModel: unknown[] = [];
+  const { settlement } = await run(() => streamed([body]), false, marked, [
+    (ctx) => {
+      if (ctx.stage === 'post_tool') forModel.push(ctx.outputForModel);
+    },
+  ]);
   assertEquals(settlement.outputRaw, JSON.parse(body));
   assertEquals(settlement.modelResult?.finding, '{"finding":"Soil is dry."}');
+  assertEquals(forModel, [{ finding: 'Soil is dry.' }]);
 });

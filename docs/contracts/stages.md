@@ -97,6 +97,8 @@ interface StageContext {
   /** True when pre_tool settled without running the body (deny or gate). */
   callNotStarted?: boolean;
   outputRaw?: unknown;
+  /** post_tool: outputRaw as the model reads it, without the fields marked exposeToModel: false. Absent when the call failed or the tool is hidden from the model. */
+  outputForModel?: unknown;
   outputModel?: ModelToolResult;
   /** post_tool: the tool's past activity label, filled from the input and outputRaw. */
   activityPast?: string;
@@ -282,8 +284,10 @@ Applies to function, HTTP, and MCP tools on every execute path
 9. Body (function handler / HTTP / MCP).
 10. T2 loader promotion when applicable (**before** projection).
 11. `projectForModel` → guard (fence, redaction, provenance) → model result.
-12. `onStage({ stage: 'post_tool', outputRaw, outputModel, activityPast?, activityFailed, failure?, awaiting? })`
-    — `outputModel` is the guarded result. `activityPast` is the tool's past
+12. `onStage({ stage: 'post_tool', outputRaw, outputForModel?, outputModel, activityPast?, activityFailed, failure?, awaiting? })`
+    — `outputForModel` is `outputRaw` without the fields its schema marks
+    `exposeToModel: false` ([kernel](kernel.md#output-fields-the-model-does-not-read)).
+    `outputModel` is the guarded result. `activityPast` is the tool's past
     activity label filled from the input and `outputRaw`; it is absent when the
     call failed, the tool has no label, or a placeholder has no value.
     `activityFailed` is the tool's failed label, filled from the input as the

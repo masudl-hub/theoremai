@@ -170,6 +170,20 @@ Deno.test('invokeTool keeps the output whole and gives the model view as its rea
   assertEquals(JSON.parse(complete?.readBack ?? '{}'), MODEL_VIEW);
 });
 
+Deno.test('the post_tool stage hands the host the output as the model reads it', async () => {
+  const seen: { raw: unknown; forModel: unknown }[] = [];
+  for await (const _ of invokeTool({
+    profile: 'model_view_agent',
+    name: 'model_view_plant',
+    input: {},
+    onStage: (ctx) => {
+      if (ctx.stage === 'post_tool')
+        seen.push({ raw: ctx.outputRaw, forModel: ctx.outputForModel });
+    },
+  }));
+  assertEquals(seen, [{ raw: OUTPUT, forModel: MODEL_VIEW }]);
+});
+
 Deno.test('a field one branch of a union marks is left out whichever branch the value took', () => {
   const schema = {
     anyOf: [

@@ -68,6 +68,12 @@ export type StageCallBag = {
   approved?: true;
   callNotStarted?: boolean;
   outputRaw?: unknown;
+  /**
+   * `post_tool`: the output as the model reads it, before it becomes text: `outputRaw` without
+   * the fields its schema marks `exposeToModel: false`. Absent when the call failed or the tool
+   * is hidden from the model.
+   */
+  outputForModel?: unknown;
   outputModel?: ModelToolResult;
   /** `post_tool`: the tool's past activity label, filled from the input and `outputRaw`. */
   activityPast?: string;

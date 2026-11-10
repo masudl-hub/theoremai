@@ -298,6 +298,7 @@ export async function* runPostToolStages(args: {
   input?: unknown;
   callNotStarted?: boolean;
   outputRaw?: unknown;
+  outputForModel?: unknown;
   outputModel?: ModelToolResult;
   activityPast?: string;
   activityFailed?: string;

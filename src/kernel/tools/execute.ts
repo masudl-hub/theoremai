@@ -255,6 +255,14 @@ export function projectForModel(
   return { ...result, ...(parts ? { parts } : {}) };
 }
 
+/** How the call's `post_tool` stage gets the output as the model reads it; nothing when the model reads none. */
+function forModelOf(tool: { exposeToModel?: boolean; outputSchema: Record<string, unknown> }): {
+  forModel?: (output: unknown) => unknown;
+} {
+  if (tool.exposeToModel === false) return {};
+  return { forModel: (output) => outputForModel(tool.outputSchema, output) };
+}
+
 function loadsT2(tool: FunctionToolDef, ctx: ToolContext): boolean {
   return profileToolsSpec(ctx.profile)?.t2Loader === tool.name;
 }
@@ -460,6 +468,8 @@ async function* settleToolCall(args: {
   provisional: Provisional;
   guard: ResultGuard;
   reproject?: Reproject;
+  /** The output as the model reads it, before it becomes text. */
+  forModel?: (output: unknown) => unknown;
   /** Run on the output the call settles with, after any `mutate`. */
   sources?: (output: unknown) => Source[];
   /** Fetches the pictures the settled output names; runs only for a result the guard let through. */
@@ -487,6 +497,9 @@ async function* settleToolCall(args: {
       input,
       callNotStarted,
       outputRaw,
+      ...(outputRaw !== undefined && args.forModel
+        ? { outputForModel: args.forModel(outputRaw) }
+        : {}),
       outputModel: modelResult,
       ...(activityPast ? { activityPast } : {}),
       activityFailed: failedActivityOf(base),
@@ -952,6 +965,7 @@ export async function* executeFunction(
     },
     sources: tool.sources,
     labels: tool.labels,
+    ...forModelOf(tool),
     ...(ownsOutput
       ? {}
       : {
@@ -1137,6 +1151,7 @@ async function* settleBodyOutcome(args: {
     guard,
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
     sources: tool.sources,
+    ...forModelOf(tool),
     ...(tool.type !== 'function' && tool.images
       ? {
           images: (output: unknown) =>

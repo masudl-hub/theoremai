@@ -98,4 +98,10 @@ export { ToolResult } from './ToolResult.tsx';
 export { TraceGuardrailsView, TracePlacement, useTraceInspector } from './TraceInspectorPanel.tsx';
 export { ChartStat } from './TraceOverview.tsx';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme.tsx';
+export {
+  type MediaReference,
+  type ResolveMedia,
+  ToolMediaProvider,
+  type ToolMediaShown,
+} from './tool-media.tsx';
 export { ChartCard, type TraceFill } from './trace-patterns.tsx';

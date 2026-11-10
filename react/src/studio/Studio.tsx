@@ -7,7 +7,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { IconSearch } from '@tabler/icons-react';
 import { createHostTransport, type HostTransport } from '@theoremjs/web/client';
 import { useEffect, useMemo, useState } from 'react';
-import { TheoremHost } from '../ui/index.ts';
+import { type ResolveMedia, TheoremHost } from '../ui/index.ts';
 import './studio.css';
 
 /**
@@ -15,6 +15,10 @@ import './studio.css';
  * local server the builder started in that project, and the host console to run
  * a tool.
  */
+
+/** A tool's reference the studio loads as it stands: an http(s) address; any other shows as its file. */
+const webAddress: ResolveMedia = (reference) =>
+  /^https?:\/\//i.test(reference.uri) ? reference.uri : null;
 
 /** Where the studio's server is mounted, on the page's own origin. */
 const SERVER = '/api/studio';
@@ -176,7 +180,14 @@ export default function Studio() {
       />
       <section className="studio-console" aria-label="Tool">
         {transport && tool ? (
-          <TheoremHost key={tool} transport={transport} flush columns maxWidth="100%" />
+          <TheoremHost
+            key={tool}
+            transport={transport}
+            resolveMedia={webAddress}
+            flush
+            columns
+            maxWidth="100%"
+          />
         ) : (
           <EmptyState
             title="Pick a tool"

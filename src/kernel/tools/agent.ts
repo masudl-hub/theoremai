@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import { mediaKindForMime } from '../registry/catalog.ts';
 import { optionValues } from '../registry/options.ts';
-import { interactionPartSchema, keptReply, sourceSchema } from '../turn-events.ts';
+import { keptReply, sourceSchema, toolOutputPartSchema } from '../turn-events.ts';
 import type {
   Profile,
   ProfileId,
@@ -176,7 +177,7 @@ const agentToolOutput: z.ZodType<AgentToolOutput> = z.object({
   removed: z
     .array(z.object({ path: z.string(), reason: z.string(), item: z.unknown() }))
     .optional(),
-  parts: z.array(interactionPartSchema).optional(),
+  parts: z.array(toolOutputPartSchema).optional(),
   sources: z.array(sourceSchema).optional(),
 });
 
@@ -262,9 +263,11 @@ function agentToolOutputOf(turn: readonly TurnEvent[]): AgentToolOutput {
     e.type === 'media'
       ? [
           {
-            type: e.media.mimeType.startsWith('audio/') ? ('audio' as const) : ('image' as const),
+            type: mediaKindForMime(e.media.mimeType) ?? ('document' as const),
             mimeType: e.media.mimeType,
             data: e.media.data,
+            // why: The called agent made it to be seen, as a top-level agent's own media is shown.
+            sent: true as const,
           },
         ]
       : [],

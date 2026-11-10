@@ -95,7 +95,6 @@ type McpTool = {
 type McpContent =
   | { type: 'text'; text: string }
   | { type: 'image' | 'audio'; data: string; mimeType: string }
-  | { type: 'resource_link'; uri: string; name: string; mimeType: string }
   | { type: 'resource'; resource: { uri: string; mimeType: string; blob: string } };
 type CallResult = { content: McpContent[]; isError: boolean };
 
@@ -209,7 +208,7 @@ function callResult(events: TurnEvent[], labels: HostProfile['labels']): CallRes
       return {
         content: [
           { type: 'text', text: tool.readBack ?? '' },
-          ...(tool.parts ?? []).map(partContent),
+          ...(tool.parts ?? []).flatMap(partContent),
         ],
         isError: false,
       };
@@ -231,16 +230,21 @@ function callResult(events: TurnEvent[], labels: HostProfile['labels']): CallRes
   };
 }
 
-function partContent(part: ResultPart, index: number): McpContent {
-  if (part.type === 'text') return { type: 'text', text: part.text };
-  if ('uri' in part)
-    return { type: 'resource_link', uri: part.uri, name: part.uri, mimeType: part.mimeType };
+/**
+ * A part as MCP content, as a model reads it: text and bytes. The client is another agent, so a
+ * reference, which no model reads, is left out.
+ */
+function partContent(part: ResultPart, index: number): McpContent[] {
+  if (part.type === 'text') return [{ type: 'text', text: part.text }];
+  if (!('data' in part)) return [];
   if (part.type === 'image' || part.type === 'audio')
-    return { type: part.type, data: part.data, mimeType: part.mimeType };
-  return {
-    type: 'resource',
-    resource: { uri: `part:${index}`, mimeType: part.mimeType, blob: part.data },
-  };
+    return [{ type: part.type, data: part.data, mimeType: part.mimeType }];
+  return [
+    {
+      type: 'resource',
+      resource: { uri: `part:${index}`, mimeType: part.mimeType, blob: part.data },
+    },
+  ];
 }
 
 /** Same origin, or one the host lists; a request with no `Origin` is not from a page. */

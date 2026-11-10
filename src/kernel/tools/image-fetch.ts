@@ -1,8 +1,15 @@
 import { fetchGuarded } from '../../guardrails/network.ts';
-import type { InteractionPart, ToolWarning } from '../turn-events.ts';
+import { MEDIA_INPUT_KIND_VALUES, type MediaInputKind } from '../schema.ts';
+import type {
+  InteractionMediaPart,
+  InteractionMediaRefPart,
+  ToolOutputPart,
+  ToolWarning,
+} from '../turn-events.ts';
 import { bytesToBase64 } from '../util/base64.ts';
+import { isRecord } from '../util/record.ts';
 import { toolNetworkPolicy } from './events.ts';
-import type { ToolContext, ToolImageLimits } from './types.ts';
+import type { ToolContext, ToolImageLimits, ToolMediaEntry } from './types.ts';
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
@@ -50,7 +57,7 @@ async function fetchOne(
   url: string,
   ctx: ToolContext,
   limits: ToolImageLimits,
-): Promise<InteractionPart> {
+): Promise<InteractionMediaPart> {
   const signal = fetchSignal(ctx, limits.timeoutMs);
   const response = await fetchGuarded(
     url,
@@ -85,37 +92,45 @@ function httpsAddress(url: unknown): { url: string } | { reason: string } {
 }
 
 /**
- * The pictures a tool's `images(output)` names, fetched through the profile's network policy (every
- * hop, redirects included, no tool credentials) and handed to the model as image parts. A picture
- * that is not an https address, blocked, slow, too big or not an image is left out and reported in
- * one `images_unfetched` warning: the call itself stays whole. `urls` are the ones fetched.
+ * The media a tool's `media(output)` names. Each `{ url }` picture is fetched through the profile's
+ * network policy (every hop, redirects included, no tool credentials) and handed to the model as an
+ * image part, `sent` when the entry says so. A picture that is not an https address, blocked, slow,
+ * too big or not an image is left out and reported in one `images_unfetched` warning: the call
+ * itself stays whole. Each reference `{ type, mimeType, uri }` is kept as it is, for the person
+ * only. `urls` are the pictures fetched.
  */
-export async function fetchToolImages(
-  images: (output: never) => string[],
+export async function fetchToolMedia(
+  hook: (output: never) => ToolMediaEntry[],
   output: unknown,
   ctx: ToolContext,
   limits: ToolImageLimits = {},
-): Promise<{ parts: InteractionPart[]; urls: string[]; warning?: ToolWarning }> {
+): Promise<{ media: ToolOutputPart[]; urls: string[]; warning?: ToolWarning }> {
   const reasons: string[] = [];
-  const named: string[] = [];
+  const named = new Map<string, boolean>();
+  const refs: InteractionMediaRefPart[] = [];
   try {
-    for (const raw of new Set(images(output as never))) {
-      const address = httpsAddress(raw);
-      if ('url' in address) named.push(address.url);
-      else reasons.push(address.reason);
+    for (const entry of hook(output as never)) {
+      const ref = mediaRef(entry);
+      if (ref) {
+        refs.push(ref);
+        continue;
+      }
+      const address = httpsAddress(isRecord(entry) ? entry.url : entry);
+      if ('reason' in address) reasons.push(address.reason);
+      else named.set(address.url, named.get(address.url) === true || sentEntry(entry));
     }
   } catch (err) {
     // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return {
-      parts: [],
+      media: [],
       urls: [],
-      warning: unfetched([`the images hook threw: ${String(err)}`]), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      warning: unfetched([`the media hook threw: ${String(err)}`]), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
-  const wanted = named.slice(0, limits.count);
+  const wanted = [...named.keys()].slice(0, limits.count);
   const settled = await Promise.allSettled(wanted.map((url) => fetchOne(url, ctx, limits)));
   const totalBytes = limits.totalBytes ?? Number.POSITIVE_INFINITY;
-  const parts: InteractionPart[] = [];
+  const media: ToolOutputPart[] = [];
   const urls: string[] = [];
   let total = 0;
   settled.forEach((result, index) => {
@@ -125,21 +140,44 @@ export async function fetchToolImages(
       reasons.push(`${new URL(url).hostname}: ${why}`);
       return;
     }
-    const size = 'data' in result.value ? result.value.data.length : 0;
+    const size = result.value.data.length;
     if (total + size > totalBytes) {
       reasons.push(`${new URL(url).hostname}: past the ${totalBytes} byte total`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return;
     }
     total += size;
-    parts.push(result.value);
+    media.push(named.get(url) ? { ...result.value, sent: true } : result.value);
     urls.push(url);
   });
   return {
-    parts,
+    media: [...media, ...refs],
     urls,
     ...(reasons.length ? { warning: unfetched(reasons) } : {}),
   };
 }
+
+function sentEntry(entry: unknown): boolean {
+  return isRecord(entry) && entry.sent === true;
+}
+
+/** The entry as a reference, when it is one. */
+function mediaRef(entry: unknown): InteractionMediaRefPart | undefined {
+  if (!isRecord(entry) || 'url' in entry) return undefined;
+  const { type, mimeType, uri } = entry;
+  if (
+    typeof type !== 'string' ||
+    !MEDIA_KINDS.has(type) ||
+    typeof mimeType !== 'string' ||
+    !mimeType.trim() ||
+    typeof uri !== 'string' ||
+    !uri
+  ) {
+    return undefined;
+  }
+  return { type: type as MediaInputKind, mimeType, uri };
+}
+
+const MEDIA_KINDS: ReadonlySet<string> = new Set(MEDIA_INPUT_KIND_VALUES);
 
 function unfetched(reasons: string[]): ToolWarning {
   return {

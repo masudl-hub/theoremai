@@ -106,11 +106,6 @@ export {
   replyCarriedFromEvents,
   toolSnapshotFromEvents,
 } from './tool-invoke.ts';
-export type { PromotedToolMedia } from './tool-media.ts';
-export {
-  collectPromotedMediaFromToolOutput,
-  promotedMediaFromUrlString,
-} from './tool-media.ts';
 export type {
   AttachmentValidationResult,
   ComposerInterfaceFields,

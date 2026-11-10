@@ -6,6 +6,10 @@ const IN_ANY_TURN = { loadTier: 'T0' as const, paths: ['*'], type: 'function' as
 const PIXEL =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
 
+/** Another pixel, for the picture `send_postcard` hands only the model. */
+const OTHER_PIXEL =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
 export function registerTools(): void {
   registerTool({
     ...IN_ANY_TURN,
@@ -35,6 +39,33 @@ export function registerTools(): void {
     handler: () => ({
       drawn: true,
       parts: [{ type: 'image' as const, mimeType: 'image/png', data: PIXEL }],
+    }),
+  });
+  registerTool({
+    ...IN_ANY_TURN,
+    access: 'read-only',
+    permission: 'auto',
+    name: 'send_postcard',
+    description: 'Sends a postcard of a city.',
+    category: 'places',
+    input: z.object({ city: z.string().min(1).describe('The city.') }),
+    output: z.object({ sent: z.boolean(), parts: z.array(z.unknown()) }),
+    handler: () => ({
+      sent: true,
+      parts: [
+        { type: 'image', mimeType: 'image/png', data: PIXEL, sent: true },
+        { type: 'image', mimeType: 'image/png', data: OTHER_PIXEL },
+        {
+          type: 'image',
+          mimeType: 'image/png',
+          uri: 'https://media.example.com/postcards/front.png',
+        },
+        {
+          type: 'document',
+          mimeType: 'application/pdf',
+          uri: 'gs://e2e-bucket/postcards/back.pdf',
+        },
+      ],
     }),
   });
   registerTool({

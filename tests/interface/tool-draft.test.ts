@@ -110,7 +110,15 @@ Deno.test('the media a tool returns stands where the call ran, before what comes
   );
   const media = blocks.filter((block) => block.kind === 'media');
   assertEquals(
-    media.map((block) => block.data ?? block.url),
+    media.map((block) => block.data ?? block.uri),
     ['AAAA', 'gs://bucket/two.png'],
+  );
+  // The bytes the model read stay unsent; a reference is the tool's to show, so it is sent.
+  assertEquals(
+    media.map((block) => [block.fromTool, block.sent]),
+    [
+      [true, undefined],
+      [true, true],
+    ],
   );
 });

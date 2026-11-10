@@ -2,6 +2,7 @@ import { assert, assertEquals } from '@std/assert';
 import {
   hasLead,
   layoutResult,
+  referencesIn,
   returnedMedia,
   timeFormats,
 } from '../../web/src/client/tool-result.ts';
@@ -203,4 +204,17 @@ Deno.test('time formats: hours within a day, dates past it, bare dates read in U
     (_, day) => `2026-09-${String(day + 1).padStart(2, '0')}`,
   );
   assertEquals(timeFormats(month).tick, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+});
+
+Deno.test('a direct run shows bytes as media and keeps references for the resolver', () => {
+  const parts = [
+    { type: 'image', mimeType: 'image/png', data: 'abc' },
+    { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/a.pdf' },
+    { type: 'bogus', mimeType: 'x/y', uri: 'gs://bucket/b' },
+  ];
+  const media = returnedMedia(layoutResult({}), parts, 'image');
+  assertEquals(media.images.length, 1);
+  assertEquals(referencesIn(parts), [
+    { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/a.pdf' },
+  ]);
 });

@@ -81,3 +81,36 @@ Deno.test('coerceToolResultParts skips entries that are not parts instead of fai
     { type: 'text', text: 'kept' },
   ]);
 });
+
+Deno.test('projectForModel: the model reads bytes without the sent mark, and no reference', () => {
+  const uri = 'gs://bucket/card.pdf';
+  const projected = projectForModel(visible, {
+    finding: 'card',
+    parts: [
+      { type: 'image', mimeType: 'image/png', data: 'abc', sent: true },
+      { type: 'document', mimeType: 'application/pdf', uri },
+      { type: 'image', mimeType: 'image/png', uri: '' },
+    ],
+  });
+  assertEquals(projected.parts, [{ type: 'image', mimeType: 'image/png', data: 'abc' }]);
+  assertEquals(projected.media, [
+    { type: 'image', mimeType: 'image/png', data: 'abc', sent: true },
+    { type: 'document', mimeType: 'application/pdf', uri },
+  ]);
+  assertEquals(formatToolResult(projected).includes(uri), false);
+  const historyMsg = {
+    role: 'tool' as const,
+    tool_call_id: 'call_1',
+    name: 'make_card',
+    content: formatToolResult(projected),
+    parts: projected.parts,
+  };
+  const google = JSON.stringify(historyStep(historyMsg));
+  const compat = JSON.stringify(
+    buildChatMessages(stubCompleteRequest({ history: [historyMsg], input: [] })),
+  );
+  for (const wire of [google, compat]) {
+    assertEquals(wire.includes(uri), false);
+    assertEquals(wire.includes('"sent"'), false);
+  }
+});

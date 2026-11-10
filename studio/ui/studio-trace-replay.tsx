@@ -39,6 +39,7 @@ import {
   RunBar,
   TheoremLabelsProvider,
   TheoremThemeProvider,
+  ToolMediaProvider,
   useLabels,
   useTraceInspector,
 } from '@theoremjs/react/ui';
@@ -70,6 +71,7 @@ import {
 import { useActingAs } from './lib/acting-as.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { STUDIO_TOOL_MEDIA, studioResolveMedia } from './lib/studio-media.ts';
 import { startProjectConversation, useProject } from './lib/studio-project.ts';
 
 /** A trace file the builder imported. */
@@ -152,26 +154,28 @@ function Conversation({
   return (
     <ResponseColumn label="Conversation">
       {banner}
-      <ChatTranscript
-        blocks={blocks}
-        handle={t('@theorem.agent.handle', { handle: iface.identity.handle })}
-        labels={iface.labels}
-        streaming={chat?.streaming}
-        delivery={chat?.delivery}
-        answering={chat?.answering}
-        onToolDecision={
-          chat &&
-          ((index, action) => {
-            void chat.handleToolDecision(index, action);
-          })
-        }
-        onAuthenticated={
-          chat &&
-          ((index, secret) => {
-            void chat.handleAuthenticated(index, secret);
-          })
-        }
-      />
+      <ToolMediaProvider media={STUDIO_TOOL_MEDIA} resolveMedia={studioResolveMedia}>
+        <ChatTranscript
+          blocks={blocks}
+          handle={t('@theorem.agent.handle', { handle: iface.identity.handle })}
+          labels={iface.labels}
+          streaming={chat?.streaming}
+          delivery={chat?.delivery}
+          answering={chat?.answering}
+          onToolDecision={
+            chat &&
+            ((index, action) => {
+              void chat.handleToolDecision(index, action);
+            })
+          }
+          onAuthenticated={
+            chat &&
+            ((index, secret) => {
+              void chat.handleAuthenticated(index, secret);
+            })
+          }
+        />
+      </ToolMediaProvider>
     </ResponseColumn>
   );
 }

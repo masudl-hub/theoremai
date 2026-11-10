@@ -176,6 +176,26 @@ To draw your own figures like the trace panel does, `@theoremjs/react/ui` also e
 | `initialPending` | The messages that the composer starts with set aside: queued, stashed, or steering, as `createComposerPendingMessage` from `@theoremjs/agents/interface` makes them. The component reads them once, when it mounts. |
 | `chatRef` | Sends a message, stops a reply, or focuses the composer from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
+| `media` | Which media from tools the chat shows. `'sent'` shows only what a tool sent to the person. `'all'` also shows what only the model read, for an evaluation view. Default: `'sent'`. See [Tool media](#tool-media). |
+| `resolveMedia` | Turns a tool's reference into an address the page can load. See [Tool media](#tool-media). |
+
+### Tool media
+
+A tool can return media for the model, for the person, or for both. The chat shows media from a tool only when the tool marked it `sent`, unless you pass `media="all"`. Media that a model generated and files that the user attached always show.
+
+A tool can also return a **reference**: `{ type, mimeType, uri }`, such as a `gs://` object. The model never reads it, and the page cannot load its `uri` as it stands. Pass `resolveMedia` to turn it into an address the page can load, under the viewer's own sign-in:
+
+```tsx
+<TheoremChat
+  endpoint="/api/theorem"
+  resolveMedia={async (reference) => {
+    const res = await fetch(`/api/files/sign?uri=${encodeURIComponent(reference.uri)}`);
+    return res.ok ? (await res.json()).url : null;
+  }}
+/>
+```
+
+`resolveMedia` returns a string, `null`, or a promise of either. While it works, and when it returns `null` or throws, the chat shows the file name from the `uri`. `TheoremHost` takes the same `resolveMedia`, and always shows all the media of a call.
 
 ### Resume a conversation
 
@@ -255,7 +275,7 @@ The handler accepts these requests:
 - `POST /call` with `{ name, input }` streams the events of the call.
 - `POST /invoke` answers a gate that paused a call.
 
-The console builds a form from the input schema. It shows the result as figures, charts, tables, images, audio, or Markdown, with the raw JSON beside it. If the data renderer fails, the view switches to JSON so the selected view matches what is shown. For your own UI, use `createHostTransport` and `useTheoremHost`.
+The console builds a form from the input schema. It shows the result as figures, charts, tables, images, audio, or Markdown, with the raw JSON beside it. It shows every piece of media the call returned, and a reference through `resolveMedia` (see [Tool media](#tool-media)). If the data renderer fails, the view switches to JSON so the selected view matches what is shown. For your own UI, use `createHostTransport` and `useTheoremHost`.
 
 #### Serve a host profile over MCP
 

@@ -127,7 +127,7 @@ Live and host profiles ignore `loadTier` and load all allowed tools at turn star
 ## Tool Types In Detail
 
 * **[Function Tools](3-1-1-function-tools.md)**: Local JavaScript/TypeScript handlers, streaming generators, browser UI tools (`answeredBy: 'page'`), `ToolContext`, grounding citations (`sources`), and `uncheckedOutput`.
-* **[HTTP Tools](3-1-2-http-tools.md)**: Declarative REST endpoints, URL mapping (`pathParams`, `queryParams`, `bodyParam`), rate limits, timeout controls, and multimodal image extraction (`images`).
+* **[HTTP Tools](3-1-2-http-tools.md)**: Declarative REST endpoints, URL mapping (`pathParams`, `queryParams`, `bodyParam`), rate limits, timeout controls, and tool media (`media`).
 * **[MCP Tools](3-1-3-mcp-tools.md)**: Model Context Protocol integration, server endpoints, and native MCP session pooling (`session.idleMs`, `session.max`, LRU eviction, parallel open deduplication).
 * **[Agent Tools](3-1-4-agent-tools.md)**: Delegating to registered agent profiles, input/output schema derivation, `maxCallsPerTurn`, isolation, and `onAgentCall` interception.
 

@@ -26,7 +26,7 @@ export function transcriptBlockCopyText(t: LabelText, block: TranscriptBlock): s
     case 'structured':
       return JSON.stringify(block.value, null, 2);
     case 'media':
-      return block.url ?? t('@theorem.transcript.copy_text.media', { mimeType: block.mimeType });
+      return t('@theorem.transcript.copy_text.media', { mimeType: block.mimeType });
     case 'grounding':
       return JSON.stringify(block.grounding, null, 2);
     case 'citation':

@@ -942,14 +942,46 @@ when a held call resumes, so it fills the field again.
   `{ storeId: z.string().meta({ exposeToModel: false }).optional() }`. The host fills it the same
   way, and `onAgentCall` reads it as `call.hostInput`. The called agent never receives it.
 
-### Tool images
+### Tool media
 
-An HTTP or MCP tool whose result names pictures by address may declare
-`images: (output) => string[]`. Once a call succeeds and its result has passed the
-`tool_output` guard and the after-call stages, the kernel fetches the distinct https
-addresses and adds each as an `image` part to the model's result beside any the
-server sent. A result the guard blocks or replaces fetches nothing and carries no
-pictures. Only png, jpeg, gif and webp are taken.
+Use tool media when a tool returns pictures, audio, video or files beside its value. Each piece
+has two readers: the model, and the person in the chat. The tool says which piece goes to whom.
+
+A tool returns media as `ToolOutputPart`s (`toolOutputPartSchema`):
+
+| Part | Shape | The model reads it | The chat shows it |
+| --- | --- | --- | --- |
+| Text | `{ type: 'text', text }` | Yes | No |
+| Bytes | `{ type, mimeType, data }` | Yes | Only with `media="all"` |
+| Sent bytes | `{ type, mimeType, data, sent: true }` | Yes | Yes |
+| Reference | `{ type, mimeType, uri }` | No | Yes, through the app's resolver |
+
+A **reference** names a file the app can load, such as a `gs://` object or a signed address. The
+kernel never sends its `uri` to a provider: not in the model's parts, not in `readBack`, not in
+the history. The chat cannot load a `uri` as it stands. It shows what the app's `resolveMedia`
+returns for it, or the file name.
+
+`ModelToolResult.media` holds every part the tool returned. `ModelToolResult.parts` is what the
+model reads: the text and bytes, without `sent`, and no reference. One function makes `parts`
+from `media`, so the two never disagree. The `complete` event carries `media` as its `parts`, and
+the stored operation outcome keeps it, so a detached call settles with the same parts.
+
+- **Function tools** return the parts as `parts` in their output.
+- **HTTP and MCP tools** declare `media: (output) => ToolMediaEntry[]`. An entry is
+  `{ url, sent?: true }`, a picture the kernel fetches, or a reference, kept as it is.
+- **MCP tools** also read the server's content blocks. An `image` or `audio` block is `sent` when
+  its `annotations.audience` includes `"user"`. A `resource_link` with a `mimeType` is a
+  reference, and its `uri` is not read as text.
+- **Agent tools** return the called agent's pictures and audio as sent parts. The kind comes from
+  the MIME type.
+- **Hidden tools** (`exposeToModel: false`) give the model no parts. The chat still shows the
+  sent bytes and the references.
+- **A call the guard blocks, or a call that fails,** shows no media.
+
+The kernel fetches a `{ url }` entry once a call succeeds and its result has passed the
+`tool_output` guard and the after-call stages. It fetches each distinct https address once, and
+adds each picture as an `image` part after the tool's own parts. Only png, jpeg, gif and webp are
+taken.
 
 The tool may also declare `imageLimits`. Each limit left out is no limit:
 
@@ -966,7 +998,7 @@ named goes to the model, so a large set can make a request that the provider ref
 An address that is not absolute https, blocked, slow, too big, not an image, or
 not answered, and a hook that throws, leave their pictures out and give the call
 one tool `warning` (`code: 'images_unfetched'`) naming each reason; the call still
-completes. A function tool returns the bytes itself as `parts` and has no hook.
+completes.
 
 Pictures are fetched without the tool's credentials. Every hop, redirects
 included, runs through the profile's network policy: with no policy, any public
@@ -977,7 +1009,8 @@ connection is made, so a host that changes its answer in between (DNS rebinding)
 is not caught; the runtimes give no way to pin the address. The pictures carry the
 tool-result provenance of the text beside them and are not scanned (there are no
 image detectors, as for MCP image blocks). The fetched addresses are added to the
-result's text, so `ungiven_images` with `fromTools` counts them as given.
+result's text, so `ungiven_images` with `fromTools` counts them as given. A
+reference's `uri` is never added.
 
 ### Agent tools
 
@@ -1027,7 +1060,7 @@ with host fields on a request with no `onAgentCall` throws `config`.
 Output is `{ text?, structured?, removed?, parts?, sources? }`: the reply's text, or its last
 structured reply when the called profile declares `outputs.structured` (the text
 of such a reply is the same JSON, so it is not returned twice), its images or
-audio as `parts`, and what it cited as `sources`, which the caller's turn cites
+audio as sent `parts` ([Tool media](#tool-media)), and what it cited as `sources`, which the caller's turn cites
 as it does any tool's. A `post_tool` stage can
 replace it (`mutate: { output }`) before the caller's model reads it.
 
@@ -1398,10 +1431,10 @@ visible ASCII characters, and stays out of events. A `404` in a session reopens
 it once; a second fails the call with `mcp_session_expired`.
 An MCP result is read as its `structuredContent` when that passes the tool's
 `output` schema, else as its text blocks joined (a `resource` block's `text`, a
-`resource_link`'s `uri`) and parsed against `output`. `image` and `audio` blocks
-with base64 `data` and a `mimeType` become the call's media parts: they ride
-the model's result as `parts` and the `complete` event as `parts`, and a
-`post_tool` edit that replaces the output keeps them.
+`resource_link`'s `uri` when the link has no `mimeType`) and parsed against `output`. `image`
+and `audio` blocks with base64 `data` and a `mimeType`, and `resource_link` blocks with a
+`mimeType`, become the call's media ([Tool media](#tool-media)). A `post_tool` edit that
+replaces the output keeps them.
 
 HTTP and MCP tools, and function tools that declare `auth`, integrate with:
 - **Network Guardrails** (`guardrails.network`): SSRF protection blocking loopback and private subnets unless `allowPrivateNetworks: true` is configured. Owned by the guardrails contract — see `docs/contracts/guardrails.md#network`.
@@ -2065,14 +2098,11 @@ fails).
 | History | `appendUserDraftToHistory`, `appendToolExchangeToHistory` (replays `readBack`; a step's words and settled calls go back as one assistant message, then each result), `toolReadBack`, `userDraftToSteerInject`, … |
 | Composer intents | `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer` / `Queue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions` |
 
-`foldTurnEvents` maps kernel `media` events (base64) and also promotes http(s)
-image / video / audio URLs found in completed tool `output` into `media` blocks
-with `url` set (extension-based MIME guess). Copies of one file are promoted
-once: a MediaWiki `/thumb/…/<N>px-` resize and its original share a key
-(last two host labels + path, `utm_*` params ignored); the largest copy is
-`url` and the smallest, when different, is `previewUrl`. Tool JSON in the tool
-block is unchanged. `historyFromTranscriptBlocks` still ignores media blocks — the tool
-exchange already carries the URL.
+`foldTurnEvents` maps kernel `media` events (base64) to `media` blocks. It adds a `media` block
+for each media part of a completed tool call, where the call stands in the reply, with
+`fromTool: true`. Bytes keep `data` and `sent`. A reference keeps `uri` and `type` and is always
+`sent`. An address inside a tool's output never becomes a block. `historyFromTranscriptBlocks`
+ignores media blocks: the model reads a tool's media only in the turn that ran it.
 
 The `observability` view is the resolved policy without functions: `record`,
 `sampleRate`, `include`, `scrub`, `resource`, `retainForDays`, `rotateAfterMiB`,
@@ -2140,19 +2170,15 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `TranscriptionProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `resolveTurnSystemPrompt`, `systemLinesProblem`, `systemReading` and `SystemReadingLine` (what each line says and which text is private, however its parts are cut), `optionsProblem`, `optionValues` |
-| Tools | `ANSWER_TOOL`, `ToolRegistry`, `assertToolSettings`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `formatToolFailureForModel`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `ToolContext`, `GateReference`, `gateReferenceSchema`, `executeRegisteredTool`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer`, `CredentialRefusedError`, `ToolFailed`, `StatedToolFailure` |
+| Tools | `ANSWER_TOOL`, `ToolRegistry`, `assertToolSettings`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `formatToolFailureForModel`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `ToolContext`, `GateReference`, `gateReferenceSchema`, `executeRegisteredTool`, `McpRpcResponse`, `ModelToolResult`, `ToolMediaEntry`, `PageAnswer`, `CredentialRefusedError`, `ToolFailed`, `StatedToolFailure` |
 | Tool execution | `ToolBackground`, `ToolBackgroundCall`, `ToolBackgroundHandle`, `ToolBackgroundService`, `ToolBackgroundSettled`, `ToolSteerReceipt`, `ToolSteerRefusal`, `ToolOperationReply`, `toolOperationReplySchema`, `BackgroundToolEvent`, `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource`, `ProtectedResourceMetadata`, `AuthorizationServerMetadata`, `OAuthTokens`, `OAuth2Credential`, `ToolCredential`, `OAuthTransportOptions`, `OAuthEndpoints`, `CreatePkceFlowOptions`, `PkceFlowResult`, `ExchangePkceCodeOptions`, `ExchangePkceCodeResult`, `RefreshOAuthTokenOptions`, `SealedStatePayload`, `toBase64Url`, `fromBase64Url`, `credentialFromTypedSecret`, `credentialForSignInGate` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
-| Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `reasoningPartSchema`, `historyHash`, `turnDoneOf`, `keptReply`, `AttemptReason`, `InvalidField`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) |
-| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `MODEL_SELECT_MIN_MODELS`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `replyCarriedFromEvents`, `ReplyCarried`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingMoves`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TranscriptionProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
+| Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `toolOutputPartSchema`, `ToolOutputPart`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `reasoningPartSchema`, `historyHash`, `turnDoneOf`, `keptReply`, `AttemptReason`, `InvalidField`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) |
+| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `MODEL_SELECT_MIN_MODELS`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `replyCarriedFromEvents`, `ReplyCarried`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingMoves`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TranscriptionProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
-
-`PromotedToolMedia` and `media` `TranscriptBlock`s carry an optional
-`previewUrl`: a smaller copy of `url` for thumbnails, when the tool output
-offered one.
 
 ```theorem-evidence
 {

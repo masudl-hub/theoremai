@@ -8,7 +8,6 @@ import type {
 } from '../kernel/types.ts';
 import { partialJsonObject } from '../kernel/util/partial-json.ts';
 import { applyToolDraft, applyToolEvent } from './tool-calls.ts';
-import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
 import type {
   CitationBlock,
   FoldTurnEventsOptions,
@@ -178,26 +177,6 @@ function foldCitation(
   });
 }
 
-function appendPromotedToolMedia(
-  blocks: TranscriptBlock[],
-  tool: ToolCallEvent,
-  idPrefix: string,
-  seenUrls: Set<string>,
-): void {
-  if (tool.phase !== 'complete' || tool.output === undefined) return;
-  for (const media of collectPromotedMediaFromToolOutput(tool.output)) {
-    if (seenUrls.has(media.url)) continue;
-    seenUrls.add(media.url);
-    blocks.push({
-      id: nextBlockId(idPrefix),
-      kind: 'media',
-      mimeType: media.mimeType,
-      url: media.url,
-      ...(media.previewUrl ? { previewUrl: media.previewUrl } : {}),
-    });
-  }
-}
-
 /**
  * A named inject's user messages as the user's own blocks, where the reply took them in: its
  * text, then a block per file. A message from anyone else (a host's note) is not the user's to show.
@@ -306,7 +285,9 @@ function standaloneBlock(event: TurnEvent, idPrefix: string): TranscriptBlock | 
 }
 
 /**
- * The media a tool returned beside its output, where the call stands in the reply.
+ * The media a tool returned beside its output, where the call stands in the reply: bytes, `sent`
+ * when the tool sent them to the person, and references, always sent and kept as `uri` for the
+ * app's resolver.
  * why: a tool sends a picture when it runs, so the picture comes before what the model says next.
  */
 function appendToolParts(blocks: TranscriptBlock[], tool: ToolCallEvent, idPrefix: string): void {
@@ -317,7 +298,10 @@ function appendToolParts(blocks: TranscriptBlock[], tool: ToolCallEvent, idPrefi
       id: nextBlockId(idPrefix),
       kind: 'media',
       mimeType: part.mimeType,
-      ...('data' in part ? { data: part.data } : { url: part.uri }),
+      fromTool: true,
+      ...('data' in part
+        ? { data: part.data, ...(part.sent ? { sent: true as const } : {}) }
+        : { uri: part.uri, type: part.type, sent: true as const }),
     });
   }
 }
@@ -332,7 +316,6 @@ function foldTurnEvents(
   turnBlockCounter = 0;
 
   const blocks: TranscriptBlock[] = [];
-  const promotedMediaUrls = new Set<string>();
 
   for (const event of keptReply(events)) {
     switch (event.type) {
@@ -351,7 +334,6 @@ function foldTurnEvents(
         break;
       case 'tool':
         upsertToolBlock(blocks, event.tool);
-        appendPromotedToolMedia(blocks, event.tool, idPrefix, promotedMediaUrls);
         appendToolParts(blocks, event.tool, idPrefix);
         break;
       case 'structured_draft':

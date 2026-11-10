@@ -69,6 +69,14 @@ import { useMarkdownPlugins } from './markdown-plugins.tsx';
 import { keyedByContent } from './row-keys.ts';
 import { ShapedData } from './ShapedData.tsx';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard.tsx';
+import {
+  MediaFileToken,
+  type MediaReference,
+  type ToolMediaShown,
+  toolMediaShows,
+  useResolvedMedia,
+  useToolMedia,
+} from './tool-media.tsx';
 import { transcriptBlockCopyText } from './transcript-copy-text.ts';
 import { VoiceNote } from './VoiceNote.tsx';
 
@@ -389,7 +397,7 @@ function UserFile({ block }: { block: UserFileBlock }) {
 }
 
 function mediaSrc(block: Extract<TranscriptBlock, { kind: 'media' }>): string | undefined {
-  return block.url ?? dataUrl(block.mimeType, block.data);
+  return dataUrl(block.mimeType, block.data);
 }
 
 function lightboxMedia(t: LabelText, src: string, mimeType: string): LightboxMedia | undefined {
@@ -402,15 +410,15 @@ function lightboxMedia(t: LabelText, src: string, mimeType: string): LightboxMed
 
 type MediaTranscriptBlock = Extract<TranscriptBlock, { kind: 'media' }>;
 
-/** Full-size media for the Lightbox, and the smaller copy (if any) for its Thumbnail. */
-type GalleryItem = { media: LightboxMedia; preview: string };
+/** Media for the Lightbox; its Thumbnail shows the same picture. */
+type GalleryItem = { media: LightboxMedia };
 
 /** Image or video media: shown as Thumbnails in a gallery row, not as its own body row. */
 function galleryItemOf(t: LabelText, block: TranscriptBlock): GalleryItem | undefined {
   if (block.kind !== 'media') return undefined;
   const src = mediaSrc(block);
   const media = src ? lightboxMedia(t, src, block.mimeType) : undefined;
-  return media ? { media, preview: block.previewUrl ?? media.src } : undefined;
+  return media ? { media } : undefined;
 }
 
 /**
@@ -421,10 +429,10 @@ function MediaGallery({ items }: { items: GalleryItem[] }) {
   const lightbox = useLightbox({ media: items.map((item) => item.media), hasZoom: true });
   return (
     <HStack gap={2} wrap="wrap">
-      {items.map(({ media: item, preview }, i) => (
+      {items.map(({ media: item }, i) => (
         <Thumbnail
           key={item.src}
-          src={item.type === 'image' ? preview : undefined}
+          src={item.type === 'image' ? item.src : undefined}
           alt={item.alt}
           label={item.alt}
           onClick={() => lightbox.open(i)}
@@ -449,7 +457,7 @@ function GeneratedImage(props: { item: GalleryItem; ratio?: number; onOpen: () =
     >
       <AspectRatio ratio={natural ?? props.ratio ?? 1} fit="cover">
         <img
-          src={props.item.preview}
+          src={props.item.media.src}
           alt={props.item.media.alt}
           onLoad={(event) => {
             const { naturalWidth, naturalHeight } = event.currentTarget;
@@ -516,11 +524,33 @@ function GeneratingImage({ ratio }: { ratio?: number }) {
 }
 
 function MediaBlock({ block }: { block: MediaTranscriptBlock }) {
+  if (block.uri !== undefined) {
+    return (
+      <ReferencedMedia
+        reference={{ type: block.type ?? 'document', mimeType: block.mimeType, uri: block.uri }}
+      />
+    );
+  }
   const src = mediaSrc(block);
   if (src && block.mimeType.startsWith('audio/')) {
     return <VoiceNote src={src} mimeType={block.mimeType} />;
   }
   return <Text color="secondary">{block.mimeType}</Text>;
+}
+
+/**
+ * A reference a tool sent, as the app's resolver shows it: a picture or video in a gallery of its
+ * own, a clip to play; the named file while it resolves, or when nothing does.
+ */
+export function ReferencedMedia({ reference }: { reference: MediaReference }) {
+  const t = useLabels();
+  const src = useResolvedMedia(reference);
+  if (src && reference.mimeType.startsWith('audio/')) {
+    return <VoiceNote src={src} mimeType={reference.mimeType} />;
+  }
+  const media = src ? lightboxMedia(t, src, reference.mimeType) : undefined;
+  if (media) return <MediaGallery items={[{ media }]} />;
+  return <MediaFileToken reference={reference} />;
 }
 
 type BodyRow =
@@ -532,9 +562,14 @@ type BodyRow =
  * Runs of images/videos become one gallery row; consecutive citation blocks
  * become one sources row; everything else is a row of its own.
  */
-function bodyRows(t: LabelText, body: readonly TranscriptBlock[]): BodyRow[] {
+function bodyRows(
+  t: LabelText,
+  body: readonly TranscriptBlock[],
+  shown: ToolMediaShown,
+): BodyRow[] {
   const rows: BodyRow[] = [];
   for (const block of body) {
+    if (block.kind === 'media' && !toolMediaShows(block, shown)) continue;
     const item = galleryItemOf(t, block);
     if (item) addToGallery(rows, item);
     else if (block.kind === 'citation') addToSources(rows, citationsFromBlock(block));
@@ -1024,7 +1059,8 @@ function AssistantTurn(props: {
       ? { bodyKindPlacement: props.bodyKindPlacement }
       : undefined,
   );
-  const rows = bodyRows(t, body);
+  const { shown } = useToolMedia();
+  const rows = bodyRows(t, body, shown);
   const status = workStatusLabel(
     t,
     workStatus({ streaming: props.streaming, hasTrace, elapsedMs }),

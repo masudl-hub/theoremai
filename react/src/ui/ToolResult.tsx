@@ -9,12 +9,14 @@ import {
   layoutResult,
   type ResultLayout,
   type ResultMedia,
+  referencesIn,
   returnedMedia,
   withUnit,
 } from '@theoremjs/web/client';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { Arrive } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
+import { ReferencedMedia } from './ChatTranscript.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { keyedByContent } from './row-keys.ts';
 import { ShapedData } from './ShapedData.tsx';
@@ -51,8 +53,9 @@ function ResultLead({
     () => returnedMedia(layout, parts, t('@theorem.host.image')),
     [layout, parts, t],
   );
+  const references = useMemo(() => referencesIn(parts), [parts]);
   const [open, setOpen] = useState<number | null>(null);
-  if (!hasLead(layout, media)) return null;
+  if (!hasLead(layout, media) && references.length === 0) return null;
   const { images, audio } = media;
   return (
     <VStack gap={3}>
@@ -107,6 +110,11 @@ function ResultLead({
       {keyedByContent(audio, (clip) => clip.src).map(({ item: clip, key }) => (
         <Arrive key={key}>
           <VoiceNote src={clip.src} mimeType={clip.mimeType} />
+        </Arrive>
+      ))}
+      {references.map((reference) => (
+        <Arrive key={`reference:${reference.uri}`}>
+          <ReferencedMedia reference={reference} />
         </Arrive>
       ))}
     </VStack>

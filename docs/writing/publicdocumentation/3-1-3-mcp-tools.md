@@ -81,7 +81,7 @@ Theorem supports both Server-Sent Events (SSE) and direct HTTP POST JSON-RPC tra
 
 * **Payload Capping**: Set `maxResponseBytes` to cap the maximum response body size (default: 4 MiB). If a server returns an oversized payload, Theorem terminates the stream and fails the call as `response_too_large`.
 * **Authenticated MCP Servers**: Pass an `auth` block (see [Auth & Credentials](3-3-auth-credentials.md)) to attach OAuth tokens or API keys to the MCP handshake and tool calls.
-* **Multimodal Pictures**: Configure the `images` hook to fetch and deliver image URLs returned by the MCP tool as multimodal parts to the model.
+* **Tool media**: An `image` or `audio` block goes to the model. The chat shows it when the block's `annotations.audience` includes `"user"`. A `resource_link` with a `mimeType` is a reference: the chat shows it through your app's `resolveMedia`, and the model never reads it. The `media` hook works as it does for [HTTP tools](3-1-2-http-tools.md#tool-media-media).
 
 ---
 

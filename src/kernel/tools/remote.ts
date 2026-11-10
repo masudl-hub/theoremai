@@ -16,8 +16,9 @@ import type {
   ToolCredential,
 } from '../auth/types.ts';
 import { mapStrings } from '../engine/tree.ts';
+import { mediaKindForMime } from '../registry/catalog.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
-import type { InteractionPart, ToolWarning } from '../turn-events.ts';
+import type { InteractionPart, ToolOutputPart, ToolWarning } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
 import {
   dispatchToolBody,
@@ -422,12 +423,27 @@ export function modelResultFromOutput(
   return { finding: typeof seen === 'string' ? seen : JSON.stringify(seen) };
 }
 
-/** The result with the media a tool returned beside its value, when it returned any. */
+/**
+ * The result with the media a tool returned beside its value, when it returned any: `media` as the
+ * tool returned it, and `parts`, what the model reads of it. The one place the model's parts are
+ * made: a reference never becomes one, and `sent` is not passed on.
+ */
 export function withMedia(
   result: ModelToolResult,
-  parts: InteractionPart[] | undefined,
+  media: readonly ToolOutputPart[] | undefined,
 ): ModelToolResult {
-  return parts?.length ? { ...result, parts } : result;
+  if (!media?.length) return result;
+  const parts = readParts(media);
+  return { ...result, media: [...media], ...(parts.length ? { parts } : {}) };
+}
+
+/** What the model reads of a tool's media: text and bytes, never a reference. */
+function readParts(media: readonly ToolOutputPart[]): InteractionPart[] {
+  return media.flatMap((part): InteractionPart[] => {
+    if (part.type === 'text') return [part];
+    if (!('data' in part)) return [];
+    return [{ type: part.type, mimeType: part.mimeType, data: part.data }];
+  });
 }
 
 function failureOutcome(
@@ -774,7 +790,7 @@ function withoutSecret(
       outputRaw,
       modelResult: withMedia(
         modelResultFromOutput(outputRaw, outputSchema),
-        outcome.modelResult.parts,
+        outcome.modelResult.media,
       ),
     };
   }
@@ -1407,37 +1423,59 @@ function kindOfToolHttpStatus(status: number): ErrorKind {
 
 type McpContent = NonNullable<NonNullable<McpRpcResponse['result']>['content']>[number];
 
-/** A content block as text: its text, an embedded resource's text, or a linked resource's URI. */
+/**
+ * A content block as text: its text, an embedded resource's text, or a linked resource's URI. A
+ * link that is media is a reference the model never reads, so its URI is no text.
+ */
 function mcpContentText(block: McpContent): string | undefined {
   if (block.type === 'text') return block.text;
   const resource = block.resource as { text?: unknown } | null | undefined;
   if (block.type === 'resource' && typeof resource?.text === 'string') return resource.text;
-  if (block.type === 'resource_link' && typeof block.uri === 'string') return block.uri;
+  if (block.type === 'resource_link' && typeof block.uri === 'string' && !mcpMedia(block)) {
+    return block.uri;
+  }
   return undefined;
 }
 
-/** An image or audio block as media; the spec gives both as base64 `data` and a `mimeType`. */
-function mcpMedia(block: McpContent): InteractionPart | undefined {
-  if (block.type !== 'image' && block.type !== 'audio') return undefined;
-  const { data, mimeType } = block;
-  if (typeof data !== 'string' || !data || typeof mimeType !== 'string' || !mimeType.trim()) {
-    return undefined;
+/**
+ * A content block as tool media: an image or audio block the model reads, `sent` when the server
+ * names the user in its audience; a `resource_link` with a MIME type as a reference the person is
+ * shown and the model never reads.
+ */
+function mcpMedia(block: McpContent): ToolOutputPart | undefined {
+  const { mimeType } = block;
+  if (typeof mimeType !== 'string' || !mimeType.trim()) return undefined;
+  if (block.type === 'resource_link') {
+    const { uri } = block;
+    if (typeof uri !== 'string' || !uri) return undefined;
+    return { type: mediaKindForMime(mimeType) ?? 'document', mimeType, uri };
   }
-  return { type: block.type, mimeType, data };
+  if (block.type !== 'image' && block.type !== 'audio') return undefined;
+  const { data } = block;
+  if (typeof data !== 'string' || !data) return undefined;
+  return { type: block.type, mimeType, data, ...(forUser(block) ? { sent: true as const } : {}) };
+}
+
+/** Whether a block's `annotations.audience` names the user. */
+function forUser(block: McpContent): boolean {
+  const annotations = block.annotations;
+  if (!annotations || typeof annotations !== 'object') return false;
+  const audience = (annotations as { audience?: unknown }).audience;
+  return Array.isArray(audience) && audience.includes('user');
 }
 
 /**
  * A tool result's value, read the way the spec layers it: the structured
  * content when the server sends one and it fits the tool's declared output,
- * else the text blocks. Images and audio come back as media, not flattened
- * away.
+ * else the text blocks. Images, audio and resource links come back as media, not
+ * flattened away.
  */
 function extractMcpOutput(
   tool: McpToolDef,
   result: McpRpcResponse['result'],
 ): {
   checked: ReturnType<typeof parseToolOutput>;
-  parts?: InteractionPart[];
+  parts?: ToolOutputPart[];
   warning?: ToolWarning;
 } {
   const content = Array.isArray(result?.content) ? result.content : undefined;
@@ -1500,7 +1538,7 @@ function interpretMcpRpc(
     lastProtocolError?: McpRpcResponse['error'];
   },
 ):
-  | { ok: true; data: unknown; parts?: InteractionPart[]; warning?: ToolWarning }
+  | { ok: true; data: unknown; parts?: ToolOutputPart[]; warning?: ToolWarning }
   | { ok: false; failure: ToolFailure; warning?: ToolWarning } {
   if (negotiated.failure) {
     return { ok: false, failure: negotiated.failure };

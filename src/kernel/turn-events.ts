@@ -91,6 +91,23 @@ const interactionPart = z.union([
 true satisfies Equals<z.infer<typeof interactionPart>, InteractionPart>;
 export const interactionPartSchema: z.ZodType<InteractionPart> = interactionPart;
 
+/**
+ * A part of what a tool returned. Text and media bytes are what the model reads; `sent` on media
+ * also shows it to the person. A reference (`uri`) is shown to the person only, through the app's
+ * own resolver: the model never reads it.
+ */
+export type ToolOutputPart =
+  | InteractionTextPart
+  | (InteractionMediaPart & { sent?: true })
+  | InteractionMediaRefPart;
+const toolOutputPart = z.union([
+  interactionTextPart,
+  interactionMediaPart.extend({ sent: z.literal(true).optional() }),
+  interactionMediaRefPart,
+]);
+true satisfies Equals<z.infer<typeof toolOutputPart>, ToolOutputPart>;
+export const toolOutputPartSchema: z.ZodType<ToolOutputPart> = toolOutputPart;
+
 /** One message of a conversation history the host replays into a turn. */
 /** Where a piece of signed reasoning came from. `protocol` decides where it may go back to. */
 export interface ReasoningOrigin {
@@ -729,8 +746,8 @@ export interface ToolCallEdit {
  *   `tool_output_<kind>` first (an agent tool's: its agent's reply). Sent only under
  *   `outputs.streaming.mode` `sse`. The model never reads it: it reads `complete`'s output.
  * - `complete` — `output`, as the person is shown it (read at `tool_shown_<kind>`); `awaiting`
- *   when it asked the user something; `parts` for the media it returned beside its output
- *   (images, audio);
+ *   when it asked the user something; `parts` for what it returned beside its output: media
+ *   the model read (`sent` when the person is shown it too) and references only the person sees;
  *   `readBack` is the text the model reads back, after guardrails;
  *   `activityPast` is the tool's past activity label filled from its input and output, or its
  *   failed label when a `post_tool` handler asked for it (`labelFailed`).
@@ -754,7 +771,7 @@ export type ToolPhaseEvent = ToolPhaseBase &
         output: unknown;
         awaiting?: boolean;
         readBack?: string;
-        parts?: InteractionPart[];
+        parts?: ToolOutputPart[];
         activityPast?: string;
         /** An agent tool's call: the called agent's own usage. The caller's `done.tokens` includes it, unless the call settled after `done`. */
         tokens?: TurnTokens;
@@ -796,7 +813,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     output: z.unknown(),
     awaiting: z.boolean().optional(),
     readBack: z.string().optional(),
-    parts: z.array(interactionPart).optional(),
+    parts: z.array(toolOutputPart).optional(),
     activityPast: z.string().optional(),
     tokens: turnTokens.optional(),
   }),

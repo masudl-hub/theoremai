@@ -1601,6 +1601,37 @@ Deno.test('an MCP image reaches the model and the client as media, beside the va
   const [complete] = toolEventsOf(events, 'complete');
   assertEquals(complete?.parts, [image]);
 });
+Deno.test('an MCP image for the user is sent, and a linked file is a reference the model never reads', async () => {
+  registerLinearMcpFixture();
+  const uri = 'https://files.example.com/LIN-10/spec.pdf';
+  const forUser = {
+    type: 'image',
+    mimeType: 'image/png',
+    data: 'iVBORw0KGgo=',
+    annotations: { audience: ['user', 'assistant'] },
+  };
+  const { events, settlement } = await withMcpResult(
+    {
+      content: [
+        { type: 'text', text: 'Created LIN-10' },
+        forUser,
+        { type: 'resource_link', uri, name: 'spec.pdf', mimeType: 'application/pdf' },
+      ],
+      structuredContent: { issueId: 'LIN-10', url: 'https://linear.app/issue/LIN-10' },
+    },
+    () => collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_sent'),
+  );
+  const image = { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' };
+  assertEquals(settlement?.modelResult?.parts, [image]);
+  const [complete] = toolEventsOf(events, 'complete');
+  const media = [
+    { ...image, sent: true },
+    { type: 'document', mimeType: 'application/pdf', uri },
+  ];
+  assertEquals(complete?.parts, media);
+  assertEquals(settlement?.modelResult?.media, media);
+  assertEquals(complete?.readBack?.includes(uri), false);
+});
 Deno.test('a tool that signs in must name its service', () => {
   const auth: ToolAuthConfig = { slot: 'tracker', type: 'bearer', service: '  ' };
   assertThrows(

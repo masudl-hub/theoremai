@@ -22,6 +22,7 @@ import type {
   ToolCallRequest,
   ToolFailure,
   ToolGate,
+  ToolOutputPart,
   ToolPhaseEvent,
   ToolTraceStep,
   ToolWarning,
@@ -29,6 +30,7 @@ import type {
   WireFunctionTool,
 } from '../turn-events.ts';
 import type {
+  InteractionMediaRefPart,
   InteractionPart,
   ModelId,
   Profile,
@@ -293,23 +295,31 @@ export interface ToolOutputHooks<TOut = unknown> {
   sources?: (output: TOut) => Source[];
 }
 
-/** For a tool whose result names pictures by address; function tools return the bytes themselves as `parts`. */
-export interface ToolImageHooks<TOut = unknown> {
+/**
+ * One piece of media a tool's `media(output)` names. `{ url }` is a picture the kernel fetches for
+ * the model to look at, also shown to the person with `sent: true`. `{ type, mimeType, uri }` is a
+ * reference the person is shown through the app's own resolver; the model never reads it.
+ */
+export type ToolMediaEntry = { url: string; sent?: true } | InteractionMediaRefPart;
+
+/** For a tool whose response the builder does not write; a function tool returns its media itself as `parts`. */
+export interface ToolMediaHooks<TOut = unknown> {
   /**
-   * The https addresses of pictures in the output the model should see. The kernel fetches each one
-   * through the profile network policy, without the tool credentials.
+   * The media in the output: pictures the model should see, and references the person is shown.
    *
-   * @remarks The https addresses of pictures in `output` the model should see. After the result
-   * passes the output guard, the kernel fetches each one through the profile's network policy,
+   * @remarks A `{ url }` entry is an https address of a picture the model should see. After the
+   * result passes the output guard, the kernel fetches it through the profile's network policy,
    * without the tool's credentials, and hands the model the image as a part; one it cannot fetch is
-   * an `images_unfetched` warning, never a failed call.
+   * an `images_unfetched` warning, never a failed call. `sent: true` also shows it to the person. A
+   * `{ type, mimeType, uri }` entry is a reference: the person is shown it through the app's own
+   * resolver, and the model never reads it.
    */
-  images?: (output: TOut) => string[];
+  media?: (output: TOut) => ToolMediaEntry[];
   /**
-   * How many of those pictures the kernel fetches, how large, and how slowly.
+   * How many of the pictures `media` names the kernel fetches, how large, and how slowly.
    *
-   * @remarks How many of those pictures the kernel fetches, how large, and how slowly. Left out,
-   * there is no limit.
+   * @remarks How many of the pictures `media` names the kernel fetches, how large, and how
+   * slowly. Left out, there is no limit. References are not fetched, so they are not counted.
    */
   imageLimits?: ToolImageLimits;
 }
@@ -418,7 +428,7 @@ export interface HttpToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
     ToolHostHooks<TIn>,
     ToolOutputHooks<TOut>,
-    ToolImageHooks<TOut> {
+    ToolMediaHooks<TOut> {
   /** How the tool runs. */
   type: 'http';
   /** The Zod schema for the tool's arguments, sent to the model and checked on every call. */
@@ -482,7 +492,7 @@ export interface McpToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
     ToolHostHooks<TIn>,
     ToolOutputHooks<TOut>,
-    ToolImageHooks<TOut> {
+    ToolMediaHooks<TOut> {
   /** How the tool runs. */
   type: 'mcp';
   /** The Zod schema for the tool's arguments, sent to the model and checked on every call. */
@@ -541,7 +551,8 @@ export interface AgentToolOutput {
   structured?: unknown;
   /** Items the called profile's item rules removed from `structured`, each with why. */
   removed?: RemovedItem[];
-  parts?: InteractionPart[];
+  /** The media the called agent made, each `sent`: the person is shown it, as a top-level agent's own. */
+  parts?: ToolOutputPart[];
   /** What the called agent cited; the caller's turn cites them too. */
   sources?: Source[];
 }
@@ -933,8 +944,10 @@ export interface ModelToolResult {
   finding: string;
   /** Lean JSON for model reasoning — must not carry media bytes. */
   data?: unknown;
-  /** Adapters wire these with the same fidelity as user input parts. */
+  /** What the model reads beside the text, derived from `media` by `readParts`. Adapters wire these with the same fidelity as user input parts. */
   parts?: InteractionPart[];
+  /** What the tool returned beside its output, as the person may be shown it: `sent` media and references. */
+  media?: ToolOutputPart[];
   /**
    * Already fenced and redacted by `executeRegisteredTool`. When absent (a recorded result
    * formatted outside execution), `formatToolResult` guards the text itself under full detection.

@@ -507,6 +507,7 @@ export {
   reasoningPartSchema,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
+  toolOutputPartSchema,
   turnDoneOf,
   turnEventSchema,
   turnHistoryMessageSchema,

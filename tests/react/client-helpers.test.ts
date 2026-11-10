@@ -130,9 +130,12 @@ Deno.test('transcriptBlockCopyText formats all block kinds', () => {
       kind: 'media',
       id: '8',
       mimeType: 'image/png',
-      url: 'https://example.com/img.png',
+      uri: 'https://example.com/img.png',
+      type: 'image',
+      fromTool: true,
+      sent: true,
     }),
-    'https://example.com/img.png',
+    '[image/png media]',
   );
   assertEquals(
     transcriptBlockCopyText(t, { kind: 'media', id: '8b', mimeType: 'image/png' }),
@@ -688,7 +691,7 @@ Deno.test('composeAssistantTurn streams the answer after the latest tool in the 
     { id: 'r', kind: 'thought', text: 'Planning' },
     { id: 'n', kind: 'text', text: 'Let me check.' },
     tool,
-    { id: 'm', kind: 'media', mimeType: 'image/jpeg', url: 'https://example.com/a.jpg' },
+    { id: 'm', kind: 'media', mimeType: 'image/jpeg', data: 'AAAA' },
     { id: 'a', kind: 'text', text: 'Here is **the plan**.' },
   ];
   const turn = composeAssistantTurn(blocks);

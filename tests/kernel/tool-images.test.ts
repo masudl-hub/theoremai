@@ -8,7 +8,7 @@ import {
   assertThrows,
 } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ToolImageLimits } from '../../src/kernel/tools/types.ts';
+import type { ToolImageLimits, ToolMediaEntry } from '../../src/kernel/tools/types.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
@@ -22,6 +22,7 @@ function registerShotTool(
   shots: string[],
   blockSecrets = false,
   imageLimits?: ToolImageLimits,
+  entries: (shots: string[]) => ToolMediaEntry[] = (shots) => shots.map((url) => ({ url })),
 ): void {
   registerTool({
     type: 'http',
@@ -39,7 +40,7 @@ function registerShotTool(
       shots: z.array(z.string()),
       note: z.string().optional(),
     }),
-    images: (output) => output.shots,
+    media: (output) => entries(output.shots),
     ...(imageLimits ? { imageLimits } : {}),
   });
   registerProfile(
@@ -101,7 +102,7 @@ async function run(name: string, files: Record<string, Response>) {
   }
 }
 
-Deno.test('a tool that names a picture hands the model the image, fetched', async () => {
+Deno.test('a tool that names a picture hands the model the image, fetched, and keeps it unsent', async () => {
   registerShotTool('shot_ok', ['https://cdn.example.com/a.png']);
   const events = await run('shot_ok', {
     'https://cdn.example.com/a.png': png(),
@@ -207,4 +208,52 @@ Deno.test('a result the output guard blocks fetches no pictures', async () => {
   assertEquals(fetched, 0);
   assertEquals(toolEventsOf(events, 'error').length, 1);
   assertEquals(toolEventsOf(events, 'complete')[0]?.parts, undefined);
+});
+
+Deno.test('a picture the tool sends is marked sent, and the model reads it the same', async () => {
+  registerShotTool('shot_sent', ['https://cdn.example.com/a.png'], false, undefined, (shots) =>
+    shots.map((url) => ({ url, sent: true as const })),
+  );
+  const events = await run('shot_sent', { 'https://cdn.example.com/a.png': png() });
+  const [complete] = toolEventsOf(events, 'complete');
+  assertEquals(complete?.parts, [
+    { type: 'image', mimeType: 'image/png', data: PNG_BASE64, sent: true },
+  ]);
+});
+
+Deno.test('a reference is shown, never fetched, and its address reaches no text the model reads', async () => {
+  const uri = 'gs://bucket/private/report.pdf';
+  registerShotTool('shot_ref', ['https://cdn.example.com/a.png'], false, undefined, (shots) => [
+    ...shots.map((url) => ({ url })),
+    { type: 'document', mimeType: 'application/pdf', uri },
+  ]);
+  let fetchedRef = 0;
+  const files = {
+    'https://cdn.example.com/a.png': png(),
+    get [uri]() {
+      fetchedRef++;
+      return png();
+    },
+  };
+  const events = await run('shot_ref', files);
+  const [complete] = toolEventsOf(events, 'complete');
+  assertEquals(fetchedRef, 0);
+  assertEquals(complete?.parts, [
+    { type: 'image', mimeType: 'image/png', data: PNG_BASE64 },
+    { type: 'document', mimeType: 'application/pdf', uri },
+  ]);
+  assertEquals((complete?.readBack ?? '').includes(uri), false);
+  assertStringIncludes(complete?.readBack ?? '', 'https://cdn.example.com/a.png');
+});
+
+Deno.test('a tool that names only references writes no pictures note', async () => {
+  const uri = 'gs://bucket/clip.mp4';
+  registerShotTool('shot_only_ref', [], false, undefined, () => [
+    { type: 'video', mimeType: 'video/mp4', uri },
+  ]);
+  const events = await run('shot_only_ref', {});
+  const [complete] = toolEventsOf(events, 'complete');
+  assertEquals(complete?.parts, [{ type: 'video', mimeType: 'video/mp4', uri }]);
+  assertEquals((complete?.readBack ?? '').includes('Pictures shown'), false);
+  assertEquals((complete?.readBack ?? '').includes(uri), false);
 });

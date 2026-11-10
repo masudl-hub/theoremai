@@ -187,6 +187,7 @@ export {
   type ResultImage,
   type ResultLayout,
   type ResultMedia,
+  referencesIn,
   returnedMedia,
   timeFormats,
 } from './tool-result.ts';

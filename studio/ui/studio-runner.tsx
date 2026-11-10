@@ -38,6 +38,7 @@ import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { STUDIO_TOOL_MEDIA, studioResolveMedia } from './lib/studio-media.ts';
 import {
   editedProfileEndpoint,
   type ProjectSession,
@@ -443,6 +444,8 @@ function SideRun({
       <TheoremChat
         detectCodeLanguage
         labels={STUDIO_LABELS}
+        media={STUDIO_TOOL_MEDIA}
+        resolveMedia={studioResolveMedia}
         transport={chat}
         pageTools={pageTools}
         trace={trace}
@@ -649,6 +652,8 @@ function TurnRun({
     <TheoremChat
       detectCodeLanguage
       labels={STUDIO_LABELS}
+      media={STUDIO_TOOL_MEDIA}
+      resolveMedia={studioResolveMedia}
       transport={transport}
       trace={trace}
       className={className}

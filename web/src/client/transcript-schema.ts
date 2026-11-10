@@ -6,6 +6,7 @@
  */
 
 import {
+  MEDIA_INPUT_KIND_VALUES,
   reasoningPartSchema,
   TURN_STOP_KINDS,
   type TurnEvent,
@@ -91,8 +92,10 @@ const transcriptBlock = z.discriminatedUnion('kind', [
     kind: z.literal('media'),
     mimeType: z.string(),
     data: z.string().optional(),
-    url: z.string().optional(),
-    previewUrl: z.string().optional(),
+    uri: z.string().optional(),
+    type: z.enum(MEDIA_INPUT_KIND_VALUES).optional(),
+    fromTool: z.literal(true).optional(),
+    sent: z.literal(true).optional(),
   }),
   z.object({
     ...blockId,

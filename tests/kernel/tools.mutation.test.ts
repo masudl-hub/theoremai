@@ -171,6 +171,10 @@ Deno.test('tools mutation helpers project and format model results exactly', () 
     {
       finding: 'shortlist',
       data: { items: [{ index: 1 }] },
+      media: [
+        { type: 'text', text: '1. palm' },
+        { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
+      ],
       parts: [
         { type: 'text', text: '1. palm' },
         { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },

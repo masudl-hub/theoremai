@@ -95,7 +95,7 @@ flowchart TD
 * **3.1.1 Function Tools**
   * Local JavaScript/TypeScript handlers, streaming generators, browser UI tools (`answeredBy: 'page'`), `ToolContext`, grounding citations (`sources`), and `uncheckedOutput`.
 * **3.1.2 HTTP Tools**
-  * Declarative REST endpoints, URL mapping (`pathParams`, `queryParams`, `bodyParam`), rate limits, timeout controls, and multimodal image extraction (`images`).
+  * Declarative REST endpoints, URL mapping (`pathParams`, `queryParams`, `bodyParam`), rate limits, timeout controls, and tool media (`media`).
 * **3.1.3 MCP Tools**
   * Model Context Protocol integration, server endpoints, and native MCP session pooling (`session.idleMs`, `session.max`, LRU eviction, parallel open deduplication).
 * **3.1.4 Agent Tools**

@@ -3,6 +3,7 @@ import type { DetectAction, DetectMatrix, Detector, UrlDetector } from '../guard
 import type { GuardrailEvent } from '../guardrails/event-schemas.ts';
 import type { LabelOverrides } from '../guardrails/labels.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
+import type { MediaInputKind } from '../kernel/schema.ts';
 import type { ProfileToolsSpec, ToolCallEdit, ToolPhaseEvent } from '../kernel/tools/types.ts';
 import type { ReasoningPart } from '../kernel/turn-events.ts';
 import type {
@@ -285,12 +286,19 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  /** Base64 for media a model generated, a tool returned or a person attached. Absent when `url` is set. */
+  /** Base64 for media a model generated, a tool returned or a person attached. Absent when `uri` is set. */
   data?: string;
-  /** Remote URL from completed tool output or a tool's media part. Absent when `data` is set. */
-  url?: string;
-  /** A smaller copy of `url` for previews, when the tool output offered one. */
-  previewUrl?: string;
+  /**
+   * A reference a tool returned, `{ type, mimeType, uri }`. The model never read it, and it is
+   * never a `src` itself: only what the app's own resolver makes of it is shown. Absent when `data` is set.
+   */
+  uri?: string;
+  /** The kind of media `uri` names, as the tool gave it. */
+  type?: MediaInputKind;
+  /** A tool returned it, rather than a model generating it or a person attaching it. */
+  fromTool?: true;
+  /** The tool sent it to the person: a reference always is; media bytes when the tool said `sent: true`. */
+  sent?: true;
 }
 
 export interface GroundingBlock extends TranscriptBlockBase {

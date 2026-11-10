@@ -1164,7 +1164,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = withFieldDocs({
     unset: 'The model can',
   },
   'registerTool.sources': field('(output) => Source[]'),
-  'registerTool.images': field('(output) => string[]'),
+  'registerTool.media': field('(output) => ToolMediaEntry[]'),
   'registerTool.imageLimits': {
     ...field('ToolImageLimits'),
     unset: 'No limit',

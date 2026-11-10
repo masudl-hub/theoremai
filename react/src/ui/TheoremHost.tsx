@@ -42,15 +42,15 @@ import {
   RunBar,
 } from './ConsoleFrame.tsx';
 import { type LabelText, liveDuration, type TheoremLabels, workDuration } from './labels.ts';
-import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
-import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
+import { useLabels } from './labels-provider.tsx';
 import { IconMcp } from './mcp-icon.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SchemaFields } from './SchemaFields.tsx';
+import { SurfaceProviders } from './surface-providers.tsx';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
 import { ToolResult } from './ToolResult.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
-import { TheoremThemeProvider } from './theme.tsx';
+import type { ResolveMedia } from './tool-media.tsx';
 
 export type TheoremHostProps = {
   /** Where `createTheoremHostHandler` is mounted. Default `/api/host`. Ignored when `transport` is set. */
@@ -71,6 +71,12 @@ export type TheoremHostProps = {
    * A fence with a language is never changed. Off by default.
    */
   detectCodeLanguage?: boolean;
+  /**
+   * Turns a reference a tool returned (`{ type, mimeType, uri }`) into an address the page may
+   * load, under the viewer's own sign-in, or `null`. Without it, or on `null`, the reference shows
+   * as a named file.
+   */
+  resolveMedia?: ResolveMedia;
   /** Widest the column may grow, as a CSS length. Default `960px`. */
   maxWidth?: string;
   /**
@@ -591,6 +597,7 @@ export function TheoremHost({
   mode,
   labels,
   detectCodeLanguage,
+  resolveMedia,
   ...rest
 }: TheoremHostProps) {
   const httpRef = useRef(http);
@@ -600,12 +607,15 @@ export function TheoremHost({
     [transport, endpoint],
   );
   return (
-    <TheoremThemeProvider theme={theme} mode={mode}>
-      <TheoremLabelsProvider labels={labels}>
-        <MarkdownPluginsProvider detectCodeLanguage={detectCodeLanguage}>
-          <HostForTransport {...rest} transport={resolved} />
-        </MarkdownPluginsProvider>
-      </TheoremLabelsProvider>
-    </TheoremThemeProvider>
+    <SurfaceProviders
+      theme={theme}
+      mode={mode}
+      labels={labels}
+      detectCodeLanguage={detectCodeLanguage}
+      media="all"
+      resolveMedia={resolveMedia}
+    >
+      <HostForTransport {...rest} transport={resolved} />
+    </SurfaceProviders>
   );
 }

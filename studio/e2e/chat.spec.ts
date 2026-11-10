@@ -27,6 +27,35 @@ test("a tool's image stands in the reply where the call ran", async ({ page }) =
   await expect(page.getByRole('button', { name: /Worked for/ })).toBeVisible();
 });
 
+test('the studio shows all the media a tool returned, and the model reads no reference', async ({
+  page,
+}) => {
+  const PIXEL =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+  const loaded: string[] = [];
+  await page.route('https://media.example.com/**', (route) => {
+    loaded.push(route.request().url());
+    return route.fulfill({ contentType: 'image/png', body: Buffer.from(PIXEL, 'base64') });
+  });
+  await open(page);
+  await send(page, '[call send_postcard {"city":"Faro"}]');
+  await expect(page.getByText('Tool answered on full')).toBeVisible();
+  const shown = async () => {
+    // The sent picture, the one only the model read, and the reference the studio resolves.
+    await expect(page.getByRole('button', { name: 'Generated image' })).toHaveCount(3);
+    // A reference nothing resolves reads as the file it names.
+    await expect(page.getByText('back.pdf', { exact: true })).toBeVisible();
+  };
+  await shown();
+  expect(loaded).toContain('https://media.example.com/postcards/front.png');
+  const said = JSON.stringify((await seen(page)).map((request) => request.body));
+  expect(said).not.toContain('media.example.com');
+  expect(said).not.toContain('gs://e2e-bucket');
+  await page.reload();
+  await page.getByRole('button', { name: 'desk', exact: true }).first().click();
+  await shown();
+});
+
 test('an approved write runs and the reply goes on', async ({ page }) => {
   await open(page);
   await send(page, ASKS);

@@ -542,9 +542,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'registerTool.hostOnly':
     'Channels the called profile takes that the calling model cannot fill on an agent tool; only onAgentCall sends them. A channel the profile does not take is refused when the tool registers.',
   'registerTool.imageLimits':
-    'How many of those pictures the kernel fetches, how large, and how slowly.',
-  'registerTool.images':
-    'The https addresses of pictures in the output the model should see. The kernel fetches each one through the profile network policy, without the tool credentials.',
+    'How many of the pictures `media` names the kernel fetches, how large, and how slowly.',
   'registerTool.input':
     "The Zod schema for the tool's arguments, sent to the model and checked on every call.",
   'registerTool.inputSchema': "The tool's arguments as a JSON Schema, sent to the model.",
@@ -571,6 +569,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'registerTool.maxResponseBytes':
     'The most bytes of a response body an HTTP or MCP tool reads; past it the call fails with response_too_large.',
   'registerTool.mcpToolName': "The tool's name on the MCP server.",
+  'registerTool.media':
+    'The media in the output: pictures the model should see, and references the person is shown.',
   'registerTool.method': 'The HTTP method; every method but GET sends a JSON body.',
   'registerTool.name':
     "The tool's id, which profiles list in tools.allow (or a model's builtInTools) and the model calls a custom tool by.",

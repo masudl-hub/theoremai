@@ -20,7 +20,9 @@ export const desk = defineProfile({
   },
   defaultModel: 'full',
   allowModelSelect: true,
-  tools: { allow: ['lookup_city', 'draw_city', 'file_note', 'wipe_desk', 'slow_report'] },
+  tools: {
+    allow: ['lookup_city', 'draw_city', 'send_postcard', 'file_note', 'wipe_desk', 'slow_report'],
+  },
   inputs: {
     text: true,
     attachments: { accept: ['image/*', 'application/pdf'] },

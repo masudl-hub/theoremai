@@ -8,6 +8,7 @@ import {
   useStudioTransport,
 } from './lib/studio-console.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { studioResolveMedia } from './lib/studio-media.ts';
 
 /** The same tool console in the builder preview and the standalone run tab. */
 export function StudioHostConsole(props: StudioConsoleProps) {
@@ -33,6 +34,7 @@ export function HostView({
     <TheoremHost
       detectCodeLanguage
       labels={STUDIO_LABELS}
+      resolveMedia={studioResolveMedia}
       transport={transport}
       pageTools={pageTools}
       trace={trace}

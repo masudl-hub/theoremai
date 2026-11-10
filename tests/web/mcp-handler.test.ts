@@ -53,6 +53,25 @@ registerTool({
   output: z.object({}),
   handler: () => ({}),
 });
+registerTool({
+  type: 'function',
+  name: 'mcp_handler_card',
+  description: 'Makes a card',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({}),
+  output: z.object({ finding: z.string(), parts: z.array(z.unknown()) }),
+  handler: () => ({
+    finding: 'made',
+    parts: [
+      { type: 'image', mimeType: 'image/png', data: 'U0VOVA==', sent: true },
+      { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/card.pdf' },
+    ],
+  }),
+});
 type HostDefinition = Extract<ProfileDefinition, { type: 'host' }>;
 function host(id: string, allow: string[]): HostDefinition {
   return { type: 'host', id, tools: { allow }, guardrails: { detect: { injection: 'ignore' } } };
@@ -294,4 +313,16 @@ Deno.test('a profile with a tool that needs approval is refused at setup', () =>
     Error,
     "'mcp_handler_confirm' has permission 'always_confirm'",
   );
+});
+
+Deno.test('a client reads the bytes the model read, never a reference or the sent mark', async () => {
+  const res = await handlerFor('mcp-card', ['mcp_handler_card'])(
+    modern('tools/call', { name: 'mcp_handler_card', arguments: {} }),
+  );
+  const { result } = await res.json();
+  assertEquals(result.isError, false);
+  assertEquals(result.content.slice(1), [
+    { type: 'image', data: 'U0VOVA==', mimeType: 'image/png' },
+  ]);
+  assertEquals(JSON.stringify(result).includes('gs://bucket/card.pdf'), false);
 });

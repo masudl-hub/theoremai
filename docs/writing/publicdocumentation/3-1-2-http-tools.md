@@ -69,13 +69,20 @@ Remote HTTP services often enforce strict rate limits or experience network late
 
 ---
 
-## Multimodal Image Extraction (`images`)
+## Tool media (`media`)
 
-When an HTTP tool returns data that references image URLs (e.g., satellite imagery or product photos), configure the `images` hook to fetch and deliver the images as multimodal parts to the model:
+Use the `media` hook when an HTTP tool returns the addresses of pictures, such as product photos, or names files that the person should see. The hook returns one entry for each piece:
+
+* `{ url }`: Theorem fetches the picture and the model reads it. The chat does not show it.
+* `{ url, sent: true }`: the model reads the picture, and the chat shows it.
+* `{ type, mimeType, uri }`: a reference. The chat shows it through your app's `resolveMedia`. The model never reads it, and its `uri` is never sent to a provider.
 
 ```ts
 // ... inside http tool definition
-images: (output) => output.results.map((item) => item.thumbnailUrl),
+media: (output) => [
+  ...output.results.map((item) => ({ url: item.thumbnailUrl, sent: true as const })),
+  { type: 'document', mimeType: 'application/pdf', uri: output.reportUri },
+],
 
 imageLimits: {
   count: 3,                 // Keep at most 3 images
@@ -85,7 +92,7 @@ imageLimits: {
 },
 ```
 
-Theorem fetches each image through network guardrails without forwarding the tool's credentials. If an image fails to load or exceeds `imageLimits`, Theorem emits an `images_unfetched` warning and delivers the remaining results without failing the tool call.
+Theorem fetches each picture through network guardrails without forwarding the tool's credentials. If a picture fails to load or exceeds `imageLimits`, Theorem emits an `images_unfetched` warning and delivers the remaining results without failing the tool call. A reference is never fetched.
 
 ---
 

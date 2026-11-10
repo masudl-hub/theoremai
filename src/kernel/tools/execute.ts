@@ -27,9 +27,10 @@ import {
 } from '../engine/tool-trace.ts';
 import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
+import type { MediaInputKind } from '../schema.ts';
 import type { InjectUnit } from '../stages.ts';
-import { isAwaitingUserInput, type Source } from '../turn-events.ts';
-import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';
+import { isAwaitingUserInput, type Source, type ToolOutputPart } from '../turn-events.ts';
+import type { Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
 import { type AgentCaller, agentToolOrigin } from './agent.ts';
@@ -53,7 +54,7 @@ import {
 } from './events.ts';
 import { ToolFailed } from './failed.ts';
 import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
-import { fetchToolImages } from './image-fetch.ts';
+import { fetchToolMedia } from './image-fetch.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
 import { agentOutputSchema, markedFieldsIn, outputForModel } from './model-view.ts';
 import type {
@@ -164,10 +165,14 @@ function isStreamHandler(handler: unknown): boolean {
 
 const MEDIA_PART_TYPES = new Set(['image', 'audio', 'video', 'document']);
 
-/** Invalid entries are dropped. */
-export function coerceToolResultParts(raw: unknown): InteractionPart[] | undefined {
+/**
+ * A function tool's `parts` as tool media: text, media bytes (`sent: true` also shows them to the
+ * person) and references `{ type, mimeType, uri }` the person is shown and the model never reads.
+ * Invalid entries are dropped.
+ */
+export function coerceToolResultParts(raw: unknown): ToolOutputPart[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const parts: InteractionPart[] = [];
+  const parts: ToolOutputPart[] = [];
   for (const item of raw) {
     if (!isRecord(item) || typeof item.type !== 'string') continue;
     if (item.type === 'text' && typeof item.text === 'string') {
@@ -175,17 +180,22 @@ export function coerceToolResultParts(raw: unknown): InteractionPart[] | undefin
       continue;
     }
     if (
-      MEDIA_PART_TYPES.has(item.type) &&
-      typeof item.mimeType === 'string' &&
-      item.mimeType.trim() &&
-      typeof item.data === 'string' &&
-      item.data.length > 0
+      !MEDIA_PART_TYPES.has(item.type) ||
+      typeof item.mimeType !== 'string' ||
+      !item.mimeType.trim()
     ) {
+      continue;
+    }
+    const type = item.type as MediaInputKind;
+    if (typeof item.data === 'string' && item.data.length > 0) {
       parts.push({
-        type: item.type as 'image' | 'audio' | 'video' | 'document',
+        type,
         mimeType: item.mimeType,
         data: item.data,
+        ...(item.sent === true ? { sent: true as const } : {}),
       });
+    } else if (typeof item.uri === 'string' && item.uri.length > 0) {
+      parts.push({ type, mimeType: item.mimeType, uri: item.uri });
     }
   }
   return parts.length > 0 ? parts : undefined;
@@ -230,8 +240,14 @@ export function projectForModel(
   output: unknown,
   labels?: LabelOverrides,
 ): ModelToolResult {
+  const media = isRecord(output) ? coerceToolResultParts(output.parts) : undefined;
   if (tool.exposeToModel === false) {
-    return { finding: labelText('tool.completed_hidden', {}, labels) };
+    // why: The model reads none of a hidden tool's output, its media included; what it sent, the person is shown.
+    const sent = media?.filter((part) => part.type !== 'text' && ('uri' in part || part.sent));
+    return {
+      finding: labelText('tool.completed_hidden', {}, labels),
+      ...(sent?.length ? { media: sent } : {}),
+    };
   }
   const seen = outputForModel(tool.outputSchema, output);
   if (isAwaitingUserInput(output)) {
@@ -244,7 +260,6 @@ export function projectForModel(
       data: leanToolResultData(seen),
     };
   }
-  const parts = isRecord(seen) && 'parts' in seen ? coerceToolResultParts(seen.parts) : undefined;
   const lean = leanToolResultData(seen);
   const summarized = isRecord(lean) && 'finding' in lean;
   const { finding: summary, ...rest } = summarized ? lean : {};
@@ -254,7 +269,7 @@ export function projectForModel(
         ...(Object.keys(rest).length > 0 ? { data: rest } : {}),
       }
     : modelResultFromOutput(lean, undefined);
-  return { ...result, ...(parts ? { parts } : {}) };
+  return withMedia(result, media);
 }
 
 /** How the call's `post_tool` stage gets the output as the model reads it; nothing when the model reads none. */
@@ -450,7 +465,7 @@ function completeEvent(
     phase: 'complete',
     output: outputRaw,
     readBack: formatToolResult(modelResult),
-    ...(modelResult.parts?.length ? { parts: modelResult.parts } : {}),
+    ...(modelResult.media?.length ? { parts: modelResult.media } : {}),
     ...(activityPast ? { activityPast } : {}),
   });
 }
@@ -473,7 +488,7 @@ async function* settleToolCall(args: {
   /** Run on the output the call settles with, after any `mutate`. */
   sources?: (output: unknown) => Source[];
   /** Fetches the pictures the settled output names; runs only for a result the guard let through. */
-  images?: (output: unknown) => ReturnType<typeof fetchToolImages>;
+  media?: (output: unknown) => ReturnType<typeof fetchToolMedia>;
   labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { base, input, stages, provisional, guard, sources } = args;
@@ -507,7 +522,7 @@ async function* settleToolCall(args: {
     modelResult = yield* citeAndShow({
       base,
       sources,
-      images: args.images,
+      media: args.media,
       outputRaw,
       modelResult,
     });
@@ -575,38 +590,39 @@ async function* postToolOf(
   return { post, revised: yield* reviseAfterStages(post, guard, reproject) };
 }
 
-/** The settled output's cited sources, then the pictures its tool names; the result carrying them. */
+/** The settled output's cited sources, then the media its tool names; the result carrying them. */
 async function* citeAndShow(args: {
   base: ToolCallBase;
   sources: ((output: unknown) => Source[]) | undefined;
-  images: ((output: unknown) => ReturnType<typeof fetchToolImages>) | undefined;
+  media: ((output: unknown) => ReturnType<typeof fetchToolMedia>) | undefined;
   outputRaw: unknown;
   modelResult: ModelToolResult;
 }): AsyncGenerator<TurnEvent, ModelToolResult> {
-  const { base, sources, images, outputRaw, modelResult } = args;
+  const { base, sources, media, outputRaw, modelResult } = args;
   if (sources) yield* sourceEvents(base, sources, outputRaw);
-  if (!images || outputRaw === undefined) return modelResult;
-  return yield* withFetchedImages(base, modelResult, images, outputRaw);
+  if (!media || outputRaw === undefined) return modelResult;
+  return yield* withNamedMedia(base, modelResult, media, outputRaw);
 }
 
 /**
- * The result with the pictures its tool names, fetched after the guard and the stages passed it.
- * The addresses fetched are written into the result's text, so the egress rule on pictures the
- * model shows counts them as given by a tool.
+ * The result with the media its tool names, the pictures fetched after the guard and the stages
+ * passed it. The addresses fetched are written into the result's text, so the egress rule on
+ * pictures the model shows counts them as given by a tool; a reference's address never is.
  */
-async function* withFetchedImages(
+async function* withNamedMedia(
   base: ToolCallBase,
   result: ModelToolResult,
-  images: (output: unknown) => ReturnType<typeof fetchToolImages>,
+  named: (output: unknown) => ReturnType<typeof fetchToolMedia>,
   outputRaw: unknown,
 ): AsyncGenerator<TurnEvent, ModelToolResult> {
-  const fetched = await images(outputRaw);
+  const fetched = await named(outputRaw);
   if (fetched.warning) yield toolEvent(base, { phase: 'warning', warning: fetched.warning });
-  if (fetched.parts.length === 0) return result;
+  if (fetched.media.length === 0) return result;
+  const withAll = withMedia(result, [...(result.media ?? []), ...fetched.media]);
+  if (fetched.urls.length === 0) return withAll;
   const note = `\n[Pictures shown with this result: ${fetched.urls.join(' ')}]`; // labels-exempt: a marker the egress rule reads the addresses from, not prose (P2)
   return {
-    ...result,
-    parts: [...(result.parts ?? []), ...fetched.parts],
+    ...withAll,
     ...(result.modelText !== undefined
       ? { modelText: result.modelText + note }
       : { finding: result.finding + note }),
@@ -1201,10 +1217,10 @@ async function* settleBodyOutcome(args: {
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
     sources: tool.sources,
     ...forModelOf(tool),
-    ...(tool.type !== 'function' && tool.images
+    ...(tool.type !== 'function' && tool.media
       ? {
-          images: (output: unknown) =>
-            fetchToolImages(tool.images as never, output, ctx, tool.imageLimits),
+          media: (output: unknown) =>
+            fetchToolMedia(tool.media as never, output, ctx, tool.imageLimits),
         }
       : {}),
     labels: tool.labels,
@@ -1212,7 +1228,7 @@ async function* settleBodyOutcome(args: {
       (v) => parseToolOutput(tool.output, v),
       // why: A hook's edit replaces the value; the media the tool returned stays.
       (data) =>
-        withMedia(modelResultFromOutput(data, tool.outputSchema), outcome.modelResult.parts),
+        withMedia(modelResultFromOutput(data, tool.outputSchema), outcome.modelResult.media),
       labels,
     ),
   });

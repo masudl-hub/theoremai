@@ -37,12 +37,12 @@ import { ChatComposerBar } from './ChatComposerBar.tsx';
 import { ChatTranscript } from './ChatTranscript.tsx';
 import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
-import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
-import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
+import { useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SidePanelHeader } from './SidePanel.tsx';
+import { SurfaceProviders } from './surface-providers.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
-import { TheoremThemeProvider } from './theme.tsx';
+import type { ResolveMedia, ToolMediaShown } from './tool-media.tsx';
 
 export type TheoremChatProps = {
   /** Where `createTheoremHandler` is mounted. Default `/api/theorem`. Ignored when `transport` is set. */
@@ -66,6 +66,19 @@ export type TheoremChatProps = {
    * A fence with a language is never changed. Off by default.
    */
   detectCodeLanguage?: boolean;
+  /**
+   * The media a tool returned that the transcript shows: `sent` (default), only what the tool sent
+   * to the person; `all`, every piece the model read as well, for an evaluation view. Media a model
+   * generated and files a person attached always show. Hiding is not withholding: the page still
+   * receives every piece.
+   */
+  media?: ToolMediaShown;
+  /**
+   * Turns a reference a tool sent (`{ type, mimeType, uri }`) into an address the page may load,
+   * under the viewer's own sign-in, or `null`. Without it, or on `null`, the reference shows as a
+   * named file. The model never reads a reference.
+   */
+  resolveMedia?: ResolveMedia;
   /**
    * The value chosen for each of the profile's `inputs.options`, sent with every turn. An option you
    * name is fixed to that value; one you leave out gets a selector in the composer bar, beside
@@ -529,6 +542,8 @@ export function TheoremChat({
   mode,
   labels,
   detectCodeLanguage,
+  media,
+  resolveMedia,
   ...rest
 }: TheoremChatProps) {
   const httpRef = useRef(http);
@@ -538,12 +553,15 @@ export function TheoremChat({
     [transport, endpoint],
   );
   return (
-    <TheoremThemeProvider theme={theme} mode={mode}>
-      <TheoremLabelsProvider labels={labels}>
-        <MarkdownPluginsProvider detectCodeLanguage={detectCodeLanguage}>
-          <ChatForTransport {...rest} transport={resolved} />
-        </MarkdownPluginsProvider>
-      </TheoremLabelsProvider>
-    </TheoremThemeProvider>
+    <SurfaceProviders
+      theme={theme}
+      mode={mode}
+      labels={labels}
+      detectCodeLanguage={detectCodeLanguage}
+      media={media}
+      resolveMedia={resolveMedia}
+    >
+      <ChatForTransport {...rest} transport={resolved} />
+    </SurfaceProviders>
   );
 }

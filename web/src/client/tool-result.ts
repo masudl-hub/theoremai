@@ -7,6 +7,7 @@
  * @module
  */
 
+import { MEDIA_INPUT_KIND_VALUES, type MediaInputKind } from '@theoremjs/agents';
 import {
   columnStore,
   fieldLabel,
@@ -48,8 +49,8 @@ export type ResultLayout = {
   images: ResultImage[];
 };
 
-/** Media a tool returned beside its value, as the complete event carries it. */
-export type ResultMedia = { type: string; mimeType?: string; data?: string };
+/** Media a tool returned beside its value, as the complete event carries it: bytes, or a reference (`uri`). */
+export type ResultMedia = { type: string; mimeType?: string; data?: string; uri?: string };
 
 /** What a call returned to see or hear: its image parts, then the images its value links; its audio parts. */
 export type ReturnedMedia = { images: ResultImage[]; audio: { src: string; mimeType?: string }[] };
@@ -348,7 +349,7 @@ function mediaSrc(part: ResultMedia): string | undefined {
   return part.mimeType && part.data ? `data:${part.mimeType};base64,${part.data}` : undefined;
 }
 
-/** The images and audio a call returned, each with its bytes; parts without them are left out. */
+/** The images and audio a call returned, each with its bytes; parts without them (references) are left out. */
 export function returnedMedia(
   layout: ResultLayout,
   parts: readonly ResultMedia[],
@@ -367,6 +368,21 @@ export function returnedMedia(
       .filter((part) => part.type === 'audio')
       .map(({ src, mimeType }) => ({ src, ...(mimeType ? { mimeType } : {}) })),
   };
+}
+
+/** The references a call returned, which only the app's resolver turns into something to show. */
+export function referencesIn(
+  parts: readonly ResultMedia[],
+): { type: MediaInputKind; mimeType: string; uri: string }[] {
+  return parts.flatMap((part) =>
+    part.uri !== undefined && part.mimeType !== undefined && isMediaKind(part.type)
+      ? [{ type: part.type, mimeType: part.mimeType, uri: part.uri }]
+      : [],
+  );
+}
+
+function isMediaKind(type: string): type is MediaInputKind {
+  return (MEDIA_INPUT_KIND_VALUES as readonly string[]).includes(type);
 }
 
 /** Whether the result has anything to lead with above its data. */

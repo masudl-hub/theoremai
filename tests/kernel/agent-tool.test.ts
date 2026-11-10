@@ -469,7 +469,7 @@ Deno.test("an image agent's picture comes back as parts", async () => {
   const [complete] = toolPhases(events, 'complete');
   assertEquals((complete as { output: unknown }).output, {
     text: '',
-    parts: [{ type: 'image', mimeType: 'image/png', data: 'cGl4' }],
+    parts: [{ type: 'image', mimeType: 'image/png', data: 'cGl4', sent: true }],
   });
 });
 
@@ -504,7 +504,7 @@ Deno.test("a speech agent's audio comes back as parts", async () => {
   const [complete] = toolPhases(events, 'complete');
   assertEquals((complete as { output: unknown }).output, {
     text: '',
-    parts: [{ type: 'audio', mimeType: 'audio/pcm', data: 'c291bmQ=' }],
+    parts: [{ type: 'audio', mimeType: 'audio/pcm', data: 'c291bmQ=', sent: true }],
   });
 });
 

@@ -67,6 +67,7 @@ import { runsAsConversation } from './lib/conversation-types.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { STUDIO_TOOL_MEDIA, studioResolveMedia } from './lib/studio-media.ts';
 import {
   editedProfileEndpoint,
   openEdited,
@@ -972,6 +973,8 @@ export function ProjectChat(props: ProjectChatProps) {
   const common = {
     detectCodeLanguage: true,
     labels: STUDIO_LABELS,
+    media: STUDIO_TOOL_MEDIA,
+    resolveMedia: studioResolveMedia,
     trace,
     className,
     options,

@@ -5,6 +5,7 @@
 
 import type { KernelRegistry, Profile } from '@theoremjs/agents';
 import type { ToolRegistry } from '@theoremjs/agents/kernel';
+import { cookbookToolMedia } from './cookbooks/media.ts';
 import { GOOGLE_BUILTIN_TOOLS, OPENROUTER_BUILTIN_TOOLS } from './cookbooks/providers.ts';
 import { cookbookToolSources } from './cookbooks/sources.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
@@ -56,8 +57,10 @@ export function registerCustomTool(
     output: zodFromJsonSchema(tool.outputSchema),
   };
   if (tool.type === 'http') {
+    const media = cookbookToolMedia(tool.name);
     tools.register(
       citing(tool.name, {
+        ...(media ? { media } : {}),
         ...shared,
         type: 'http',
         endpoint: tool.endpoint,

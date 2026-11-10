@@ -16,7 +16,6 @@ import {
   buildUserTurnBlocks,
   type ComposerProfileInterface,
   clientProfileInterface,
-  collectPromotedMediaFromToolOutput,
   defaultInterfaceEffort,
   effortSelectEnabled,
   emptyInterfaceTurnSession,
@@ -431,7 +430,7 @@ Deno.test('foldTurnEvents upserts tool calls by id and folds terminal done', () 
   }
   assertEquals(blocks[2]?.kind, 'turn-done');
 });
-Deno.test('foldTurnEvents promotes image URLs from completed tool output', () => {
+Deno.test('foldTurnEvents makes no media of the addresses in a tool output', () => {
   resetBlockIds();
   const dogUrl = 'https://images.dog.ceo/breeds/collie/n02106030_15074.jpg';
   const blocks = foldTurnEvents([
@@ -445,93 +444,48 @@ Deno.test('foldTurnEvents promotes image URLs from completed tool output', () =>
   ]);
   assertEquals(
     blocks.map((block) => block.kind),
-    ['tool', 'media', 'text'],
+    ['tool', 'text'],
   );
-  assertEquals(blocks[1], {
-    id: 'turn-1',
-    kind: 'media',
-    mimeType: 'image/jpeg',
-    url: dogUrl,
-  });
-  if (blocks[0]?.kind === 'tool') {
-    assertEquals(outputOf(blocks[0].tool.state), { message: dogUrl, status: 'success' });
-  }
 });
-Deno.test('foldTurnEvents skips non-media URLs and dedupes promoted media', () => {
+Deno.test('foldTurnEvents keeps what a tool sent apart from what only the model read', () => {
   resetBlockIds();
-  const imageUrl = 'https://cdn.example.com/shot.png';
-  const blocks = foldTurnEvents([
-    ...callEvents(
-      { name: 'lookup', callId: 'u1' },
+  const blocks = foldTurnEvents(
+    callEvents(
+      { name: 'shots', callId: 's1' },
       {},
       {
         phase: 'complete',
-        output: {
-          page: 'https://en.wikipedia.org/wiki/Paris',
-          images: [imageUrl, `${imageUrl}?v=2`, imageUrl],
-          clip: 'https://cdn.example.com/clip.mp4',
-        },
+        output: {},
+        parts: [
+          { type: 'text', text: 'two shots' },
+          { type: 'image', mimeType: 'image/png', data: 'AAAA' },
+          { type: 'image', mimeType: 'image/png', data: 'BBBB', sent: true },
+          { type: 'video', mimeType: 'video/mp4', uri: 'files/clip-1' },
+        ],
       },
     ),
-  ]);
-  assertEquals(
-    blocks.map((block) => block.kind),
-    ['tool', 'media', 'media', 'media'],
   );
   assertEquals(
-    blocks
-      .filter((block) => block.kind === 'media')
-      .map((block) =>
-        block.kind === 'media' ? { mimeType: block.mimeType, url: block.url } : null,
-      ),
+    blocks.filter((block) => block.kind === 'media'),
     [
-      { mimeType: 'image/png', url: imageUrl },
-      { mimeType: 'image/png', url: `${imageUrl}?v=2` },
-      { mimeType: 'video/mp4', url: 'https://cdn.example.com/clip.mp4' },
-    ],
-  );
-});
-Deno.test('collectPromotedMediaFromToolOutput ignores non-http and extensionless URLs', () => {
-  assertEquals(
-    collectPromotedMediaFromToolOutput({
-      ftp: 'ftp://files.example.com/a.jpg',
-      bare: '/local/path.jpg',
-      api: 'https://api.example.com/v1/photo',
-      ok: 'https://cdn.example.com/a.webp',
-    }),
-    [{ url: 'https://cdn.example.com/a.webp', mimeType: 'image/webp' }],
-  );
-});
-Deno.test('collectPromotedMediaFromToolOutput keeps one copy of a resized MediaWiki file: largest to view, smallest to preview', () => {
-  const file = 'Lisboa_-_Portugal.jpg';
-  assertEquals(
-    collectPromotedMediaFromToolOutput({
-      thumbnail: {
-        source: `https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/${file}/330px-${file}?utm_source=api&utm_content=thumbnail`,
+      { id: 'turn-1', kind: 'media', mimeType: 'image/png', fromTool: true, data: 'AAAA' },
+      {
+        id: 'turn-2',
+        kind: 'media',
+        mimeType: 'image/png',
+        fromTool: true,
+        data: 'BBBB',
+        sent: true,
       },
-      originalimage: {
-        source: `https://upload.wikimedia.org/wikipedia/commons/f/f2/${file}?utm_source=api&utm_content=thumbnail_unscaled`,
+      {
+        id: 'turn-3',
+        kind: 'media',
+        mimeType: 'video/mp4',
+        fromTool: true,
+        uri: 'files/clip-1',
+        type: 'video',
+        sent: true,
       },
-      other: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg',
-    }).map((media) => [media.url, media.previewUrl]),
-    [
-      [
-        `https://upload.wikimedia.org/wikipedia/commons/f/f2/${file}?utm_source=api&utm_content=thumbnail_unscaled`,
-        `https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/${file}/330px-${file}?utm_source=api&utm_content=thumbnail`,
-      ],
-      ['https://upload.wikimedia.org/wikipedia/commons/a/ab/Other.jpg', undefined],
-    ],
-  );
-  assertEquals(
-    collectPromotedMediaFromToolOutput([
-      `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/330px-${file}`,
-      `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/3840px-${file}`,
-    ]).map((media) => [media.url, media.previewUrl]),
-    [
-      [
-        `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/3840px-${file}`,
-        `https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e5/${file}/330px-${file}`,
-      ],
     ],
   );
 });

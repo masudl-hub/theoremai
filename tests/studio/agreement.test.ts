@@ -123,30 +123,37 @@ Deno.test('a host profile differs in detect only at the tool boundaries, the one
   );
 });
 
-Deno.test('a prompt differs in its words, not in the white space at the end of a line or a section', () => {
+Deno.test('a prompt agrees however its parts are cut, and differs in anything the kernel sends', () => {
   const profile = (system: unknown) => ({ type: 'text', identity: { handle: 'a', system } });
-  assertEquals(differingSettings(profile('Be brief.\n'), profile('Be brief.')), []);
+  assertEquals(differingSettings(profile('Be brief.'), profile(['Be brief.'])), []);
   assertEquals(
     differingSettings(
-      profile([['Greet. ', { private: 'Code 7731. \n' }], 'Help.\n']),
-      profile([['Greet. ', { private: 'Code 7731.' }], 'Help.']),
+      profile([['Greet. ', { private: 'Code 7731.' }]]),
+      profile([['Greet. ', { private: 'Code 7731.' }, '']]),
     ),
     [],
   );
-  assertEquals(differingSettings(profile('Be brief.'), profile('Be long.')), ['identity.system']);
-});
-
-Deno.test('a prompt written as one text agrees with the lines the studio opens it to', () => {
-  const profile = (system: unknown) => ({ type: 'text', identity: { handle: 'a', system } });
-  assertEquals(differingSettings(profile('Greet.\n\nHelp.'), profile(['Greet.', 'Help.'])), []);
-  assertEquals(differingSettings(profile('Greet.\n\nHelp.'), profile(['Greet.', 'Stop.'])), [
+  assertEquals(differingSettings(profile('Be brief.\n'), profile('Be brief.')), [
     'identity.system',
   ]);
   assertEquals(
     differingSettings(
-      profile('Greet.\n\nwhen path is web: Help.'),
-      profile(['Greet.', 'when path is web: Help.']),
+      profile([['Greet. ', { private: 'Code.' }]]),
+      profile([[{ private: 'Greet. ' }, { private: 'Code.' }]]),
     ),
     ['identity.system'],
   );
+  assertEquals(differingSettings(profile('Greet.\n\nHelp.'), profile(['Greet.', 'Help.'])), [
+    'identity.system',
+  ]);
+});
+
+Deno.test('a prompt with white space at the edges of its parts agrees with itself', () => {
+  const profile = (system: unknown) => ({ type: 'text', identity: { handle: 'a', system } });
+  const persona = [
+    ['Voice.\n', { private: 'Hidden.\n' }, 'Examples.\n\nMore.\n\n', { private: 'How.' }],
+    'when plan is free: Free.',
+    [{ private: 'when path is web: Web.' }],
+  ];
+  assertEquals(differingSettings(profile(persona), profile(structuredClone(persona))), []);
 });

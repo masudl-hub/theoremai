@@ -10,6 +10,7 @@ import {
 import {
   assertSystemLines,
   systemLinesProblem,
+  systemReading,
   toolPathProblem,
 } from '../../src/kernel/system-lines.ts';
 import { boundSystem, systemText } from '../../src/kernel/system-parts.ts';
@@ -252,4 +253,34 @@ Deno.test('a turn records which lines of the prompt fit it, by number from 1', (
   const turn = { profile: 'lines', input: {}, ...WEB_FREE };
   assertEquals(resolveTurnSystem(written, turn).lines, [1, 3]);
   assertEquals(systemText(resolveTurnSystem(written, turn).pieces), 'always\n\nfree');
+});
+
+Deno.test('a prompt reads the same however its parts are cut, and not once its marks change', () => {
+  assertEquals(systemReading('Say hi.'), systemReading(['Say hi.']));
+  assertEquals(systemReading([['Say ', 'hi.', '']]), systemReading(['Say hi.']));
+  const persona = [
+    ['Voice.\n', { private: 'Hidden.\n' }, 'Examples.\n\nMore.\n\n'],
+    'when plan is free: Free.',
+  ];
+  assertEquals(systemReading(persona), [
+    {
+      when: [],
+      pieces: [
+        { text: 'Voice.\n', private: false },
+        { text: 'Hidden.\n', private: true },
+        { text: 'Examples.\n\nMore.\n\n', private: false },
+      ],
+    },
+    {
+      when: [{ path: 'plan', negated: false, expected: 'free' }],
+      pieces: [{ text: 'Free.', private: false }],
+    },
+  ]);
+  const split = [['Voice.', { private: 'Hidden.' }, 'Examples.'], 'More.'];
+  assertEquals(systemReading(split).length, 2);
+  assertEquals(systemReading(['a', 'b'])[0]?.pieces, [{ text: 'a', private: true }]);
+  assertEquals(
+    systemReading([[{ private: 'when plan is free: Free.' }], 'x']),
+    systemReading([['when plan is free: ', { private: 'Free.' }], 'x']),
+  );
 });

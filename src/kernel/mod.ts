@@ -300,7 +300,8 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
-export { systemLinesProblem } from './system-lines.ts';
+export type { SystemReadingLine } from './system-lines.ts';
+export { systemLinesProblem, systemReading } from './system-lines.ts';
 export { systemPromptProblem } from './system-parts.ts';
 export { activityLabelProblem } from './tools/activity-label.ts';
 export { agentToolInputFor, agentToolOutput } from './tools/agent.ts';

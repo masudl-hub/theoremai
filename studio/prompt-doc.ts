@@ -2,13 +2,13 @@ import {
   editorStateJSONToMarkdown,
   markdownToEditorStateJSON,
 } from '@astryxdesign/richtext/markdown';
-import type { SystemPrompt } from '@theoremjs/agents/kernel';
-import { parseSystemMarkup } from './system-markup.ts';
+import type { ProfileSystem, SystemLine, SystemPrompt } from '@theoremjs/agents/kernel';
+import { linesOf, markupOf, parseSystemMarkup } from './system-markup.ts';
 
 /**
- * A system prompt as the formatted view holds it. Studio stores the prompt as markup text
- * (`system-markup.ts`), so this is a view of that text and never a second store: `promptDoc`
- * opens it and `promptMarkup` gives it back.
+ * A system prompt as the formatted view holds it. The draft holds the prompt as the file writes
+ * it; the view and the code both show it as markup text (`system-markup.ts`), and `promptReader`
+ * reads that text back, keeping each line nobody touched exactly as written.
  *
  * The document is flat: each prompt line opens with a `prompt-line` node holding its `when`, and
  * the blocks after it up to the next one are that line's body. Private text is a text style.
@@ -280,6 +280,70 @@ function promptDocProblem(text: string): string | undefined {
   return 'This prompt holds text the formatted view would change, so it stays in code.';
 }
 
+/** A prompt read back from markup, or why the markup doesn't read. */
+type PromptRead = { ok: true; system: ProfileSystem } | { ok: false; message: string };
+
+/** The lines a written line comes back as once shown as markup, and once opened formatted. */
+type PromptForms = Map<string, SystemLine[][]>;
+
+const sameLines = (a: readonly unknown[], b: readonly unknown[]) =>
+  JSON.stringify(a) === JSON.stringify(b);
+
+function formsOf(line: SystemLine, forms: PromptForms): SystemLine[][] {
+  const key = JSON.stringify(line);
+  const known = forms.get(key);
+  if (known) return known;
+  const shown = parseSystemMarkup(markupOf([line]));
+  const found: SystemLine[][] = [];
+  if (shown.ok && shown.lines.length > 0) {
+    found.push(shown.lines);
+    const viewed = parseSystemMarkup(promptMarkup(promptDoc(shown.lines)));
+    if (viewed.ok && viewed.lines.length > 0 && !sameLines(viewed.lines, shown.lines)) {
+      found.push(viewed.lines);
+    }
+  }
+  forms.set(key, found);
+  return found;
+}
+
+/**
+ * Reads markup back into a prompt. Lines that come back as a line of `written` came back from
+ * showing, came back untouched, so they stay as written, to the byte; the rest are read from the
+ * text. The first of `written` gives the shape: a prompt written as one text stays one text while
+ * it is one line.
+ * invariant: showing a prompt and reading it back, untouched, gives the same prompt.
+ */
+function promptReader(
+  written: readonly ProfileSystem[],
+  forms: PromptForms = new Map(),
+): (text: string) => PromptRead {
+  const known = written
+    .flatMap(linesOf)
+    .flatMap((line) => formsOf(line, forms).map((form) => ({ line, form })))
+    .sort((a, b) => b.form.length - a.form.length);
+  const [shape] = written;
+  return (text) => {
+    const parsed = parseSystemMarkup(text);
+    if (!parsed.ok) return parsed;
+    const kept: SystemLine[] = [];
+    for (let at = 0; at < parsed.lines.length; ) {
+      const match = known.find(({ form }) =>
+        sameLines(form, parsed.lines.slice(at, at + form.length)),
+      );
+      kept.push(match ? match.line : (parsed.lines[at] as SystemLine));
+      at += match ? match.form.length : 1;
+    }
+    const [only, ...rest] = kept;
+    const isText = shape === undefined || typeof shape === 'string';
+    if (only === undefined) return { ok: true, system: '' };
+    return {
+      ok: true,
+      system: isText && rest.length === 0 && typeof only === 'string' ? only : kept,
+    };
+  };
+}
+
+export type { PromptForms, PromptRead };
 export {
   checksOf,
   openedDoc,
@@ -289,6 +353,7 @@ export {
   promptDoc,
   promptDocProblem,
   promptMarkup,
+  promptReader,
   samePrompt,
   withCheck,
   withoutCheck,

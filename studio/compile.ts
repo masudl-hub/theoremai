@@ -128,7 +128,7 @@ import {
   defaultModelRequired,
   inputLimitsRequired,
 } from './requirements.ts';
-import { parseSystemMarkup } from './system-markup.ts';
+import { linesOf } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
@@ -622,18 +622,10 @@ function reportOptions(options: readonly OptionDraft[], report: Report): boolean
   return isWrong;
 }
 
-/** The prompt's lines and the options they read, each problem reported on the identity section. */
+/** The prompt as written and the options it reads, each problem reported on the identity section. */
 function compilePrompt(draft: StudioDraft, report: Report) {
-  const parsed = parseSystemMarkup(draft.identity.system);
-  if (!parsed.ok) report('identity', parsed.message, 'system');
-  const lines = parsed.ok ? parsed.lines : [];
-  const [first] = lines;
-  const system: ProfileSystem | undefined =
-    lines.length === 0
-      ? undefined
-      : lines.length === 1 && typeof first === 'string'
-        ? first
-        : lines;
+  const written = draft.identity.system;
+  const system: ProfileSystem | undefined = linesOf(written).length === 0 ? undefined : written;
   const isWrong = reportOptions(draft.identity.options, report);
   const declared = draftOptions(draft.identity.options);
   const code = compileOptions(declared.filter((option) => !option.isShownInChat));

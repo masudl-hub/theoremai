@@ -13,6 +13,8 @@ The **studio** is a screen for one agent **profile** (see [`@theoremjs/agents`](
 
 In the form, the system prompt opens formatted. Private text sits on a shaded ground. A block that starts and ends on private text is one shaded box, with its bullets inside it and any shared words in it cut out. Each option is one row: its name, then its values.
 
+The studio keeps the prompt exactly as your file writes it: its lines, its parts and the white space at their edges. A line you don't change stays as written when you save, and a prompt you don't touch never shows as different from your files.
+
 A value the files write once, in a constant or a helper, changes on every agent that shares it. Taking a model or a setting out of one agent takes it out of that agent only.
 
 The screen keeps the profile it edits in the browser, as a **draft**. It sends the draft with every request to a server under `/api/studio`. You choose which server answers:

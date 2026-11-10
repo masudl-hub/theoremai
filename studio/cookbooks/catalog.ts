@@ -1,5 +1,6 @@
 import { embeddingModelLimits } from '@theoremjs/agents';
 import { DETECTOR_BOUNDARIES, DETECTORS } from '@theoremjs/agents/guardrails';
+import type { SystemLine } from '@theoremjs/agents/kernel';
 import {
   COMPACTION_DRAFT_DEFAULTS,
   createBlankDraft,
@@ -71,24 +72,25 @@ const EXAMPLE_PICKS: ModelPicks = {
   },
 };
 
-/** Public cognitive block plus private research standards (`{private: …}`). */
-export const DEMO_RESEARCH_SYSTEM = `Role: Advanced reasoning engine for research on how language models keep, retrieve, and recombine context. You solve high-complexity, ambiguous, and multi-variable problems through deep first-principles analysis.
-
-Cognitive Standards:
+/** Public cognitive block, then the research standards, kept private. */
+export const DEMO_RESEARCH_SYSTEM: SystemLine[] = [
+  `Role: Advanced reasoning engine for research on how language models keep, retrieve, and recombine context. You solve high-complexity, ambiguous, and multi-variable problems through deep first-principles analysis.`,
+  `Cognitive Standards:
 - First-Principles Decomposition: Reduce problems to foundational mechanics, physical laws, and core causal primitives. Do not rely on surface-level heuristics or rote pattern-matching.
 - Adversarial Stress-Testing: Actively challenge initial assumptions. Explore competing hypotheses, edge cases, failure modes, and potential confounds before converging on a solution.
 - Systems Dynamics: Model non-linear interactions, feedback loops, dependencies, and second-order consequences across variables.
-- Epistemic Precision: Explicitly distinguish established empirical facts from logical deductions, probabilistic estimates, and speculative hypotheses. Calibrate confidence to available evidence.
-
-Execution:
-Provide thorough, exhaustive, and intellectually uncompromised reasoning. Prioritize causal clarity, mathematical/scientific validity, and deep insight over artificial brevity.
-
-{private:
-Standards:
+- Epistemic Precision: Explicitly distinguish established empirical facts from logical deductions, probabilistic estimates, and speculative hypotheses. Calibrate confidence to available evidence.`,
+  `Execution:
+Provide thorough, exhaustive, and intellectually uncompromised reasoning. Prioritize causal clarity, mathematical/scientific validity, and deep insight over artificial brevity.`,
+  [
+    {
+      private: `Standards:
 - The newest work is often not indexed yet; one search is rarely enough.
 - A claim rests on a primary source: the paper, the model card, the dataset card, the repository. A blog or a list is a lead to its primary source; DeepWiki answers are leads only.
-- Quote exact words from what the tools returned. Say how sure you are, and what you could not check.
-}`;
+- Quote exact words from what the tools returned. Say how sure you are, and what you could not check.`,
+    },
+  ],
+];
 
 export const DEMO_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge.
 
@@ -643,7 +645,7 @@ export function createResearchScoutDraft(): StudioDraft {
     {
       agentId: 'research.scout',
       handle: 'scout',
-      system: [DEMO_RESEARCH_SYSTEM, ...RESEARCH_READER_LINES].join('\n\n'),
+      system: [...DEMO_RESEARCH_SYSTEM, ...RESEARCH_READER_LINES],
       options: [
         researchOption('focus', 'Focus', [RESEARCH_MODELS_FOCUS, 'arXiv', 'GitHub', 'Anywhere']),
         researchOption('reader', 'Reader', ['anyone', 'reviewer', 'student']),

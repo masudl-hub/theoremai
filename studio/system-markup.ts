@@ -1,4 +1,4 @@
-import type { SystemPart, SystemPrompt } from '@theoremjs/agents/kernel';
+import type { ProfileSystem, SystemLine, SystemPart, SystemPrompt } from '@theoremjs/agents/kernel';
 
 /**
  * The studio's way to write a system prompt: the whole prompt as text, a blank
@@ -8,7 +8,6 @@ type SystemMarkup = { ok: true; lines: SystemPrompt[] } | { ok: false; message: 
 
 const OPEN = /\{\s*private\s*:/g;
 const BLANK_LINE = /\n(?:[ \t]*\n)+/;
-const WHEN_LINE = /^\s*when\s/;
 
 /** A line as the profile holds it, without the white space at its ends. */
 function promptLine(parts: readonly SystemPart[]): SystemPrompt | undefined {
@@ -72,15 +71,29 @@ function parseSystemMarkup(text: string): SystemMarkup {
   };
 }
 
-/**
- * A plain line as the kernel sends it once the studio opens it: each stretch between blank lines
- * is a line of its own, with a blank line between them either way.
- * invariant: A text with a `when` stretch stays whole, since opening it would put that stretch under a `when`.
- */
-function plainLines(line: string): string[] {
-  const lines = line.trim().split(BLANK_LINE);
-  return lines.some((each) => WHEN_LINE.test(each)) ? [line.trim()] : lines;
+/** A prompt's lines, as written; a blank prompt has none. */
+function linesOf(system: ProfileSystem): SystemLine[] {
+  if (typeof system === 'string') return system.trim() ? [system] : [];
+  return [...system];
+}
+
+/** A prompt as markup: its lines a blank line apart, each private part wrapped as written. */
+function markupOf(system: ProfileSystem): string {
+  return linesOf(system)
+    .map((line) =>
+      typeof line === 'string'
+        ? line
+        : line
+            .map((part) => (typeof part === 'string' ? part : `{private: ${part.private}}`))
+            .join(''),
+    )
+    .join('\n\n');
+}
+
+/** Whether two prompts are written the same, part for part. */
+function sameWritten(a: ProfileSystem, b: ProfileSystem): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
 export type { SystemMarkup };
-export { parseSystemMarkup, plainLines, promptLine, WHEN_LINE };
+export { linesOf, markupOf, parseSystemMarkup, sameWritten };

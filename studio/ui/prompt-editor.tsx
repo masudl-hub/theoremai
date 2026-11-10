@@ -8,6 +8,7 @@ import { $isListItemNode, $isListNode } from '@lexical/list';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $getSelectionStyleValueForProperty, $patchStyleText } from '@lexical/selection';
 import { IconFilter, IconShareOff } from '@tabler/icons-react';
+import type { ProfileSystem } from '@theoremjs/agents/kernel';
 import {
   $getRoot,
   $getSelection,
@@ -27,10 +28,12 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
-import { openedDoc, PRIVATE_NAME, PRIVATE_ON, promptMarkup, samePrompt } from '../prompt-doc.ts';
+import { openedDoc, PRIVATE_NAME, PRIVATE_ON, promptMarkup, promptReader } from '../prompt-doc.ts';
+import { markupOf, sameWritten } from '../system-markup.ts';
 import { ChangeHeld } from './inspector-context.ts';
 import { $isPromptLine, optionItems, PromptLineNode, PromptOptions } from './prompt-line-node.tsx';
 import './prompt-editor.css';
@@ -393,11 +396,13 @@ function HeldCaret() {
 export type EditorStatus = ComponentProps<typeof RichTextEditor>['status'];
 
 export type PromptEditorProps = {
-  /** The prompt as markup text, the only form the draft holds. */
-  value: string;
+  /** The prompt as the file writes it. */
+  value: ProfileSystem;
+  /** The prompt as the profile first opened, whose lines a change typed back is kept to. */
+  written?: ProfileSystem;
   placeholder?: string;
   status?: EditorStatus;
-  onChange: (next: string) => void;
+  onChange: (next: ProfileSystem) => void;
 };
 
 function OpenedEditor({
@@ -451,29 +456,37 @@ function OpenedEditor({
 }
 
 /**
- * The prompt with its private stretches and options in view. It is a view of the markup text:
- * it writes back only when the prompt changes, so opening it never dirties the draft, and text
- * changed from outside (another profile, a reload, a kept source) opens afresh.
+ * The prompt with its private stretches and options in view. It is a view of the prompt as
+ * written: it writes back only when the prompt changes, so opening it never dirties the
+ * draft, a line nobody touched stays as written, and a prompt changed from outside (another
+ * profile, a reload, a kept source) opens afresh.
  */
-export function PromptEditor({ value, placeholder, status, onChange }: PromptEditorProps) {
+export function PromptEditor({ value, written, placeholder, status, onChange }: PromptEditorProps) {
   const [held, setHeld] = useState(value);
+  const [opened, setOpened] = useState(value);
   const [opening, setOpening] = useState(0);
   // why: a held change is still on screen; Change keeps it and the caret, Cancel reopens the prompt.
   const isChangeHeld = useContext(ChangeHeld);
-  if (!isChangeHeld && !samePrompt(value, held)) {
+  if (!isChangeHeld && !sameWritten(value, held)) {
     setHeld(value);
+    setOpened(value);
     setOpening(opening + 1);
   }
+  const read = useMemo(
+    () => promptReader(written === undefined ? [opened] : [opened, written]),
+    [opened, written],
+  );
   return (
     <OpenedEditor
       key={opening}
-      opened={value}
+      opened={markupOf(opened)}
       placeholder={placeholder}
       status={status}
-      onEdit={(next) => {
-        if (samePrompt(next, held)) return;
-        setHeld(next);
-        onChange(next);
+      onEdit={(text) => {
+        const next = read(text);
+        if (!next.ok || sameWritten(next.system, held)) return;
+        setHeld(next.system);
+        onChange(next.system);
       }}
     />
   );

@@ -15,9 +15,9 @@ import {
   resolveDetect,
   TOOL_BOUNDARIES,
 } from '@theoremjs/agents/guardrails';
-import { unsetValue } from '@theoremjs/agents/kernel';
+import { type ProfileSystem, systemReading, unsetValue } from '@theoremjs/agents/kernel';
 import { STUDIO_POLICY_UNSET } from './policy.ts';
-import { plainLines, promptLine } from './system-markup.ts';
+import { linesOf } from './system-markup.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -75,39 +75,32 @@ function detectAsRead(detect: unknown, boundaries: readonly Boundary[]): unknown
   };
 }
 
+const isPart = (part: unknown) =>
+  typeof part === 'string' || (isRecord(part) && typeof part.private === 'string');
+
 /**
- * A prompt as the studio holds it: its lines, split at each blank line, with no white space at the
- * ends of a line or a private section.
- * why: this is studio policy, so a prompt written as one text opens as the same prompt.
+ * A prompt as the kernel reads it, so two that send the same words with the same marks agree
+ * however each is cut into parts. A value that is no prompt stays as it is.
  */
-function promptAsHeld(system: unknown): unknown {
-  if (typeof system !== 'string' && !Array.isArray(system)) return system;
-  const lines: unknown[] = typeof system === 'string' ? [system] : system;
-  return lines.flatMap((line) => {
-    if (typeof line === 'string') return plainLines(line);
-    if (!Array.isArray(line)) return [line];
-    return [
-      promptLine(
-        line.map((part) =>
-          isRecord(part) && typeof part.private === 'string'
-            ? { private: part.private.trim() }
-            : part,
-        ),
-      ),
-    ];
-  });
+function promptAsRead(system: unknown): unknown {
+  if (typeof system === 'string') return systemReading(linesOf(system));
+  if (!Array.isArray(system)) return system;
+  const isPrompt = system.every(
+    (line) => typeof line === 'string' || (Array.isArray(line) && line.every(isPart)),
+  );
+  return isPrompt ? systemReading(linesOf(system as ProfileSystem)) : system;
 }
 
-/** A profile with its prompt as the studio holds it. */
+/** A profile with its prompt as the kernel reads it. */
 function promptRead(profile: Record<string, unknown>): Record<string, unknown> {
   if (!isRecord(profile.identity) || profile.identity.system === undefined) return profile;
   return {
     ...profile,
-    identity: { ...profile.identity, system: promptAsHeld(profile.identity.system) },
+    identity: { ...profile.identity, system: promptAsRead(profile.identity.system) },
   };
 }
 
-/** A profile with its prompt as the studio holds it and its `detect` as the kernel reads it. */
+/** A profile with its prompt and its `detect` as the kernel reads them. */
 function asRead(project: unknown): unknown {
   if (!isRecord(project)) return project;
   const profile = promptRead(project);

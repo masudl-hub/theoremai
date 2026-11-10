@@ -1,4 +1,5 @@
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import type { ProfileSystem } from '../../src/kernel/types.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 
 registerFixtureProviders(defaultKernelScope);
@@ -1413,47 +1414,28 @@ Deno.test('a call’s greeting and resume prompt compile, and the resume prompt 
     ['resumedAfterMs'],
   );
 });
-Deno.test('the system prompt compiles its {private: sections to parts', () => {
+Deno.test('the system prompt compiles exactly as written, and a blank one is left out', () => {
   const draft = createExampleDraft();
-  const withSystem = (...lines: string[]) =>
-    compileStudio(
-      {
-        ...draft,
-        identity: { ...draft.identity, system: lines.join('\n\n') },
-      },
-      ON_OWN_KEYS,
-    );
+  const withSystem = (system: ProfileSystem) =>
+    compileStudio({ ...draft, identity: { ...draft.identity, system } }, ON_OWN_KEYS);
   const system = (result: StudioCompileResult) => {
     assert(result.ok && result.profile.type === 'text');
     return result.profile.identity.system;
   };
-  assertEquals(system(withSystem(' Be brief. ')), 'Be brief.');
+  assertEquals(system(withSystem(' Be brief. ')), ' Be brief. ');
   assertEquals(system(withSystem(' ')), undefined);
-  assertEquals(system(withSystem('Say "hi". {private: Code 7731.}')), [
-    ['Say "hi". ', { private: 'Code 7731.' }],
-  ]);
-  const bad = withSystem('Say "hi". {private: Code 7731.');
-  assert(!bad.ok);
-  assertEquals(
-    bad.issues.map(({ nodeId, field, message }) => ({ nodeId, field, message })),
-    [
-      {
-        nodeId: 'identity',
-        field: 'system',
-        message: 'The {private: section on line 1 has no closing }.',
-      },
-    ],
-  );
+  const lines: ProfileSystem = [['Say "hi".\n', { private: 'Code 7731.\n' }], 'Help.\n\nMore.'];
+  assertEquals(system(withSystem(lines)), lines);
 });
 Deno.test('the prompt compiles line by line, with its options, and a bad line is reported', () => {
   const draft = createExampleDraft();
-  const withPrompt = (options: OptionDraft[], system: string) =>
+  const withPrompt = (options: OptionDraft[], system: ProfileSystem) =>
     compileStudio(withOptions(draft, options, system), ON_OWN_KEYS);
   const plan = (...values: string[]) => [optionRow('plan', values, { isShownInChat: false })];
-  const good = withPrompt(
-    plan('free', 'paid'),
-    'Be brief.\n\n\nwhen plan is paid: Take your time. {private: Code 7731.\n\nKeep it.}',
-  );
+  const good = withPrompt(plan('free', 'paid'), [
+    'Be brief.',
+    ['when plan is paid: Take your time. ', { private: 'Code 7731.\n\nKeep it.' }],
+  ]);
   assert(good.ok && good.profile.type === 'text');
   assertEquals(good.profile.identity.system, [
     'Be brief.',

@@ -98,7 +98,7 @@ Deno.test('a prompt and its options read back as one box and a row each', () => 
   assertEquals(read.draft.identity.options, edited.identity.options);
 });
 
-Deno.test('a when line with a blank line in it is refused, since one box would split it', () => {
+Deno.test('a when line with a blank line in it reads back exactly as written', () => {
   const draft = createExampleDraft();
   const line = 'when plan is paid: Take your time.';
   const compiled = compileStudio(
@@ -118,7 +118,7 @@ Deno.test('a when line with a blank line in it is refused, since one box would s
             ],
           },
         ],
-        system: `Be brief.\n\n${line}`,
+        system: ['Be brief.', line],
       },
     },
     ON_OWN_KEYS,
@@ -127,11 +127,8 @@ Deno.test('a when line with a blank line in it is refused, since one box would s
   const source = studioSource(compiled);
   assert(source.includes(line));
   const read = readStudioSource(source.replace(line, `${line}\\n\\nAnd more.`), draft);
-  assert(!read.ok);
-  assertEquals(
-    read.errors[0]?.message,
-    'A "when" line in the system prompt can\'t hold a blank line.',
-  );
+  assert(read.ok);
+  assertEquals(read.draft.identity.system, ['Be brief.', `${line}\n\nAnd more.`]);
 });
 
 Deno.test('both taint settings in the file come back into the draft', () => {

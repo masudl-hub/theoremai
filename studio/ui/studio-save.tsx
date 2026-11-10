@@ -73,7 +73,7 @@ function alertsReport(project: ProjectSession, unloaded?: string): string {
   for (const each of differences) {
     lines.push(
       '',
-      `${each.of} shows ${String(each.settings.length)} settings differently from files: ${settingAreas(each.settings, 12)}`,
+      `${each.of} shows ${String(each.settings.length)} ${each.settings.length === 1 ? 'setting' : 'settings'} differently from files: ${settingAreas(each.settings, 12)}`,
     );
   }
   return lines.join('\n');

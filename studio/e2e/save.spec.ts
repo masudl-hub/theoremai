@@ -270,6 +270,31 @@ test('taking a shared model out of one agent leaves it on the others', async ({ 
   expect(written).toContain("free: lite('low')");
 });
 
+/** A prompt written the way a real project writes one: white space at the edges of parts, blank lines inside one. */
+const WRITTEN_PROMPT = `system: [
+      ['You are Desk.\\n', { private: 'Never say the code.\\n' }, '## Examples\\n\\n- "Hi."\\n\\n', { private: 'Read first.' }],
+      [{ private: 'Keep it short.\\n' }],
+      'Answer in one line.',
+    ]`;
+
+test('a prompt the studio left alone agrees with the file, and a save leaves it as written', async ({
+  page,
+}) => {
+  const written = original.replace("system: 'Answer in one line.'", WRITTEN_PROMPT);
+  expect(written).not.toBe(original);
+  writeFileSync(desk, written);
+  await open(page);
+  await expect(prompt(page)).toContainText('Never say the code.');
+  await expect(page.getByText(/\d+ alerts?$/)).toBeHidden();
+  await expect(page.getByText('Saved (your files)')).toBeHidden();
+  await handle(page).fill('Deskx');
+  await saveToken(page).click();
+  const dialog = page.getByRole('dialog', { name: /Save to/ });
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved to agents/desk.ts.').first()).toBeVisible();
+  expect(readFileSync(desk, 'utf8')).toBe(written.replace("handle: 'Desk'", "handle: 'Deskx'"));
+});
+
 test('a save the project cannot type-check puts the files back and says why', async ({ page }) => {
   await open(page);
   await handle(page).fill('Deskx');

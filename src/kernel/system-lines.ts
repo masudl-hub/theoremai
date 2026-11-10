@@ -96,6 +96,32 @@ export function pickSystemLines(
   return kept;
 }
 
+/** One line of a prompt as the kernel reads it: the turns it fits, and its pieces. */
+export type SystemReadingLine = { when: Line['when']; pieces: SystemPiece[] };
+
+/**
+ * A prompt as the kernel reads it: each line's `when`, and its pieces, plain text marked the way
+ * the whole prompt settles it, with pieces of one mark side by side joined and empty ones left
+ * out. Two prompts with the same reading send the same words, with the same marks, on every turn.
+ */
+export function systemReading(prompt: ProfileSystem): SystemReadingLine[] {
+  const lines = linesOf(prompt);
+  const marked = lines.flat().some((part) => typeof part !== 'string');
+  return lines.map((parts) => {
+    const line = headOf(parts);
+    const pieces: SystemPiece[] = [];
+    parts.forEach((part, at) => {
+      const text = at === 0 ? line.text : textOf(part);
+      if (!text) return;
+      const isPrivate = typeof part === 'string' ? !marked : true;
+      const last = pieces.at(-1);
+      if (last?.private === isPrivate) last.text += text;
+      else pieces.push({ text, private: isPrivate });
+    });
+    return { when: line.when, pieces };
+  });
+}
+
 /** `where` names the prompt in the error. A bare `{ private }` must sit inside a line's own list. */
 export function assertSystemLines(prompt: unknown, where: string): asserts prompt is ProfileSystem {
   if (typeof prompt === 'string') return;

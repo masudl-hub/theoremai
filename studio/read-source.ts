@@ -22,7 +22,14 @@ import {
   recordOf,
   resolveDetect,
 } from '@theoremjs/agents/guardrails';
-import { type JsonObject, PROFILE_GRAPH, type ToolBackground } from '@theoremjs/agents/kernel';
+import {
+  type JsonObject,
+  PROFILE_GRAPH,
+  type ProfileSystem,
+  type SystemLine,
+  type SystemPart,
+  type ToolBackground,
+} from '@theoremjs/agents/kernel';
 import {
   CONTEXT_SENDERS,
   type ContextSender,
@@ -56,7 +63,6 @@ import {
   type StudioProvider,
 } from './providers.ts';
 import { stubOutputFromSchema } from './stub.ts';
-import { parseSystemMarkup, WHEN_LINE } from './system-markup.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
 /** Where a read stopped, one-based, on the file the visitor is editing. */
@@ -630,40 +636,28 @@ function whole(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
 }
 
-function markup(value: unknown, srcMessage: string): string {
+/** A part of a prompt line, as written, or undefined when it is no part. */
+function promptPart(part: unknown): SystemPart | undefined {
+  if (typeof part === 'string') return part;
+  if (isRecord(part) && typeof part.private === 'string') return { private: part.private };
+  return undefined;
+}
+
+/** A prompt exactly as the file writes it: one text, or lines of text or parts. */
+function promptLines(value: unknown): ProfileSystem {
+  const srcMessage = 'The system prompt has to be text, or lines of text and { private } parts.';
   if (value === undefined) return '';
   if (typeof value === 'string') return value;
   if (!Array.isArray(value)) throw new ReadFail(srcMessage, 1, 1);
-  return value
-    .map((part) => {
-      if (typeof part === 'string') return part;
-      if (Array.isArray(part)) return markup(part, srcMessage);
-      if (isRecord(part) && typeof part.private === 'string') return `{private: ${part.private}}`;
-      throw new ReadFail(srcMessage, 1, 1);
-    })
-    .join('');
+  return value.map((line: unknown): SystemLine => {
+    if (typeof line === 'string') return line;
+    if (!Array.isArray(line)) throw new ReadFail(srcMessage, 1, 1);
+    return line.map((part: unknown) => promptPart(part) ?? readFail(srcMessage));
+  });
 }
 
-/**
- * A prompt as the draft holds it: its lines as one text, a blank line between them. A bare
- * `{ private }` is no line, and a `when` line holding a blank line can't be told from two lines.
- */
-function promptText(value: unknown): string {
-  const srcMessage = 'The system prompt has to be text.';
-  const lines = Array.isArray(value) ? value : [value];
-  const texts = lines.map((line: unknown) => {
-    if (Array.isArray(value) && typeof line !== 'string' && !Array.isArray(line)) {
-      throw new ReadFail(srcMessage, 1, 1);
-    }
-    return markup(line, srcMessage);
-  });
-  for (const text of texts) {
-    const parsed = parseSystemMarkup(text);
-    if (WHEN_LINE.test(text) && parsed.ok && parsed.lines.length > 1) {
-      throw new ReadFail('A "when" line in the system prompt can\'t hold a blank line.', 1, 1);
-    }
-  }
-  return texts.join('\n\n');
+function readFail(message: string): never {
+  throw new ReadFail(message, 1, 1);
 }
 
 /** A file's options as rows, each keeping the key the row of its name had. */
@@ -1167,7 +1161,7 @@ function identityOf(
     agentId: text(profile.id),
     profileType: type,
     handle: text(identity.handle),
-    system: promptText(identity.system),
+    system: promptLines(identity.system),
     options: [
       ...optionRows(identity.options, false, current.options),
       ...optionRows(record(profile.inputs)?.options, true, current.options),

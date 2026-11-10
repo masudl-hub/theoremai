@@ -29,6 +29,7 @@ import {
   type JsonObject,
   mimeAllowed,
   type ProfileItemRule,
+  type ProfileSystem,
   type ProviderLimits,
   profileTypesForField,
 } from '@theoremjs/agents/kernel';
@@ -99,10 +100,11 @@ export interface IdentityDraft {
   profileType: StudioProfileType | '';
   handle: string;
   /**
-   * The whole prompt as typed: a blank line starts a new line, and private sections are wrapped as
-   * `{private: …}`. Unused on speech, which has no system channel.
+   * The prompt exactly as the file writes it, its lines and private parts as written; a blank one
+   * is ''. Shown and typed as markup, which is only a view of it. Unused on speech, which has no
+   * system channel.
    */
-  system: string;
+  system: ProfileSystem;
   options: OptionDraft[];
 }
 

@@ -8,6 +8,7 @@ import { agentToolInputFor, agentToolOutput, agentToolProfile, normalizeAgent } 
 import { assertBackgroundSetting, backgroundField, type ToolBackground } from './background.ts';
 import { withCallOrder, withModelField } from './call-order.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
+import { assertModelMarks } from './model-view.ts';
 import { pageAnswerHandler } from './page-answer.ts';
 import {
   assertFixedEndpointOrigin,
@@ -61,6 +62,8 @@ function schemasFromZod<TIn, TOut>(def: {
 }) {
   // why: A studio compile registers each tool once for every agent that uses it, again on each edit that settles.
   const { inputSchema, outputSchema } = checkedSchemas(def.input, def.output);
+  assertModelMarks(inputSchema, `Tool "${def.name}" input`, 'input');
+  assertModelMarks(outputSchema, `Tool "${def.name}" output`, 'output');
   const labels = {
     activity: { input: inputSchema },
     activityPast: { input: inputSchema, output: outputSchema },
@@ -285,6 +288,8 @@ interface ToolRegistry {
   list(): RegisteredTool[];
   /** A profile in this scope, for the agent tools that run one. */
   findProfile(id: ProfileId): Profile | undefined;
+  /** The reply schemas a profile in this scope can give, read when an agent tool's call settles. */
+  structuredReplies(id: ProfileId): JsonSchema[];
   /** Also forgets the MCP sessions. */
   reset(): void;
   /** Sessions for this scope's MCP servers that require one; never shared across scopes. */
@@ -297,6 +302,7 @@ interface ToolRegistry {
  */
 function createToolRegistry(
   findProfile: (id: ProfileId) => Profile | undefined = () => undefined,
+  structuredReplies: (id: ProfileId) => JsonSchema[] = () => [],
 ): ToolRegistry {
   const tools = new Map<string, RegisteredTool>();
   const mcpSessions = createMcpSessionCache();
@@ -320,6 +326,7 @@ function createToolRegistry(
     has: (name) => tools.has(name),
     list: () => [...tools.values()],
     findProfile,
+    structuredReplies,
     reset: () => {
       tools.clear();
       mcpSessions.clear();

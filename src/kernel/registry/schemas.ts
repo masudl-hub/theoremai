@@ -1,4 +1,5 @@
 import { TheoremError } from '../../guardrails/error.ts';
+import { assertModelMarks } from '../tools/model-view.ts';
 import type { StructuredSpec } from '../types.ts';
 
 /** The structured-output schemas a registry holds, by id: `register`, `get` (throws when there is none) and `find`. */
@@ -30,6 +31,7 @@ function createSchemaRegistry(): SchemaRegistry {
           `registerStructured '${id}': jsonSchema must be a JSON Schema object`, // labels-exempt: developer contract error
         );
       }
+      assertModelMarks(spec.jsonSchema, `registerStructured '${id}'`, 'output');
       schemas.set(id, spec);
     },
     get(id) {

@@ -146,3 +146,17 @@ Deno.test('a tool with no maxResponseBytes reads its body whole, however long', 
   assertEquals(settlement.failure, undefined);
   assertEquals((settlement.outputRaw as { finding: string }).finding.length, 5 * 1024 * 1024);
 });
+
+Deno.test('a field the output schema marks exposeToModel: false is in the output and not in what the model reads', async () => {
+  const marked = {
+    ...TOOL,
+    output: z.object({
+      finding: z.string(),
+      photoUrl: z.string().meta({ exposeToModel: false }),
+    }),
+  } as ToolDefinitionInput;
+  const body = '{"finding":"Soil is dry.","photoUrl":"https://img.example/soil.png"}';
+  const { settlement } = await run(() => streamed([body]), false, marked);
+  assertEquals(settlement.outputRaw, JSON.parse(body));
+  assertEquals(settlement.modelResult?.finding, '{"finding":"Soil is dry."}');
+});

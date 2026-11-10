@@ -8,6 +8,7 @@ import { ANSWER_TOOL } from '../answer-tool.ts';
 import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
 import { operationNameOf } from '../protocols/binding.ts';
 import { profileTurnResumption } from '../stop.ts';
+import { withoutModelMarks } from '../tools/model-view.ts';
 import { projectTools } from '../tools/project.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { resolveTurnTools } from '../tools/resolve.ts';
@@ -300,7 +301,11 @@ function resolveTurnInRegistry(
       history: input.history,
       maxSteps: profile.maxSteps ?? DEFAULT_MAX_STEPS,
       structured: structuredId
-        ? { id: structuredId, jsonSchema: registry.schemas.get(structuredId).jsonSchema }
+        ? {
+            id: structuredId,
+            // why: The mark is for the agent tools that read this reply; the provider never sees it.
+            jsonSchema: withoutModelMarks(registry.schemas.get(structuredId).jsonSchema),
+          }
         : null,
       image: resolveImageFormat(profile),
       speech: resolveSpeech(profile, safe),

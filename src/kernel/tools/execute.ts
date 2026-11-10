@@ -54,6 +54,7 @@ import {
 import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
 import { fetchToolImages } from './image-fetch.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
+import { agentOutputSchema, outputForModel } from './model-view.ts';
 import type {
   ToolExecutionCoordinator,
   ToolOperationClaim,
@@ -230,6 +231,7 @@ export function projectForModel(
   if (tool.exposeToModel === false) {
     return { finding: labelText('tool.completed_hidden', {}, labels) };
   }
+  const seen = outputForModel(tool.outputSchema, output);
   if (isAwaitingUserInput(output)) {
     return {
       finding: labelText(
@@ -237,12 +239,11 @@ export function projectForModel(
         { kind: output.kind, prompt: output.prompt },
         labels,
       ),
-      data: leanToolResultData(output),
+      data: leanToolResultData(seen),
     };
   }
-  const parts =
-    isRecord(output) && 'parts' in output ? coerceToolResultParts(output.parts) : undefined;
-  const lean = leanToolResultData(output);
+  const parts = isRecord(seen) && 'parts' in seen ? coerceToolResultParts(seen.parts) : undefined;
+  const lean = leanToolResultData(seen);
   const summarized = isRecord(lean) && 'finding' in lean;
   const { finding: summary, ...rest } = summarized ? lean : {};
   const result = summarized
@@ -250,7 +251,7 @@ export function projectForModel(
         finding: String(summary),
         ...(Object.keys(rest).length > 0 ? { data: rest } : {}),
       }
-    : modelResultFromOutput(lean);
+    : modelResultFromOutput(lean, undefined);
   return { ...result, ...(parts ? { parts } : {}) };
 }
 
@@ -1146,7 +1147,8 @@ async function* settleBodyOutcome(args: {
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
       // why: A hook's edit replaces the value; the media the tool returned stays.
-      (data) => withMedia(modelResultFromOutput(data), outcome.modelResult.parts),
+      (data) =>
+        withMedia(modelResultFromOutput(data, tool.outputSchema), outcome.modelResult.parts),
       labels,
     ),
   });
@@ -1648,7 +1650,11 @@ async function* executeAgentTool(args: {
     }
   };
   // why: Its hooks take `AgentToolInput`, which the input schema has already checked.
-  const asFunction = { ...tool, type: 'function', handler } as FunctionToolDef;
+  const outputSchema = agentOutputSchema(
+    tool.outputSchema,
+    args.tools.structuredReplies(tool.profile),
+  );
+  const asFunction = { ...tool, type: 'function', handler, outputSchema } as FunctionToolDef;
   const exec = executeFunction(
     args.tools,
     asFunction,

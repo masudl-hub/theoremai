@@ -1226,6 +1226,18 @@ function structuredIds(profile: ModelProfile): string[] {
   return [...new Set([...Object.values(structured.map), structured.fallback])];
 }
 
+/** The reply schemas a profile can give, for the agent tools that call it. */
+function structuredReplySchemas(
+  schemas: SchemaRegistry,
+  profile: Profile | undefined,
+): Record<string, unknown>[] {
+  if (profile?.type !== 'text') return [];
+  return structuredIds(profile).flatMap((id) => {
+    const spec = schemas.find(id);
+    return spec ? [spec.jsonSchema] : [];
+  });
+}
+
 /**
  * Every schema `outputs.structured` names is registered, and every
  * `outputs.validation.fields` path reaches a property of one of them.
@@ -1390,4 +1402,4 @@ function createProfileRegistry(
 }
 
 export type { ProfileRegistry };
-export { createProfileRegistry, defineProfile };
+export { createProfileRegistry, defineProfile, structuredReplySchemas };

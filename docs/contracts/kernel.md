@@ -65,6 +65,9 @@ Hosts declare agents with `defineProfile` / `registerProfile` (or
 manage the default scope's profile registry; `scope.profiles` is another scope's.
 Registration validates a profile's tool allow list against the same scope's
 `tools`, and resolution reads tools and schemas from that scope only.
+A structured schema may mark reply fields `exposeToModel: false` for the agent tools that call
+the profile (see [Output fields the model does not read](#output-fields-the-model-does-not-read)).
+Resolution takes the mark off before the schema reaches the provider.
 
 A `Profile` binds:
 
@@ -854,6 +857,43 @@ unchanged. The call's `execute_tool` span records the cited sources as a
 `theorem.grounding` event, and every tool warning (the tool's own and
 `sources_invalid`) as a `theorem.tool.warning` event. A tool that cites nothing
 omits `sources`.
+
+### Output fields the model does not read
+
+Use this when one tool serves two readers: a page that needs every field, and a model that must
+not read some of them. For example, the page draws a picture from a link the model should not see.
+Mark the field in the tool's output schema with `exposeToModel: false`:
+
+```ts
+output: z.object({
+  name: z.string(),
+  photoUrl: z.string().meta({ exposeToModel: false }),
+}),
+```
+
+The kernel leaves a marked field out of what the model reads, at any depth, in objects and in
+the items of lists. The tool's `output` keeps every field: `invokeTool`, the host door, the
+transcript, the `post_tool` stage (`outputRaw`) and `activityPast` read it whole. The trace
+records the model's text (`gen_ai.tool.call.result`), so it leaves the field out. The output is
+still checked against the whole schema.
+
+- **One view for every model.** The cut happens once, where the output becomes the model's
+  result. So a turn, a Live session, the guardrails that read the result, the `readBack` that
+  history replays, and the MCP door's text all leave the field out. A `post_tool` `mutate` is cut
+  the same way.
+- **Every tool kind.** A function, HTTP, or MCP tool marks fields in its `output`. An agent tool
+  reads the marks in the called agent's structured schemas (`registerStructured`), so the calling
+  model does not read a marked field of the reply. The called agent still writes the field, and
+  the provider is never sent the mark.
+- **Unions.** A field that any branch of an `anyOf`, `oneOf`, or `allOf` marks is left out in
+  every branch.
+- **Visible.** The output schema keeps the field and the mark, so the host door's `describe`
+  shows both.
+- **Refused at registration.** A mark with any value but `false`, a mark on an input field, and a
+  mark on the whole output. To hide the whole output, set `exposeToModel: false` on the tool.
+
+Nothing is inferred from a field's name. A transcript recorded before the field was marked
+replays the text the model read then.
 
 ### Tool images
 

@@ -220,6 +220,54 @@ Deno.test('a structured reply comes back once, as the object and not also as its
   assertEquals(read, ['{"structured":{"summary":"water less"}}']);
 });
 
+Deno.test('a reply field marked exposeToModel: false reaches the host, never the calling model or the provider', async () => {
+  const scope = createKernelScope();
+  scope.schemas.register('agent_tool_marked_reply', {
+    jsonSchema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string' },
+        photoUrl: { type: 'string', exposeToModel: false },
+      },
+    },
+  });
+  scope.profiles.register(
+    defineProfile({
+      ...textProfile(RESEARCHER, RESEARCHER_SYSTEM, []),
+      outputs: { structured: 'agent_tool_marked_reply' },
+    }),
+  );
+  scope.tools.register(agentTool());
+  scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
+  const read: string[] = [];
+  const sentToResearcher: string[] = [];
+  const caller = routedProvider();
+  const reply = { summary: 'water less', photoUrl: 'https://img.example/fern.png' };
+  const provider: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (isResearcher(req)) {
+        sentToResearcher.push(JSON.stringify(req));
+        yield { type: 'text', text: JSON.stringify(reply) };
+        yield { type: 'structured', structured: reply };
+        return;
+      }
+      const last = req.history?.at(-1);
+      if (last?.role === 'tool' && typeof last.content === 'string') read.push(last.content);
+      yield* caller.complete(req);
+    },
+  };
+  const events = await collect(scope, provider);
+  const [complete] = toolPhases(events, 'complete');
+  assertEquals((complete as { output: unknown }).output, { structured: reply });
+  assertEquals(read, ['{"structured":{"summary":"water less"}}']);
+  assert(sentToResearcher.length > 0);
+  assertEquals(
+    sentToResearcher.some((req) => req.includes('exposeToModel')),
+    false,
+  );
+});
+
 Deno.test("the caller's done.tokens includes the agent call, which carries its own", async () => {
   const events = await collect(scopeWith(), routedProvider());
   const [complete] = toolPhases(events, 'complete');

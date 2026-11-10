@@ -43,9 +43,10 @@ import {
   type McpSessionUse,
   mcpSessionKey,
 } from './mcp-sessions.ts';
+import { outputForModel } from './model-view.ts';
 import type { ToolOperationClaim } from './operation.ts';
 import { checkPermission, gateDetails } from './permission.ts';
-import { assertFixedEndpointOrigin } from './schema.ts';
+import { assertFixedEndpointOrigin, type JsonSchema } from './schema.ts';
 import { runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
 import type {
   HttpToolDef,
@@ -408,9 +409,16 @@ export function parseToolOutput<T>(
   return checked;
 }
 
-/** Not repeated as `data`, which `composeToolText` would append a second time. */
-export function modelResultFromOutput(data: unknown): ModelToolResult {
-  return { finding: typeof data === 'string' ? data : JSON.stringify(data) };
+/**
+ * Not repeated as `data`, which `composeToolText` would append a second time. A field the tool's
+ * output schema marks `exposeToModel: false` is left out.
+ */
+export function modelResultFromOutput(
+  data: unknown,
+  outputSchema: JsonSchema | undefined,
+): ModelToolResult {
+  const seen = outputForModel(outputSchema, data);
+  return { finding: typeof seen === 'string' ? seen : JSON.stringify(seen) };
 }
 
 /** The result with the media a tool returned beside its value, when it returned any. */
@@ -752,14 +760,21 @@ export function failureWithoutSecret(failure: ToolFailure, secret: string): Tool
 }
 
 /** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace, or client. */
-function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): ToolBodyOutcome {
+function withoutSecret(
+  outcome: ToolBodyOutcome,
+  secret: string | undefined,
+  outputSchema: JsonSchema,
+): ToolBodyOutcome {
   if (!secret) return outcome;
   if (outcome.kind === 'ok') {
     const outputRaw = omitSecret(outcome.outputRaw, secret);
     return {
       kind: 'ok',
       outputRaw,
-      modelResult: withMedia(modelResultFromOutput(outputRaw), outcome.modelResult.parts),
+      modelResult: withMedia(
+        modelResultFromOutput(outputRaw, outputSchema),
+        outcome.modelResult.parts,
+      ),
     };
   }
   if (outcome.kind === 'failed') {
@@ -780,6 +795,7 @@ export function audienceMismatch(audience: string | undefined, url: URL): string
  */
 async function* sendWithCredential(
   prepared: { audience?: string; secret?: string; query?: CredentialQuery },
+  outputSchema: JsonSchema,
   url: URL,
   send: (url: URL) => AsyncGenerator<TurnEvent, ToolBodyOutcome>,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
@@ -790,7 +806,11 @@ async function* sendWithCredential(
       true,
     );
   }
-  return withoutSecret(yield* send(withCredentialQuery(url, prepared.query)), prepared.secret);
+  return withoutSecret(
+    yield* send(withCredentialQuery(url, prepared.query)),
+    prepared.secret,
+    outputSchema,
+  );
 }
 
 /**
@@ -834,7 +854,7 @@ export async function* executeHttpTool(
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
   const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared, guarded.url, (url) =>
+  return yield* sendWithCredential(prepared, tool.outputSchema, guarded.url, (url) =>
     sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span, shown, handOff),
   );
 }
@@ -946,7 +966,7 @@ async function* sendHttpRequest(
 
     return {
       kind: 'ok',
-      modelResult: modelResultFromOutput(checked.data),
+      modelResult: modelResultFromOutput(checked.data, tool.outputSchema),
       outputRaw: checked.data,
     };
   } catch (err) {
@@ -1539,7 +1559,7 @@ export async function* executeMcpTool(
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
   const handOff = yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared, guarded.url, (url) =>
+  return yield* sendWithCredential(prepared, tool.outputSchema, guarded.url, (url) =>
     sendMcpRequest(tool, url, prepared.input, prepared, ctx, base, stages?.span, sessions, handOff),
   );
 }
@@ -1609,7 +1629,10 @@ async function* sendMcpRequest(
     }
     return {
       kind: 'ok',
-      modelResult: withMedia(modelResultFromOutput(interpreted.data), interpreted.parts),
+      modelResult: withMedia(
+        modelResultFromOutput(interpreted.data, tool.outputSchema),
+        interpreted.parts,
+      ),
       outputRaw: interpreted.data,
     };
   } catch (err) {

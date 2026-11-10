@@ -1097,7 +1097,11 @@ function hostFieldsFailure(
   return {
     code: 'invalid_input',
     kind: 'bad_response',
-    message: labelText('tool.input_invalid', {}, args.profile.labels),
+    message: labelText(
+      'tool.input_host_fields',
+      { tool: args.name, fields: notInputs.join(', ') },
+      args.profile.labels,
+    ),
     details: { notInputs },
   };
 }

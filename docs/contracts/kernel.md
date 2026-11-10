@@ -926,9 +926,10 @@ The model's schema leaves the field out, so the model never sees it. The host fi
   field. The host door's `describe` shows the field and its mark.
 
 The model cannot set the field. A model's call that sends it fails `invalid_input`
-(`bad_response`) before the tool runs, and `failure.details.notInputs` names each field it sent.
-The MCP door lists the model's schema and refuses a call that sends a marked field, because its
-client is a model.
+(`bad_response`) before the tool runs. The model reads the `tool.input_host_fields` label, which
+names the tool and the fields it sent, and `failure.details.notInputs` lists the fields. The MCP
+door lists the model's schema and refuses a call that sends a marked field with the same label,
+because its client is a model.
 
 What the model reads back as its call leaves the field out: history replay, a confirmation gate's
 `preparedArguments`, and a person's edit (`edited.to`). The host's `pre_tool` stage runs again

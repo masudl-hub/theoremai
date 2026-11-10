@@ -289,9 +289,11 @@ export function createTheoremMcpHandler(
       throw new RpcError(200, INVALID_PARAMS, `Unknown tool: ${String(name)}`);
     const inputSchema = hostTool(name)?.inputSchema;
     const hostFields = inputSchema ? markedFieldsIn(inputSchema, params.arguments) : [];
-    if (hostFields.length > 0)
-      // labels-exempt: protocol diagnostic for the MCP client, not end-user copy
-      throw new RpcError(200, INVALID_PARAMS, `Not inputs of ${name}: ${hostFields.join(', ')}`);
+    if (hostFields.length > 0) {
+      const fields = hostFields.join(', ');
+      const message = labelText('tool.input_host_fields', { tool: name, fields }, host.labels);
+      throw new RpcError(200, INVALID_PARAMS, message);
+    }
     const events: TurnEvent[] = [];
     for await (const event of invokeTool({
       profile: host.id,

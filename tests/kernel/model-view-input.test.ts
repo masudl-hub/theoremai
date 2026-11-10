@@ -118,6 +118,10 @@ Deno.test('a model that sends a marked input field is refused and the tool does 
     'storeId',
     'filter.shelf',
   ]);
+  assertEquals(
+    error?.failure.message,
+    'Your call to model_view_stock sent storeId, filter.shelf, which model_view_stock does not take. Call it again without them.',
+  );
   assertEquals(received, []);
 });
 
@@ -304,6 +308,10 @@ Deno.test("an agent tool's marked host field is the host's to fill, and reaches 
   assertEquals((error?.failure.details as { notInputs?: string[] } | undefined)?.notInputs, [
     'storeId',
   ]);
+  assertEquals(
+    error?.failure.message,
+    'Your call to model_view_ask sent storeId, which model_view_ask does not take. Call it again without them.',
+  );
   assertEquals(sentByModel.hostInputs, []);
 });
 
@@ -317,7 +325,10 @@ Deno.test('the MCP door lists the model view and refuses a marked field', async 
     name: 'model_view_stock',
     arguments: { plant: 'fern', storeId: 'guess' },
   });
-  assert(refused.error);
+  assertEquals(
+    refused.error?.message,
+    'Your call to model_view_stock sent storeId, which model_view_stock does not take. Call it again without them.',
+  );
   assertEquals(received, []);
 });
 

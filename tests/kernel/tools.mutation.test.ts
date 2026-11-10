@@ -56,9 +56,6 @@ type ToolPhaseEvent = {
     step?: {
       name: string;
     };
-    artifact?: {
-      id: string;
-    };
     warning?: {
       code: string;
     };
@@ -134,7 +131,6 @@ Deno.test('tools mutation helpers preserve side-event payloads', () => {
   const sideEvents = [
     { kind: 'progress' as const, data: { n: 1 } },
     { kind: 'trace' as const, step: { name: 's', kind: 'test', status: 'ok' } },
-    { kind: 'artifact' as const, artifact: { id: 'a' } },
     { kind: 'warning' as const, warning: { code: 'w', message: 'slow' } },
   ];
   const events = sideEvents.flatMap((event) =>
@@ -142,12 +138,11 @@ Deno.test('tools mutation helpers preserve side-event payloads', () => {
   );
   assertEquals(
     events.map((event) => event.tool.phase),
-    ['progress', 'trace', 'artifact', 'warning'],
+    ['progress', 'trace', 'warning'],
   );
   assertEquals(events[0]?.tool.data, { n: 1 });
   assertEquals(events[1]?.tool.step?.name, 's');
-  assertEquals(events[2]?.tool.artifact?.id, 'a');
-  assertEquals(events[3]?.tool.warning?.code, 'w');
+  assertEquals(events[2]?.tool.warning?.code, 'w');
 });
 Deno.test('tools mutation helpers project and format model results exactly', () => {
   const visible = { exposeToModel: true } as FunctionToolDef;

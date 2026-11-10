@@ -490,7 +490,7 @@ function buildInvokeCases(): Case[] {
 
   add('invoke/streaming all phases', { profile: p, name: 'streaming_probe', input: {} }, (r) => {
     const phases = new Set(toolPhases(r.events, 'streaming_probe'));
-    for (const phase of ['progress', 'trace', 'artifact', 'warning', 'complete']) {
+    for (const phase of ['progress', 'trace', 'warning', 'complete']) {
       if (!phases.has(phase)) return `missing phase ${phase}`;
     }
   });

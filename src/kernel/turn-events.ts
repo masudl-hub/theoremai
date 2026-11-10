@@ -723,7 +723,7 @@ export interface ToolCallEdit {
  *
  * - `running` — the body started; `edited` when the user changed the arguments;
  *   `activity` is the tool's activity label filled from the call's input.
- * - `progress` / `trace` / `artifact` / `warning` — streamed while it ran. A `progress` its
+ * - `progress` / `trace` / `warning` — streamed while it ran. A `progress` its
  *   output's check stops is not sent.
  * - `draft` — the next piece of what the tool is writing, for a preview, each piece read at
  *   `tool_output_<kind>` first (an agent tool's: its agent's reply). Sent only under
@@ -748,7 +748,6 @@ export type ToolPhaseEvent = ToolPhaseBase &
     | { phase: 'progress'; data: unknown }
     | { phase: 'draft'; text: string }
     | { phase: 'trace'; step: ToolTraceStep }
-    | { phase: 'artifact'; artifact: unknown }
     | { phase: 'warning'; warning: ToolWarning }
     | {
         phase: 'complete';
@@ -790,7 +789,6 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
   z.object({ ...toolPhaseBase, phase: z.literal('progress'), data: z.unknown() }),
   z.object({ ...toolPhaseBase, phase: z.literal('draft'), text: z.string() }),
   z.object({ ...toolPhaseBase, phase: z.literal('trace'), step: toolTraceStep }),
-  z.object({ ...toolPhaseBase, phase: z.literal('artifact'), artifact: z.unknown() }),
   z.object({ ...toolPhaseBase, phase: z.literal('warning'), warning: toolWarning }),
   z.object({
     ...toolPhaseBase,

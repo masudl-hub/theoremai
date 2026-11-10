@@ -260,7 +260,6 @@ function registerTestTools(): void {
         kind: 'trace',
         step: { name: 'step1', kind: 'test', status: 'ok' },
       };
-      yield { kind: 'artifact', artifact: { id: 'art-1' } };
       yield { kind: 'warning', warning: { code: 'slow', message: 'degraded' } };
       yield { kind: 'complete', output: { finding: 'streamed ok' } };
     },

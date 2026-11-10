@@ -219,7 +219,6 @@ export type ToolStreamEvent<TOut = unknown> =
    */
   | { kind: 'draft'; text: string }
   | { kind: 'trace'; step: ToolTraceStep }
-  | { kind: 'artifact'; artifact: unknown }
   | { kind: 'warning'; warning: ToolWarning }
   | { kind: 'complete'; output: TOut };
 

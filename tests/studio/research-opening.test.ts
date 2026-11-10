@@ -10,7 +10,6 @@ function tool(name: string, phase: 'complete' | 'error', callId: string): Transc
     arguments: {} as Record<string, unknown>,
     startedAt: 1,
     endedAt: 2,
-    artifacts: [] as [],
   };
   if (phase === 'complete') {
     return {

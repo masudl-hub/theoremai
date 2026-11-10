@@ -57,7 +57,6 @@ const toolCall = z.object({
   state: toolCallState.optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
-  artifacts: z.array(z.unknown()),
   get steps() {
     return z.array(toolCall).optional();
   },

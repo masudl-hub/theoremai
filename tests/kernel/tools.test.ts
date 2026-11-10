@@ -358,7 +358,6 @@ Deno.test('handler streaming is live through invoke and runTurn', async () => {
     handler: async function* () {
       yield { kind: 'progress', data: { pct: 10 } };
       yield { kind: 'trace', step: { name: 'step1', kind: 'test', status: 'ok' } };
-      yield { kind: 'artifact', artifact: { id: 'art-1' } };
       yield { kind: 'warning', warning: { code: 'slow', message: 'degraded' } };
       await gate;
       yield { kind: 'complete', output: { finding: 'released' } };
@@ -392,7 +391,7 @@ Deno.test('handler streaming is live through invoke and runTurn', async () => {
     }
   })();
   await invokeRun;
-  for (const phase of ['progress', 'trace', 'artifact', 'warning', 'complete']) {
+  for (const phase of ['progress', 'trace', 'warning', 'complete']) {
     assertEquals(invokePhases.includes(phase), true);
   }
   assertEquals(invokePhases.indexOf('progress') < invokePhases.indexOf('complete'), true);
@@ -413,7 +412,7 @@ Deno.test('handler streaming is live through invoke and runTurn', async () => {
       provider,
     ),
   );
-  for (const phase of ['progress', 'trace', 'artifact', 'warning']) {
+  for (const phase of ['progress', 'trace', 'warning']) {
     assertEquals(
       turnEvents.some((e) => e.type === 'tool' && e.tool.phase === phase),
       true,

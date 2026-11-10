@@ -262,7 +262,6 @@ export interface ToolCall {
   startedAt?: number;
   /** When it last settled: complete, failed, cancelled, or gated (epoch ms). */
   endedAt?: number;
-  artifacts: unknown[];
   /** An agent tool's: the calls its agent made, in order, from the call's `progress` phases. */
   steps?: ToolCall[];
 }

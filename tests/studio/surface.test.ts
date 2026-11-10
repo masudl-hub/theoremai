@@ -284,7 +284,7 @@ Deno.test('try reports the reply: its text, media, tool calls, and errors', asyn
         {
           id: 'b5',
           kind: 'tool',
-          tool: { name: 'lookup', callId: 'c', arguments: {}, artifacts: [] },
+          tool: { name: 'lookup', callId: 'c', arguments: {} },
         },
         { id: 'b6', kind: 'error', message: 'quota' },
       ],

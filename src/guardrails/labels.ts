@@ -834,7 +834,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'detect.output_blocked':
     "Told to the model in place of a tool's output or error text that a detector set to block matched.",
   'detect.shown_blocked':
-    "Shown to the person in place of a tool's output, error, artifact, or trace that a detector set to block matched at its `tool_shown` boundary.",
+    "Shown to the person in place of a tool's output, error, or trace that a detector set to block matched at its `tool_shown` boundary.",
   'egress.default_repair_guidance':
     'Sent to the model, under the rejection, when a detector blocks a reply and the model is asked to write it again.',
   'detect.hint.ids':

@@ -1006,7 +1006,7 @@ Deno.test('a source favicon names only its site, never the page', () => {
 });
 
 Deno.test('a tool row reads as its filled activity label, else the tool name in words', () => {
-  const call = { name: 'save_to_collection', callId: 'c1', arguments: {}, artifacts: [] };
+  const call = { name: 'save_to_collection', callId: 'c1', arguments: {} };
   assertEquals(toolCallLabel(call), 'Save to collection');
   const running = {
     ...call,

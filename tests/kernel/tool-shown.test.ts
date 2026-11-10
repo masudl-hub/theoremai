@@ -133,10 +133,9 @@ Deno.test('a failed call’s error text is read at tool_shown', async () => {
   assertEquals(shownReports(events), ['redact']);
 });
 
-Deno.test('an artifact and a trace step are read at tool_shown; a blocked one is not sent', async () => {
+Deno.test('a trace step is read at tool_shown; a blocked one is not sent', async () => {
   const streamed = tool(async function* () {
     await Promise.resolve();
-    yield { kind: 'artifact', artifact: { note: `saved ${KEY}` } };
     yield {
       kind: 'trace',
       step: { name: 'fetch', kind: 'http', status: 'ok', outputs: { body: KEY } },
@@ -144,13 +143,9 @@ Deno.test('an artifact and a trace step are read at tool_shown; a blocked one is
     yield { kind: 'complete', output: { body: 'done' } };
   } as unknown as FunctionToolDef['handler']);
   const redacted = await run(streamed);
-  assertEquals(toolEventsOf(redacted.events, 'artifact')[0]?.artifact, {
-    note: `saved ${PLACEHOLDER}`,
-  });
   assertEquals(toolEventsOf(redacted.events, 'trace')[0]?.step.outputs, { body: PLACEHOLDER });
 
   const blocked = await run(streamed, { credentials: { at: { tool_shown_function: 'block' } } });
-  assertEquals(toolEventsOf(blocked.events, 'artifact'), []);
   assertEquals(toolEventsOf(blocked.events, 'trace'), []);
-  assertEquals(shownReports(blocked.events), ['block', 'block']);
+  assertEquals(shownReports(blocked.events), ['block']);
 });

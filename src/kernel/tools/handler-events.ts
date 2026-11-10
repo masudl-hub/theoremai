@@ -21,8 +21,6 @@ export function* yieldHandlerSideEvent(
     yield toolEvent(base, { phase: 'draft', text: event.text });
   } else if (event.kind === 'trace') {
     yield toolEvent(base, { phase: 'trace', step: event.step });
-  } else if (event.kind === 'artifact') {
-    yield toolEvent(base, { phase: 'artifact', artifact: event.artifact });
   } else if (event.kind === 'warning') {
     yield toolEvent(base, { phase: 'warning', warning: event.warning });
   }
@@ -35,7 +33,7 @@ export interface HandlerEventChecks {
   policy: ResolvedGuardrailPolicy;
   /** `tool_output_<kind>`. */
   boundary: ToolBoundary;
-  /** `tool_shown_<kind>`: what its artifacts and trace are read at. */
+  /** `tool_shown_<kind>`: what its trace is read at. */
   shown: ToolBoundary;
   callableTools: readonly string[];
   /** Whether the host sees the handler's drafts (`outputs.streaming.mode` `sse`). */
@@ -65,12 +63,6 @@ export class HandlerEvents {
       return;
     }
     if (event.kind === 'progress' && (yield* this.progressStops(event.data))) return;
-    if (event.kind === 'artifact') {
-      const artifact = yield* this.shown(event.artifact);
-      if (artifact.shown)
-        yield* yieldHandlerSideEvent(this.base, { ...event, artifact: artifact.value });
-      return;
-    }
     if (event.kind === 'trace') {
       const step = yield* this.shown(event.step);
       if (step.shown) {

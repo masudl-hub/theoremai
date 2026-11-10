@@ -21,7 +21,6 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       arguments: tool.arguments,
       ...(tool.reasoning ? { reasoning: tool.reasoning } : {}),
       ...(tool.stepId ? { stepId: tool.stepId } : {}),
-      artifacts: [],
     };
   }
   if (call === undefined) {
@@ -59,8 +58,6 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       return { ...settled(call), state: tool, endedAt: tool.at };
     case 'draft':
       return { ...call, outputDraft: (call.outputDraft ?? '') + tool.text };
-    case 'artifact':
-      return { ...call, artifacts: [...call.artifacts, tool.artifact] };
     case 'progress':
       return withAgentStep(call, tool.data);
     case 'dispatch':
@@ -83,7 +80,6 @@ function settled(call: ToolCall): ToolCall {
 function applyToolDraft(call: ToolCall | undefined, draft: TurnEventOf<'tool_draft'>): ToolCall {
   return {
     arguments: {},
-    artifacts: [],
     ...call,
     name: draft.name,
     callId: draft.callId,

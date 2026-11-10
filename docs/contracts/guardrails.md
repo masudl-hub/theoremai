@@ -861,7 +861,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `tool_arguments_<kind>` | What the model sends to a tool of that type |
 | `tool_output_<kind>` | What a tool of that type returns, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
 | `tool_failure_<kind>` | The error text of a tool of that type that failed |
-| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output` and `activityPast`, the `error` event's message, and each `artifact` and `trace` |
+| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output` and `activityPast`, the `error` event's message, and each `trace` |
 | `reply` | The text the model says to the person |
 | `reply_structured` | The structured output the model returns |
 | `live_reply` | What the model says in a Live session |
@@ -1077,7 +1077,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
 | `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |
 | `tool_failure_<kind>` | The model reads labels `detect.output_blocked` in place of the tool's message |
-| `tool_shown_<kind>` | The person is shown labels `detect.shown_blocked` in place of the output or error message; an `artifact` or `trace` is not sent. What the model reads is unchanged |
+| `tool_shown_<kind>` | The person is shown labels `detect.shown_blocked` in place of the output or error message; a `trace` is not sent. What the model reads is unchanged |
 
 | `reply` | The reply stops before the match. It then goes the way `blockedReply` sets: the model is asked again, the person reads the refusal, or the turn ends withheld |
 | `reply_structured` | The structured output is not sent on; the reply goes the same way |
@@ -1333,7 +1333,7 @@ span as the `tool_failure` check. Rebuilding a failure the model already read
 are replaced, without reporting it twice.
 
 **What the person is shown.** A call's `complete` and `error` events, and its
-`artifact` and `trace` events, reach the host apart from what the model reads
+`trace` events, reach the host apart from what the model reads
 back, and a host's server forwards them to the browser as they are. Each is read
 at `tool_shown_<kind>` (`guardShownValue`): a JSON value has each match replaced
 in the string it sits in, and a match in a key or across values blocks it.
@@ -1604,7 +1604,7 @@ Emission sites of host events (non-`allow` only):
 | Stage | Path |
 | --- | --- |
 | `input` / `history` / `system` | `sanitizeTurnRequestWithEvents` at turn start |
-| `tool_call` / tool result | `executeRegisteredTool` (args, read by the detectors the profile runs there; taint; result) and `src/guardrails/tool-result.ts` event shaping |
+| `tool_call` / tool result | `executeRegisteredTool` (args, read by the detectors the profile runs there; taint; result) and `src/guardrails/tool-result.ts` event shaping, which reads what the person is shown: output, error and trace |
 | `output_delta` | Progressive-yield / canary mid-stream |
 | `thought` | The thought guard (`thought-guard.ts`), in `runTurn` and Live |
 | `output_final` | End-of-attempt egress in `gates.ts` |

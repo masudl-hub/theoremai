@@ -1281,7 +1281,7 @@ The late result reaches the model only through the host, in `input.lateResults` 
 
 Only a top-level call detaches. A tool inside an agent tool runs inline. A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and on a `tools.t2Loader` tool, and on a tool with its own `background` input.
 
-The work is bound to the process. It stops with the process and does not restart, and the claim stays open for the host's sweep. The host keeps the turn's `host` value, `credentials` and `onStage` valid until the call settles. `createTheoremHandler` takes the service through its `background` option, and its session coordinator has `detach`.
+The work is bound to the process. It stops with the process and does not restart, and the claim stays open for the host's sweep. The host keeps the turn's `host` value, `credentials` and `onStage` valid until the call settles. `createTheoremHandler` takes the service through its `background` option, and its session coordinator has `detach`. A `TurnWiring.prepare` can return its own `execution` and `background` there: the application's coordinator decides each call, and the session's records the same call after it, so the page still shows it.
 React's `createTheoremSessionBoundary` applies the same authenticated namespace and atomic store to live setup.
 It rejects unowned native state before transport. Ownership includes an operation-state fingerprint.
 A ledger change invalidates old live ownership, including a settlement after checkpoint creation. A detached call is the exception: its reply is what the checkpoint covers, so its late settlement changes nothing.

@@ -1,5 +1,6 @@
-import type { TurnWiring } from '@theoremjs/agents';
+import type { ToolBackgroundService, TurnWiring } from '@theoremjs/agents';
 import {
+  createMemoryToolExecution,
   geminiProvider,
   openRouterProvider,
   registerProfile,
@@ -11,6 +12,10 @@ import { registerTools } from './tools.ts';
 
 const FAKE = Deno.env.get('FAKE_MODEL_URL');
 if (!FAKE) throw new Error('FAKE_MODEL_URL is not set: this project runs on no real model.');
+
+// why: The project keeps its own record of late tool calls, as an app with a job store does.
+const execution = createMemoryToolExecution();
+const background: ToolBackgroundService = { detached() {}, event() {} };
 
 const fake: typeof fetch = (input, init) => {
   const url = new URL(input instanceof Request ? input.url : String(input));
@@ -38,6 +43,7 @@ export const theorem: TurnWiring = {
     registerProfile(team.line);
     registerProfile(team.scout);
   },
+  prepare: (turn) => ({ ...turn, execution, background }),
   provider: {
     vault: { router_key: 'fixture-placeholder', google_key: 'fixture-placeholder' },
     fetch: fake,

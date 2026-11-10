@@ -1,7 +1,8 @@
 /**
  * The application's turn wiring (`TurnWiring.prepare`) laid over the turn the handler builds.
  * The handler keeps the fields it owns; the application's stage handler and credentials go
- * first, and the handler's own run when the application's have nothing.
+ * first, and the handler's own run when the application's have nothing. An application's own
+ * tool record and background service run with the session's, never in place of it.
  *
  * @module
  */
@@ -12,45 +13,79 @@ import type {
   TurnRequest,
   TurnWiring,
 } from '@theoremjs/agents';
-import type { ToolCredentialSource } from '@theoremjs/agents/kernel';
+import type { ToolBackgroundService, ToolCredentialSource } from '@theoremjs/agents/kernel';
+import { layeredToolCoordinator } from './tool-operations.ts';
 
 /** The fields a handler sets on every turn, which `prepare` cannot replace. */
 export type HandlerOwned = Pick<
   TurnRequest,
-  'profile' | 'execution' | 'pageExecution' | 'background' | 'providerState' | 'signal'
+  'profile' | 'pageExecution' | 'providerState' | 'signal'
 >;
+
+/** The session's tool record and the handler's background service, which `prepare` can add to. */
+export type HandlerTools = Pick<TurnRequest, 'execution' | 'background'>;
 
 /** What the handler adds to a turn of its own: the session's credentials and its steering. */
 export type HandlerTurnParts = {
   credentials: ToolCredentialSource;
   onStage?: StageHandler;
+  /** Tells an open page when a call of the service it is given ends. */
+  announce?: (service: ToolBackgroundService) => ToolBackgroundService;
 };
 
 /**
  * The turn to run: `turn` through the application's `prepare`, with the handler's own fields
- * kept, and its credentials and steering after the application's.
+ * kept, its credentials and steering after the application's, and the application's tool record
+ * and background service, when it gives them, joined with the session's.
  */
 export async function preparedTurn(
   prepare: TurnWiring['prepare'],
-  turn: NormalizedTurnRequest & HandlerOwned,
+  turn: NormalizedTurnRequest & HandlerOwned & HandlerTools,
   handler: HandlerTurnParts,
 ): Promise<TurnRequest> {
   const app = prepare ? await prepare(turn) : turn;
   const owned: HandlerOwned = {
     profile: turn.profile,
-    ...(turn.execution ? { execution: turn.execution } : {}),
     ...(turn.pageExecution ? { pageExecution: turn.pageExecution } : {}),
-    ...(turn.background ? { background: turn.background } : {}),
     ...(turn.providerState ? { providerState: turn.providerState } : {}),
     ...(turn.signal ? { signal: turn.signal } : {}),
   };
   const onStage = stagesInOrder(app.onStage, handler.onStage);
+  const execution = toolsInOrder(app.execution, turn.execution);
+  const background = backgroundInOrder(app.background, turn.background, handler.announce);
   return {
     ...app,
     ...owned,
+    ...(execution ? { execution } : {}),
+    ...(background ? { background } : {}),
     credentials: credentialsInOrder(app.credentials, handler.credentials),
     ...(onStage ? { onStage } : {}),
   };
+}
+
+/**
+ * The application's tool record, then the session's. The application's decides each call; the
+ * session's keeps the same call, so the page shows it and a resend reads it back.
+ */
+function toolsInOrder(
+  app: TurnRequest['execution'],
+  session: TurnRequest['execution'],
+): TurnRequest['execution'] {
+  if (!app || !session || app === session) return session ?? app;
+  return layeredToolCoordinator(app, session);
+}
+
+/**
+ * The application's background service in place of the handler's, told to the open page as the
+ * handler's is. The handler's runs when the application gives none.
+ */
+function backgroundInOrder(
+  app: ToolBackgroundService | undefined,
+  own: ToolBackgroundService | undefined,
+  announce: HandlerTurnParts['announce'],
+): ToolBackgroundService | undefined {
+  if (!app || app === own) return own;
+  return announce ? announce(app) : app;
 }
 
 /**

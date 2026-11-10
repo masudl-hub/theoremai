@@ -5,6 +5,7 @@ import {
   type ToolOperationClaim,
   type ToolOperationIdentity,
   type ToolOperationOutcome,
+  type ToolOperationReply,
 } from '@theoremjs/agents';
 import {
   detachedReply,
@@ -191,6 +192,72 @@ export function sessionToolCoordinator(
           detectedAt: Date.now(),
         };
       });
+    },
+  };
+}
+
+/**
+ * The application's coordinator, with the session's record kept beside it. The application's
+ * decides each call and holds it first; the session's records the same call after it, so the page
+ * shows the call and its late end, and a resend reads it back.
+ * invariant: A call the application holds and the session already knows breaks the contract; the
+ * application's claim stays open for its own sweep.
+ */
+export function layeredToolCoordinator(
+  owner: ToolExecutionCoordinator,
+  session: ToolExecutionCoordinator,
+): ToolExecutionCoordinator {
+  // why: The kernel hands back the owner's claim; the session's token for the same call is kept here.
+  const sessionTokens = new Map<string, string>();
+  const sessionClaim = (claim: ToolOperationClaim): ToolOperationClaim => {
+    const claimToken = sessionTokens.get(claim.operationId);
+    // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+    if (!claimToken)
+      unavailable(`The session holds no claim on tool operation ${claim.operationId}`);
+    return { ...claim, claimToken };
+  };
+  const limits = [owner.maxOutcomeBytes, session.maxOutcomeBytes].filter(
+    (limit): limit is number => limit !== undefined,
+  );
+  const { detach } = owner;
+  return {
+    ...(limits.length > 0 ? { maxOutcomeBytes: Math.min(...limits) } : {}),
+    async lookup(identity) {
+      return (await owner.lookup(identity)) ?? (await session.lookup(identity));
+    },
+    async begin(identity) {
+      const held = await owner.begin(identity);
+      if (held.kind !== 'acquired') return held;
+      const recorded = await session.begin(identity);
+      if (recorded.kind !== 'acquired')
+        unavailable(
+          // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+          `The session already holds tool operation ${identity.operationId}, which its owner had not`,
+        );
+      sessionTokens.set(identity.operationId, recorded.claimToken);
+      return held;
+    },
+    ...(detach
+      ? {
+          async detach(claim: ToolOperationClaim, reply: ToolOperationReply) {
+            await detach.call(owner, claim, reply);
+            await session.detach?.(sessionClaim(claim), reply);
+          },
+        }
+      : {}),
+    async settle(claim, outcome) {
+      await owner.settle(claim, outcome);
+      await session.settle(sessionClaim(claim), outcome);
+      sessionTokens.delete(claim.operationId);
+    },
+    async settleNotStarted(identity, outcome) {
+      await owner.settleNotStarted(identity, outcome);
+      await session.settleNotStarted(identity, outcome);
+    },
+    async markUncertain(claim, reason) {
+      await owner.markUncertain(claim, reason);
+      await session.markUncertain(sessionClaim(claim), reason);
+      sessionTokens.delete(claim.operationId);
     },
   };
 }

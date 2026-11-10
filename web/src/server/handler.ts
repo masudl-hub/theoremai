@@ -198,10 +198,12 @@ export type TheoremHandlerOptions = {
   context?: (request: Request) => unknown;
   /**
    * The application's own turn, from the one the handler builds: `TurnWiring.prepare`, the
-   * value the application's other call sites use too. The handler keeps its profile, its tool
-   * execution and its abort. The application's `onStage` runs before the handler's steering, and
-   * its `credentials` are read before the session's. A call held at a gate runs on, once
-   * answered, with the `host`, `onStage` and `credentials` it gives for that call's turn.
+   * value the application's other call sites use too. The handler keeps its profile and its
+   * abort. The application's `onStage` runs before the handler's steering, and its `credentials`
+   * are read before the session's. An `execution` it returns decides each call, and the session
+   * still records the same call; a `background` it returns takes the place of `background` below,
+   * and `notifier` still tells the page. A call held at a gate runs on, once answered, with the
+   * `host`, `onStage`, `credentials`, `execution` and `background` it gives for that call's turn.
    */
   prepare?: TurnWiring['prepare'];
   /**
@@ -250,7 +252,8 @@ export type TheoremHandlerOptions = {
   pageToolTimeoutMs?: number;
   /**
    * The service for tools with a `background` setting, by session. It receives each detached call
-   * and its late events. The session keeps each call's state and result. Unset, every tool runs
+   * and its late events. The session keeps each call's state and result. A `background` that
+   * `prepare` returns runs in its place. Unset, and with none from `prepare`, every tool runs
    * inline. The value must stay valid after the request ends, until each call settles.
    */
   background?: (ctx: { request: Request; sessionId: string }) => ToolBackgroundService;
@@ -767,6 +770,8 @@ async function* invokeAnswered(
     ctx.options.prepare,
     {
       profile: ctx.profile.id,
+      execution: sessionToolCoordinator(ctx.sessions, sessionId),
+      ...backgroundWiring(ctx, request, sessionId),
       input: pending.turnInput ?? {},
       host,
       signal: request.signal,
@@ -775,12 +780,13 @@ async function* invokeAnswered(
     {
       credentials: sessionCredentials(ctx, sessionId),
       ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),
+      announce: (service) => announced(ctx, request, sessionId, service),
     },
   );
   yield* invokeTool({
     profile: ctx.profile.id,
-    execution: sessionToolCoordinator(ctx.sessions, sessionId),
-    ...backgroundWiring(ctx, request, sessionId),
+    ...(prepared.execution ? { execution: prepared.execution } : {}),
+    ...(prepared.background ? { background: prepared.background } : {}),
     pageExecution: sessionPageDispatch(
       ctx.sessions,
       sessionId,
@@ -815,19 +821,26 @@ function backgroundWiring(
   sessionId: string,
 ): { background?: ToolBackgroundService } {
   const service = ctx.options.background?.({ request, sessionId });
-  if (!service) return {};
+  return service ? { background: announced(ctx, request, sessionId, service) } : {};
+}
+
+/** `service`, telling the session's open page through the notifier when each of its calls ends. */
+function announced(
+  ctx: HandlerContext,
+  request: Request,
+  sessionId: string,
+  service: ToolBackgroundService,
+): ToolBackgroundService {
   const { notifier } = ctx.options;
-  if (!notifier) return { background: service };
+  if (!notifier) return service;
   return {
-    background: {
-      detached(call) {
-        service.detached(call);
-        void call.done
-          .then(() => notifier.publish(sessionId))
-          .catch((err: unknown) => ctx.options.onError?.(err, { request }));
-      },
-      event: (event, call) => service.event(event, call),
+    detached(call) {
+      service.detached(call);
+      void call.done
+        .then(() => notifier.publish(sessionId))
+        .catch((err: unknown) => ctx.options.onError?.(err, { request }));
     },
+    event: (event, call) => service.event(event, call),
   };
 }
 
@@ -883,6 +896,7 @@ async function* chatTurn(
       {
         credentials: sessionCredentials(ctx, session.id),
         ...(onStage ? { onStage } : {}),
+        announce: (service) => announced(ctx, request, session.id, service),
       },
     );
     const events = runTurn(prepared, provider);

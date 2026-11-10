@@ -32,6 +32,7 @@ import { compileDetect } from '@theoremjs/agents/guardrails/compile';
 import { createProviderRegistry } from '@theoremjs/agents/kernel';
 import type { TheoremRewound } from '@theoremjs/web/client';
 import {
+  createMemoryNotifier,
   createSealedConversationStore,
   createTheoremDecisionHandler,
   createTheoremEmbeddingHandler,
@@ -659,6 +660,8 @@ function profileHandlers(
     clientEvents: STUDIO_READER,
     ...(host ? { host: (request: Request) => host(request, actingAs(request)) } : {}),
   };
+  // why: A call that ends after its turn redraws the open chat, as it would on the project's page.
+  const notifier = createMemoryNotifier();
   // One store for every chat profile: one key, so any of them opens a ref its session holds.
   let conversationStore: TheoremConversationStore | undefined;
   const chatStore = () =>
@@ -742,6 +745,7 @@ function profileHandlers(
         // The studio's page is the builder's own: its picks choose the prompt lines.
         pageStatesTurn: true,
         background: () => STUDIO_BACKGROUND,
+        notifier,
         ...shared,
       });
       served.set(

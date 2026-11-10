@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { entriesForFile, lintDocsTruth, normalizePath, pathRuleMatches } from './graph.mjs';
 
+// why: No changed sections, so a touched doc counts as touched throughout and the working tree's own diff stays out of these cases.
+const WHOLE_DOCS = new Map();
+
 test('pathRuleMatches supports trailing slash and globs', () => {
   assert.equal(pathRuleMatches('src/kernel/', 'src/kernel/mod.ts'), true);
   assert.equal(pathRuleMatches('src/kernel/', 'src/providers/mod.ts'), false);
@@ -61,6 +64,7 @@ test('package publish surface omits repo contracts and docs-truth', async () => 
 test('lint passes on current repo graph', async () => {
   const result = await lintDocsTruth({
     repoRoot: new URL('../..', import.meta.url).pathname,
+    changedSections: WHOLE_DOCS,
     changedFiles: [],
   });
   assert.equal(result.errors.length, 0, result.errors.join('\n'));
@@ -76,14 +80,22 @@ test('React source and package changes require the React README', async () => {
   ]) {
     const { access } = await import('node:fs/promises');
     await access(`${repoRoot}/${file}`);
-    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file] });
+    const stale = await lintDocsTruth({
+      repoRoot,
+      changedSections: WHOLE_DOCS,
+      changedFiles: [file],
+    });
     assert.ok(
       stale.errors.some((error) =>
         error.includes(`${file}: changed without touching owning doc react/README.md`),
       ),
       stale.errors.join('\n'),
     );
-    const fresh = await lintDocsTruth({ repoRoot, changedFiles: [file, 'react/README.md'] });
+    const fresh = await lintDocsTruth({
+      repoRoot,
+      changedSections: WHOLE_DOCS,
+      changedFiles: [file, 'react/README.md'],
+    });
     assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
   }
 });
@@ -98,14 +110,22 @@ test('web source and package changes require the web README', async () => {
   ]) {
     const { access } = await import('node:fs/promises');
     await access(`${repoRoot}/${file}`);
-    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file] });
+    const stale = await lintDocsTruth({
+      repoRoot,
+      changedSections: WHOLE_DOCS,
+      changedFiles: [file],
+    });
     assert.ok(
       stale.errors.some((error) =>
         error.includes(`${file}: changed without touching owning doc web/README.md`),
       ),
       stale.errors.join('\n'),
     );
-    const fresh = await lintDocsTruth({ repoRoot, changedFiles: [file, 'web/README.md'] });
+    const fresh = await lintDocsTruth({
+      repoRoot,
+      changedSections: WHOLE_DOCS,
+      changedFiles: [file, 'web/README.md'],
+    });
     assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
   }
 });
@@ -117,24 +137,37 @@ test('studio changes require the studio README, and its runtime and packaging th
     'studio/server/draft-handler.ts',
     'studio/package.json',
   ]) {
-    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file] });
+    const stale = await lintDocsTruth({
+      repoRoot,
+      changedSections: WHOLE_DOCS,
+      changedFiles: [file],
+    });
     assert.ok(
       stale.errors.some((error) =>
         error.includes(`${file}: changed without touching owning doc studio/README.md`),
       ),
       stale.errors.join('\n'),
     );
-    const fresh = await lintDocsTruth({ repoRoot, changedFiles: [file, 'studio/README.md'] });
+    const fresh = await lintDocsTruth({
+      repoRoot,
+      changedSections: WHOLE_DOCS,
+      changedFiles: [file, 'studio/README.md'],
+    });
     assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
   }
   for (const file of ['studio/runtime.ts', 'scripts/build-npm-studio.ts']) {
-    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file, 'studio/README.md'] });
+    const stale = await lintDocsTruth({
+      repoRoot,
+      changedSections: WHOLE_DOCS,
+      changedFiles: [file, 'studio/README.md'],
+    });
     assert.ok(
       stale.errors.some((error) => error.includes('docs/contracts/studio.md')),
       stale.errors.join('\n'),
     );
     const fresh = await lintDocsTruth({
       repoRoot,
+      changedSections: WHOLE_DOCS,
       changedFiles: [file, 'studio/README.md', 'docs/contracts/studio.md'],
     });
     assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
@@ -150,6 +183,7 @@ test('provider and session changes also require the React guide', async () => {
   ]) {
     const stale = await lintDocsTruth({
       repoRoot,
+      changedSections: WHOLE_DOCS,
       changedFiles: [file, 'docs/contracts/kernel.md'],
     });
     assert.ok(

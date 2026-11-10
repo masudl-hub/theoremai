@@ -36,7 +36,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | Full ownership | Every production-root file has exactly one `owns` entry in `docs/_map.mjs` |
 | Schema validation | Manifest specifies `theorem.docs-truth/v1` schema |
 | Doc freshness | Changed existing production or explicitly mapped files require their owning or watching document in the diff. Deleted files are skipped. The base is `THEOREM_DOCS_BASE...HEAD` (default `origin/main`), plus staged and unstaged edits. |
-| Section freshness | Watches/`section_triggers` → specific `##` headings must change, read from one diff between the fork point with the base and the working tree, so uncommitted edits cannot shift a hunk into the wrong section |
+| Section freshness | Watches/`section_triggers` → specific `##` headings must change, read from one diff between the fork point with the base and the working tree, so uncommitted edits cannot shift a hunk into the wrong section. A caller that names its changed files may name the changed sections too |
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥ `min_evidence_supports` supports (default 2); behavioral sections require `contract_test` or `validation` evidence |
 | Export drift | `deno doc` reads every name that a published entry point (each `deno.json` export) exports, `export *` included. Each name is in the `Symbols` or `Export` column of a table under `## Exported API` (or `###`) in the doc of the graph entry that owns that export. Names that come through `export type *`, or through `export *` from another published entry point, are covered by reference. Every name in that column is exported by some entry point. The root README's `## Public Entrypoints` table names each `deno.json` export, and only those (`export-drift.mjs`) |
@@ -77,7 +77,7 @@ owned by those contracts for freshness — change code, update the matching cont
 | `mod.ts` | Package barrel (`@theoremjs/agents`) |
 | `package.json` | Published exports |
 | `src/**/*.ts` | Kernel + adapters (live tree only; deleted paths skip freshness) |
-| `scripts/docs-truth/**/*.mjs` | Docs-truth linter; changes require the relevant section of this document |
+| `scripts/docs-truth/**/*.mjs` | Docs-truth linter; changes require the relevant section of this document. Its tests name their changed files and sections, so the working tree never reaches them |
 
 Explicit mappings also monitor files outside these production roots.
 The `react-package` entry monitors `react/src/` and `react/package.json`.

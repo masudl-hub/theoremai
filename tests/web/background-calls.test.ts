@@ -1,10 +1,13 @@
-import { assert, assertEquals } from '@std/assert';
+import { assert, assertEquals, assertRejects } from '@std/assert';
 import {
+  createMemoryToolExecution,
   defaultKernelScope,
   type ProfileDefinition,
   registerTool,
+  TheoremError,
   type ToolBackgroundHandle,
   type ToolBackgroundService,
+  type ToolExecutionCoordinator,
   type ToolOperationClaim,
   type ToolOperationIdentity,
   type TurnEvent,
@@ -22,10 +25,14 @@ import {
 } from '../../web/src/server/checkpoint-ownership.ts';
 import {
   createMemoryConversationStore,
+  createMemoryNotifier,
   createMemorySessionStore,
   createTheoremHandler,
 } from '../../web/src/server/mod.ts';
-import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
+import {
+  layeredToolCoordinator,
+  sessionToolCoordinator,
+} from '../../web/src/server/tool-operations.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
@@ -264,4 +271,122 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
   } finally {
     release();
   }
+});
+
+/** A coordinator that keeps every call it is given, and logs each step it takes. */
+function loggedCoordinator(log: string[]): ToolExecutionCoordinator {
+  const memory = createMemoryToolExecution();
+  const logged =
+    <A extends unknown[], R>(name: string, step: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      log.push(name);
+      return await step(...args);
+    };
+  return {
+    lookup: logged('lookup', (identity) => memory.lookup(identity)),
+    begin: logged('begin', (identity) => memory.begin(identity)),
+    detach: logged('detach', (claim, reply) => memory.detach?.(claim, reply) ?? Promise.resolve()),
+    settle: logged('settle', (claim, outcome) => memory.settle(claim, outcome)),
+    settleNotStarted: logged('settleNotStarted', (identity, outcome) =>
+      memory.settleNotStarted(identity, outcome),
+    ),
+    markUncertain: logged('markUncertain', (claim, reason) => memory.markUncertain(claim, reason)),
+  };
+}
+
+Deno.test("prepare's own record and service hold a chat's late call, and the session shows it", async () => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  registerFixtureProviders(defaultKernelScope);
+  registerTool({
+    type: 'function',
+    name: 'web_slow_job',
+    description: 'A slow job.',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    background: 'always',
+    input: z.strictObject({}),
+    output: z.object({ done: z.string() }),
+    handler: async () => {
+      await held;
+      return { done: 'late' };
+    },
+  });
+  try {
+    const sessionStore = createMemorySessionStore();
+    const notifier = createMemoryNotifier();
+    const steps: string[] = [];
+    const appHandles: ToolBackgroundHandle[] = [];
+    const ownHandles: ToolBackgroundHandle[] = [];
+    const appService: ToolBackgroundService = {
+      detached: (handle) => appHandles.push(handle),
+      event: () => {},
+    };
+    const handler = createTheoremHandler({
+      profile: PROFILE,
+      provider: () => fixtureHostOptions(caller()),
+      conversationStore: createMemoryConversationStore(),
+      sessionStore,
+      session: () => 'one-person',
+      notifier,
+      onError: (err) => console.error(err),
+      background: () => ({ detached: (handle) => ownHandles.push(handle), event: () => {} }),
+      prepare: (turn) => ({
+        ...turn,
+        execution: loggedCoordinator(steps),
+        background: appService,
+      }),
+    });
+    const transport = createHttpTransport({
+      endpoint: 'http://host.test/api/theorem',
+      fetch: (url, init) => handler(new Request(url, init)),
+    });
+    let ref = '';
+    await transport.turn({ input: { text: 'hello' } }, (line) => {
+      if (line.type === 'conversation') ref = line.ref;
+    });
+    const shown = async () =>
+      (await transport.conversation({ conversation: ref })).transcript.flatMap((block) =>
+        block.kind === 'tool' ? [block.tool.state?.phase] : [],
+      );
+    assertEquals(steps, ['lookup', 'begin', 'detach']);
+    assertEquals(appHandles.length, 1);
+    assertEquals(ownHandles.length, 0);
+    assertEquals(await shown(), ['background']);
+    let published = 0;
+    notifier.subscribe('one-person', () => {
+      published += 1;
+    });
+    release();
+    await appHandles[0].done;
+    await Promise.resolve();
+    assertEquals(steps, ['lookup', 'begin', 'detach', 'settle']);
+    assertEquals(published, 1);
+    assertEquals(await shown(), ['complete']);
+  } finally {
+    release();
+  }
+});
+
+Deno.test('a call its owner already holds leaves the session untouched', async () => {
+  const { coordinator: session, operations } = await detachedCall();
+  const owner = loggedCoordinator([]);
+  const begun = await owner.begin({ ...IDENTITY, operationId: 'op_2' });
+  assert(begun.kind === 'acquired');
+  const layered = layeredToolCoordinator(owner, session);
+  assertEquals(await layered.begin({ ...IDENTITY, operationId: 'op_2' }), { kind: 'running' });
+  assertEquals(Object.keys(await operations()), ['op_1']);
+});
+
+Deno.test('a call the session holds and its owner does not is refused, with the claim left open', async () => {
+  const { coordinator: session } = await detachedCall();
+  const steps: string[] = [];
+  const layered = layeredToolCoordinator(loggedCoordinator(steps), session);
+  await assertRejects(() => layered.begin(IDENTITY), TheoremError);
+  assertEquals(steps, ['begin']);
 });

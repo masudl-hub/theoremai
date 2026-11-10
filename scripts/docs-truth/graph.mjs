@@ -486,6 +486,7 @@ export async function lintDocsTruth({
   repoRoot,
   graphPath = DEFAULT_GRAPH_PATH,
   changedFiles = null,
+  changedSections = null,
 } = {}) {
   const errors = [];
   const warnings = [];
@@ -632,7 +633,7 @@ export async function lintDocsTruth({
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
   const touchedDocs = new Set(normalizedChanged.filter((file) => mappedDocs.has(file)));
-  const changedSectionsByDoc = await collectChangedSectionsByDoc(repoRoot);
+  const changedSectionsByDoc = changedSections ?? (await collectChangedSectionsByDoc(repoRoot));
 
   for (const changedFile of normalizedChanged) {
     const matching = entriesForFile(graph, changedFile);

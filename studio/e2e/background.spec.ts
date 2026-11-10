@@ -32,6 +32,17 @@ test('a tool set to always answers the model at once, and a reload shows how it 
   await expect(page.getByText('pages')).toBeVisible();
 });
 
+test('a late call that ends redraws the open chat, with the project keeping its own record', async ({
+  page,
+}) => {
+  await open(page);
+  await send(page, '[call slow_report {}]');
+  await expect(page.getByText(/Tool answered on full/)).toBeVisible();
+  await page.getByRole('button', { name: /Worked for/ }).click();
+  await page.getByRole('button', { name: /Slow report/ }).click();
+  await expect(page.getByText('pages')).toBeVisible({ timeout: 10_000 });
+});
+
 test('the tool page sets when the model gets its reply, and save writes it', async ({ page }) => {
   await open(page);
   await toolPage(page, 'file_note');

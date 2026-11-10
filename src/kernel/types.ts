@@ -1520,7 +1520,8 @@ export interface TurnWiring {
    * The turn the application runs, from the one it is given: the profile, the input with the
    * conversation's history, and the application's context as `host`. Set what the application
    * sets per turn, such as `system`, `credentials`, `onStage`, `onEvent`, `onAgentCall`, `path`
-   * and `metadata`. Text, image and speech turns run through it.
+   * and `metadata`, and the `execution` and `background` that keep its late tool calls. Text,
+   * image and speech turns run through it.
    */
   prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
 }

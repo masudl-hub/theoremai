@@ -867,6 +867,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'MCP',
     description: 'A tool served by an MCP server.',
   },
+  '@theorem.host.kind.agent': {
+    defaultMessage: 'Agent',
+    description: 'A tool that asks another agent.',
+  },
   '@theorem.tool.access.read-only': {
     defaultMessage: 'Read only',
     description: 'A tool that only reads.',

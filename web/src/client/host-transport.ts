@@ -7,6 +7,7 @@
  */
 
 import {
+  type CustomToolType,
   type Profile,
   resolveObservabilityPolicy,
   TOOL_ACCESS,
@@ -29,9 +30,13 @@ import {
 } from './transport.ts';
 import { checkWire } from './wire-line.ts';
 
-/** How a tool reaches its work: a function on the host, an HTTP endpoint, or an MCP server. */
-export const HOST_TOOL_KINDS = ['function', 'http', 'mcp'] as const;
+/**
+ * How a tool reaches its work: a function on the host, an HTTP endpoint, an MCP server, or
+ * another agent. Every tool type the host defines; only the provider's own tools are left out.
+ */
+export const HOST_TOOL_KINDS = ['function', 'http', 'mcp', 'agent'] as const;
 export type HostToolKind = (typeof HOST_TOOL_KINDS)[number];
+true satisfies Equals<HostToolKind, CustomToolType>;
 
 /** One tool as the page sees it. Its endpoint, headers, and credentials stay on the host. */
 export type HostToolView = {

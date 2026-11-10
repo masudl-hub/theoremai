@@ -10,7 +10,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconMathFunction, IconWorld } from '@tabler/icons-react';
+import { IconFileSmile, IconMathFunction, IconWorld } from '@tabler/icons-react';
 import type { HttpOptions, PageTools } from '@theoremjs/web/client';
 import {
   createHostTransport,
@@ -127,6 +127,7 @@ const KIND_ICON: Record<HostToolKind, IconType> = {
   function: IconMathFunction,
   http: IconWorld,
   mcp: IconMcp,
+  agent: IconFileSmile,
 };
 
 /** The most room a row of the tool menu takes, and the lines of description it shows. */

@@ -1,11 +1,18 @@
 import { assert, assertEquals, assertThrows } from '@std/assert';
 import { z } from 'zod';
-import { type ProfileDefinition, registerTool, type TurnEvent } from '../../mod.ts';
+import {
+  defaultKernelScope,
+  type ProfileDefinition,
+  registerProfile,
+  registerTool,
+  type TurnEvent,
+} from '../../mod.ts';
 import { createHostTransport } from '../../web/src/client/host-transport.ts';
 import type { TurnEventSink } from '../../web/src/client/transport.ts';
 import { issuedOperationId } from '../../web/src/client/turn-client.ts';
 import { createTheoremHandler, createTheoremHostHandler } from '../../web/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
 const BASE = 'http://host.test/api/host';
@@ -63,6 +70,26 @@ registerTool({
   paths: ['*'],
   input: z.object({ q: z.string() }),
   output: z.object({}).passthrough(),
+});
+registerFixtureProviders(defaultKernelScope);
+registerProfile({
+  type: 'text',
+  id: 'host_handler_researcher',
+  identity: { handle: 'Researcher' },
+  models: { default: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'mock' } },
+  inputs: { text: true },
+  tools: { allow: [] },
+});
+registerTool({
+  type: 'agent',
+  name: 'host_handler_ask',
+  description: 'Ask the researcher',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  profile: 'host_handler_researcher',
 });
 /** The person the host's context names, as the tool reads it. */
 function whoOf(host: unknown): string {
@@ -147,6 +174,17 @@ Deno.test("describe lists the host's allowed tools with their schemas, and nothi
   const wire = JSON.stringify(iface);
   assertEquals(wire.includes('internal.example'), false);
   assertEquals(wire.includes('static-key-value'), false);
+});
+Deno.test('describe lists an agent tool the host allows, with the input its caller fills', async () => {
+  const handler = createTheoremHostHandler({
+    profile: host('host-handler-describe-agent', ['host_handler_ask']),
+  });
+  const iface = await transportFor(handler).describe();
+  assertEquals(
+    iface.tools.map(({ name, kind, access, permission }) => ({ name, kind, access, permission })),
+    [{ name: 'host_handler_ask', kind: 'agent', access: 'read-only', permission: 'auto' }],
+  );
+  assert(iface.tools[0]?.inputSchema.properties !== undefined);
 });
 Deno.test('a call streams the tool through to its output', async () => {
   const handler = createTheoremHostHandler({

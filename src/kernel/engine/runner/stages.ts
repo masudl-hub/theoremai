@@ -84,7 +84,8 @@ function withoutTextTail(events: readonly TurnEvent[], count: number): TurnEvent
  * history messages, from what the attempt gate reads, and from the reply. Returns `released` when
  * a draft was dropped.
  *
- * invariant: A message that keeps no text leaves history; a call it made stays on its own message.
+ * invariant: A message that keeps no text leaves history, unless it made calls: then it stays
+ * with its calls and without the words.
  */
 function dropDraft(state: StepExecutionState, released: number | undefined): number | undefined {
   if (released === undefined || released >= state.replyText.length) return undefined;
@@ -102,6 +103,9 @@ function dropDraft(state: StepExecutionState, released: number | undefined): num
       const cut = keep === text ? message : { ...message, content: keep };
       state.currentHistory[index] = cut;
       kept.push({ message: cut, at });
+    } else if (message.tool_calls) {
+      const { content: _dropped, ...calls } = message;
+      state.currentHistory[index] = calls;
     } else state.currentHistory.splice(index, 1);
   }
   state.replyMessages = kept;

@@ -47,6 +47,7 @@ import { liveToolReadBack } from '../../../providers/live.ts';
 import type { LiveConnection, LiveGoAway, LiveQueueItem } from '../../../providers/types.ts';
 import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
 import { historyHash } from '../../checkpoint.ts';
+import { stepReplyMessages } from '../../interaction-parts.ts';
 import type { ProviderHostOptions } from '../../protocols/runtime.ts';
 import { openRegisteredLiveSession } from '../../provider-live.ts';
 import { assertHistoryKept } from '../../provider-runtime.ts';
@@ -520,6 +521,27 @@ function finalTranscript(
   return event.text || undefined;
 }
 
+/**
+ * Adds a live call to history in place. The words the model said just before
+ * it are the same reply, so the call joins that message, as every API reads a
+ * reply back.
+ */
+function joinLiveCall(
+  history: TurnHistoryMessage[],
+  call: { callId: string; name: string; arguments: Record<string, unknown> },
+): void {
+  const last = history.at(-1);
+  const said =
+    last?.role === 'assistant' &&
+    !last.tool_calls &&
+    !last.parts &&
+    typeof last.content === 'string'
+      ? last.content
+      : undefined;
+  if (said !== undefined) history.pop();
+  history.push(...stepReplyMessages({ text: said ?? '', calls: [call] }));
+}
+
 async function sealLiveCheckpoints(
   events: TurnEvent[],
   history: TurnHistoryMessage[],
@@ -539,16 +561,7 @@ async function sealLiveCheckpoints(
       for (const [callId, held] of calls) {
         if (covered.some((message) => message.tool_calls?.some((call) => call.id === callId)))
           continue;
-        covered.push({
-          role: 'assistant',
-          tool_calls: [
-            {
-              id: callId,
-              type: 'function',
-              function: { name: held.name, arguments: JSON.stringify(held.arguments) },
-            },
-          ],
-        });
+        joinLiveCall(covered, { callId, name: held.name, arguments: held.arguments });
       }
       sealed.push({
         ...event,
@@ -713,28 +726,14 @@ function buildLiveSession(args: {
     readBack: string,
     parts?: InteractionPart[],
   ) => {
-    history.push(
-      {
-        role: 'assistant',
-        tool_calls: [
-          {
-            id: tool.callId,
-            type: 'function',
-            function: {
-              name: tool.name,
-              arguments: JSON.stringify(tool.arguments),
-            },
-          },
-        ],
-      },
-      {
-        role: 'tool',
-        tool_call_id: tool.callId,
-        name: tool.name,
-        content: readBack,
-        ...(parts?.length ? { parts } : {}),
-      },
-    );
+    joinLiveCall(history, tool);
+    history.push({
+      role: 'tool',
+      tool_call_id: tool.callId,
+      name: tool.name,
+      content: readBack,
+      ...(parts?.length ? { parts } : {}),
+    });
     addSeenUrls(givenUrls.tools, readBack);
   };
 

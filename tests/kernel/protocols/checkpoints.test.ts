@@ -226,11 +226,10 @@ Deno.test('a turn rebuilds its checkpoint once an inject drops a draft the user 
     sent[1]?.uncovered
       .slice(1)
       .filter((m) => m.role !== 'tool')
-      .map((m) => [m.role, m.content ?? null]),
+      .map((m) => [m.role, m.content ?? null, m.tool_calls?.length ?? 0]),
     [
-      ['assistant', 'Let me check.'],
-      ['assistant', null],
-      ['user', 'and the fern?'],
+      ['assistant', 'Let me check.', 1],
+      ['user', 'and the fern?', 0],
     ],
   );
 });

@@ -241,7 +241,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
   ]);
 });
 
-Deno.test('stages: the text a step writes before its calls is in the next step history', async () => {
+Deno.test('stages: the text a step writes before its calls joins them in one message in the next step history', async () => {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -279,9 +279,8 @@ Deno.test('stages: the text a step writes before its calls is in the next step h
   assertEquals(
     read?.slice(1).map((m) => [m.role, m.content ?? null, m.tool_calls?.length ?? 0]),
     [
-      ['assistant', 'Let me check.', 0],
-      ['assistant', null, 1],
-      ['tool', read?.[3]?.content ?? null, 0],
+      ['assistant', 'Let me check.', 1],
+      ['tool', read?.[2]?.content ?? null, 0],
     ],
   );
   assertEquals(replyText(events), 'Let me check.\n\nDone.');

@@ -2062,7 +2062,7 @@ fails).
 | Inputs | `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime` |
 | Draft | `sanitizeUserDraft`, `prepareUserTurn` |
 | Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled`, `argumentsSoFar(call)` (a call's arguments as far as the model has written them: the whole fields and the string still being written, to preview it live), `stopText(stop, blocks, labels)` (why a turn ended short, in its `stop.<kind>` label; nothing when it ended whole, when a Theorem guardrail stopped it, or when an error block says why), `WORDED_STOP_KINDS` |
-| History | `appendUserDraftToHistory`, `appendToolExchangeToHistory` (replays `readBack`; a step's settled calls go back as one assistant message, then each result), `toolReadBack`, `userDraftToSteerInject`, … |
+| History | `appendUserDraftToHistory`, `appendToolExchangeToHistory` (replays `readBack`; a step's words and settled calls go back as one assistant message, then each result), `toolReadBack`, `userDraftToSteerInject`, … |
 | Composer intents | `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer` / `Queue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions` |
 
 `foldTurnEvents` maps kernel `media` events (base64) and also promotes http(s)

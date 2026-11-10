@@ -469,7 +469,7 @@ A reference part goes out as the documented Files input,
 `{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`.
 `image.resolution` goes out as `imageSize`. With `image.includeText`, `response_format` asks for text and the image.
 Signed reasoning goes out as thought signatures. Google refuses a call from the current turn replayed without its thought signature, so a reply resumed after a gate keeps it.
-Google refuses a call replayed after an earlier call's result (probed 2026-09-25), so a step's calls go back as one assistant message, then their results.
+Google refuses a call replayed after an earlier call's result (probed 2026-09-25), so a step's words and calls go back as one assistant message, then their results.
 Code execution and URL context results count toward `toolUse`.
 A failed answer keeps Gemini's own error only when it says the key was refused. Otherwise the HTTP status decides its kind, so a 503 or 529 is `busy`.
 

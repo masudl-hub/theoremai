@@ -4,6 +4,7 @@
 import { TheoremError } from '../guardrails/error.ts';
 import { type LabelOverrides, labelText } from '../guardrails/labels.ts';
 import { lateResultsMessage } from '../guardrails/tool-fence.ts';
+import { stepReplyMessages } from '../kernel/interaction-parts.ts';
 import { mediaKindForMime } from '../kernel/registry/catalog.ts';
 import { formatToolFailureForModel, formatToolResult } from '../kernel/tools/model-text.ts';
 import { keptReply, type ToolCallRequest } from '../kernel/turn-events.ts';
@@ -91,24 +92,6 @@ function appendUserDraftToHistory(
   return [...history, { role: 'user', parts }];
 }
 
-function toolCallEntry(tool: ToolCallRequest) {
-  return {
-    id: tool.callId,
-    type: 'function' as const,
-    function: { name: tool.name, arguments: JSON.stringify(tool.arguments) },
-  };
-}
-
-/** The assistant message holding a step's calls, with the reasoning the model wrote before them. */
-function assistantCalls(tools: readonly ToolCallRequest[]): TurnHistoryMessage {
-  const reasoning = tools.flatMap((tool) => tool.reasoning ?? []);
-  return {
-    role: 'assistant',
-    tool_calls: tools.map(toolCallEntry),
-    ...(reasoning.length ? { reasoning } : {}),
-  };
-}
-
 function toolResultMessage(tool: ToolCallRequest, content: string): TurnHistoryMessage {
   return { role: 'tool', tool_call_id: tool.callId, name: tool.name, content };
 }
@@ -118,7 +101,11 @@ function appendToolCallPair(
   tool: ToolCallRequest,
   content: string,
 ): TurnHistoryMessage[] {
-  return [...history, assistantCalls([tool]), toolResultMessage(tool, content)];
+  return [
+    ...history,
+    ...stepReplyMessages({ text: '', calls: [tool] }),
+    toolResultMessage(tool, content),
+  ];
 }
 
 /** The history with a tool call and its result added. */
@@ -163,16 +150,18 @@ function settledToolContent(call: ToolCall): string | undefined {
 }
 
 /**
- * One model step's settled calls: a single assistant message holding every call
- * the step made, with the reasoning written before them, then each result, as a provider
- * reads a step's calls back. With `gated: 'open'`, a
- * call waiting on its gate joins the message too, left without a result.
+ * One model step: a single assistant message holding what the step wrote and
+ * every settled call it made, with the reasoning written before them, then
+ * each result, as a provider reads a step back. With `gated: 'open'`, a call
+ * waiting on its gate joins the message too, left without a result. A step
+ * whose calls are all left out keeps its words.
  */
 function appendToolStepToHistory(
   history: TurnHistoryMessage[],
-  calls: readonly ToolCall[],
+  step: { text: string; calls: readonly ToolCall[] },
   gated: GatedCalls = 'omit',
 ): TurnHistoryMessage[] {
+  const { text, calls } = step;
   const entries = calls.flatMap((call): { tool: ToolCallRequest; content?: string }[] => {
     const content = settledToolContent(call);
     if (content !== undefined) return [{ tool: historyToolCall(call), content }];
@@ -180,10 +169,9 @@ function appendToolStepToHistory(
       ? [{ tool: historyToolCall(call) }]
       : [];
   });
-  if (entries.length === 0) return history;
   return [
     ...history,
-    assistantCalls(entries.map(({ tool }) => tool)),
+    ...stepReplyMessages({ text, calls: entries.map(({ tool }) => tool) }),
     ...entries.flatMap(({ tool, content }) =>
       content === undefined ? [] : [toolResultMessage(tool, content)],
     ),
@@ -220,7 +208,7 @@ function foldAssistantEvents(
 ): TurnHistoryMessage[] {
   let next = history;
   let textBuf = '';
-  let step: { stepId: string | undefined; callKeys: string[] } | undefined;
+  let step: { stepId: string | undefined; text: string; callKeys: string[] } | undefined;
   const calls = new Map<string, ToolCall>();
 
   const flushText = () => {
@@ -235,7 +223,7 @@ function foldAssistantEvents(
       return;
     }
     const stepCalls = step.callKeys.flatMap((id) => calls.get(id) ?? []);
-    next = appendToolStepToHistory(next, stepCalls, gated);
+    next = appendToolStepToHistory(next, { text: step.text, calls: stepCalls }, gated);
     step = undefined;
   };
 
@@ -276,8 +264,9 @@ function foldAssistantEvents(
     }
     if (!step || call.stepId === undefined || step.stepId !== call.stepId) {
       flushStep();
-      flushText();
-      step = { stepId: call.stepId, callKeys: [] };
+      // why: The words written just before a step's calls are that step's reply: one message.
+      step = { stepId: call.stepId, text: textBuf, callKeys: [] };
+      textBuf = '';
     }
     step.callKeys.push(key);
   }
@@ -290,26 +279,37 @@ function foldAssistantEvents(
 /** Attachment and voice blocks are omitted: their preview `data` is UI-only. */
 function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHistoryMessage[] {
   let history: TurnHistoryMessage[] = [];
-  let step: ToolCall[] = [];
+  let text = '';
+  let step: { text: string; calls: ToolCall[] } = { text: '', calls: [] };
+  const flushText = () => {
+    if (text) history = [...history, { role: 'assistant', content: text }];
+    text = '';
+  };
   const flushStep = () => {
-    history = appendToolStepToHistory(history, step);
-    step = [];
+    if (step.calls.length) history = appendToolStepToHistory(history, step);
+    step = { text: '', calls: [] };
   };
 
   for (const block of blocks) {
     if (block.kind === 'tool') {
-      const open = step[0];
+      const open = step.calls[0];
       if (open && (open.stepId === undefined || open.stepId !== block.tool.stepId)) flushStep();
-      step.push(block.tool);
+      if (step.calls.length === 0) {
+        // why: The words written just before a step's calls are that step's reply: one message.
+        step.text = text;
+        text = '';
+      }
+      step.calls.push(block.tool);
       continue;
     }
     flushStep();
+    flushText();
     if (block.kind === 'user-text') {
       history = appendUserDraftToHistory(history, { text: block.text });
       continue;
     }
     if (block.kind === 'text') {
-      history = [...history, { role: 'assistant', content: block.text }];
+      text = block.text;
       continue;
     }
     if (block.kind === 'late-results') {
@@ -322,6 +322,7 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
   }
 
   flushStep();
+  flushText();
   return history;
 }
 

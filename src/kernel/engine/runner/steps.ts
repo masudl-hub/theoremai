@@ -675,7 +675,7 @@ function* applyToolSettlement(
   return settlement.ended ? 'ended' : 'continue';
 }
 
-/** A step's reply as the model reads it back: its text, then its calls with the reasoning before them. */
+/** A step's reply as the model reads it back: one message with its text, its calls, and the reasoning before them. */
 function stepReply(outcome: StepOutcome): TurnHistoryMessage[] {
   return stepReplyMessages({
     text: outcome.text,

@@ -88,9 +88,14 @@ async function openLines(id: string, lines?: LiveLines, log: string[] = [], gree
   );
   const [mock] = sockets;
   if (!mock) throw new Error('no socket opened');
+  /** The kernel's id for each call the model made, in the order the session surfaced them. */
+  const issued: string[] = [];
   const drain = (async () => {
     for await (const event of session.events()) {
-      if (event.type === 'tool' && event.tool.phase === undefined) log.push('tool');
+      if (event.type === 'tool' && event.tool.phase === undefined) {
+        log.push('tool');
+        issued.push(event.tool.callId);
+      }
     }
   })();
   /** The texts sent as clientContent; `seeded` is the opening seed, the rest are mid-call notes. */
@@ -114,7 +119,7 @@ async function openLines(id: string, lines?: LiveLines, log: string[] = [], gree
     mock.close();
     await drain.catch(() => undefined);
   };
-  return { session, mock, drain, deliver, end, clientTexts, history: () => history };
+  return { session, mock, drain, deliver, end, clientTexts, issued, history: () => history };
 }
 
 Deno.test('a user line is kept under the id its note gave, before the tool call reaches the host', async () => {
@@ -147,6 +152,34 @@ Deno.test("the model's turn is one line, kept and then noted", async () => {
     { role: 'assistant', content: 'Hello there.' },
     { role: 'system', content: '[note] assistant msg.3' },
   ]);
+  await call.end();
+});
+
+Deno.test('what the model says before a call is one message with the call', async () => {
+  const call = await openLines('lines_said_then_call');
+  await call.session.sendAudio(AUDIO);
+  await call.deliver(heard('Look it up.'), {
+    serverContent: { modelTurn: { parts: [{ text: 'Let me look.' }] } },
+  });
+  await call.deliver({
+    toolCall: { functionCalls: [{ id: 'c1', name: 'live_lookup', args: {} }] },
+  });
+  const [issued] = call.issued;
+  if (!issued) throw new Error('the session never surfaced the call');
+  await call.session.executeTool({ callId: issued });
+  await call.deliver(
+    { serverContent: { modelTurn: { parts: [{ text: 'Found it.' }] } } },
+    TURN_COMPLETE,
+  );
+  assertEquals(
+    call.history().map((m) => [m.role, m.content ?? null, m.tool_calls?.map((c) => c.id) ?? null]),
+    [
+      ['user', 'Look it up.', null],
+      ['assistant', 'Let me look.', [issued]],
+      ['tool', 'ok', null],
+      ['assistant', 'Found it.', null],
+    ],
+  );
   await call.end();
 });
 

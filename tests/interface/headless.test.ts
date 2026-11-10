@@ -758,7 +758,7 @@ Deno.test('appendUserDraftToHistory appends text and encoded attachment parts', 
   assertEquals(history[0]?.role, 'user');
   assertEquals(history[0]?.parts?.length, 2);
 });
-Deno.test('appendAssistantEventsToHistory folds text and completed tools', () => {
+Deno.test('appendAssistantEventsToHistory folds the words before a step and its calls into one message', () => {
   const history = appendAssistantEventsToHistory(
     [],
     [
@@ -774,11 +774,13 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
       ),
     ],
   );
-  assertEquals(history.length, 3);
-  assertEquals(history[0]?.role, 'assistant');
-  assertEquals(history[1]?.role, 'assistant');
-  assertEquals(history[2]?.role, 'tool');
-  assertEquals(history[2]?.content, '{"finding":"ok"}');
+  assertEquals(
+    history.map((m) => [m.role, m.content ?? null, m.tool_calls?.map((call) => call.id) ?? null]),
+    [
+      ['assistant', 'Hello', ['c1']],
+      ['tool', '{"finding":"ok"}', null],
+    ],
+  );
 });
 Deno.test('a steer lands in history and the transcript after what the reply said and did before it', () => {
   const events: TurnEvent[] = [
@@ -799,7 +801,6 @@ Deno.test('a steer lands in history and the transcript after what the reply said
     appendAssistantEventsToHistory([], events).map((m) => [m.role, m.content ?? null]),
     [
       ['assistant', 'Looking'],
-      ['assistant', null],
       ['tool', '{"finding":"ok"}'],
       ['user', 'Also the fern'],
       ['assistant', 'Noted'],
@@ -859,7 +860,6 @@ Deno.test('appendPausedTurnToHistory keeps the gated calls open in their step', 
     ]),
     [
       ['user', undefined],
-      ['assistant', undefined],
       ['assistant', ['done', 'a', 'b']],
       ['tool', 'done'],
     ],
@@ -1087,6 +1087,27 @@ Deno.test('historyFromTranscriptBlocks round-trips user and assistant text', () 
     { role: 'user', content: 'Hi' },
     { role: 'assistant', content: 'Hey' },
   ]);
+});
+Deno.test('a transcript reads back as the same history as the events it came from', () => {
+  const events: TurnEvent[] = [
+    { type: 'text', text: 'Looking' },
+    ...callEvents(
+      { name: 'lookup', callId: 'c1' },
+      {},
+      { phase: 'complete', output: { finding: 'ok' }, readBack: '{"finding":"ok"}' },
+    ),
+    { type: 'text', text: 'Found it.' },
+  ];
+  const history = historyFromTranscriptBlocks(foldTurnEvents(events));
+  assertEquals(history, appendAssistantEventsToHistory([], events));
+  assertEquals(
+    history.map((m) => [m.role, m.content ?? null, m.tool_calls?.length ?? 0]),
+    [
+      ['assistant', 'Looking', 1],
+      ['tool', '{"finding":"ok"}', 0],
+      ['assistant', 'Found it.', 0],
+    ],
+  );
 });
 Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_call is left dangling', () => {
   const history = appendAssistantEventsToHistory(

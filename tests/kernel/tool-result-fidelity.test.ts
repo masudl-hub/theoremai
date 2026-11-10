@@ -4,7 +4,10 @@ import { historyMessageParts } from '../../src/kernel/interaction-parts.ts';
 import { coerceToolResultParts, projectForModel } from '../../src/kernel/tools/execute.ts';
 import { formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import type { FunctionToolDef } from '../../src/kernel/tools/types.ts';
-import { historyStep, wirePart } from '../../src/providers/google/interactions/framing.ts';
+import {
+  historyStep,
+  wireInteractionPart,
+} from '../../src/providers/google/interactions/framing.ts';
 import {
   buildChatMessages,
   wireMessageContent,
@@ -45,7 +48,7 @@ Deno.test('tool-result fidelity round-trip: project → adapters keep media part
     type: 'function_result',
     name: 'fetch_stock_media',
     call_id: 'call_1',
-    result: historyMessageParts(historyMsg).map(wirePart),
+    result: historyMessageParts(historyMsg).map(wireInteractionPart),
   });
 
   const messages = buildChatMessages(stubCompleteRequest({ history: [historyMsg], input: [] }));

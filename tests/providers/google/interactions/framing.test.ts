@@ -20,7 +20,7 @@ import {
   toGoogleValue,
   toInteractionsBody,
   userInputStep,
-  wirePart,
+  wireInteractionPart,
 } from '../../../../src/providers/google/interactions/framing.ts';
 import { googleBuiltins, resolvedStructured } from '../../../fixtures/provider-request.ts';
 import { testWireTool } from '../../../fixtures/wire-tools.ts';
@@ -117,14 +117,18 @@ Deno.test('toGoogleValue snake_cases the schema key itself but not its contents'
   assertEquals(nested.schema, { camelInside: true });
 });
 
-Deno.test('wirePart converts a text part to wire shape', () => {
+Deno.test('wireInteractionPart converts a text part to wire shape', () => {
   const part: InteractionPart = { type: 'text', text: 'hello' };
-  assertEquals(wirePart(part), { type: 'text', text: 'hello' });
+  assertEquals(wireInteractionPart(part), { type: 'text', text: 'hello' });
 });
 
-Deno.test('wirePart converts a media part to wire shape', () => {
+Deno.test('wireInteractionPart converts a media part to wire shape', () => {
   const part: InteractionPart = { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' };
-  assertEquals(wirePart(part), { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' });
+  assertEquals(wireInteractionPart(part), {
+    type: 'image',
+    mimeType: 'image/png',
+    data: 'aGVsbG8=',
+  });
 });
 
 Deno.test('userInputStep wraps parts under a user_input step', () => {
@@ -529,7 +533,7 @@ Deno.test('historyStep sends only the tool identity history carries', () => {
   });
 });
 
-Deno.test('historyStep maps tool role content and parts through wirePart', () => {
+Deno.test('historyStep maps tool role content and parts through wireInteractionPart', () => {
   const step = historyStep({
     role: 'tool',
     name: 'fetch_stock_media',
@@ -868,7 +872,11 @@ Deno.test('toInteractionsBody sends code_execution together with structured resp
 
 Deno.test('Interactions wires a media reference as { type, uri, mime_type } (Files API input)', () => {
   const ref: InteractionPart = { type: 'video', mimeType: 'video/mp4', uri: 'files/abc123' };
-  assertEquals(wirePart(ref), { type: 'video', mimeType: 'video/mp4', uri: 'files/abc123' });
+  assertEquals(wireInteractionPart(ref), {
+    type: 'video',
+    mimeType: 'video/mp4',
+    uri: 'files/abc123',
+  });
   assertEquals(toGoogleValue(userInputStep([ref])), {
     type: 'user_input',
     content: [{ type: 'video', mime_type: 'video/mp4', uri: 'files/abc123' }],

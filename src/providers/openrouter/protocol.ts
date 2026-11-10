@@ -7,11 +7,11 @@ import { openAi } from '../open-ai/protocol.ts';
 import { collectReasoning } from './openai/reasoning-state.ts';
 
 /** What is cached: the whole request (`automatic`) or the system instruction only (`system`). */
-const CACHE_MODES = ['automatic', 'system'] as const;
+export const CACHE_MODES = ['automatic', 'system'] as const;
 /** One of {@linkcode CACHE_MODES}. */
 export type CacheMode = (typeof CACHE_MODES)[number];
 /** How long OpenRouter's upstream keeps a cached prompt. */
-const CACHE_TTLS = ['5m', '1h'] as const;
+export const CACHE_TTLS = ['5m', '1h'] as const;
 /** One of {@linkcode CACHE_TTLS}. */
 export type CacheTtl = (typeof CACHE_TTLS)[number];
 

@@ -58,6 +58,7 @@ First-party providers do not read environment variables for credentials or endpo
 The host supplies a vault. It can also supply fetch, waits, and a WebSocket opener.
 A protocol never holds a key, a key slot, or a base URL.
 A protocol that extends another has its own id, as `openRouterOpenAi` extends `openAi`. A binding names the protocol its provider serves.
+A protocol's wire helpers ship beside it, so a protocol of your own can reuse them: `turnStopFromOpenAiFinishReason`, `turnStopFromInteractionStatus`, `wireInteractionPart`, and OpenRouter's `CACHE_MODES`, `CACHE_TTLS` and `CacheSpec`.
 
 ## Registered providers
 
@@ -617,7 +618,7 @@ The root also exports the default-scope registry functions, the binding schemas,
 | --- | --- |
 | Providers | `defineProvider`, `createProviderRegistry`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, `OpenRouterTranscriptionsOptions`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, `OpenRouterTranscriptionsOptions`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `turnStopFromOpenAiFinishReason`, `turnStopFromInteractionStatus`, `wireInteractionPart`, `CACHE_MODES`, `CACHE_TTLS`, `CacheSpec`, `CacheMode`, `CacheTtl`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |

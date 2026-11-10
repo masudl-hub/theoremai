@@ -45,7 +45,7 @@ export function toGoogleValue(value: unknown): unknown {
 }
 
 /** A part in camel case; `toGoogleValue` snake-cases `mimeType` to the documented `mime_type`. */
-export function wirePart(part: InteractionPart): Record<string, string> {
+export function wireInteractionPart(part: InteractionPart): Record<string, string> {
   if (part.type === 'text') {
     return { type: 'text', text: part.text };
   }
@@ -58,12 +58,12 @@ export function wirePart(part: InteractionPart): Record<string, string> {
 const USER_INPUT = 'user_input';
 
 export function userInputStep(parts: InteractionPart[]): Record<string, unknown> {
-  return { type: USER_INPUT, content: parts.map(wirePart) };
+  return { type: USER_INPUT, content: parts.map(wireInteractionPart) };
 }
 
 function historyContent(msg: TurnHistoryMessage): Record<string, string>[] {
   const parts = historyMessageParts(msg);
-  return parts.length > 0 ? parts.map(wirePart) : [{ type: 'text', text: '' }];
+  return parts.length > 0 ? parts.map(wireInteractionPart) : [{ type: 'text', text: '' }];
 }
 
 // why: Google refuses any other part inside a `function_result`: "The value 'document' is not supported for 'type' at 'input[8].result[2]'. Supported values: 'function', 'image', 'text', 'video'." (live, 13/10/2026, gemini-3.5-flash-lite).
@@ -78,7 +78,7 @@ function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
   return {
     type: 'function_result',
     ...historyToolIdentity({ name: msg.name, call_id: msg.tool_call_id }),
-    result: parts.length > 0 ? parts.map(wirePart) : [{ type: 'text', text: '' }],
+    result: parts.length > 0 ? parts.map(wireInteractionPart) : [{ type: 'text', text: '' }],
   };
 }
 
@@ -266,7 +266,7 @@ function speechInputStep(
       type: USER_INPUT,
       content: [
         { type: 'text', text: `Read the following aloud. ${style.trim()}\n` },
-        ...parts.map(wirePart),
+        ...parts.map(wireInteractionPart),
       ],
     };
   }
@@ -275,7 +275,7 @@ function speechInputStep(
   return {
     type: USER_INPUT,
     content: parts
-      .map(wirePart)
+      .map(wireInteractionPart)
       .map((part) => (part.type === 'text' ? { ...part, annotations } : part)),
   };
 }

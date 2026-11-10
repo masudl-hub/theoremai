@@ -506,7 +506,7 @@ live_sessions = "registered provider via runSession; host owns mic, camera, and 
 session_memory_in_kernel = false
 ```
 
-**Facts and policy.** Provider wire shapes and protocol metadata may ship in `@theoremjs/agents/providers`. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
+**Facts and policy.** Provider wire shapes and protocol metadata may ship in `@theoremjs/agents/providers`, and only there: the kernel makes no claim about a provider or a model. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
 
 Four properties are invariant. Where a test or a lint checks one, the table names it.
 

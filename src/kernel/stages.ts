@@ -137,7 +137,8 @@ export interface StageResult {
   /**
    * `post_tool` on a text turn only: the turn ends once every call of this step has settled. The
    * model takes no further step, `before_end` does not run, and `done` stops as `completed`. The
-   * reply is what the model wrote before its calls.
+   * reply is what the model wrote before its calls, possibly empty, and still passes its checks: a
+   * refused reply is retried like any other, as a new step `end` no longer holds.
    */
   end?: true;
 }

@@ -2,11 +2,12 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { assert, assertEquals } from '@std/assert';
 import { z } from 'zod';
+import { ANSWER_TOOL } from '../../src/kernel/answer-tool.ts';
 import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import type { StageContext, StageResult } from '../../src/kernel/stages.ts';
 import { applyStageResult } from '../../src/kernel/stages.ts';
 import { keptReply } from '../../src/kernel/turn-events.ts';
-import type { TurnEvent, TurnModel, TurnStage } from '../../src/kernel/types.ts';
+import type { ModelEvent, TurnEvent, TurnModel, TurnStage } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
@@ -14,6 +15,8 @@ const PICK = 'end_test_pick';
 const NOTE = 'end_test_note';
 const ONE_AT_A_TIME = 'end_test_caller';
 const SIDE_BY_SIDE = 'end_test_parallel';
+const ANSWERS = 'end_test_answers';
+const ANSWERS_WITH_REPAIR = 'end_test_answers_repair';
 
 for (const name of [PICK, NOTE]) {
   registerTool({
@@ -47,6 +50,23 @@ for (const [id, parallel] of [
   });
 }
 
+for (const [id, validation] of [
+  [ANSWERS, undefined],
+  [ANSWERS_WITH_REPAIR, { maxRetries: 1 }],
+] as const) {
+  registerProfile({
+    type: 'text',
+    id,
+    identity: { handle: id },
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 4,
+    tools: { allow: ['fetch_sensor'] },
+    inputs: { text: true },
+    outputs: { structured: 'chatTurn', ...(validation ? { validation } : {}) },
+    guardrails: { quota: { perDay: 500 } },
+  });
+}
+
 /** A model that writes, calls `calls` in one step, and would write again if asked. */
 function writer(calls: readonly string[]): { model: TurnModel; steps: () => number } {
   let step = 0;
@@ -69,9 +89,28 @@ function writer(calls: readonly string[]): { model: TurnModel; steps: () => numb
   };
 }
 
+/** A model that answers each call with the next script. */
+function scripted(scripts: readonly ModelEvent[][]): { model: TurnModel; steps: () => number } {
+  let step = 0;
+  return {
+    steps: () => step,
+    model: {
+      async *complete() {
+        await Promise.resolve();
+        step += 1;
+        yield* scripts[Math.min(step, scripts.length) - 1] ?? [];
+      },
+    },
+  };
+}
+
 /** Runs the turn, ending it at `post_tool` of `endOn`; returns its events and the stages seen. */
-async function endAt(profile: string, calls: readonly string[], endOn: string) {
-  const { model, steps } = writer(calls);
+async function endAt(
+  profile: string,
+  calls: readonly string[],
+  endOn: string,
+  { model, steps }: { model: TurnModel; steps: () => number } = writer(calls),
+) {
   const seen: TurnStage[] = [];
   const events: TurnEvent[] = await Array.fromAsync(
     runTurn(
@@ -169,4 +208,55 @@ Deno.test('applyStageResult: end only at post_tool, only as true, only where all
   });
   assertEquals(noTurn.end, undefined);
   assertEquals(noTurn.warnings[0]?.code, 'end_not_allowed');
+});
+
+Deno.test('end: a model that wrote nothing before its calls ends with an empty reply', async () => {
+  const silent = scripted([
+    [{ type: 'tool', tool: { name: PICK, arguments: { val: 1 }, callId: 'c0' } }],
+  ]);
+  const { events, steps } = await endAt(ONE_AT_A_TIME, [PICK], PICK, silent);
+  assertEquals(steps, 1);
+  assertEquals(doneOf(events).stop.kind, 'completed');
+  assertEquals(replyText(keptReply(events)), '');
+});
+
+const sensorThenAnswer = (): { model: TurnModel; steps: () => number } =>
+  scripted([
+    [{ type: 'tool', tool: { name: 'fetch_sensor', arguments: { sensor: 'a' }, callId: 'c0' } }],
+    [
+      {
+        type: 'tool',
+        tool: { name: ANSWER_TOOL, arguments: { message: 'Dry' }, callId: 'answer_1' },
+      },
+    ],
+  ]);
+
+Deno.test('end: a structured turn ended before its answer stops answer_missing', async () => {
+  const { events, steps } = await endAt(
+    ANSWERS,
+    ['fetch_sensor'],
+    'fetch_sensor',
+    sensorThenAnswer(),
+  );
+  assertEquals(steps, 1);
+  assertEquals(doneOf(events).stop.kind, 'answer_missing');
+});
+
+Deno.test('end: a reply the checks refuse is retried, and the retry is a new model step', async () => {
+  const { events, steps } = await endAt(
+    ANSWERS_WITH_REPAIR,
+    ['fetch_sensor'],
+    'fetch_sensor',
+    sensorThenAnswer(),
+  );
+  assertEquals(steps, 2);
+  assertEquals(
+    events.flatMap((e) => (e.type === 'attempt' ? [e.reason] : [])),
+    ['validation'],
+  );
+  assertEquals(
+    events.flatMap((e) => (e.type === 'structured' ? [e.structured] : [])),
+    [{ message: 'Dry' }],
+  );
+  assertEquals(doneOf(events).stop.kind, 'completed');
 });

@@ -247,10 +247,17 @@ host that sent it knows to send it again. Unnamed injects land unreported.
   the step has settled. Each call keeps its own result and its own `post_tool`;
   an inject still lands in the history, but no model step reads it. The model
   takes no further step, `before_end` does not run, and steers stay waiting.
-- The reply is what the model wrote before its calls. It still passes the
-  egress judge and `outputs.validation`, as any finished reply does.
-- `done` stops as `{ kind: 'completed' }`, then `post_turn` runs. A gate or an
-  `abort` in the same step wins.
+- The reply is what the model wrote before its calls. It is empty when the
+  model wrote nothing before them.
+- The reply still passes the checks every finished reply passes: the egress
+  judge, the answer tool, a cut-off reply, and `outputs.validation`. A reply
+  they refuse is retried like any other, and the retry is a new model step that
+  `end` no longer holds; a `post_tool` must return `end` again to end it. With
+  no retry left, the turn stops as that check says. A structured turn ended
+  before it called the answer tool has no answer, so it is repaired or stops as
+  `answer_missing`.
+- `done` stops as `{ kind: 'completed' }` when the reply passes, then
+  `post_turn` runs. A gate or an `abort` in the same step wins.
 - Any other value warns `end_invalid`. Outside a text turn's tool step it warns
   `end_not_allowed`.
 

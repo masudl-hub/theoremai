@@ -581,13 +581,15 @@ export interface AgentToolDef extends ToolBase {
    */
   fieldText?: Partial<Record<keyof AgentToolInput, string>>;
   /**
-   * Fields the calling model fills on an agent tool that only the host reads. onAgentCall gets them
-   * as hostInput and turns them into what the agent is sent; the agent never sees them. A name the
-   * input already has is refused when the tool registers.
+   * Fields on an agent tool that only the host reads. The calling model fills them, or the host
+   * does when a field is marked exposeToModel: false. onAgentCall gets them as hostInput and turns
+   * them into what the agent is sent; the agent never sees them. A name the input already has is
+   * refused when the tool registers.
    *
-   * @remarks Fields the calling model fills that only the host reads. `onAgentCall` gets them as
-   * `hostInput` and turns them into the agent's input; they are never sent to the agent. A name the
-   * input already has is refused, and a call without the hook is a config error.
+   * @remarks Fields only the host reads. The calling model fills them, or the host when a field is
+   * marked `exposeToModel: false`. `onAgentCall` gets them as `hostInput` and turns them into the
+   * agent's input; they are never sent to the agent. A name the input already has is refused, and a
+   * call without the hook is a config error.
    */
   hostFields?: Record<string, z.ZodType>;
   /**

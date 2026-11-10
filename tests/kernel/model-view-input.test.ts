@@ -213,6 +213,100 @@ async function mcpCall(method: string, params: Record<string, unknown>) {
   return await res.json();
 }
 
+registerProfile({
+  type: 'text',
+  id: 'model_view_input_researcher',
+  identity: { handle: 'model_view_input_researcher', system: 'You research.' },
+  ...geminiModels('gemini35FlashLite'),
+  maxSteps: 2,
+  tools: { allow: [] },
+  inputs: { text: true },
+});
+registerTool({
+  type: 'agent',
+  name: 'model_view_ask',
+  description: 'Ask the researcher',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  profile: 'model_view_input_researcher',
+  hostFields: { storeId: z.string().meta({ exposeToModel: false }).optional() },
+});
+registerProfile({
+  type: 'text',
+  id: 'model_view_input_caller',
+  identity: { handle: 'model_view_input_caller', system: 'You help.' },
+  ...geminiModels('gemini35FlashLite'),
+  maxSteps: 3,
+  tools: { allow: ['model_view_ask'] },
+  inputs: { text: true },
+});
+
+/** The caller asks the researcher once with `args`; the researcher answers with the text it was sent. */
+function callerAsking(args: Record<string, unknown>, requests: ModelRequest[]): TurnModel {
+  return {
+    async *complete(req) {
+      await Promise.resolve();
+      requests.push(req);
+      if (req.system.includes('You research.')) {
+        yield { type: 'text', text: 'Found it.' };
+        return;
+      }
+      if (requests.length === 1) {
+        yield { type: 'tool', tool: { name: 'model_view_ask', arguments: args, callId: 'a1' } };
+        return;
+      }
+      yield { type: 'text', text: 'Done.' };
+    },
+  };
+}
+
+async function askResearcher(args: Record<string, unknown>, onStage?: StageHandler) {
+  const requests: ModelRequest[] = [];
+  const hostInputs: unknown[] = [];
+  const events: TurnEvent[] = [];
+  for await (const event of runTurn(
+    {
+      profile: 'model_view_input_caller',
+      input: { text: 'Any ferns?' },
+      ...(onStage ? { onStage } : {}),
+      onAgentCall: (call) => {
+        hostInputs.push(call.hostInput);
+        return { input: call.input };
+      },
+    },
+    callerAsking(args, requests),
+  ))
+    events.push(event);
+  return { requests, hostInputs, events };
+}
+
+Deno.test("an agent tool's marked host field is the host's to fill, and reaches onAgentCall", async () => {
+  const filled = await askResearcher({ text: 'Any ferns?' }, (ctx) =>
+    ctx.stage === 'pre_tool'
+      ? { mutate: { input: { ...(ctx.input as object), storeId: STORE } } }
+      : undefined,
+  );
+  const sent = JSON.stringify(filled.requests[0]?.wireTools);
+  assert(sent.includes('model_view_ask'));
+  assertEquals(sent.includes('storeId'), false);
+  assertEquals(filled.hostInputs, [{ storeId: STORE }]);
+  assertEquals(JSON.stringify(filled.requests.slice(1)).includes(STORE), false);
+
+  const empty = await askResearcher({ text: 'Any ferns?' });
+  assertEquals(empty.hostInputs, [{}]);
+
+  const sentByModel = await askResearcher({ text: 'Any ferns?', storeId: 'guess' });
+  const [error] = toolEventsOf(sentByModel.events, 'error');
+  assertEquals(error?.failure.code, 'invalid_input');
+  assertEquals((error?.failure.details as { notInputs?: string[] } | undefined)?.notInputs, [
+    'storeId',
+  ]);
+  assertEquals(sentByModel.hostInputs, []);
+});
+
 Deno.test('the MCP door lists the model view and refuses a marked field', async () => {
   received.length = 0;
   const listed = await mcpCall('tools/list', {});

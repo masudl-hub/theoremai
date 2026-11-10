@@ -538,7 +538,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'registerTool.headers':
     "Headers sent with every request to the tool's own origin, never once a redirect leaves it.",
   'registerTool.hostFields':
-    'Fields the calling model fills on an agent tool that only the host reads. onAgentCall gets them as hostInput and turns them into what the agent is sent; the agent never sees them. A name the input already has is refused when the tool registers.',
+    'Fields on an agent tool that only the host reads. The calling model fills them, or the host does when a field is marked exposeToModel: false. onAgentCall gets them as hostInput and turns them into what the agent is sent; the agent never sees them. A name the input already has is refused when the tool registers.',
   'registerTool.hostOnly':
     'Channels the called profile takes that the calling model cannot fill on an agent tool; only onAgentCall sends them. A channel the profile does not take is refused when the tool registers.',
   'registerTool.imageLimits':

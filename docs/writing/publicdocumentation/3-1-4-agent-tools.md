@@ -83,6 +83,8 @@ hostFields: {
 
 The kernel extracts `billingAccount` into `hostInput` for `onAgentCall` and strips it before the child agent runs.
 
+To keep a host field from the calling model as well, make it optional and mark it `exposeToModel: false`, as in `z.string().meta({ exposeToModel: false }).optional()`. The model never sees the field, and your host fills it in the `pre_tool` stage with `mutate: { input }`. A model call that sends the field fails with `invalid_input`.
+
 ## Host Interception (`onAgentCall`)
 
 When an agent invokes an agent tool, Theorem invokes the request's `onAgentCall` hook before the child turn runs. The hook receives an `AgentCall` descriptor carrying the tool name, target profile, model arguments, and any `hostInput` values from `hostFields`.

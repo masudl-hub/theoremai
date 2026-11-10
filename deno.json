@@ -94,7 +94,7 @@
     "fuzz": "deno run --allow-read --allow-write --allow-net src/cli/bin.ts fuzz",
     "fuzz-canary": "deno run --allow-read --allow-write --allow-net src/cli/bin.ts fuzz-canary",
     "test:guardrails": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys tests/guardrails/ tests/cli/fuzz-guardrails.test.ts && deno run --allow-read --allow-write --allow-net src/cli/bin.ts fuzz-canary",
-    "test": "deno test --parallel --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
+    "test": "scripts/background deno test --parallel --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
     "bench:guardrails": "deno run --allow-read --allow-write --allow-env --allow-sys --allow-run=git scripts/guardrails-bench.ts",
     "check": "deno check mod.ts",
     "field-docs": "deno run --allow-read --allow-write --allow-env --allow-run=npx,git scripts/gen-field-docs.ts",

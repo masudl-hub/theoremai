@@ -1,0 +1,13 @@
+#!/bin/sh
+# Runs a command as background work. On a Mac it runs at utility priority, which keeps it on the
+# efficiency cores, and the test runners start one worker per efficiency core: more workers than
+# cores only wait their turn. A cap already set in the environment wins. Elsewhere, such as CI,
+# the command runs as it is.
+if command -v taskpolicy >/dev/null 2>&1; then
+  cores=$(sysctl -n hw.perflevel1.physicalcpu 2>/dev/null)
+  if [ -n "$cores" ]; then
+    export VITEST_MAX_WORKERS="${VITEST_MAX_WORKERS:-$cores}" DENO_JOBS="${DENO_JOBS:-$cores}"
+  fi
+  exec taskpolicy -c utility "$@"
+fi
+exec "$@"

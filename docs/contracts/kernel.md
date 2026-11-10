@@ -992,7 +992,7 @@ state is the host's, through `onAgentCall` and stages.
 | `maxCallsPerTurn` | Calls allowed in one turn of the caller; a call past it fails `call_limit` (`declined`) |
 | `fieldText` | What the calling model reads on a field of the input, by field (`{ text: '…' }`); a field the profile does not take is refused at registration |
 | `hostFields` | Fields that only the host reads, filled by the model or, when marked `exposeToModel: false`, by the host, as a zod type by name (`{ media: z.string() }`); a name the input already has is refused at registration |
-| `hostOnly` | Channels the profile takes that the model can't fill (`['attachments']`); a channel the profile does not take is refused at registration |
+| `hostOnly` | Channels the profile takes that the model can't fill (`['attachments']`, or `['speech']` on a speech profile, so the host alone sets the voice and its direction); a channel the profile does not take is refused at registration |
 | `preTool` | As on a function tool, with the call's input |
 
 **Input.** The tool's input is what the called profile takes, so the calling

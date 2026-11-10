@@ -547,8 +547,8 @@ export interface AgentToolOutput {
   sources?: Source[];
 }
 
-/** A channel of an agent tool's input that the called profile's `inputs` declares. */
-export type AgentToolChannel = 'attachments' | 'voice' | 'options';
+/** A channel of an agent tool's input: one the called profile's `inputs` declares, or `speech` on a speech profile. */
+export type AgentToolChannel = 'attachments' | 'voice' | 'options' | 'speech';
 
 /**
  * A tool whose call runs one turn of another registered agent. That agent is a

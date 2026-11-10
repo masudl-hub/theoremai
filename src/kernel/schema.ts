@@ -1093,7 +1093,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = withFieldDocs({
     unset: 'The input is only what the profile takes',
   },
   'registerTool.hostOnly': {
-    ...field("Array<'attachments' | 'voice' | 'options'>"),
+    ...field("Array<'attachments' | 'voice' | 'options' | 'speech'>"),
     unset: 'The model can fill every channel the profile takes',
   },
   'registerTool.auth': {

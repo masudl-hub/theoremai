@@ -561,7 +561,7 @@ function pictureScope(): KernelScope {
   return scope;
 }
 
-function speechScope(): KernelScope {
+function speechScope(tool: Partial<AgentToolDef> = {}): KernelScope {
   const scope = createKernelScope();
   scope.profiles.register(
     defineProfile({
@@ -572,7 +572,7 @@ function speechScope(): KernelScope {
       speech: { voice: 'Kore', format: 'pcm' },
     }),
   );
-  scope.tools.register(agentTool());
+  scope.tools.register(agentTool(tool));
   scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
   return scope;
 }
@@ -671,6 +671,19 @@ Deno.test('the calling model sets how a speech agent speaks; the host can overru
     voice: 'Aoede',
     format: 'pcm',
   });
+});
+
+Deno.test('a speech channel kept for the host is out of the model input, and the hook sets it', async () => {
+  const scope = speechScope({ hostOnly: ['speech'] });
+  const tool = scope.tools.get('ask_researcher');
+  assertEquals(tool?.type === 'agent' ? Object.keys(tool.inputSchema.properties ?? {}) : [], [
+    'text',
+  ]);
+  const seen: ModelRequest[] = [];
+  await collect(scope, sendingProvider({ text: 'Hello there' }, seen), () => ({
+    speech: { voice: 'Aoede', style: 'warmly' },
+  }));
+  assertEquals(seen[0]?.speech, { voice: 'Aoede', format: 'pcm', style: 'warmly' });
 });
 
 Deno.test("a stage after the call can replace the agent's reply before the caller reads it", async () => {

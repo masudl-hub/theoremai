@@ -68,6 +68,8 @@ hostOnly: ['options', 'attachments'],
 
 The calling model sees only the `text` field. Only your host hook can supply the reserved channels.
 
+On a speech profile, `hostOnly: ['speech']` keeps the voice, its style and its speed from the calling model. Your hook returns `speech` with the call, and the profile's own `speech` fills what it leaves out.
+
 ### Host-Only Model Fields (`hostFields`)
 
 Declare fields that the calling model fills, but only the host application reads:

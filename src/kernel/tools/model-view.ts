@@ -59,9 +59,13 @@ export function withoutModelMarks(schema: JsonSchema): JsonSchema {
   return copy;
 }
 
+/** The mark sits on a field of an object: the last step of its pointer is `properties/<name>`. */
+const FIELD_AT = /\/properties\/[^/]+$/;
+
 /**
- * Refuses a mark the kernel cannot honour: one that is not `false`, one on the whole output,
- * and any on an input, which the model fills itself.
+ * Refuses a mark the kernel cannot honour: one that is not `false`, one on the whole output or
+ * input, and on an input one that is not on an optional field of an object, which the model,
+ * never seeing it, could not fill.
  */
 export function assertModelMarks(schema: JsonSchema, where: string, io: 'input' | 'output'): void {
   const refuse = (at: string, problem: string): never => {
@@ -69,22 +73,70 @@ export function assertModelMarks(schema: JsonSchema, where: string, io: 'input' 
   };
   for (const [node, at] of eachSchema(schema)) {
     if (!Object.hasOwn(node, MODEL_MARK)) continue;
-    if (io === 'input') {
-      // labels-exempt: developer contract — a registration error, not end-user or model copy
-      refuse(at, `${MODEL_MARK} marks output fields only; the model fills every input field`);
-    }
     if (node[MODEL_MARK] !== false) {
       // labels-exempt: developer contract — a registration error, not end-user or model copy
       refuse(at, `${MODEL_MARK} takes false only`);
     }
+    if (io === 'input' && !FIELD_AT.test(at)) {
+      // labels-exempt: developer contract — a registration error, not end-user or model copy
+      refuse(at, `on an input, ${MODEL_MARK}: false marks a field of an object`);
+    }
   }
-  if (io === 'output' && hidden(nodesAt(schema, schema))) {
+  if (io === 'input') {
+    for (const [node, at] of eachSchema(schema)) {
+      const required = Array.isArray(node.required) ? node.required : [];
+      for (const [key, child] of Object.entries(fieldsOf(node))) {
+        if (hasOwnMark(child) && required.includes(key)) {
+          refuse(
+            `${at}/properties/${key}`,
+            // labels-exempt: developer contract — a registration error, not end-user or model copy
+            `an input field marked ${MODEL_MARK}: false must be optional; the model cannot fill it`,
+          );
+        }
+      }
+    }
+  } else if (hidden(nodesAt(schema, schema))) {
     refuse(
       '#',
       // labels-exempt: developer contract — a registration error, not end-user or model copy
       `${MODEL_MARK}: false on the whole output hides every field; set exposeToModel: false on the tool instead`,
     );
   }
+}
+
+function fieldsOf(node: JsonSchema): Record<string, unknown> {
+  return isSchema(node.properties) ? node.properties : {};
+}
+
+function hasOwnMark(schema: unknown): boolean {
+  return isSchema(schema) && schema[MODEL_MARK] === false;
+}
+
+/**
+ * An input schema as the model reads it: the fields marked `exposeToModel: false` left out and
+ * the mark taken off. The host fills those fields; the model never sees them.
+ */
+export function inputSchemaForModel(schema: JsonSchema): JsonSchema {
+  if (!hasModelMark(schema)) return schema;
+  const copy = structuredClone(schema);
+  for (const [node] of eachSchema(copy)) {
+    const fields = fieldsOf(node);
+    for (const [key, child] of Object.entries(fields)) if (hasOwnMark(child)) delete fields[key];
+  }
+  return withoutModelMarks(copy);
+}
+
+/** Where a model's input sets a field the schema keeps from the model, as dotted paths; none when it sets none. */
+export function markedFieldsIn(schema: JsonSchema, input: unknown): string[] {
+  if (!hasModelMark(schema)) return [];
+  const found: string[] = [];
+  cut(input, nodesAt(schema, schema), (path) => found.push(path));
+  return found;
+}
+
+/** An input as the model reads it back: the fields marked `exposeToModel: false` left out. */
+export function inputForModel(schema: JsonSchema, input: unknown): unknown {
+  return outputForModel(schema, input);
 }
 
 interface Node {
@@ -157,19 +209,31 @@ function itemNodes(nodes: readonly Node[], index: number): Node[] {
   });
 }
 
-function cut(value: unknown, nodes: readonly Node[]): unknown {
+function cut(
+  value: unknown,
+  nodes: readonly Node[],
+  onHidden?: (path: string) => void,
+  path = '',
+): unknown {
   if (nodes.length === 0) return value;
   if (Array.isArray(value)) {
     return value.flatMap((item, index) => {
       const children = itemNodes(nodes, index);
-      return hidden(children) ? [] : [cut(item, children)];
+      const at = `${path}[${String(index)}]`;
+      if (hidden(children)) {
+        onHidden?.(at);
+        return [];
+      }
+      return [cut(item, children, onHidden, at)];
     });
   }
   if (isSchema(value)) {
     const kept: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
       const children = propertyNodes(nodes, key);
-      if (!hidden(children)) kept[key] = cut(child, children);
+      const at = path ? `${path}.${key}` : key;
+      if (hidden(children)) onHidden?.(at);
+      else kept[key] = cut(child, children, onHidden, at);
     }
     return kept;
   }

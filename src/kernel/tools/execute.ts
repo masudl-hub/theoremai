@@ -54,7 +54,7 @@ import {
 import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
 import { fetchToolImages } from './image-fetch.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
-import { agentOutputSchema, outputForModel } from './model-view.ts';
+import { agentOutputSchema, markedFieldsIn, outputForModel } from './model-view.ts';
 import type {
   ToolExecutionCoordinator,
   ToolOperationClaim,
@@ -380,11 +380,7 @@ function* reviseAfterStages(
   post: PostToolStageOutcome,
   guard: ResultGuard,
   reproject: Reproject | undefined,
-): Generator<
-  TurnEvent,
-  | { failure?: ToolFailure; outputRaw: unknown; modelResult: ModelToolResult; awaiting: boolean }
-  | undefined
-> {
+): Generator<TurnEvent, Revised | undefined> {
   if (post.deny) {
     const failure: ToolFailure = {
       code: post.deny.code,
@@ -476,7 +472,7 @@ async function* settleToolCall(args: {
   images?: (output: unknown) => ReturnType<typeof fetchToolImages>;
   labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
+  const { base, input, stages, provisional, guard, sources } = args;
   const guarded = yield* 'failure' in provisional
     ? guard.failure(provisional.failure)
     : guard.result(provisional.modelResult);
@@ -489,25 +485,14 @@ async function* settleToolCall(args: {
   let post: PostToolStageOutcome | undefined;
 
   if (stages) {
-    const activityPast = failure ? undefined : pastActivity(args.labels, input, outputRaw);
-    post = yield* runPostToolStages({
-      stages,
-      toolName,
-      callId,
-      input,
+    let revised: Revised | undefined;
+    ({ post, revised } = yield* postToolOf(args, stages, {
       callNotStarted,
       outputRaw,
-      ...(outputRaw !== undefined && args.forModel
-        ? { outputForModel: args.forModel(outputRaw) }
-        : {}),
-      outputModel: modelResult,
-      ...(activityPast ? { activityPast } : {}),
-      activityFailed: failedActivityOf(base),
+      modelResult,
       failure,
-      awaiting: awaiting || undefined,
-      mutable: !failure && reproject !== undefined,
-    });
-    const revised = yield* reviseAfterStages(post, guard, reproject);
+      awaiting,
+    }));
     if (revised) {
       ({ failure, outputRaw, modelResult, awaiting } = revised);
       if (post.deny) denied = true;
@@ -544,6 +529,46 @@ async function* settleToolCall(args: {
     ...(awaiting ? { awaiting: true as const } : {}),
     ...stageSettlement(post),
   };
+}
+
+type Revised = {
+  failure?: ToolFailure;
+  outputRaw: unknown;
+  modelResult: ModelToolResult;
+  awaiting: boolean;
+};
+
+/** The host's post_tool stages on the call as it stands, and what their deny or `mutate` settles it with instead. */
+async function* postToolOf(
+  args: Parameters<typeof settleToolCall>[0],
+  stages: ToolStageSupport,
+  now: {
+    callNotStarted: boolean | undefined;
+    outputRaw: unknown;
+    modelResult: ModelToolResult;
+    failure: ToolFailure | undefined;
+    awaiting: boolean;
+  },
+): AsyncGenerator<TurnEvent, { post: PostToolStageOutcome; revised: Revised | undefined }> {
+  const { base, toolName, callId, input, guard, reproject, forModel } = args;
+  const { outputRaw, failure } = now;
+  const activityPast = failure ? undefined : pastActivity(args.labels, input, outputRaw);
+  const post = yield* runPostToolStages({
+    stages,
+    toolName,
+    callId,
+    input,
+    callNotStarted: now.callNotStarted,
+    outputRaw,
+    ...(outputRaw !== undefined && forModel ? { outputForModel: forModel(outputRaw) } : {}),
+    outputModel: now.modelResult,
+    ...(activityPast ? { activityPast } : {}),
+    activityFailed: failedActivityOf(base),
+    failure,
+    awaiting: now.awaiting || undefined,
+    mutable: !failure && reproject !== undefined,
+  });
+  return { post, revised: yield* reviseAfterStages(post, guard, reproject) };
 }
 
 /** The settled output's cited sources, then the pictures its tool names; the result carrying them. */
@@ -1059,6 +1084,23 @@ function registeredEligibilityFailure(args: {
   return undefined;
 }
 
+/** A model's call that sets a field the input schema keeps from the model: the host fills those. */
+function hostFieldsFailure(
+  args: RegisteredToolCall,
+  tool: { inputSchema: Record<string, unknown> },
+  input: unknown,
+): ToolFailure | undefined {
+  if (!args.fromModel) return undefined;
+  const notInputs = markedFieldsIn(tool.inputSchema, input);
+  if (notInputs.length === 0) return undefined;
+  return {
+    code: 'invalid_input',
+    kind: 'bad_response',
+    message: labelText('tool.input_invalid', {}, args.profile.labels),
+    details: { notInputs },
+  };
+}
+
 export function authorizeToolReplay(args: {
   tools: ToolRegistry;
   profile: Profile;
@@ -1191,6 +1233,8 @@ interface RegisteredToolCall {
   agents?: AgentCaller;
   /** The canary and system instruction of the turn the model called from, read for in the arguments. */
   scope?: DetectScope;
+  /** The model made the call: a field its input schema keeps from the model is refused. */
+  fromModel?: boolean;
 }
 
 function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['result'] {
@@ -1442,14 +1486,15 @@ async function* runRegisteredTool(
     return yield* executeBuiltin(tool, fullCtx, base, snapshot);
   }
 
-  const eligibility = registeredEligibilityFailure({
-    tool,
-    profile,
-    name,
-    resume: ctx.resume,
-    snapshot,
-    visible: ctx.turn?.visible,
-  });
+  const eligibility =
+    registeredEligibilityFailure({
+      tool,
+      profile,
+      name,
+      resume: ctx.resume,
+      snapshot,
+      visible: ctx.turn?.visible,
+    }) ?? hostFieldsFailure(args, tool, safeInput);
   if (eligibility) {
     yield failureEvent(base, eligibility);
     return earlyFailure(eligibility);

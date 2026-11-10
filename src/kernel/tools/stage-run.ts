@@ -16,6 +16,7 @@ import {
 import type { Profile, TurnEvent, TurnHistoryMessage, TurnTokens } from '../types.ts';
 import { splitCallOrder, stepCallIds } from './call-order.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
+import { inputForModel } from './model-view.ts';
 import { operationWireValue } from './operation.ts';
 import { type GateDetails, gateDetails, isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
@@ -121,6 +122,7 @@ export async function* runPreToolPipeline(args: {
   tool: {
     name: string;
     input: { safeParse: (value: unknown) => z.ZodSafeParseResult<unknown> };
+    inputSchema?: Record<string, unknown>;
     access: ToolAccess;
     labels?: ToolLabels;
     after?: boolean;
@@ -171,7 +173,10 @@ export async function* runPreToolPipeline(args: {
       pre.gate = {
         ...pre.gate,
         ...gateDetails(tool, parsed.data),
-        preparedArguments: jsonObjectSchema.parse(operationWireValue(plainToolInput(candidate))),
+        // why: The model reads these back as its call; the host's pre_tool fills a marked field again when the call resumes.
+        preparedArguments: jsonObjectSchema.parse(
+          operationWireValue(inputForModel(tool.inputSchema ?? {}, plainToolInput(candidate))),
+        ),
       };
     }
     yield stageEventFields('pre_tool', {

@@ -1,10 +1,11 @@
 /**
  * Optional host-application helpers, not part of the turn kernel: HTTP reply status, cutout-trace
- * flush, and live structured-output preview.
+ * flush, live structured-output preview, and a tool's input as a model reads it.
  *
  * @module
  */
 
+export { inputSchemaForModel, markedFieldsIn } from '../kernel/tools/model-view.ts';
 export type { ClientError, ClientTurnOptions } from './client-turn.ts';
 export { clientError, forClient, forClientEvents } from './client-turn.ts';
 export type { CutoutTape } from './mint-trace.ts';

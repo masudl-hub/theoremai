@@ -1179,6 +1179,7 @@ function buildLiveSession(args: {
       name: held.name,
       input,
       callId,
+      fromModel: resume === undefined,
       ctx: {
         operationId: held.operationId,
         sessionPermissions,

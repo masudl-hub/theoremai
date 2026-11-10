@@ -9,6 +9,7 @@ import type {
   TurnRequest,
 } from '../types.ts';
 import { isRecord } from '../util/record.ts';
+import { inputSchemaForModel } from './model-view.ts';
 import type { ToolRegistry } from './registry.ts';
 import type {
   PromoteLoadedResult,
@@ -104,7 +105,7 @@ export function wireForTool(
     type: 'function',
     name: tool.name,
     description: tool.description,
-    parameters: (modelBackground && tool.askInputSchema) || tool.inputSchema,
+    parameters: inputSchemaForModel((modelBackground && tool.askInputSchema) || tool.inputSchema),
   };
 }
 

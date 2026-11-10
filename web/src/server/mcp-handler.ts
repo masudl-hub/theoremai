@@ -20,7 +20,13 @@ import {
   registerProfile,
   type TurnEvent,
 } from '@theoremjs/agents';
-import { type ClientTurnOptions, caughtStatus, clientError } from '@theoremjs/agents/host';
+import {
+  type ClientTurnOptions,
+  caughtStatus,
+  clientError,
+  inputSchemaForModel,
+  markedFieldsIn,
+} from '@theoremjs/agents/host';
 import { hostInterface } from '../client/host-transport.ts';
 import { defineHostProfile, hostTool, type TheoremHostHandlerOptions } from './handler.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
@@ -269,7 +275,7 @@ export function createTheoremMcpHandler(
     hostInterface(host, hostTool).tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      inputSchema: tool.inputSchema,
+      inputSchema: inputSchemaForModel(tool.inputSchema),
       annotations: {
         readOnlyHint: tool.access === 'read-only',
         ...(tool.access === 'destructive' ? { destructiveHint: true } : {}),
@@ -281,6 +287,11 @@ export function createTheoremMcpHandler(
     if (typeof name !== 'string' || !listed().some((tool) => tool.name === name))
       // labels-exempt: protocol diagnostic for the MCP client, not end-user copy
       throw new RpcError(200, INVALID_PARAMS, `Unknown tool: ${String(name)}`);
+    const inputSchema = hostTool(name)?.inputSchema;
+    const hostFields = inputSchema ? markedFieldsIn(inputSchema, params.arguments) : [];
+    if (hostFields.length > 0)
+      // labels-exempt: protocol diagnostic for the MCP client, not end-user copy
+      throw new RpcError(200, INVALID_PARAMS, `Not inputs of ${name}: ${hostFields.join(', ')}`);
     const events: TurnEvent[] = [];
     for await (const event of invokeTool({
       profile: host.id,

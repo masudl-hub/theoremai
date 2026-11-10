@@ -1,5 +1,6 @@
 import type { OwnTools } from '../../guardrails/tool-leak.ts';
 import type { Profile, ToolId } from '../types.ts';
+import { inputSchemaForModel } from './model-view.ts';
 import type { ToolRegistry } from './registry.ts';
 import { profileToolAllow } from './resolve.ts';
 import type { RegisteredTool } from './types.ts';
@@ -58,7 +59,9 @@ function ownToolsOf(tools: ToolRegistry, profile: Profile): OwnTools | undefined
   const projected = projectTools(tools, profile);
   if (projected.length === 0) return undefined;
   const params = new Set<string>();
-  for (const tool of projected) if ('inputSchema' in tool) addParams(tool.inputSchema, params);
+  for (const tool of projected) {
+    if ('inputSchema' in tool) addParams(inputSchemaForModel(tool.inputSchema), params);
+  }
   return { names: projected.map(({ name }) => name), params: [...params] };
 }
 

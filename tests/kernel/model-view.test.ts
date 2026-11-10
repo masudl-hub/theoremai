@@ -242,17 +242,6 @@ Deno.test('a mark the kernel cannot honour is refused when the tool or schema re
     () =>
       registerTool({
         ...base,
-        name: 'model_view_bad_input',
-        input: z.object({ q: z.string().meta({ exposeToModel: false }) }),
-        output: z.object({ a: z.string() }),
-      }),
-    TheoremError,
-    'marks output fields only',
-  );
-  assertThrows(
-    () =>
-      registerTool({
-        ...base,
         name: 'model_view_bad_value',
         input: z.object({}),
         output: z.object({ a: z.string().meta({ exposeToModel: true }) }),

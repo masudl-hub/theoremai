@@ -786,6 +786,7 @@ async function* handleModelCalls(
         name: call.name,
         input: call.arguments,
         callId: call.callId,
+        fromModel: true,
         ctx: {
           operationId: call.operationId,
           pageExecution: generation.pageExecution,

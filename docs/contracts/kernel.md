@@ -894,11 +894,46 @@ still checked against the whole schema.
   sets `exposeToModel: false`.
 - **Visible.** The output schema keeps the field and the mark, so the host door's `describe`
   shows both.
-- **Refused at registration.** A mark with any value but `false`, a mark on an input field, and a
-  mark on the whole output. To hide the whole output, set `exposeToModel: false` on the tool.
+- **Refused at registration.** A mark with any value but `false`, and a mark on the whole output.
+  To hide the whole output, set `exposeToModel: false` on the tool.
 
 Nothing is inferred from a field's name. A transcript recorded before the field was marked
 replays the text the model read then.
+
+### Input fields the host fills
+
+Use this when a tool needs a value the model must not see or choose, such as the id of the
+store the person shops at. Mark the field in the tool's input with `exposeToModel: false`, and
+make it optional:
+
+```ts
+input: z.object({
+  plant: z.string(),
+  storeId: z.string().meta({ exposeToModel: false }).optional(),
+}),
+```
+
+The model's schema leaves the field out, so the model never sees it. The host fills it:
+
+- **On a model's call**, in the `pre_tool` stage, with `mutate: { input }`. The input is checked
+  against the whole schema again. If nobody fills the field, the handler gets `undefined`.
+- **On the host's own call**, in the input it sends: `invokeTool` and the host door take the
+  field. The host door's `describe` shows the field and its mark.
+
+The model cannot set the field. A model's call that sends it fails `invalid_input`
+(`bad_response`) before the tool runs, and `failure.details.notInputs` names each field it sent.
+The MCP door lists the model's schema and refuses a call that sends a marked field, because its
+client is a model.
+
+What the model reads back as its call leaves the field out: history replay, a confirmation gate's
+`preparedArguments`, and a person's edit (`edited.to`). The host's `pre_tool` stage runs again
+when a held call resumes, so it fills the field again.
+
+- **Refused at registration.** A mark with any value but `false`, a mark on a required field (the
+  model could never fill it), and a mark that is not on a field of an object: on the whole input,
+  on a list item, or on a branch of a union.
+- **Agent tools** take the input the called profile declares, so they have no field to mark.
+  `hostOnly` keeps a whole channel from the model instead, and `onAgentCall` fills it.
 
 ### Tool images
 

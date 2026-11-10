@@ -228,6 +228,7 @@ Does not validate full JSON documents.
 | `forClient`, `forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions` | Client-safe turn events |
 | `flushMintTrace`, `CutoutTape` | Cutout mint trace |
 | `readStreamingJsonStringField` | Structured JSON preview |
+| `inputSchemaForModel`, `markedFieldsIn` | A tool's input schema as a model reads it, and the fields marked `exposeToModel: false` that an input sets ([kernel](kernel.md#input-fields-the-host-fills)); for a door whose client is a model |
 
 ```theorem-evidence
 {

@@ -12,6 +12,7 @@ import type { TurnEvent, TurnEventOf } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel, toolNameInWords } from './activity-label.ts';
 import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
+import { inputForModel } from './model-view.ts';
 import type { ToolOperationClaim } from './operation.ts';
 import type {
   ToolCallRequest,
@@ -157,7 +158,7 @@ export function* sourceEvents(
 }
 
 function toolRunningEvent(
-  tool: { labels?: ToolLabels },
+  tool: { labels?: ToolLabels; inputSchema?: Record<string, unknown> },
   rawInput: unknown,
   ctx: ToolContext,
   base: ToolCallBase,
@@ -166,7 +167,14 @@ function toolRunningEvent(
   const activity = fillActivityLabel(tool.labels?.activity, { input: rawInput });
   return toolEvent(base, {
     phase: 'running',
-    ...(edited ? { edited: { from: edited.from, to: toolCallArguments(rawInput) } } : {}),
+    ...(edited
+      ? {
+          edited: {
+            from: edited.from,
+            to: toolCallArguments(inputForModel(tool.inputSchema ?? {}, rawInput)),
+          },
+        }
+      : {}),
     ...(activity ? { activity } : {}),
   });
 }
@@ -193,7 +201,7 @@ export class HandOff {
 }
 
 export async function* dispatchToolBody(
-  tool: { labels?: ToolLabels },
+  tool: { labels?: ToolLabels; inputSchema?: Record<string, unknown> },
   input: unknown,
   ctx: ToolContext,
   base: ToolCallBase,

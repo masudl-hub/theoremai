@@ -212,6 +212,7 @@ export const openRouterOpenAi: Protocol<OpenRouterOptions> = extendProtocol(open
         ],
       };
     replay(messages, at.request?.history ?? []);
+    // why: OpenRouter routes and caches the calls of one session_id together.
     if (at.request?.sessionId) out.session_id = at.request.sessionId;
     const web = at.builtInTools.includes('webSearch');
     if (web) out.web_search_options = {};

@@ -341,7 +341,7 @@ export const AUTH_UNAUTHENTICATED_POLICIES = [
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 /** The kinds of tool a profile can list. */
 export const TOOL_TYPES = [
-  /** The provider's own tool, such as Google Search, run by the provider. */
+  /** The provider's own tool, such as its web search, run by the provider. */
   'builtin',
   /** Your handler runs it. */
   'function',

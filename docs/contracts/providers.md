@@ -97,7 +97,7 @@ scope.profiles.register(defineProfile({
 ```
 
 `defineProvider` checks the ID, name, description, and `serves`, and freezes the definition.
-A provider ID uses lowercase letters, digits, and `-`, and starts with a letter.
+A provider ID uses lowercase letters, digits, and `-`, and starts with a letter. A binding names its provider by this ID.
 Its `connection` and `key` are zod schemas. `authorize` signs each request: `bearer()`, `header(name)`, or `query(name)`.
 Each `Serve` names a protocol and a base URL. It can add headers, a different sign-in, or a `url` function.
 `prices` fill in cost when a reply carries none.
@@ -124,8 +124,8 @@ Use a binding to select a protocol, a registered provider, and an upstream model
 | Field | Contract |
 | --- | --- |
 | `protocol` | Nonempty ID of a protocol that the provider serves |
-| `provider` | Nonempty registered provider ID |
-| `apiId` | Nonempty upstream model or deployment ID |
+| `provider` | Nonempty ID of the registered provider: the service that runs the model or routes requests to one |
+| `apiId` | Nonempty model or deployment ID as the provider lists it, sent on every call |
 | Shared settings | Output tokens, temperature, effort aliases, and selection, summaries, builtins, and compaction |
 | `keySlot`, `fallbackKeySlot` | Optional overrides of the registration's credential slots |
 | `options` | JSON object, parsed by the protocol's options schema; defaults to an empty object |
@@ -166,7 +166,7 @@ Its `body` adds to each request. Its `read` sees each reply row before the base.
 `carriesTo` reports whether reasoning that one protocol wrote may go back to another protocol in its lineage.
 `modelOptions(protocol, apiId, options)` parses a model's options by the protocol's schema, less any option that model refuses, and throws a `config` error naming what does not fit. A binding is checked with it when it is registered, and a protocol may call it in its own operations.
 
-`ProtocolContext` supplies the profile type, model ID, parsed options, built-in tool IDs, merged limits, and abort signal.
+`ProtocolContext` supplies the profile type, model ID, parsed options, the provider's own tools the model may use (`builtInTools`), merged limits, and abort signal.
 `send` posts to the endpoint of the profile type and yields reply rows. `connect` opens the WebSocket and sends the first frame.
 `tapUpstream` records a row for tracing. The context never holds a key, a key slot, or a base URL.
 
@@ -387,6 +387,7 @@ A `box` question also fails on a pinned `jev-1.13.*` id.
 Use `openRouterProvider` for OpenRouter. It signs each request with a bearer key.
 Its connection takes `baseUrl`, `decisionUrl`, `siteUrl`, and `siteName`, and each is optional.
 `siteUrl` goes out as `HTTP-Referer` and `siteName` as `X-Title`.
+A turn's `sessionId` goes out as `session_id`, so OpenRouter routes and caches that session's calls together.
 
 The planned `openRouterEmbeddings` protocol uses the same bearer credential and
 connection headers as chat. It sends text or provider-supported multimodal
@@ -555,7 +556,7 @@ The kernel creates the checkpoint envelope and history hash. The protocol suppli
 | Checkpoint field | Purpose |
 | --- | --- |
 | `protocol`, `provider` | Protocol ID and registered provider ID |
-| `version`, `apiId` | State format version and upstream model identity |
+| `version`, `apiId` | State format version, and the model ID as the provider lists it |
 | `keySlot` | The slot of the key that wrote the state |
 | `compatibilityKey` | Hash of the connection and the options the protocol keys its state on |
 | `coveredHistoryLength`, `coveredHistoryHash` | Portable history prefix represented by the native state, up to and including the step's own reply (its text, then its tool calls), as the turn's history holds it |

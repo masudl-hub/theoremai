@@ -1,0 +1,11 @@
+id: no-vendor-in-kernel-catalog
+language: TypeScript
+severity: error
+message: The kernel's setting docs and defaults name no provider. Say what the kernel does; a provider's own rule belongs in that provider's code and docs.
+note: field-docs.ts is generated from the JSDoc on the declarations, so fix the JSDoc and run `deno task field-docs`.
+files:
+  - 'src/kernel/profile-presence.ts'
+  - 'src/kernel/field-docs.ts'
+rule:
+  kind: string_fragment
+  regex: '(?i)gemini|google|openai|open ai|anthropic|claude|openrouter|elevenlabs|deepgram|cartesia|vertex|\bxai\b|grok|mistral|\bgpt'

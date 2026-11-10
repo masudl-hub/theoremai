@@ -1461,10 +1461,9 @@ export interface AgentRunRequest extends RunControls, ModelChoice {
 /** A request to `runTurn`: the shared controls and the turn's input. */
 export interface TurnRequest extends AgentRunRequest {
   /**
-   * A session key that OpenRouter uses for routing and caching.
+   * A session key a provider may use to route and cache this session's calls together.
    *
-   * @remarks Sticky routing / cache session key for OpenRouter (`session_id`). Not the same as
-   * `projectId` or Gemini `previousInteractionId`.
+   * @remarks Not the same as `projectId`.
    */
   sessionId?: string;
   /**
@@ -1573,7 +1572,7 @@ export interface ProviderGenerationConfig {
   maxOutputTokens?: number;
   temperature?: number;
   builtins: BuiltinToolId[];
-  /** Forwarded as OpenRouter `session_id`. */
+  /** The turn's `sessionId`, for a provider that routes or caches by it. */
   sessionId?: string;
 }
 

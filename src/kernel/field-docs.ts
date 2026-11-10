@@ -374,9 +374,9 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'models.*': 'One model: how to reach it and the settings sent with it.',
   'models.*.allowEffortSelect': 'Lets a turn pick an effort; needs two or more efforts.',
   'models.*.apiId':
-    "The model's id as the provider lists it, such as gemini-2.5-flash; sent on every call. The name this model has in the profile is its key in models.",
+    "The model's id as the provider lists it; sent on every call. The name this model has in the profile is its key in models.",
   'models.*.builtInTools':
-    "The provider's own tools, such as Google Search, this model may use; each must be registered as a builtin tool and declared by the provider's adapter.",
+    "The provider's own tools, such as its web search, this model may use; each must be registered as a builtin tool and declared by the provider's adapter.",
   'models.*.compaction':
     'Summarises history past a threshold. A text agent can write the summary. Other types name a compaction profile.',
   'models.*.compaction.compactAt':
@@ -419,7 +419,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     "Settings only this model's protocol has, such as a task type or vector size. Each is checked when the profile loads. Any left out keep the provider's default.",
   'models.*.protocol': 'The API shape this model is spoken to in.',
   'models.*.provider':
-    'The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its registration supplies the endpoint and authentication.',
+    'The service that runs the model or routes requests to one. Its registration supplies the endpoint and authentication.',
   'models.*.summaries':
     'Asks the model for summaries of its thinking, which not every model sends; with some providers, off only hides thoughts, and others ignore it.',
   'models.*.temperature':
@@ -662,7 +662,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'runTurn.providerState': 'Native provider state saved alongside portable history.',
   'runTurn.resolveHost':
     'Resolves the host name of a remote tool before each request; a name that resolves to a private address is refused.',
-  'runTurn.sessionId': 'A session key that OpenRouter uses for routing and caching.',
+  'runTurn.sessionId':
+    "A session key a provider may use to route and cache this session's calls together.",
   'runTurn.sessionPermissions': 'The tools the user has already approved for this session.',
   'runTurn.signal':
     'Stops the run when it aborts, and cancels its provider call where the provider can.',
@@ -932,7 +933,7 @@ export const OPTION_DOCS: Readonly<
     always_confirm: 'Asks every time.',
   },
   TOOL_TYPES: {
-    builtin: "The provider's own tool, such as Google Search, run by the provider.",
+    builtin: "The provider's own tool, such as its web search, run by the provider.",
     function: 'Your handler runs it.',
     http: 'The kernel calls your HTTP endpoint.',
     mcp: 'The kernel calls a tool on a remote MCP server.',

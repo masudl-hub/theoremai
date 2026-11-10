@@ -52,8 +52,8 @@ export const commonModelSettingsSchema: z.ZodObject<{
    */
   summaries: z.ZodOptional<z.ZodBoolean>;
   /**
-   * The provider's own tools, such as Google Search, this model may use; each must be registered as
-   * a builtin tool and declared by the provider's adapter.
+   * The provider's own tools, such as its web search, this model may use; each must be registered
+   * as a builtin tool and declared by the provider's adapter.
    */
   builtInTools: z.ZodOptional<z.ZodArray<z.ZodString>>;
   /**
@@ -85,13 +85,13 @@ export interface ModelBinding extends z.infer<typeof commonModelSettingsSchema> 
   /** The API shape this model is spoken to in. */
   protocol: string;
   /**
-   * The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its
-   * registration supplies the endpoint and authentication.
+   * The service that runs the model or routes requests to one. Its registration supplies the
+   * endpoint and authentication.
    */
   provider: string;
   /**
-   * The model's id as the provider lists it, such as gemini-2.5-flash; sent on every call. The name
-   * this model has in the profile is its key in models.
+   * The model's id as the provider lists it; sent on every call. The name this model has in the
+   * profile is its key in models.
    */
   apiId: string;
   /**
@@ -132,7 +132,7 @@ const modelBinding = z.strictObject({
   protocol: z.string().min(1).describe('The API shape this model is spoken to in.'),
   provider: z.string().min(1).describe(
     // labels-exempt: builder field description, read by the studio and docs
-    'The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its registration supplies the endpoint and authentication.',
+    'The service that runs the model or routes requests to one. Its registration supplies the endpoint and authentication.',
   ),
   // labels-exempt: builder field description, read by the studio and docs
   apiId: z.string().min(1).describe('The id the provider knows the model by.'),

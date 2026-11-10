@@ -287,8 +287,10 @@ function owedAmong<D extends { key: string }>(among: CarryAmong<D>) {
   const read: Array<{ site: SettingSite; from: string }> = [];
   for (const draft of among.made) {
     for (const { path, site, value } of editsOf(among, draft)) {
-      if (site?.readBy) read.push({ site, from: draft.key });
-      if (!site?.shared) continue;
+      // Taking out the whole of what a place writes drops this agent's use of it: the place stays.
+      if (!site || (value === undefined && path.length === site.path.length)) continue;
+      if (site.readBy) read.push({ site, from: draft.key });
+      if (!site.shared) continue;
       const edit = {
         site,
         rest: path.slice(site.path.length),

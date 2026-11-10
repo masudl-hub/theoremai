@@ -15,6 +15,8 @@ import {
 
 const desk = path.join(PROJECT, 'agents/desk.ts');
 const tools = path.join(PROJECT, 'tools.ts');
+const team = path.join(PROJECT, 'agents/team.ts');
+const originalTeam = readFileSync(team, 'utf8');
 const original = readFileSync(desk, 'utf8');
 const originalTools = readFileSync(tools, 'utf8');
 
@@ -235,6 +237,34 @@ test('a setting changed on both sides asks which stands: studio', async ({ page 
   await expect(handle(page)).toHaveValue('Deskx');
   await expect(saveToken(page)).toBeVisible();
   expect(readFileSync(desk, 'utf8')).toBe(edited("handle: 'Desk'", "handle: 'Disk'"));
+});
+
+/** `team.ts` with the counters' `free` model made by one helper, as a project shares a model. */
+function sharedFree(): string {
+  const helper =
+    "const lite = (effort: 'minimal' | 'low') => ({ protocol: 'openRouterOpenAi' as const, provider: 'router', apiId: 'fake/free', efforts: { normal: effort } });\n\n";
+  const [head = '', front = '', back = ''] = originalTeam.split(
+    /(?=export const (?:frontCounter|backCounter) )/,
+  );
+  const withFree = (part: string, effort: string) =>
+    part.replace('  models: {\n', `  models: {\n    free: lite('${effort}'),\n`);
+  const tail = back.split(/(?=export const triage )/);
+  return `${head}${helper}${withFree(front, 'minimal')}${withFree(tail[0] ?? '', 'low')}${tail.slice(1).join('')}`;
+}
+
+test('taking a shared model out of one agent leaves it on the others', async ({ page }) => {
+  writeFileSync(team, sharedFree());
+  await open(page, 'front_counter');
+  await page.getByRole('button', { name: 'free', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Remove model' }).click();
+  await expect(page.getByText(/shared with|Change it for this profile only/)).toBeHidden();
+  await saveToken(page).click();
+  const dialog = page.getByRole('dialog', { name: /Save to/ });
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved to agents/team.ts.').first()).toBeVisible();
+  const written = readFileSync(team, 'utf8');
+  expect(written).not.toContain("free: lite('minimal')");
+  expect(written).toContain("free: lite('low')");
 });
 
 test('a save the project cannot type-check puts the files back and says why', async ({ page }) => {

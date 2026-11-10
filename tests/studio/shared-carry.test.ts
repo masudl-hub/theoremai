@@ -214,3 +214,15 @@ Deno.test('an agent with an issue is left as it is and named, and the others sti
     'Change it for this profile only?',
   );
 });
+
+Deno.test('taking a model out of one agent leaves it on the others, though a helper writes it for all', () => {
+  const before = opened();
+  const after = edit(before, 'desk', (each) => ({
+    ...each,
+    modelBindings: each.modelBindings.filter((binding) => binding.modelId !== 'fast'),
+  }));
+  assertEquals(model(after, 'desk', 'fast'), undefined);
+  const { workspace, reach } = carry(before, after, HELPED);
+  assertEquals(model(workspace, 'shop', 'fast'), model(before, 'shop', 'fast'));
+  assertEquals(reach, undefined);
+});

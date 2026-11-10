@@ -20,6 +20,7 @@ import { inputForModel } from './model-view.ts';
 import { operationWireValue } from './operation.ts';
 import { type GateDetails, gateDetails, isGateResumeGranted } from './permission.ts';
 import { plainToolInput } from './schema.ts';
+import { schemaIssueDetails } from './schema-issues.ts';
 import type { SteerQueue } from './steer.ts';
 import type { ModelToolResult, ToolContext, ToolFailure, ToolGate, ToolLabels } from './types.ts';
 
@@ -113,7 +114,7 @@ function invalidAfterMutate(error: z.ZodError, ctx: ToolContext): PreBodyOutcome
       code: 'invalid_input',
       kind: 'bad_response',
       message: labelText('tool.input_invalid_after_mutate', {}, ctx.profile.labels),
-      details: error.flatten(),
+      details: schemaIssueDetails(error.issues),
     },
   };
 }

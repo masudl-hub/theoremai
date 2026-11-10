@@ -937,8 +937,9 @@ when a held call resumes, so it fills the field again.
 - **Refused at registration.** A mark with any value but `false`, a mark on a required field (the
   model could never fill it), and a mark that is not on a field of an object: on the whole input,
   on a list item, or on a branch of a union.
-- **Agent tools** take the input the called profile declares, so they have no field to mark.
-  `hostOnly` keeps a whole channel from the model instead, and `onAgentCall` fills it.
+- **Agent tools** mark a field in `hostFields`, such as
+  `{ storeId: z.string().meta({ exposeToModel: false }).optional() }`. The host fills it the same
+  way, and `onAgentCall` reads it as `call.hostInput`. The called agent never receives it.
 
 ### Tool images
 
@@ -990,7 +991,7 @@ state is the host's, through `onAgentCall` and stages.
 | `profile` | The agent to run: a `text`, `image`, or `speech` profile that takes text, registered before the tool |
 | `maxCallsPerTurn` | Calls allowed in one turn of the caller; a call past it fails `call_limit` (`declined`) |
 | `fieldText` | What the calling model reads on a field of the input, by field (`{ text: '…' }`); a field the profile does not take is refused at registration |
-| `hostFields` | Fields the model fills that only the host reads, as a zod type by name (`{ media: z.string() }`); a name the input already has is refused at registration |
+| `hostFields` | Fields that only the host reads, filled by the model or, when marked `exposeToModel: false`, by the host, as a zod type by name (`{ media: z.string() }`); a name the input already has is refused at registration |
 | `hostOnly` | Channels the profile takes that the model can't fill (`['attachments']`); a channel the profile does not take is refused at registration |
 | `preTool` | As on a function tool, with the call's input |
 
@@ -1017,7 +1018,8 @@ field: its senders are the page and the host, and the host sends it through
 **Host fields.** A tool's `hostFields` add fields to its input that the called
 agent never receives: the host's own handle for something, such as the id of a
 stored file. The hook reads them as `call.hostInput` and returns the `input` the
-agent is sent. `hostOnly` takes a channel out of the model's input, so the file
+agent is sent. The model fills a host field, unless the field is marked
+`exposeToModel: false`; then the host fills it ([Input fields the host fills](#input-fields-the-host-fills)). `hostOnly` takes a channel out of the model's input, so the file
 an id names reaches the agent only as the hook attached it. A call to a tool
 with host fields on a request with no `onAgentCall` throws `config`.
 
@@ -1091,7 +1093,7 @@ pause `input`, `TraceRecord`, or `ProtocolRequest`.
 | `ToolLoadContext.host?: unknown` | Read by `tools.t1Policy` |
 
 `SessionRequest` has no host slot today. Target stages attach `SessionRequest.onStage`
-for the session lifetime (immutable; no `setOnStage`) and require
+for the session lifetime (immutable: nothing replaces it mid-session) and require
 `LiveSession.executeTool` for live tool execute — see [`stages.md`](stages.md).
 Until that cutover, hosts still execute live tool calls through `invokeTool`.
 
@@ -1375,6 +1377,7 @@ A live session without that service returns `tool.page_no_answer` for an unanswe
 A timed-out browser result produces `tool.page_timed_out`. It does not restore an approval.
 A function tool with neither a handler nor `answeredBy` does not register.
 The kernel checks every result against `output`, and a mismatch fails the call as `invalid_output`.
+A refused input or output names where each issue sits in `failure.details` (`schemaIssueDetails`): `formErrors` for the value itself, and `fieldErrors` by top-level field, each line starting with the place below that field, as in `save.from: Invalid input: expected array, received string`.
 Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
 A `read-only` HTTP tool is sent again after a network error or a 408, 429, 500, 502, 503, 504 or 529 status, on the same waits and limits as a model call (`docs/contracts/providers.md`). A `read-write` or `destructive` one is sent once.
 Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP.

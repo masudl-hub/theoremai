@@ -43,6 +43,7 @@ import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
 import { assertSystemLines, systemLinesProblem } from '../system-lines.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
+import { issuePath } from '../tools/schema-issues.ts';
 import type {
   CompactionSpec,
   DecisionModelBinding,
@@ -399,7 +400,7 @@ function assertBindingData(
   if (!parsed.success)
     throw new TheoremError(
       'config',
-      `Profile ${profileId} model '${modelId}': ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`,
+      `Profile ${profileId} model '${modelId}': ${parsed.error.issues.map((issue) => `${issuePath(issue.path)}: ${issue.message}`).join('; ')}`,
     );
 }
 

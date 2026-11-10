@@ -47,6 +47,7 @@ import { outputForModel } from './model-view.ts';
 import type { ToolOperationClaim } from './operation.ts';
 import { checkPermission, gateDetails } from './permission.ts';
 import { assertFixedEndpointOrigin, type JsonSchema } from './schema.ts';
+import { issuePath, type SchemaIssue, schemaIssueDetails } from './schema-issues.ts';
 import { runPreToolPipeline, type ToolStageSupport } from './stage-run.ts';
 import type {
   HttpToolDef,
@@ -390,10 +391,10 @@ export function parseToolOutput<T>(
   schema: {
     safeParse: (
       data: unknown,
-    ) => { success: true; data: T } | { success: false; error: { flatten: () => unknown } };
+    ) => { success: true; data: T } | { success: false; error: { issues: readonly SchemaIssue[] } };
   },
   responseData: unknown,
-): { success: true; data: T } | { success: false; error: { flatten: () => unknown } } {
+): { success: true; data: T } | { success: false; error: { issues: readonly SchemaIssue[] } } {
   let checked = schema.safeParse(responseData);
   if (!checked.success && typeof responseData === 'string' && responseData.trim().length > 0) {
     try {
@@ -959,7 +960,7 @@ async function* sendHttpRequest(
         code: 'invalid_output',
         kind: 'bad_response',
         message: 'HTTP response did not match tool output schema', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        details: checked.error.flatten(),
+        details: schemaIssueDetails(checked.error.issues),
       };
       return failureOutcome(failure, false);
     }
@@ -1459,12 +1460,10 @@ function extractMcpOutput(
 }
 
 /** Otherwise the text fallback hides why the tool's declared fields never arrive. */
-function structuredMismatch(
-  issues: readonly { path: readonly PropertyKey[]; message: string }[],
-): ToolWarning {
+function structuredMismatch(issues: readonly SchemaIssue[]): ToolWarning {
   const shown = issues
     .slice(0, 3)
-    .map((issue) => `${issue.path.map(String).join('.') || '(root)'}: ${issue.message}`);
+    .map((issue) => `${issuePath(issue.path) || '(root)'}: ${issue.message}`);
   const more = issues.length > 3 ? ` (+${String(issues.length - 3)} more)` : '';
   return {
     code: 'mcp_structured_mismatch',
@@ -1531,7 +1530,7 @@ function interpretMcpRpc(
         code: 'invalid_output',
         kind: 'bad_response',
         message: 'MCP output schema validation failed', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        details: checked.error.flatten(),
+        details: schemaIssueDetails(checked.error.issues),
       },
       ...withWarning,
     };

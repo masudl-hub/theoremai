@@ -122,6 +122,7 @@ export {
   permissionGranted,
 } from './permission.ts';
 
+import { type SchemaIssue, schemaIssueDetails } from './schema-issues.ts';
 import { UncheckedOutput } from './unchecked-output.ts';
 
 export function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
@@ -320,7 +321,7 @@ function applyT2LoaderPromotion(
         code: 'invalid_output',
         kind: 'bad_response',
         message: labelText('tool.t2_loader_output_invalid', {}, ctx.profile.labels),
-        details: rechecked.error.flatten(),
+        details: schemaIssueDetails(rechecked.error.issues),
       },
     };
   }
@@ -733,7 +734,7 @@ async function* runFunctionPreBodyStages(args: {
 
 type ParsedOutput =
   | { success: true; data: unknown }
-  | { success: false; error: { flatten: () => unknown } };
+  | { success: false; error: { issues: readonly SchemaIssue[] } };
 
 function makeReproject(
   parse: (value: unknown) => ParsedOutput,
@@ -749,7 +750,7 @@ function makeReproject(
           code: 'invalid_output',
           kind: 'bad_response',
           message: labelText('tool.output_invalid_after_mutate', {}, labels),
-          details: checked.error.flatten(),
+          details: schemaIssueDetails(checked.error.issues),
         },
       };
     }
@@ -967,7 +968,7 @@ export async function* executeFunction(
       code: 'invalid_output',
       kind: 'bad_response',
       message: labelText('tool.output_invalid', {}, ctx.profile.labels),
-      details: checked.error.flatten(),
+      details: schemaIssueDetails(checked.error.issues),
     });
   }
   const promoted = applyT2LoaderPromotion(tools, tool, checked.data, ctx, snapshot);

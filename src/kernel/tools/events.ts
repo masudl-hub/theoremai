@@ -14,6 +14,7 @@ import { fillActivityLabel, toolNameInWords } from './activity-label.ts';
 import { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 import { inputForModel } from './model-view.ts';
 import type { ToolOperationClaim } from './operation.ts';
+import { issuePath, schemaIssueDetails } from './schema-issues.ts';
 import type {
   ToolCallRequest,
   ToolContext,
@@ -148,7 +149,7 @@ export function* sourceEvents(
     if (parsed.success) cited.push(parsed.data);
     else
       invalid.push(
-        `[${String(index)}] ${parsed.error.issues.map((i) => `${i.path.join('.') || 'source'}: ${i.message}`).join('; ')}`,
+        `[${String(index)}] ${parsed.error.issues.map((i) => `${issuePath(i.path) || 'source'}: ${i.message}`).join('; ')}`,
       );
   });
   if (invalid.length > 0) {
@@ -226,7 +227,7 @@ export function startToolExecution<T>(
         code: 'invalid_input',
         kind: 'bad_response',
         message: labelText('tool.input_invalid', {}, ctx.profile.labels),
-        details: parsed.error.flatten(),
+        details: schemaIssueDetails(parsed.error.issues),
       },
     };
   }

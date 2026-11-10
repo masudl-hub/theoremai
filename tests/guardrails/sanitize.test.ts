@@ -478,6 +478,16 @@ Deno.test('sanitizeTurnRequest without profile guardrails flags injection and se
   }
 });
 
+Deno.test('sanitizeTurnRequest keeps a safe message id and refuses one that would break the fence', () => {
+  const req = (messageId: string) =>
+    sanitizeTurnRequest({ profile: UNGUARDED.id, input: { text: 'hi', messageId } }, UNGUARDED);
+  assertEquals(req('msg.7k').input.messageId, 'msg.7k');
+  assertEquals(req('x'.repeat(32)).input.messageId, 'x'.repeat(32));
+  for (const bad of ['', 'x'.repeat(33), 'a"b', 'a>b', 'a\nb', 'a b']) {
+    assertThrows(() => req(bad), TheoremError);
+  }
+});
+
 Deno.test('sanitizeRepair returns undefined guidance when guidance is empty string (falsy)', () => {
   // When guidance is falsy (empty string), the always-sanitize mutation calls redactAll('')
   // which returns '' — different from the correct undefined. With empty-string guidance,

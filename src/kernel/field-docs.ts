@@ -631,6 +631,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     "Your count of the whole prompt's tokens, used by compaction that meters input before the call.",
   'runTurn.input.lateResults':
     'Background tool calls that settled after their turn, as the host stored them. The model reads each as a tool result, and this reply counts it as a remote read when the call was remote. Pass each one once: the turn emits it as a late_results event, so a history built from events holds it.',
+  'runTurn.input.messageId':
+    'Your id for the user\'s message, shown to the model on its fence as `<user_data id="…">`: 1 to 32 letters, digits, `.`, `_`, `:` or `-`; any other id is refused.',
   'runTurn.input.options':
     "The value a person picked for each option in the profile's inputs.options; an option or a value the profile does not declare is refused.",
   'runTurn.input.repair': 'A reply your host rejected and why, so that the model writes it again.',

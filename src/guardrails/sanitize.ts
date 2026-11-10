@@ -74,6 +74,17 @@ function sanitizeContext(
 }
 
 const PROJECT_ID_OK = /^[A-Za-z0-9._-]+$/;
+/** Short enough that a model echoing the whole opening tag still reads as a fence to strip. */
+const MESSAGE_ID_OK = /^[A-Za-z0-9._:-]{1,32}$/;
+
+/** The message id as given; throws when it would not sit safely on the fence. */
+function checkMessageId(id: string | undefined): string | undefined {
+  if (id === undefined || MESSAGE_ID_OK.test(id)) return id;
+  throw new TheoremError(
+    'request',
+    'input.messageId must be 1 to 32 letters, digits, ".", "_", ":" or "-"', // labels-exempt: developer contract error
+  );
+}
 
 /** The project id trimmed, or `undefined` when it is empty or has illegal characters. */
 function sanitizeProjectId(id: string | undefined): string | undefined {
@@ -150,6 +161,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
   const { detect } = resolveGuardrailPolicy(profile.guardrails);
   const at = recordOf(REQUEST_BOUNDARIES, (boundary) => boundaryReader(boundary, detect));
   const input = req.input ?? {};
+  const messageId = checkMessageId(input.messageId);
 
   const text = input.text === undefined ? undefined : at.user.read(input.text);
   const system =
@@ -184,6 +196,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
       input: {
         ...input,
         text,
+        ...(messageId === undefined ? {} : { messageId }),
         options,
         ...(told.context ? { context: told.context } : {}),
         repair,

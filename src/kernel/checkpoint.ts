@@ -96,7 +96,8 @@ export async function historyHash(history: readonly TurnHistoryMessage[]): Promi
           history.map((message) => {
             const canonicalText = (text: string) =>
               message.role === 'user'
-                ? (text.match(/^<user_data>\n([\s\S]*)\n<\/user_data>$/)?.[1] ?? text)
+                ? (text.match(/^<user_data(?: id="[^"\n]*")?>\n([\s\S]*)\n<\/user_data>$/)?.[1] ??
+                  text)
                 : text;
             const parts = [
               ...(message.content === undefined

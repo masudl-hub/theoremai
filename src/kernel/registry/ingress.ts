@@ -155,7 +155,10 @@ function extractTextPart(profile: Profile, req: TurnRequest): InteractionPart | 
   if (profile.type === 'speech') {
     return promptText ? { type: 'text', text: promptText } : null;
   }
-  const blocks = [...contextBlocks(req), ...(promptText ? [wrapUserData(promptText)] : [])];
+  const blocks = [
+    ...contextBlocks(req),
+    ...(promptText ? [wrapUserData(promptText, req.input?.messageId)] : []),
+  ];
   return blocks.length > 0 ? { type: 'text', text: blocks.join('\n\n') } : null;
 }
 

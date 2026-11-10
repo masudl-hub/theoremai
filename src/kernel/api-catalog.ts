@@ -64,6 +64,10 @@ export const REQUEST_FIELDS: Record<RequestPath, FieldMeta> = withFieldDocs<Requ
   'runTurn.input.repair': {
     type: 'TurnRepairRequest',
   },
+  'runTurn.input.messageId': {
+    type: 'string',
+    unset: 'The fence carries no id',
+  },
   'runTurn.input.historyTokens': {
     type: 'number',
     unset: "Theorem's own estimate",

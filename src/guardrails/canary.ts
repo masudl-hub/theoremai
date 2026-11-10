@@ -78,10 +78,12 @@ function stripUserFences(text: string): string {
 
 /**
  * Removes pre-existing user-data fences, trims the input, and encloses the result
- * in the canonical user-data fence used by the guardrail prompt contract.
+ * in the canonical user-data fence used by the guardrail prompt contract, with
+ * the message's id on the opening tag when there is one.
  */
-function wrapUserData(text: string): string {
-  return `${USER_OPEN}\n${stripUserFences(text)}\n${USER_CLOSE}`;
+function wrapUserData(text: string, messageId?: string): string {
+  const open = messageId === undefined ? USER_OPEN : `<user_data id="${messageId}">`;
+  return `${open}\n${stripUserFences(text)}\n${USER_CLOSE}`;
 }
 
 /**

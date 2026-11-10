@@ -100,7 +100,7 @@ Owns every module under `src/guardrails/`.
 | --- | --- |
 | `mintCanary` | Generate a random 32-hex token (128 bits, no prefix): a Live session's canary |
 | `bindCanary` | Append canary note to system prompt |
-| `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased, or nested |
+| `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased, or nested. The turn's `input.messageId`, when set, goes on the opening tag: `<user_data id="msg.7k">` |
 | `wrapContext` | Fence a context package in `<turn_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
 | `contextNote` | The `context.note` labels line, which tells the model what that fence means; the runner appends it to the system prompt of a profile that sets `inputs.context`. An empty override leaves it out. |
 | `userDataNote` | The `user_data.note` labels line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image, and live turn (speech has no system prompt). An empty override leaves it out. |
@@ -1124,6 +1124,10 @@ switch cannot mean different things on different paths.
 | `sanitizeTurnRequest(req, profile)` | Full turn: text, options, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
 | `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
+
+A turn's `input.messageId` is kept as given when it is 1 to 32 letters, digits,
+`.`, `_`, `:` or `-`; any other id throws a `request` error. The limit keeps a
+fence a model echoes, id and all, short enough for `wrapUserData` to strip.
 
 A request a match blocks throws an `input` error worded `detect.blocked`. Its
 message names the boundary and, when a host detector failed, why it failed.

@@ -1285,6 +1285,11 @@ export interface TurnInput {
   /** The user's message. */
   text?: string;
   /**
+   * Your id for the user's message, shown to the model on its fence as `<user_data id="…">`: 1 to
+   * 32 letters, digits, `.`, `_`, `:` or `-`; any other id is refused.
+   */
+  messageId?: string;
+  /**
    * The value a person picked for each option in the profile's inputs.options; an option or a value
    * the profile does not declare is refused.
    *

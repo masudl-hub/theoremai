@@ -65,7 +65,7 @@ npm install @astryxdesign/core @stylexjs/stylex
 
 To build your own theme from the Theorem theme (`/ui/theme`), also install `@astryxdesign/theme-neutral`.
 
-Use the versions that this package lists in `peerDependencies`. Install `@theoremjs/react`, `@theoremjs/web`, and `@theoremjs/agents` at the same version. The Astryx and StyleX peers are optional. The hooks work without them.
+Use the versions that this package lists in `peerDependencies`. The Astryx peers are pinned to one exact version, because the ready-made theme is built with that version of Astryx. Install `@theoremjs/react`, `@theoremjs/web`, and `@theoremjs/agents` at the same version. The Astryx and StyleX peers are optional. The hooks work without them.
 
 When a chat turn, a call, a host request, or a decision fails, the ready-made UI shows the error in a banner that screen readers announce at once. The end of a live call is announced when the reader is next idle.
 

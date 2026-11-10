@@ -434,7 +434,7 @@ async function* emitTurn(args: {
   });
   args.outState.state = state;
   if (state.lateResults !== undefined) {
-    const late: TurnEvent = { type: 'late_results', text: state.lateResults };
+    const late: TurnEvent = { type: 'late_results', ...state.lateResults };
     state.allEmittedEvents.push(late);
     yield late;
   }

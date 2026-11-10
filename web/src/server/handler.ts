@@ -62,6 +62,7 @@ import {
   type StageHandler,
   TheoremError,
   type ToolGate,
+  type ToolOperationOutcome,
   type TurnEvent,
   type TurnInput,
   type TurnWiring,
@@ -849,6 +850,28 @@ async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerat
   yield withPublicLabels(event, labels);
 }
 
+/**
+ * `turn.input`, with the settled ends of the conversation's detached calls the model has not read.
+ * A call the host does not let this request replay stays unread, as its block stays withheld.
+ */
+async function withLateResults(
+  ctx: HandlerContext,
+  request: Request,
+  turn: ReplyTurn,
+  operations: TheoremSessionState['operations'],
+): Promise<TurnInput> {
+  const outcomes: ToolOperationOutcome[] = [];
+  for (const { operationId } of turn.unread ?? []) {
+    const operation = Object.hasOwn(operations, operationId) ? operations[operationId] : undefined;
+    if (operation?.status !== 'settled') continue;
+    const { authorizeToolReplay } = ctx.options;
+    if (authorizeToolReplay && !(await authorizeToolReplay({ request, operation }))) continue;
+    outcomes.push(operation.outcome);
+  }
+  if (outcomes.length === 0) return turn.input;
+  return { ...turn.input, lateResults: [...(turn.input.lateResults ?? []), ...outcomes] };
+}
+
 /** One model run of a chat's reply, its gates recorded in the session as they pause. */
 async function* chatTurn(
   ctx: HandlerContext,
@@ -882,7 +905,7 @@ async function* chatTurn(
           ctx.pageToolBroker,
           ctx.options.pageToolTimeoutMs,
         ).execution,
-        input: turn.input,
+        input: await withLateResults(ctx, request, turn, state.operations),
         ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,

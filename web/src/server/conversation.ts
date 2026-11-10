@@ -301,7 +301,30 @@ export type ReplyTurn = {
   stated?: StatedTurn;
   /** The tools and steps the reply had when it paused, for a reply that goes on. */
   carried?: ReplyCarried;
+  /** The conversation's detached calls whose results its model has not read yet. */
+  unread?: DetachedCall[];
 };
+
+/** A call that detached in a conversation: the operation the session keeps its end under. */
+export type DetachedCall = { callId: string; operationId: string };
+
+/**
+ * The conversation's detached calls that no late-results block names.
+ * invariant: The transcript is the record of what the model read, so a result is fed once.
+ */
+export function unreadDetachedCalls(transcript: readonly TranscriptBlock[]): DetachedCall[] {
+  const read = new Set(
+    transcript.flatMap((block) => (block.kind === 'late-results' ? block.callIds : [])),
+  );
+  return transcript.flatMap((block) =>
+    block.kind === 'tool' &&
+    block.tool.state?.phase === 'background' &&
+    block.tool.operationId &&
+    !read.has(block.tool.callId)
+      ? [{ callId: block.tool.callId, operationId: block.tool.operationId }]
+      : [],
+  );
+}
 
 /** What a reply's model run takes from the host. */
 export type ReplyRunner = {
@@ -458,6 +481,7 @@ async function* runReply(
       effort: runner.effort,
       ...(runner.stated ? { stated: runner.stated } : {}),
       ...(runner.carried ? { carried: runner.carried } : {}),
+      unread: unreadDetachedCalls(conversation.transcript),
     });
     for await (const event of events) {
       reply.events.push(event);

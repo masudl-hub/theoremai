@@ -1019,9 +1019,9 @@ export type TurnEvent =
   | { type: 'attempt'; attempt: number; reason: AttemptReason }
   /**
    * The message `input.lateResults` put in the conversation, role `user`. It enters a history built
-   * from events like any other message.
+   * from events like any other message. `callIds` are the calls whose results it holds.
    */
-  | { type: 'late_results'; text: string }
+  | { type: 'late_results'; text: string; callIds: string[] }
   | { type: 'media'; media: { mimeType: string; data: string } }
   | { type: 'grounding'; grounding: GroundingEvent }
   /** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
@@ -1225,7 +1225,11 @@ const TURN_EVENTS = {
     attempt: z.number().int().positive(),
     reason: z.enum(['validation', 'egress']),
   }),
-  late_results: z.object({ type: z.literal('late_results'), text: z.string() }),
+  late_results: z.object({
+    type: z.literal('late_results'),
+    text: z.string(),
+    callIds: z.array(z.string()),
+  }),
   media: z.object({
     type: z.literal('media'),
     media: z.object({ mimeType: z.string(), data: z.string() }),

@@ -86,8 +86,8 @@ interface StepExecutionState {
   replyMessages: { message: TurnHistoryMessage; at: number }[];
   /** The tool call this attempt was writing when the output limit cut its arguments off. */
   cutOffCall?: { name: string; text: string };
-  /** The message `input.lateResults` opened, until the run can emit it. */
-  lateResults?: string;
+  /** The message `input.lateResults` opened and the calls it holds, until the run can emit it. */
+  lateResults?: { text: string; callIds: string[] };
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */
   canaryCarry?: string;
   /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
@@ -197,7 +197,7 @@ function openLateResults(
 ): void {
   if (outcomes.length === 0) return;
   const blocks = outcomes.map(({ event, replay }) => {
-    const { name, readBack = '' } = event.tool;
+    const { name, callId, readBack = '' } = event.tool;
     const result = replay.modelResult;
     const provenance = result?.provenance ?? { origin: 'local' as const, tool: name, depth: 1 };
     if (result?.provenance) {
@@ -207,20 +207,20 @@ function openLateResults(
     addSeenUrls(state.givenUrls.tools, readBack);
     const fenced =
       readToolData(readBack).length > 0 ? readBack : wrapToolData(readBack, provenance);
-    return `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}`;
+    return { callId, text: `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}` };
   });
   const unread = blocks.filter(
     (block) =>
       !state.currentHistory.some(
-        (message) => isLateResult(message) && message.content?.includes(block),
+        (message) => isLateResult(message) && message.content?.includes(block.text),
       ),
   );
   if (unread.length === 0) return;
-  const text = unread.join('\n\n');
+  const text = unread.map((block) => block.text).join('\n\n');
   const message: TurnHistoryMessage = { role: 'user', content: text };
   state.givenUrls.own.add(message);
   state.currentHistory.push(message);
-  state.lateResults = text;
+  state.lateResults = { text, callIds: unread.map((block) => block.callId) };
 }
 
 /**

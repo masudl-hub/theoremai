@@ -115,6 +115,12 @@ function recording() {
   return { service, handles, sink };
 }
 
+function lateCrashes(events: TurnEvent[]) {
+  return events.flatMap((e) =>
+    e.type === 'hook_failed' ? [[e.hook, e.callId, e.errorInternal]] : [],
+  );
+}
+
 function phases(events: TurnEvent[]) {
   return events.flatMap((e) => (e.type === 'tool' && e.tool.phase ? [e.tool.phase] : []));
 }
@@ -707,7 +713,7 @@ Deno.test('a service whose event throws still settles the call, and the crash go
   assert(trace.includes('event sink down'));
 });
 
-Deno.test('a late settle that fails keeps the call uncertain, and the crash goes on its trace', async () => {
+Deno.test('a late settle that fails keeps the call uncertain, and the host and the trace get the crash', async () => {
   const records: TraceRecord[] = [];
   const body = heldBody();
   const scope = scopeWith({ background: 'always', handler: body.handler });
@@ -733,4 +739,29 @@ Deno.test('a late settle that fails keeps the call uncertain, and the crash goes
   const trace = JSON.stringify(records.at(-1));
   assert(trace.includes('theorem.hook_failed'));
   assert(trace.includes('late store down'));
+  assertEquals(lateCrashes(host.sink), [['execution', handle.callId, 'late store down']]);
+});
+
+Deno.test('a mark that fails after the turn reaches the host as its own report', async () => {
+  const body = heldBody();
+  const scope = scopeWith({ background: 'always', handler: body.handler });
+  const execution: ToolExecutionCoordinator = {
+    ...createMemoryToolExecution(),
+    settle: () => {
+      throw new Error('late store down');
+    },
+    markUncertain: () => {
+      throw new Error('mark down');
+    },
+  };
+  const host = recording();
+  await turn(scope, caller(callJob()), { execution, background: host.service });
+  const handle = host.handles[0];
+  assert(handle);
+  body.release.resolve({ done: 'late' });
+  await handle.done;
+  assertEquals(lateCrashes(host.sink), [
+    ['execution', handle.callId, 'late store down'],
+    ['execution', handle.callId, 'mark down'],
+  ]);
 });

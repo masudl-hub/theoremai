@@ -74,6 +74,7 @@ export interface ToolBackgroundSettled {
 /** The host's service for detached calls. Without it every tool runs inline. */
 export interface ToolBackgroundService {
   detached(call: ToolBackgroundHandle): void;
+  /** Each later event of the call, with `hook_failed` for a store crash after the reply. */
   event(event: TurnEvent, call: ToolBackgroundCall): void | Promise<void>;
 }
 

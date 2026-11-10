@@ -1381,3 +1381,58 @@ Deno.test("what an agent tool's call shows the person is read at tool_shown_agen
   const [event] = guardrailAt(events, 'tool_shown_agent');
   assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.credentials']);
 });
+
+Deno.test("a crash inside a detached agent's turn reaches the host's background service", async () => {
+  const scope = scopeWith({ background: 'always' }, ['lookup']);
+  const memory = createMemoryToolExecution();
+  let begins = 0;
+  const execution = {
+    ...memory,
+    begin: (...args: Parameters<typeof memory.begin>) => {
+      begins += 1;
+      if (begins > 1) throw new Error('child store down');
+      return memory.begin(...args);
+    },
+  };
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  let researcherStep = 0;
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!isResearcher(req)) {
+        yield { type: 'tokens', tokens: CALLER_TOKENS };
+        if (!JSON.stringify(req.history).includes('still running')) {
+          yield {
+            type: 'tool',
+            tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'call_0' },
+          };
+          return;
+        }
+        yield { type: 'text', text: 'Looking into it.' };
+        return;
+      }
+      researcherStep += 1;
+      yield { type: 'tokens', tokens: RESEARCHER_TOKENS };
+      if (researcherStep === 1) {
+        yield { type: 'tool', tool: { name: 'lookup', arguments: {}, callId: 'child' } };
+        return;
+      }
+      yield { type: 'text', text: 'found' };
+    },
+  };
+  const background = {
+    detached: (handle: ToolBackgroundHandle) => handles.push(handle),
+    event: (event: TurnEvent) => {
+      late.push(event);
+    },
+  };
+  await Array.fromAsync(
+    runScopedTurn(scope, { profile: CALLER, input: { text: 'Go' }, execution, background }, model),
+  );
+  await handles[0]?.done;
+  const crashes = late.flatMap((e) =>
+    e.type === 'hook_failed' ? [[e.hook, e.errorInternal]] : [],
+  );
+  assertEquals(crashes, [['execution', 'child store down']]);
+});

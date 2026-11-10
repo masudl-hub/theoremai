@@ -669,7 +669,8 @@ itself does. Each crash is reported once:
 | `tools.t1Policy` | No T2 tool loads up front | `hook_failed`, `hook: 'tools.t1Policy'` |
 | `outputs.validation` field or item check | The value fails, or the item is refused | `hook_failed`, `hook: 'outputs.validation'` |
 | `compaction.trigger` | `compactAt` and `maxTokens` decide | `hook_failed`, `hook: 'compaction.trigger'` |
-| `background` `event`, or a store crash after the reply of a call that went on | The call goes on and settles | A `theorem.hook_failed` event on the call's own trace (no turn reads it) |
+| A store crash after the reply of a call that went on | The call goes on and settles | A `hook_failed` event with the call's `callId`, through `background` `event`, and a `theorem.hook_failed` event on the call's own trace |
+| `background` `event` itself | The call goes on and settles | A `theorem.hook_failed` event on the call's own trace only: no other channel is left |
 
 The hook's own error is only ever the `hook_failed` event's `errorInternal`. The model
 and a visitor read the profile's wording: `tool.hook_failed` for a call that did not
@@ -1185,7 +1186,7 @@ After the reply:
 - `post_tool` runs at the real end. Its `inject` and `abort` are removed, because no turn is open.
 - A body that returns `awaiting` settles as a failure with the code `awaiting_after_reply`.
 - An agent tool's tokens go on the late terminal event, not on `done`. A stopped agent tool reports the tokens spent so far.
-- The call writes its own trace record at its real end, joined to the turn through `traceparent`. A throw from `event`, or a store crash after the reply, is a `theorem.hook_failed` event on that record: no turn reads it.
+- The call writes its own trace record at its real end, joined to the turn through `traceparent`. A store crash after the reply reaches `event` as a `hook_failed` event with the call's `callId`, and is also a `theorem.hook_failed` event on that record. A throw from `event` itself is only on that record.
 - `maxOutcomeBytes` applies to the final outcome.
 
 The late result reaches the model only through the host, in `input.lateResults` of a later turn. The host passes the outcome it stored, once. The model reads the result as a tool result after the person's message, and the reply counts it as a read ([How long the marks last](./guardrails.md#how-long-the-marks-last)). The run emits a `late_results` event, so a history built from events holds the message, and later turns read it. A transcript keeps it in a `late-results` block and shows nothing for it. A host that passes the same outcome again adds no second message, and the marks still count. Text in `input.context` or `input.history` reads as the host's or the user's.

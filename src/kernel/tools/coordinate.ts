@@ -347,14 +347,18 @@ class CoordinatedExecution {
         detach.trace.hookFailed('background', error);
       }
     };
+    const reportCrash = async (error: unknown) => {
+      detach.trace.hookFailed('execution', error);
+      await emit(hookFailed('execution', error, { callId: this.operation.callId }));
+    };
     try {
       await this.drain(iterator, pending, emit);
     } catch (error) {
-      detach.trace.hookFailed('execution', error);
+      await reportCrash(error);
     } finally {
       clearTimeout(this.graceTimer);
       const crashed = await this.close();
-      if (crashed) detach.trace.hookFailed('execution', crashed.error);
+      if (crashed) await reportCrash(crashed.error);
       await Promise.resolve()
         .then(() => detach.trace.end())
         .catch(() => {});

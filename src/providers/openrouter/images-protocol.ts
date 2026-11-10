@@ -9,8 +9,8 @@ import {
   type ProtocolEvent,
   type ProtocolRequest,
 } from '../../kernel/protocols/mod.ts';
-import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type { ImageResponseFormat, ModelRequest } from '../../kernel/types.ts';
+import { turnStopFromOpenAiFinishReason } from '../open-ai/finish-reason.ts';
 import { imagesFromChatMessage, imagesFromImagesBody, OPENROUTER_IMAGE_TOOL } from './image.ts';
 import { buildChatMessages } from './openai/compat.ts';
 import {

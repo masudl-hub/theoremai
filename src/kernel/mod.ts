@@ -82,7 +82,7 @@ export {
   TOKEN_TEXT_ENCODING,
 } from './engine/token-estimate.ts';
 export { sumTokens } from './engine/usage.ts';
-export { isMediaRefPart, wireInteractionPart } from './interaction-parts.ts';
+export { isMediaRefPart } from './interaction-parts.ts';
 export type { JsonObject, JsonValue } from './json.ts';
 export { jsonObjectSchema, jsonValueSchema } from './json.ts';
 export type {
@@ -213,8 +213,6 @@ export {
   AUTH_UNAUTHENTICATED_POLICIES,
   AWAITING_USER_INPUT_KINDS,
   AWAITING_USER_INPUT_STATUS,
-  CACHE_MODES,
-  CACHE_TTLS,
   COMPACTION_METERS,
   COMPACTION_OUTCOMES,
   COMPACTION_TIMINGS,
@@ -297,8 +295,6 @@ export {
   profileTurnResumption,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
-  turnStopFromInteractionStatus,
-  turnStopFromOpenAiFinishReason,
 } from './stop.ts';
 export type { SystemReadingLine } from './system-lines.ts';
 export { systemLinesProblem, systemReading } from './system-lines.ts';

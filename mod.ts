@@ -428,8 +428,6 @@ export {
   profileTurnResumption,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
-  turnStopFromInteractionStatus,
-  turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
 export { systemLinesProblem } from './src/kernel/system-lines.ts';
 export type {

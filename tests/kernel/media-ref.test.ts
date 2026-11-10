@@ -2,9 +2,10 @@ import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { publicError, TheoremError } from '../../src/guardrails/error.ts';
 import { getProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
-import { isMediaRefPart, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
+import { isMediaRefPart } from '../../src/kernel/interaction-parts.ts';
 import { assertTurnAttachments, isTurnMediaRef } from '../../src/kernel/registry/attachments.ts';
 import type { InteractionPart, Profile } from '../../src/kernel/types.ts';
+import { wirePart } from '../../src/providers/google/interactions/framing.ts';
 import { sanitizeBlobs } from '../fixtures/detect.ts';
 
 /** The chat fixture with a one-file, one-byte ceiling. */
@@ -81,9 +82,9 @@ Deno.test('a media reference alongside inline blobs is still accepted under norm
   ]);
 });
 
-Deno.test('wireInteractionPart emits { type, mimeType, uri } for a ref part', () => {
+Deno.test('the Interactions wire part is { type, mimeType, uri } for a ref part { type, mimeType, uri } for a ref part', () => {
   const part: InteractionPart = { type: 'video', mimeType: 'video/mp4', uri: 'files/v1' };
-  assertEquals(wireInteractionPart(part), {
+  assertEquals(wirePart(part), {
     type: 'video',
     mimeType: 'video/mp4',
     uri: 'files/v1',

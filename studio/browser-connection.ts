@@ -9,8 +9,7 @@ export interface StudioBrowserConnection {
   /** A local model that needs a token names a slot, like any other model. */
   local: {
     /**
-     * Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls
-     * it directly.
+     * Where your local model server listens. The browser calls it directly.
      *
      * @catalog local.baseUrl
      */

@@ -1,8 +1,6 @@
 import type { ProviderCheckpoint, ProviderContinuationPolicy } from './checkpoint.ts';
 import type { JsonObject } from './json.ts';
 import type {
-  CacheMode,
-  CacheTtl,
   CompactionMeter,
   CompactionOutcome,
   CompactionTiming,
@@ -98,8 +96,6 @@ export type {
   AgentToolInput,
   AgentToolOutput,
   AttemptReason,
-  CacheMode,
-  CacheTtl,
   CallDone,
   CompactionFailure,
   CompactionMeter,
@@ -232,9 +228,6 @@ export interface ProfileImageSpec {
   /**
    * Whether the model may write text alongside its images; with some providers this also sends the
    * system instruction and history.
-   *
-   * @remarks Also request interleaved text with the images (Google: text + image
-   * `response_format`).
    */
   includeText?: boolean;
 }
@@ -243,18 +236,6 @@ import type { DecisionModelBinding, ModelBinding } from './protocols/binding.ts'
 import type { ProviderHostOptions } from './protocols/runtime.ts';
 
 export type { DecisionModelBinding, ModelBinding };
-
-/**
- * OpenRouter prompt-cache policy (`models.*.options.cache`).
- *
- * - `automatic` — top-level `cache_control`; breakpoint advances with the conversation.
- * - `system` — explicit breakpoint on the system instruction only.
- */
-export interface CacheSpec {
-  mode: CacheMode;
-  /** Ephemeral TTL. Omit → provider default (typically 5m on Anthropic). */
-  ttl?: CacheTtl;
-}
 
 /** What a compaction trigger sees when it decides whether to compact. */
 export interface CompactionTriggerContext {
@@ -585,21 +566,20 @@ export interface LiveVadSpec {
 
 /**
  * Context window compression for a live session: once the context reaches the
- * trigger, the mechanism shrinks it. Without it, Gemini ends audio sessions at
- * 15 minutes and audio-video sessions at 2.
+ * trigger, the mechanism shrinks it. Without it, a provider may end a long session.
  */
 export interface LiveContextCompressionSpec {
   /**
    * The context size, in tokens, that starts trimming.
    *
    * @remarks Context tokens, counted before a turn, that start compression. A whole number above 0.
-   * Omit → provider default (Gemini: 80% of the model's context window).
+   * Omit → the provider's default.
    */
   triggerTokens?: number;
   /**
    * Trims by dropping the oldest turns; the system instruction stays.
    *
-   * @remarks Drops the oldest turns; the system instruction stays. Gemini's only mechanism.
+   * @remarks Drops the oldest turns; the system instruction stays.
    */
   slidingWindow: LiveSlidingWindowSpec;
 }
@@ -610,7 +590,7 @@ export interface LiveSlidingWindowSpec {
    * The context size, in tokens, to trim down to; below the trigger.
    *
    * @remarks Tokens to keep after compressing. A whole number above 0, below `triggerTokens`. Omit
-   * → provider default (Gemini: half of `triggerTokens`).
+   * → the provider's default.
    */
   targetTokens?: number;
 }
@@ -1244,7 +1224,7 @@ export interface ImageResponseFormat {
   type: 'image';
   mimeType?: string;
   aspectRatio?: string;
-  /** Adapters map it to the provider wire key (Google `imageSize`, OpenRouter `resolution`). */
+  /** Each protocol sends it under its provider's own name for it. */
   resolution?: string;
   quality?: string;
   background?: string;

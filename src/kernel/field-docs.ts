@@ -367,8 +367,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'live.vad.silenceDurationMs': "How long a silence, in milliseconds, ends the user's speech.",
   'live.vad.startSensitivity': 'How readily the session decides the user has started speaking.',
   'live.voice': 'The voice the model speaks in.',
-  'local.baseUrl':
-    'Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls it directly.',
+  'local.baseUrl': 'Where your local model server listens. The browser calls it directly.',
   models:
     'The trained AI systems that turn input into results. Each entry binds a local name to an upstream model and its call settings.',
   'models.*': 'One model: how to reach it and the settings sent with it.',

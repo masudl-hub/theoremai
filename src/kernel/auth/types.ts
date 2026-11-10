@@ -116,8 +116,8 @@ export interface CreatePkceFlowOptions extends OAuthTransportOptions {
   /** Skips discovery. */
   preResolved?: OAuthEndpoints;
   /**
-   * Parameters a provider reads beyond the standard ones (e.g. Google's
-   * `access_type: 'offline'`, without which it issues no refresh token). A name the
+   * Parameters an authorization server reads beyond the standard ones, such as one it needs
+   * before it issues a refresh token. A name the
    * flow sets itself is refused.
    */
   authorizationParams?: Readonly<Record<string, string>>;

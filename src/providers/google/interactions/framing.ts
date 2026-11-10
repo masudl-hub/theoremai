@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TheoremError } from '../../../guardrails/error.ts';
-import { historyMessageParts, wireInteractionPart } from '../../../kernel/interaction-parts.ts';
+import { historyMessageParts } from '../../../kernel/interaction-parts.ts';
 import type {
   InteractionPart,
   ModelRequest,
@@ -44,8 +44,15 @@ export function toGoogleValue(value: unknown): unknown {
   return value;
 }
 
+/** A part in camel case; `toGoogleValue` snake-cases `mimeType` to the documented `mime_type`. */
 export function wirePart(part: InteractionPart): Record<string, string> {
-  return wireInteractionPart(part);
+  if (part.type === 'text') {
+    return { type: 'text', text: part.text };
+  }
+  if ('uri' in part) {
+    return { type: part.type, mimeType: part.mimeType, uri: part.uri };
+  }
+  return { type: part.type, mimeType: part.mimeType, data: part.data };
 }
 
 const USER_INPUT = 'user_input';

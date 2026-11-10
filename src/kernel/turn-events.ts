@@ -106,8 +106,7 @@ const reasoningOrigin = z.object({
 true satisfies Equals<z.infer<typeof reasoningOrigin>, ReasoningOrigin>;
 
 /**
- * Signed reasoning a model wrote, kept word for word: Gemini's thought signatures, OpenRouter's
- * `reasoning_details`. It goes back only to the protocol that wrote it, or one extended from it;
+ * Signed reasoning a model wrote, kept word for word. It goes back only to the protocol that wrote it, or one extended from it;
  * `data` is that protocol's own shape, checked against its `reasoning` schema.
  */
 export interface ReasoningPart {
@@ -193,7 +192,7 @@ export type TurnTokenSide = (typeof TURN_TOKEN_SIDES)[number];
 export interface TurnCost {
   /** What the provider charged, in US dollars. */
   usd: number;
-  /** What the upstream model vendor charged the provider, when reported (OpenRouter). */
+  /** What the upstream model vendor charged the provider, when the provider reports it. */
   upstreamUsd?: number;
   /**
    * Set on a sum (`sumTokens`) when some summed calls reported a cost and
@@ -236,7 +235,7 @@ export interface TurnTokens {
   output: number;
   /** Reasoning share of `output`. */
   thinking?: number;
-  /** Provider tool-use share of `input` (Google code execution / URL context results). */
+  /** Share of `input` that the provider's own tools added, such as their results. */
   toolUse?: number;
   /** Share of `input` read from provider cache (cache hit). */
   cached?: number;
@@ -288,7 +287,7 @@ true satisfies Equals<z.infer<typeof turnTokens>, TurnTokens>;
 
 /** A provider response's identity, as the wire sent it. Live sends neither field. */
 export interface TurnResponse {
-  /** Provider response id (OpenAI-compatible `id`, Interactions `id`). */
+  /** The provider's id for the response. */
   id?: string;
   model?: string;
 }
@@ -303,7 +302,7 @@ export interface Source {
   title: string;
   uri: string;
   type: SourceType;
-  /** Google Place id when the source is a Maps place / place_citation. */
+  /** The place's id, when the source is a place on a map. */
   placeId?: string;
 }
 const source = z.object({
@@ -315,7 +314,7 @@ const source = z.object({
 true satisfies Equals<z.infer<typeof source>, Source>;
 export const sourceSchema: z.ZodType<Source> = source;
 
-/** Google grounding search metadata. Sources travel as `citation` events. */
+/** Search metadata a provider grounded its answer on. Sources travel as `citation` events. */
 export interface GroundingEvent {
   metadata?: Record<string, unknown>;
   chunks?: unknown[];
@@ -376,7 +375,7 @@ export type ProviderEvidence =
     })
   | (EvidenceBase & {
       kind: 'provider_step';
-      /** The provider's own step type, e.g. `google_search_call`. */
+      /** The provider's own name for the step type. */
       step: string;
     });
 const providerEvidence = z.discriminatedUnion('kind', [
@@ -680,8 +679,7 @@ export interface ToolCallRequest extends ToolEventBase {
    */
   arguments: Record<string, unknown>;
   /**
-   * On a step's first call: the signed reasoning the model wrote before the step's calls (a Gemini
-   * thought signature, OpenRouter's `reasoning_details`). It goes back on the assistant message
+   * On a step's first call: the signed reasoning the model wrote before the step's calls. It goes back on the assistant message
    * holding the step's calls, word for word; a host keeping its own history keeps it there.
    */
   reasoning?: ReasoningPart[];

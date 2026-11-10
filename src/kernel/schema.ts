@@ -175,14 +175,6 @@ export const COMPACTION_OUTCOMES = [
 ] as const;
 /** One of {@linkcode COMPACTION_OUTCOMES}. */
 export type CompactionOutcome = (typeof COMPACTION_OUTCOMES)[number];
-/** Which part of the prompt is cached: the whole request (`automatic`) or the system instruction only (`system`). */
-export const CACHE_MODES = ['automatic', 'system'] as const;
-/** One of {@linkcode CACHE_MODES}. */
-export type CacheMode = (typeof CACHE_MODES)[number];
-/** How long a provider keeps a cached prompt. */
-export const CACHE_TTLS = ['5m', '1h'] as const;
-/** One of {@linkcode CACHE_TTLS}. */
-export type CacheTtl = (typeof CACHE_TTLS)[number];
 /** Why a turn stopped, as `done.stop.kind` reports it. */
 export const TURN_STOP_KINDS = [
   /** The model finished its reply. */
@@ -424,10 +416,8 @@ export type ToolType = (typeof TOOL_TYPES)[number];
 export type CustomToolType = Exclude<ToolType, 'builtin'>;
 /**
  * The package's complete media-input vocabulary: `assertMediaMime` refuses any MIME not
- * here, so hosts keep no second table. Rows follow Google Interactions / Live's documented
- * lists (verified 2026-09-12), the widest provider; TypeScript, `application/xml` and
- * `application/rtf` are not on Google's list. OpenAI-compat adapters forward the MIME
- * verbatim and add no rows. Provider alias essences (`image/jpg`, `video/mov`, …) are rows;
+ * here, so hosts keep no second table. Rows follow the widest provider's documented
+ * lists (verified 2026-09-12), plus TypeScript, `application/xml` and `application/rtf`. Provider alias essences (`image/jpg`, `video/mov`, …) are rows;
  * `resolveInputParts` canonicalizes `image/jpg` to `image/jpeg` on the wire.
  */
 export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {

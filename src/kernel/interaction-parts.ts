@@ -1,16 +1,5 @@
 import type { InteractionMediaRefPart, InteractionPart, TurnHistoryMessage } from './types.ts';
 
-/** `toGoogleValue` snake-cases `mimeType` to the documented Interactions `mime_type`. */
-export function wireInteractionPart(part: InteractionPart): Record<string, string> {
-  if (part.type === 'text') {
-    return { type: 'text', text: part.text };
-  }
-  if ('uri' in part) {
-    return { type: part.type, mimeType: part.mimeType, uri: part.uri };
-  }
-  return { type: part.type, mimeType: part.mimeType, data: part.data };
-}
-
 /** True for a part that is media referenced by `uri` rather than carried as data. */
 export function isMediaRefPart(part: InteractionPart): part is InteractionMediaRefPart {
   return part.type !== 'text' && 'uri' in part;

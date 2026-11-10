@@ -423,7 +423,22 @@ It reads references as TypeSafe does, in `state`, instructions, and criteria: a 
 Model ids carry the vendor, such as `typesafe/jev-1.14`.
 A model that cannot read an image somewhere, or cannot answer a `box`, refuses with OpenRouter's own error.
 
-Set chat caching in `options.cache`. Native image and speech operations reject client tools, structured output, and chat-only settings.
+Set chat caching in `options.cache`:
+
+```ts
+options: { cache: { mode: 'automatic' | 'system', ttl?: '5m' | '1h' } }
+```
+
+- `automatic` — top-level `cache_control` on the request.
+- `system` — `cache_control` on the system instruction only.
+- Omit — no opt-in (some upstream models may still cache on their own).
+
+Leave `ttl` out to keep the upstream's default, typically 5 minutes on Anthropic.
+Cache reads come from `prompt_tokens_details.cached_tokens` and writes from `cache_write_tokens`.
+`upstreamUsd` comes from `cost_details.upstream_inference_cost`, which OpenRouter reports only for calls on your own upstream key.
+`image.resolution` goes out as `resolution`.
+`openAi` and `openRouterOpenAi` refuse a reference part with a `TheoremError`. `openRouterImages` sends an http(s) reference as an image URL and refuses any other.
+Native image and speech operations reject client tools, structured output, and chat-only settings.
 The kernel controls transient retries and quota fallback for every protocol.
 
 ## Google Interactions
@@ -447,6 +462,14 @@ With persistence enabled, checkpoint data contains the interaction ID.
 After checkpoint validation, the protocol sends only history beyond the covered prefix.
 After a mismatch, it sends portable history without the native ID.
 Gemini speech returns `pcm` audio.
+Implicit cache hits come from `total_cached_tokens`.
+
+A reference part goes out as the documented Files input,
+`{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`.
+`image.resolution` goes out as `imageSize`. With `image.includeText`, `response_format` asks for text and the image.
+Signed reasoning goes out as thought signatures. Google refuses a call from the current turn replayed without its thought signature, so a reply resumed after a gate keeps it.
+Google refuses a call replayed after an earlier call's result (probed 2026-09-25), so a step's calls go back as one assistant message, then their results.
+Code execution and URL context results count toward `toolUse`.
 A failed answer keeps Gemini's own error only when it says the key was refused. Otherwise the HTTP status decides its kind, so a 503 or 529 is `busy`.
 
 ## Local non-text models
@@ -479,6 +502,10 @@ The session's setup waits for `connectTimeoutMs` when it is set. With no limit, 
 | Compatible checkpoint | Send only history beyond its covered prefix |
 | Rebuilt session | Send the complete portable history |
 
+Without `contextCompression`, Gemini ends audio sessions at 15 minutes and audio-video sessions at 2.
+Left out, `triggerTokens` is Gemini's default, 80% of the model's context window, and `targetTokens` is half of `triggerTokens`.
+Sliding window is Gemini's only compression mechanism. `geminiLive` refuses a reference part with a `TheoremError`.
+
 The protocol requests input and output transcriptions for portable audio history.
 The kernel records final transcriptions only after the outbound gate releases them.
 Portable user text excludes the fences added to upstream input.
@@ -503,6 +530,7 @@ Register `localProvider` again with a different `id` to reach a second server.
 For a server that needs a different address scheme or sign-in, define a provider that serves `openAi`.
 The protocol assembles fragmented tool IDs, names, and arguments before it releases a call.
 A failed answer's kind follows its HTTP status. A 503 or 529 is `busy`.
+`openAi` reads the stop from `finish_reason`, or from `native_finish_reason` when a router sends it: `stop` is `completed` unless the native reason names an error or failure, `length` is `length`, `tool_calls` is `tool`, `content_filter` is `filtered`, no reason is `stream_incomplete`, and any other reason is `provider_error`.
 
 ## Speech roles
 
@@ -510,7 +538,7 @@ Use a speech profile to resolve voice, format, and media settings before the pro
 
 | Protocol | Audio operation |
 | --- | --- |
-| `openRouterOpenAi`, `openAi` | `/audio/speech` |
+| `openAi`, and `openRouterOpenAi` through it | `/audio/speech` |
 | `geminiInteractions` | Interactions output audio |
 
 Protocols preserve native media details and convert supported raw PCM to WAV.

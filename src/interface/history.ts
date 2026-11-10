@@ -163,8 +163,8 @@ function settledToolContent(call: ToolCall): string | undefined {
 
 /**
  * One model step's settled calls: a single assistant message holding every call
- * the step made, with the reasoning written before them, then each result. Google replays a
- * step's calls only this way. With `gated: 'open'`, a
+ * the step made, with the reasoning written before them, then each result, as a provider
+ * reads a step's calls back. With `gated: 'open'`, a
  * call waiting on its gate joins the message too, left without a result.
  */
 function appendToolStepToHistory(

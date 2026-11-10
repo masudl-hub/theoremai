@@ -22,10 +22,7 @@ import type {
 } from '../kernel/schema.ts';
 import type { StageAffordance } from '../kernel/stages.ts';
 import type { EmbeddingTask, SessionEventKind } from '../kernel/types.ts';
-import { geminiProvider } from '../providers/gemini/provider.ts';
-import { localProvider } from '../providers/local/provider.ts';
-import { openRouterProvider } from '../providers/openrouter/provider.ts';
-import { typesafeProvider } from '../providers/typesafe/provider.ts';
+import { BUILT_IN_PROVIDERS } from '../providers/built-in.ts';
 import type { TraceSpan } from './trace-span.ts';
 
 /** How a value reads: the unit or shape a viewer formats it by. */
@@ -317,7 +314,7 @@ const OPERATIONS: Readonly<
   chat: { label: 'Chat', doc: 'A model call to a chat-completions endpoint.' },
   generate_content: {
     label: 'Generate content',
-    doc: 'A model call that generates content other than over chat completions: Gemini, speech, or images.',
+    doc: 'A model call that generates content other than over chat completions, such as speech or images.',
   },
   transcribe: { label: 'Transcribe', doc: 'One transcription call: a voice clip in, text out.' },
   execute_tool: { label: 'Run tool', doc: 'A tool call theorem ran.' },
@@ -336,7 +333,7 @@ const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceO
 };
 
 const PROVIDERS: Readonly<Record<string, TraceOptionMeta>> = Object.fromEntries(
-  [geminiProvider, localProvider, openRouterProvider, typesafeProvider].map((provider) => [
+  BUILT_IN_PROVIDERS.map((provider) => [
     provider.traceName ?? provider.id,
     { label: provider.name, doc: provider.description },
   ]),
@@ -979,7 +976,7 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'usage',
     'Tool-use input tokens',
     'tokens',
-    'Input tokens Google counts for tool use; already inside input tokens.',
+    'Input tokens the provider counts for its own tools; already inside input tokens.',
   ),
   'theorem.usage.grounding': fields('usage', 'Grounding', 'Grounding tool uses, per tool.', {
     type: attr('usage', 'Tool', 'id', "The provider's name for the tool."),
@@ -1571,7 +1568,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
     attributes: {
       provider: attr('response', 'Provider', 'id', 'Who supplied the evidence.'),
       sources: attr('response', 'Sources', 'json', 'The sources.'),
-      search_html: attr('response', 'Search suggestions', 'content', "Google's search widget."),
+      search_html: attr(
+        'response',
+        'Search suggestions',
+        'content',
+        "The provider's search suggestions, as HTML.",
+      ),
       raw: attr('response', 'Raw', 'json', "The provider's raw grounding payload."),
     },
   },
@@ -1676,7 +1678,13 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
     doc: "One case's pass or fail after its trials, by the suite's pass rule. Every case is here, zeros included.",
     attributes: {
       case: attr('evaluation', 'Case', 'id', 'The case judged.'),
-      kind: attr('evaluation', 'Kind', 'text', "Anthropic's split of cases.", CASE_KINDS),
+      kind: attr(
+        'evaluation',
+        'Kind',
+        'text',
+        'Whether the case asks for something new or guards something that works.',
+        CASE_KINDS,
+      ),
       difficulty: attr(
         'evaluation',
         'Difficulty',

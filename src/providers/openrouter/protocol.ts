@@ -2,10 +2,30 @@ import { z } from 'zod';
 import { asRecord } from '../../kernel/engine/record.ts';
 import { type JsonObject, jsonObjectSchema } from '../../kernel/json.ts';
 import { extendProtocol, type Protocol, type ProtocolEvent } from '../../kernel/protocols/mod.ts';
-import { CACHE_MODES, CACHE_TTLS } from '../../kernel/schema.ts';
-import type { CacheSpec, Source, TurnHistoryMessage } from '../../kernel/types.ts';
+import type { Source, TurnHistoryMessage } from '../../kernel/types.ts';
 import { openAi } from '../open-ai/protocol.ts';
 import { collectReasoning } from './openai/reasoning-state.ts';
+
+/** What is cached: the whole request (`automatic`) or the system instruction only (`system`). */
+const CACHE_MODES = ['automatic', 'system'] as const;
+/** One of {@linkcode CACHE_MODES}. */
+export type CacheMode = (typeof CACHE_MODES)[number];
+/** How long OpenRouter's upstream keeps a cached prompt. */
+const CACHE_TTLS = ['5m', '1h'] as const;
+/** One of {@linkcode CACHE_TTLS}. */
+export type CacheTtl = (typeof CACHE_TTLS)[number];
+
+/**
+ * Prompt-cache policy (`models.*.options.cache`).
+ *
+ * - `automatic` — top-level `cache_control`; breakpoint advances with the conversation.
+ * - `system` — explicit breakpoint on the system instruction only.
+ */
+export interface CacheSpec {
+  mode: CacheMode;
+  /** How long the cache lives. Omit → the upstream's default, typically 5 minutes on Anthropic. */
+  ttl?: CacheTtl;
+}
 
 // labels-exempt: builder field description, read by the studio and docs
 const cache: z.ZodType<CacheSpec> = z

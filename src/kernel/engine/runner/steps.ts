@@ -584,12 +584,6 @@ function toolResultMessage(call: ModelCall, result: ModelToolResult): TurnHistor
   };
 }
 
-/**
- * One step's calls as one assistant message, the way the model made them.
- * Providers read a step's calls together, then their results: Google rejects
- * a call replayed after an earlier call's result (probe 25/09/2026).
- */
-
 /** Record the approved read-back in portable history. */
 function recordToolModelResult(
   state: StepExecutionState,

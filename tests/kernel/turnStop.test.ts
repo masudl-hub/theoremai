@@ -13,28 +13,7 @@ import {
   profileTurnResumption,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
-  turnStopFromInteractionStatus,
-  turnStopFromOpenAiFinishReason,
 } from '../../src/kernel/stop.ts';
-
-Deno.test('turnStopFromOpenAiFinishReason maps normalized reasons', () => {
-  assertEquals(turnStopFromOpenAiFinishReason('stop').kind, 'completed');
-  assertEquals(turnStopFromOpenAiFinishReason('length').kind, 'length');
-  assertEquals(turnStopFromOpenAiFinishReason('error').kind, 'provider_error');
-  assertEquals(turnStopFromOpenAiFinishReason('stop', 'network_error').kind, 'provider_error');
-  assertEquals(turnStopFromOpenAiFinishReason('tool_calls').kind, 'tool');
-  assertEquals(turnStopFromOpenAiFinishReason('tool_calls', 'length').kind, 'length');
-  assertEquals(turnStopFromOpenAiFinishReason('content_filter').kind, 'filtered');
-});
-
-Deno.test('turnStopFromInteractionStatus maps terminal statuses', () => {
-  assertEquals(turnStopFromInteractionStatus('completed').kind, 'completed');
-  assertEquals(turnStopFromInteractionStatus('incomplete').kind, 'length');
-  assertEquals(turnStopFromInteractionStatus('budget_exceeded').kind, 'length');
-  assertEquals(turnStopFromInteractionStatus('cancelled').kind, 'cancelled');
-  assertEquals(turnStopFromInteractionStatus('failed').kind, 'provider_error');
-  assertEquals(turnStopFromInteractionStatus('requires_action').kind, 'tool');
-});
 
 Deno.test('turnStopFromClientStreamEnd', () => {
   assertEquals(

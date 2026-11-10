@@ -9,7 +9,6 @@ import {
   type ProtocolEvent,
   type ProtocolRequest,
 } from '../../kernel/protocols/mod.ts';
-import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type { ModelEvent, TurnResponse } from '../../kernel/types.ts';
 import { base64ToBytes, bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
@@ -27,6 +26,7 @@ import { foldResponse } from '../shared/response-identity.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { toolCallEvents } from '../shared/tool-args.ts';
 import { type StreamingToolCall, toolDraftEvents } from '../shared/tool-draft.ts';
+import { turnStopFromOpenAiFinishReason } from './finish-reason.ts';
 
 /** What one reply has given so far, across its rows. */
 interface Reply {

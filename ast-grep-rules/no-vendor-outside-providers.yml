@@ -1,0 +1,26 @@
+id: no-vendor-outside-providers
+language: TypeScript
+severity: error
+message: Only a provider or a protocol names a vendor or a model. Say what the kernel does; the provider's own rule belongs in that provider's code and in docs/contracts/providers.md.
+note: field-docs.ts is generated from JSDoc, so fix the JSDoc and run `deno task field-docs`. The ignored paths recognise vendors' secrets, attack strings and CLI switches; they state no rule about a model.
+files:
+  - 'src/**/*.ts'
+ignores:
+  - 'src/providers/**'
+  - 'src/kernel/protocols/**'
+  - 'src/guardrails/corpus/**'
+  - 'src/guardrails/credential-rules.ts'
+  - 'src/guardrails/sensitive.ts'
+  - 'src/guardrails/injection-patterns.ts'
+  - 'src/guardrails/testing.ts'
+  - 'src/surface/formats.ts'
+  - 'src/cli/**'
+rule:
+  any:
+    - kind: string_fragment
+    - kind: comment
+    - kind: identifier
+    - kind: property_identifier
+    - kind: type_identifier
+    - kind: shorthand_property_identifier
+  regex: '(?i)gemini|google|openai|open ai|anthropic|claude|openrouter|open router|elevenlabs|deepgram|cartesia|vertex|\bxai\b|grok|mistral|\bgpt|ollama|llama|gemma|deepseek|qwen|perplexity|groq|cohere'

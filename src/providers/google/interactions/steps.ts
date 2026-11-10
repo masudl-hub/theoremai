@@ -1,9 +1,9 @@
 import { asRecord, nonEmptyString } from '../../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
-import { turnStopFromInteractionStatus } from '../../../kernel/stop.ts';
 import type { ModelEvent, TurnEventOf, TurnResponse, TurnTokens } from '../../../kernel/types.ts';
 import { groundingFromSteps } from '../grounding.ts';
 import { byModality, groundingCounts, modalityCounts } from '../usage.ts';
+import { turnStopFromInteractionStatus } from './status.ts';
 
 /* probed 2026-09-23:
  * Interactions steps and deltas read only the shapes recorded from the wire

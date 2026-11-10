@@ -144,7 +144,7 @@ export function sumTurnTokens(events: readonly TurnEvent[]): TurnTokens | undefi
 
 /**
  * A side is `estimated` when any call estimated it. Cost is `partial` when some call reported none;
- * a missing `upstreamUsd` is not missing data (OpenRouter reports it only for BYOK).
+ * a missing `upstreamUsd` is not missing data, since a provider may report it for some calls only.
  */
 export function sumTokens(calls: TurnTokens[]): TurnTokens | undefined {
   if (calls.length === 0) return undefined;

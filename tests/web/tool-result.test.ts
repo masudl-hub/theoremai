@@ -104,23 +104,18 @@ Deno.test('layoutResult reads an object of numbers as figures when short, bars w
   ]);
 });
 
-Deno.test('layoutResult finds image links anywhere, each once', () => {
-  const { images } = layoutResult({
-    message: 'https://images.dog.ceo/breeds/hound/n02089.jpg',
-    sprites: {
-      front: 'https://img.example/a.png',
-      back: 'https://img.example/a.png',
-      page: 'https://example.com',
-    },
-  });
+Deno.test('layoutResult makes no images of the links in a value', () => {
   assertEquals(
-    images.map((image) => image.src),
-    ['https://images.dog.ceo/breeds/hound/n02089.jpg', 'https://img.example/a.png'],
+    layoutResult({ photo: 'https://example.com/dog.jpg', shots: ['https://a.b/c.png'] }),
+    {
+      figures: [],
+      charts: [],
+    },
   );
 });
 
 Deno.test('layoutResult leaves plain text and short lists to the data view', () => {
-  assertEquals(layoutResult('just text'), { figures: [], charts: [], images: [] });
+  assertEquals(layoutResult('just text'), { figures: [], charts: [] });
   assertEquals(
     layoutResult({
       items: [
@@ -169,10 +164,9 @@ Deno.test('layoutResult labels bars by the field that tells rows apart', () => {
   ]);
 });
 
-Deno.test('returned media: image parts lead the linked images, audio keeps its type, bare parts drop', () => {
+Deno.test('returned media: image parts, audio keeps its type, bare parts drop, links are not media', () => {
   const layout = layoutResult({ photo: 'https://example.com/dog.jpg' });
   const media = returnedMedia(
-    layout,
     [
       { type: 'image', mimeType: 'image/png', data: 'AAAA' },
       { type: 'audio', mimeType: 'audio/wav', data: 'BBBB' },
@@ -180,14 +174,10 @@ Deno.test('returned media: image parts lead the linked images, audio keeps its t
     ],
     'Returned image',
   );
-  assertEquals(media.images, [
-    { src: 'data:image/png;base64,AAAA', alt: 'Returned image' },
-    ...layout.images,
-  ]);
+  assertEquals(media.images, [{ src: 'data:image/png;base64,AAAA', alt: 'Returned image' }]);
   assertEquals(media.audio, [{ src: 'data:audio/wav;base64,BBBB', mimeType: 'audio/wav' }]);
   assert(hasLead(layout, media));
-  const empty = layoutResult('ok');
-  assert(!hasLead(empty, returnedMedia(empty, [], 'Returned image')));
+  assert(!hasLead(layout, returnedMedia([], 'Returned image')));
 });
 
 Deno.test('time formats: hours within a day, dates past it, bare dates read in UTC', () => {
@@ -212,7 +202,7 @@ Deno.test('a direct run shows bytes as media and keeps references for the resolv
     { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/a.pdf' },
     { type: 'bogus', mimeType: 'x/y', uri: 'gs://bucket/b' },
   ];
-  const media = returnedMedia(layoutResult({}), parts, 'image');
+  const media = returnedMedia(parts, 'image');
   assertEquals(media.images.length, 1);
   assertEquals(referencesIn(parts), [
     { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/a.pdf' },

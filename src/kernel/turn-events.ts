@@ -772,6 +772,8 @@ export type ToolPhaseEvent = ToolPhaseBase &
         awaiting?: boolean;
         readBack?: string;
         parts?: ToolOutputPart[];
+        /** The tool is hidden: the model read only `readBack`, none of the output or `parts`. */
+        hidden?: true;
         activityPast?: string;
         /** An agent tool's call: the called agent's own usage. The caller's `done.tokens` includes it, unless the call settled after `done`. */
         tokens?: TurnTokens;
@@ -814,6 +816,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     awaiting: z.boolean().optional(),
     readBack: z.string().optional(),
     parts: z.array(toolOutputPart).optional(),
+    hidden: z.literal(true).optional(),
     activityPast: z.string().optional(),
     tokens: turnTokens.optional(),
   }),

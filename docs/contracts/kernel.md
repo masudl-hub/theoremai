@@ -975,7 +975,8 @@ the stored operation outcome keeps it, so a detached call settles with the same 
 - **Agent tools** return the called agent's pictures and audio as sent parts. The kind comes from
   the MIME type.
 - **Hidden tools** (`exposeToModel: false`) give the model no parts. The chat still shows the
-  sent bytes and the references.
+  sent bytes and the references. The `complete` event says `hidden: true`, so a reader that
+  must get only what the model read, such as the MCP handler, takes `readBack` alone.
 - **A call the guard blocks, or a call that fails,** shows no media.
 
 The kernel fetches a `{ url }` entry once a call succeeds and its result has passed the

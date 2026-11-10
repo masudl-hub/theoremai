@@ -208,7 +208,8 @@ function callResult(events: TurnEvent[], labels: HostProfile['labels']): CallRes
       return {
         content: [
           { type: 'text', text: tool.readBack ?? '' },
-          ...(tool.parts ?? []).flatMap(partContent),
+          // why: A hidden tool's model read only `readBack`; what it sent is for the person, not this agent.
+          ...(tool.hidden ? [] : (tool.parts ?? []).flatMap(partContent)),
         ],
         isError: false,
       };

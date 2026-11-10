@@ -246,6 +246,7 @@ export function projectForModel(
     const sent = media?.filter((part) => part.type !== 'text' && ('uri' in part || part.sent));
     return {
       finding: labelText('tool.completed_hidden', {}, labels),
+      hidden: true,
       ...(sent?.length ? { media: sent } : {}),
     };
   }
@@ -466,6 +467,7 @@ function completeEvent(
     output: outputRaw,
     readBack: formatToolResult(modelResult),
     ...(modelResult.media?.length ? { parts: modelResult.media } : {}),
+    ...(modelResult.hidden ? { hidden: true as const } : {}),
     ...(activityPast ? { activityPast } : {}),
   });
 }

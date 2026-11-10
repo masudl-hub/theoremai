@@ -49,10 +49,7 @@ function ResultLead({
     () => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }),
     [locale],
   );
-  const media = useMemo(
-    () => returnedMedia(layout, parts, t('@theorem.host.image')),
-    [layout, parts, t],
-  );
+  const media = useMemo(() => returnedMedia(parts, t('@theorem.host.image')), [parts, t]);
   const references = useMemo(() => referencesIn(parts), [parts]);
   const [open, setOpen] = useState<number | null>(null);
   if (!hasLead(layout, media) && references.length === 0) return null;

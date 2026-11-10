@@ -161,6 +161,7 @@ const modelResultSchema = z.strictObject({
   data: jsonValueSchema.optional(),
   parts: z.array(interactionPartSchema).optional(),
   media: z.array(toolOutputPartSchema).optional(),
+  hidden: z.literal(true).optional(),
   modelText: z.string().optional(),
   provenance: provenance.optional(),
   suspicious: z.array(guardrailHit).optional(),

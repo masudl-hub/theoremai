@@ -948,6 +948,8 @@ export interface ModelToolResult {
   parts?: InteractionPart[];
   /** What the tool returned beside its output, as the person may be shown it: `sent` media and references. */
   media?: ToolOutputPart[];
+  /** The tool is hidden (`exposeToModel: false`): the model read none of its output, `media` included. */
+  hidden?: true;
   /**
    * Already fenced and redacted by `executeRegisteredTool`. When absent (a recorded result
    * formatted outside execution), `formatToolResult` guards the text itself under full detection.

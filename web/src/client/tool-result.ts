@@ -46,13 +46,12 @@ export type ResultImage = { src: string; alt: string };
 export type ResultLayout = {
   figures: ResultFigure[];
   charts: ResultChart[];
-  images: ResultImage[];
 };
 
 /** Media a tool returned beside its value, as the complete event carries it: bytes, or a reference (`uri`). */
 export type ResultMedia = { type: string; mimeType?: string; data?: string; uri?: string };
 
-/** What a call returned to see or hear: its image parts, then the images its value links; its audio parts. */
+/** What a call returned to see or hear: its image parts and its audio parts. */
 export type ReturnedMedia = { images: ResultImage[]; audio: { src: string; mimeType?: string }[] };
 
 const MAX_FIGURES = 4;
@@ -61,27 +60,14 @@ const MAX_CHARTS = 3;
 const MAX_SERIES = 3;
 /** Bars a category chart ranks. */
 const MAX_BARS = 8;
-const MAX_IMAGES = 6;
 /** Rows a list needs before it reads as a chart. */
 const MIN_POINTS = 3;
-/** Levels searched for charts and images. */
+/** Levels searched for charts. */
 const MAX_SEARCH_DEPTH = 3;
 
 /** Numbers that locate or name a thing rather than measure it. */
 const NOT_A_MEASURE =
   /(^|_)(id|ids|lat|lon|lng|latitude|longitude|offset|interval|index|rank|order)$|Id$|^(generationtime_ms|utc_offset_seconds)$/i;
-const IMAGE_PATH = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
-
-function isImageUrl(text: string): boolean {
-  if (/\s/.test(text)) return false;
-  try {
-    const url = new URL(text);
-    return (url.protocol === 'http:' || url.protocol === 'https:') && IMAGE_PATH.test(url.pathname);
-  } catch {
-    return false;
-  }
-}
-
 function isMeasure(key: string): boolean {
   return !NOT_A_MEASURE.test(key);
 }
@@ -311,37 +297,12 @@ function chartsIn(
   );
 }
 
-/** Image URLs anywhere in the value, first found first, each once. */
-function imagesIn(
-  value: unknown,
-  key: string,
-  depth: number,
-  found: Map<string, ResultImage>,
-): void {
-  if (found.size >= MAX_IMAGES || depth > MAX_SEARCH_DEPTH + 1) return;
-  const inner = unpacked(value);
-  if (typeof inner === 'string') {
-    if (isImageUrl(inner) && !found.has(inner))
-      found.set(inner, { src: inner, alt: humanize(key || 'image') });
-    return;
-  }
-  if (Array.isArray(inner)) {
-    for (const item of inner) imagesIn(item, key, depth + 1, found);
-    return;
-  }
-  if (isRow(inner))
-    for (const [child, entry] of Object.entries(inner)) imagesIn(entry, child, depth + 1, found);
-}
-
 /** What a tool's output leads with. Empty when nothing stands out: the data alone reads best. */
 export function layoutResult(output: unknown): ResultLayout {
   const value = unpacked(output);
-  const images = new Map<string, ResultImage>();
-  imagesIn(value, '', 0, images);
   return {
     figures: leadFigures(value),
     charts: chartsIn(value, '', '', undefined, 0).slice(0, MAX_CHARTS),
-    images: [...images.values()],
   };
 }
 
@@ -350,20 +311,15 @@ function mediaSrc(part: ResultMedia): string | undefined {
 }
 
 /** The images and audio a call returned, each with its bytes; parts without them (references) are left out. */
-export function returnedMedia(
-  layout: ResultLayout,
-  parts: readonly ResultMedia[],
-  imageAlt: string,
-): ReturnedMedia {
+export function returnedMedia(parts: readonly ResultMedia[], imageAlt: string): ReturnedMedia {
   const sourced = parts.flatMap((part) => {
     const src = mediaSrc(part);
     return src ? [{ type: part.type, src, mimeType: part.mimeType }] : [];
   });
   return {
-    images: [
-      ...sourced.filter((part) => part.type === 'image').map(({ src }) => ({ src, alt: imageAlt })),
-      ...layout.images,
-    ],
+    images: sourced
+      .filter((part) => part.type === 'image')
+      .map(({ src }) => ({ src, alt: imageAlt })),
     audio: sourced
       .filter((part) => part.type === 'audio')
       .map(({ src, mimeType }) => ({ src, ...(mimeType ? { mimeType } : {}) })),

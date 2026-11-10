@@ -72,6 +72,23 @@ registerTool({
     ],
   }),
 });
+registerTool({
+  type: 'function',
+  name: 'mcp_handler_hidden_card',
+  description: 'Makes a card the model never reads',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  exposeToModel: false,
+  input: z.object({}),
+  output: z.object({ finding: z.string(), parts: z.array(z.unknown()) }),
+  handler: () => ({
+    finding: 'made',
+    parts: [{ type: 'image', mimeType: 'image/png', data: 'SElEREVO', sent: true }],
+  }),
+});
 type HostDefinition = Extract<ProfileDefinition, { type: 'host' }>;
 function host(id: string, allow: string[]): HostDefinition {
   return { type: 'host', id, tools: { allow }, guardrails: { detect: { injection: 'ignore' } } };
@@ -325,4 +342,13 @@ Deno.test('a client reads the bytes the model read, never a reference or the sen
     { type: 'image', data: 'U0VOVA==', mimeType: 'image/png' },
   ]);
   assertEquals(JSON.stringify(result).includes('gs://bucket/card.pdf'), false);
+});
+
+Deno.test('a client reads nothing a hidden tool sent, only what its model read', async () => {
+  const res = await handlerFor('mcp-hidden-card', ['mcp_handler_hidden_card'])(
+    modern('tools/call', { name: 'mcp_handler_hidden_card', arguments: {} }),
+  );
+  const { result } = await res.json();
+  assertEquals(result.isError, false);
+  assertEquals(result.content, [{ type: 'text', text: 'Completed.' }]);
 });

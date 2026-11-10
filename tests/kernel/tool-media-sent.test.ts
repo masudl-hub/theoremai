@@ -147,6 +147,8 @@ Deno.test('a hidden tool shows what it sent and the model reads none of it', asy
   assertEquals(wire.includes(SENT), false);
   assertEquals(wire.includes(READ), false);
   assertEquals(complete(events).parts, [PARTS[1], PARTS[3]]);
+  assertEquals(complete(events).hidden, true);
+  assertEquals(complete(await turn(scopeWith(), caller([]))).hidden, undefined);
 });
 
 Deno.test('a call the guard blocks shows no media', async () => {

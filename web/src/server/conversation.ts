@@ -312,7 +312,7 @@ export type DetachedCall = { callId: string; operationId: string };
  * The conversation's detached calls that no late-results block names.
  * invariant: The transcript is the record of what the model read, so a result is fed once.
  */
-export function unreadDetachedCalls(transcript: readonly TranscriptBlock[]): DetachedCall[] {
+function unreadDetachedCalls(transcript: readonly TranscriptBlock[]): DetachedCall[] {
   const read = new Set(
     transcript.flatMap((block) => (block.kind === 'late-results' ? block.operationIds : [])),
   );

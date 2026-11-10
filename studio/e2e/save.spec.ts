@@ -66,7 +66,10 @@ test('undo after a save puts the file and the edit back', async ({ page }) => {
   await saveToken(page).click();
   const dialog = page.getByRole('dialog', { name: /Save to/ });
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await page
+    .getByRole('region', { name: 'Notifications' })
+    .getByRole('button', { name: 'Undo' })
+    .click();
   await expect(handle(page)).toHaveValue('Deskx');
   await expect(saveToken(page)).toBeVisible();
   expect(readFileSync(desk, 'utf8')).toBe(original);

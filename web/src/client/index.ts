@@ -232,6 +232,7 @@ export {
   type TheoremTransport,
   type TheoremTurnInput,
   type TheoremTurnRequest,
+  type TheoremWakeRequest,
   type TurnEventSink,
   type UnsupportedEvent,
   type WireLines,

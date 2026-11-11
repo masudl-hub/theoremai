@@ -19,6 +19,7 @@ import type {
   TheoremReplay,
   TheoremTurnInput,
   TheoremTurnRequest,
+  TheoremWakeRequest,
 } from './transport.ts';
 
 export function issuedOperationId(call: { operationId?: string }): string {
@@ -114,6 +115,20 @@ export function buildTurnRequest(
     input,
     ...(abandon.length ? { abandon } : {}),
     replay: { sessionPermissions: session.sessionPermissions },
+  };
+}
+
+/** A wake of `conversation` with the model and effort picked now, as a message would carry them. */
+export function buildWakeRequest(
+  iface: ComposerProfileInterface,
+  session: InterfaceTurnSession,
+  conversation: string,
+  scope: RunScope = {},
+): TheoremWakeRequest {
+  return {
+    conversation,
+    ...(scope.turnId ? { turnId: scope.turnId } : {}),
+    ...generationFields(iface, session),
   };
 }
 

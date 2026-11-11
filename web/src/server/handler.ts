@@ -24,6 +24,8 @@ import {
  * - `POST <base>/notify`  → NDJSON that stays open: one line now, and one each time a background
  *                            call in this session ends. Set `notifier` to serve it
  * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
+ * - `POST <base>/wake`    → NDJSON for a reply to no message: the model takes up the results of
+ *                            background calls that ended since it last ran. Empty when none waits
  *
  * `createTheoremHostHandler` serves a host profile the same way, with no model:
  *
@@ -62,7 +64,6 @@ import {
   type StageHandler,
   TheoremError,
   type ToolGate,
-  type ToolOperationOutcome,
   type TurnEvent,
   type TurnInput,
   type TurnWiring,
@@ -110,11 +111,13 @@ import {
   theoremSteerRequestSchema,
   theoremStopRequestSchema,
   theoremTurnRequestSchema,
+  theoremWakeRequestSchema,
 } from '../client/transport.ts';
 import {
   answerReply,
   type ConversationHost,
   conversationView,
+  type DetachedCall,
   type IssuedWalkAway,
   messageReply,
   openConversation,
@@ -127,6 +130,8 @@ import {
   rewindConversation,
   statelessRefusal,
   waitingCalls,
+  wakeableCalls,
+  wakeReply,
 } from './conversation.ts';
 import {
   type StoredConversation,
@@ -145,6 +150,7 @@ import {
   sessionStateStore,
 } from './session-authority.ts';
 import { type Session, theoremSession } from './session-identity.ts';
+import { kernelTurnInput } from './turn-input.ts';
 
 export { theoremSession, theoremSessionId } from './session-identity.ts';
 
@@ -275,6 +281,15 @@ export type TheoremHandlerOptions = {
     operation: Extract<SessionToolOperation, { status: 'settled' }>;
   }) => boolean | Promise<boolean>;
   /**
+   * Whether this wake may run its reply: your limit on replies no person asked for. A wake you
+   * refuse is not tried again for the same results; the next message reads them. Unset, every wake
+   * runs.
+   */
+  authorizeWake?: (context: {
+    request: Request;
+    conversation: string;
+  }) => boolean | Promise<boolean>;
+  /**
    * Tool credentials by session. Your OAuth callback route saves the token here
    * under the same session id; every turn reads from here. Default: in-process
    * memory — pass the same instance to your callback route.
@@ -364,6 +379,7 @@ function routeOf(request: Request): string {
     last === 'conversation' ||
     last === 'notify' ||
     last === 'rewind' ||
+    last === 'wake' ||
     last === 'call' ||
     last === 'page-result'
     ? last
@@ -860,16 +876,41 @@ async function withLateResults(
   turn: ReplyTurn,
   operations: TheoremSessionState['operations'],
 ): Promise<TurnInput> {
-  const outcomes: ToolOperationOutcome[] = [];
-  for (const { operationId } of turn.unread ?? []) {
+  const settled = await readableResults(ctx, request, turn.unread ?? [], operations);
+  if (settled.length === 0) return turn.input;
+  const outcomes = settled.map((operation) => operation.outcome);
+  return { ...turn.input, lateResults: [...(turn.input.lateResults ?? []), ...outcomes] };
+}
+
+type SettledOperation = Extract<SessionToolOperation, { status: 'settled' }>;
+
+/** The calls among `unread` that ended, as this request may read them. */
+async function readableResults(
+  ctx: HandlerContext,
+  request: Request,
+  unread: readonly DetachedCall[],
+  operations: TheoremSessionState['operations'],
+): Promise<SettledOperation[]> {
+  const readable: SettledOperation[] = [];
+  for (const { operationId } of unread) {
     const operation = Object.hasOwn(operations, operationId) ? operations[operationId] : undefined;
     if (operation?.status !== 'settled') continue;
     const { authorizeToolReplay } = ctx.options;
     if (authorizeToolReplay && !(await authorizeToolReplay({ request, operation }))) continue;
-    outcomes.push(operation.outcome);
+    readable.push(operation);
   }
-  if (outcomes.length === 0) return turn.input;
-  return { ...turn.input, lateResults: [...(turn.input.lateResults ?? []), ...outcomes] };
+  return readable;
+}
+
+/** The results a wake would take up: readable, and no wake has taken them. */
+async function wakeResults(
+  ctx: HandlerContext,
+  request: Request,
+  conversation: StoredConversation,
+  operations: TheoremSessionState['operations'],
+): Promise<SettledOperation[]> {
+  const readable = await readableResults(ctx, request, wakeableCalls(conversation), operations);
+  return readable.filter((operation) => operation.wokenAt === undefined);
 }
 
 /** One model run of a chat's reply, its gates recorded in the session as they pause. */
@@ -1044,6 +1085,44 @@ async function conversation(
   return jsonResponse(200, await currentView(ctx, request, session, host, opened.conversation));
 }
 
+/**
+ * A reply to no message, for results that ended since the model last ran. Each result is taken by
+ * one wake, before the model runs, so two pages that wake at once run it once, and a wake that
+ * fails or is refused is not tried again; the next message reads what it left.
+ */
+async function wake(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+  const body = await readBody(request, theoremWakeRequestSchema, ctx.options.maxRequestBytes);
+  const host = conversationHost(ctx, session);
+  if (!host) throw statelessRefusal('wake');
+  const opened = await openConversation(host, body.conversation, { kind: 'read' });
+  const { operations } = await ctx.sessions.read(session.id);
+  const due = await wakeResults(ctx, request, opened.conversation, operations);
+  const now = Date.now();
+  const taken = due.length
+    ? await ctx.sessions.mutate(session.id, (state) =>
+        due.filter(({ operationId }) => {
+          const operation = state.operations[operationId];
+          if (operation?.status !== 'settled' || operation.wokenAt !== undefined) return false;
+          state.operations[operationId] = { ...operation, wokenAt: now };
+          return true;
+        }),
+      )
+    : [];
+  const { authorizeWake } = ctx.options;
+  const allowed =
+    taken.length > 0 &&
+    (!authorizeWake || (await authorizeWake({ request, conversation: body.conversation })));
+  if (!allowed) return eventStream(ctx, request, async function* () {});
+  const runner = chatRunner(ctx, request, session, body);
+  const input = kernelTurnInput(body.input ?? {}, await ctx.options.context?.(request));
+  const { notifier } = ctx.options;
+  return eventStream(ctx, request, async function* () {
+    yield* wakeReply({ host, opened, runner, input });
+    // why: The page that woke draws its reply; any other page open on the session reads it now.
+    notifier?.publish(session.id);
+  });
+}
+
 const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
 
 /**
@@ -1106,12 +1185,14 @@ async function currentView(
     ),
   );
   const { notifier, notifyRetryMs } = ctx.options;
+  const due = await wakeResults(ctx, request, conversation, operations);
   return {
     ...view,
     transcript,
     ...(notifier && transcript.some(isDetachedBlock)
       ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
       : {}),
+    ...(due.length > 0 ? { wake: true as const } : {}),
   };
 }
 
@@ -1463,6 +1544,7 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
     return notify(ctx, request, session, notifier);
   }
   if (target === 'rewind') return rewind(ctx, request, session);
+  if (target === 'wake') return wake(ctx, request, session);
   if (target === 'stop') return stop(ctx, request, session);
   return steer(ctx, request, session);
 }

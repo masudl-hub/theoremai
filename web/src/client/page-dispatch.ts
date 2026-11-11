@@ -72,6 +72,12 @@ export function withPageToolDispatch(
     invoke: (request, onLine, signal) =>
       transport.invoke(request, chatSink(onLine, signal), signal),
     turn: (request, onLine, signal) => transport.turn(request, chatSink(onLine, signal), signal),
+    ...(transport.wake
+      ? {
+          wake: (request, onLine, signal) =>
+            transport.wake?.(request, chatSink(onLine, signal), signal) ?? Promise.resolve(),
+        }
+      : {}),
     steer: transport.steer.bind(transport),
     stop: transport.stop.bind(transport),
     conversation: transport.conversation.bind(transport),

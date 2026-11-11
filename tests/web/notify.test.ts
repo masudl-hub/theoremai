@@ -89,9 +89,11 @@ function harness(
     held.free = resolve;
   });
   const handles: ToolBackgroundHandle[] = [];
+  // why: One model for the chat, so a wake answers in text instead of starting the job again.
+  const model = caller();
   const options: TheoremHandlerOptions = {
     profile: PROFILE,
-    provider: () => fixtureHostOptions(caller()),
+    provider: () => fixtureHostOptions(model),
     conversationStore: createMemoryConversationStore(),
     sessionStore: createMemorySessionStore(),
     session: sessionId,

@@ -268,6 +268,8 @@ export function conversationView(
   };
 }
 
+const CONFLICT = { code: 'conversation_conflict' } as const;
+
 /** Writes `next` over what the request read; a write another request beat is refused. */
 async function save(
   host: ConversationHost,
@@ -278,7 +280,7 @@ async function save(
   if (!result.written) {
     // labels-exempt: internal diagnostic; the user reads error.unavailable
     throw new TheoremError('unavailable', 'the conversation changed while this reply ran', {
-      cause: { code: 'conversation_conflict' },
+      cause: CONFLICT,
     });
   }
   return { ref: result.ref, revision: result.revision, conversation: next };
@@ -324,6 +326,17 @@ function unreadDetachedCalls(transcript: readonly TranscriptBlock[]): DetachedCa
       ? [{ callId: block.tool.callId, operationId: block.tool.operationId }]
       : [],
   );
+}
+
+/**
+ * The calls a wake would read: none while a reply waits on gates or answers a message just posted.
+ * invariant: A wake never runs beside a reply, so it never takes a person's message from one.
+ */
+export function wakeableCalls(conversation: StoredConversation): DetachedCall[] {
+  if (conversation.paused) return [];
+  const last = conversation.transcript.at(-1);
+  if (!last || last.kind.startsWith('user-')) return [];
+  return unreadDetachedCalls(conversation.transcript);
 }
 
 /** What a reply's model run takes from the host. */
@@ -736,16 +749,49 @@ export async function* messageReply(args: {
     opened,
     reply,
     runner,
-    {
-      ...message.input,
-      history: conversation.history,
-      ...(conversation.inputTokens === undefined ? {} : { inputTokens: conversation.inputTokens }),
-      ...(conversation.historyTokens === undefined
-        ? {}
-        : { historyTokens: conversation.historyTokens }),
-    },
+    { ...message.input, ...historyInput(conversation) },
     withMessage,
   );
+}
+
+/** The conversation's history as a run reads it, with its meters. */
+function historyInput(conversation: StoredConversation): TurnInput {
+  return {
+    history: conversation.history,
+    ...(conversation.inputTokens === undefined ? {} : { inputTokens: conversation.inputTokens }),
+    ...(conversation.historyTokens === undefined
+      ? {}
+      : { historyTokens: conversation.historyTokens }),
+  };
+}
+
+/**
+ * The model takes up the results of calls that ended while nothing ran: a reply to no message.
+ * It writes nothing until it ends, so a message posted meanwhile keeps the conversation, and this
+ * reply ends with no write: that message's reply read the same results.
+ */
+export async function* wakeReply(args: {
+  host: ConversationHost;
+  opened: OpenedConversation;
+  runner: ReplyRunner;
+  /** What the page sends with every message: its option picks and context. */
+  input?: Pick<TurnInput, 'options' | 'context'>;
+}): AsyncGenerator<ReplyLine> {
+  const { host, opened, runner } = args;
+  const { conversation } = opened;
+  const reply: Reply = { base: conversation.history, events: [], baseEvents: 0, workedMs: 0 };
+  try {
+    yield* runReply(
+      host,
+      opened,
+      reply,
+      runner,
+      { ...args.input, ...historyInput(conversation) },
+      (history) => history,
+    );
+  } catch (err) {
+    if (!(err instanceof TheoremError && err.cause === CONFLICT)) throw err;
+  }
 }
 
 /**

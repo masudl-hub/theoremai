@@ -42,6 +42,7 @@ import {
   type StreamView,
   streamInterfaceDraftTurn,
   streamInterfaceTurn,
+  streamInterfaceWake,
 } from './run-session.ts';
 import type { AnsweringGate, ToolDecisionAction, ToolGateResolution } from './tool-resume.ts';
 import {
@@ -52,6 +53,7 @@ import {
   type StatedTurn,
   type TheoremTransport,
   type TheoremTurnRequest,
+  type TheoremWakeRequest,
   type TurnEventSink,
 } from './transport.ts';
 import { foldAssistantTurn, issuedOperationId, type RunScope } from './turn-client.ts';
@@ -255,6 +257,8 @@ type RunOptions = {
   turn?: boolean;
   /** The run sends a message: one that never posts goes back in the composer with its failure. */
   message?: { restore(): Promise<void> };
+  /** The run wakes the conversation: it shows as streaming only once the host's reply begins. */
+  wake?: true;
 };
 
 const DELIVERY_ORDER: readonly MessageDelivery[] = ['sending', 'sent', 'delivered', 'read'];
@@ -386,6 +390,8 @@ class Chat implements ChatController {
   /** What the last view said about the host's push; unset, nothing is listened for. */
   #notify: ConversationView['notify'];
   #listening: AbortController | null = null;
+  /** The last view said results wait that no reply has read: the chat wakes once it is idle. */
+  #wakeDue = false;
   #reading: Promise<void> | null = null;
   #readAgain = false;
 
@@ -766,6 +772,31 @@ class Chat implements ChatController {
     this.#resume(iface);
     this.#answerPageGate();
     this.#drain();
+    this.#wake();
+  }
+
+  /**
+   * Wakes the conversation when the host said results wait. A message the queue sends goes first:
+   * its reply reads them. The host takes each result once, so a wake is never run twice for it.
+   */
+  #wake(): void {
+    const ref = this.#conversation;
+    if (!this.#wakeDue || ref === undefined || this.#busy || this.#draining) return;
+    if (this.#state.phase !== 'idle' || !this.#options.transport.wake) return;
+    this.#wakeDue = false;
+    void this.#runTurn(
+      ({ iface, view, transport, scope, signal }) =>
+        streamInterfaceWake({
+          iface,
+          transport,
+          session: this.#state.session,
+          scope: { ...scope, conversation: ref },
+          view,
+          signal,
+          began: () => this.#set({ failure: null, streaming: true }),
+        }),
+      { turn: true, wake: true },
+    );
   }
 
   #clearedComposer(): Pick<ChatState, 'draftText' | 'pendingFiles' | 'pendingVoice'> {
@@ -812,6 +843,7 @@ class Chat implements ChatController {
       session: this.#sessionAfter(session, view.paused?.events ?? events),
       chatStarted: view.transcript.length > 0 || view.paused !== undefined,
     });
+    this.#wakeDue = view.wake === true;
     this.#setPush(view.notify);
   }
 
@@ -1073,6 +1105,26 @@ class Chat implements ChatController {
       ...base,
       turn: (request, onLine, signal) => base.turn(this.#withValues(request), tap(onLine), signal),
       invoke: (request, onLine, signal) => base.invoke(request, tap(onLine), signal),
+      ...(base.wake
+        ? {
+            wake: (request, onLine, signal) =>
+              base.wake?.(this.#wakeValues(request), tap(onLine), signal) ?? Promise.resolve(),
+          }
+        : {}),
+    };
+  }
+
+  /** A wake carries the option picks and context a message would. */
+  #wakeValues(request: TheoremWakeRequest): TheoremWakeRequest {
+    const { iface, options: fixed, context } = this.#options;
+    const options = picksOf(iface, fixed, this.#picked).values;
+    if (options === undefined && context === undefined) return request;
+    return {
+      ...request,
+      input: {
+        ...(options === undefined ? {} : { options }),
+        ...(context === undefined ? {} : { context }),
+      },
     };
   }
 
@@ -1142,7 +1194,8 @@ class Chat implements ChatController {
     this.#stopped = false;
     this.#drainArmed = false;
     // why: A message streams once it posts, so the previous reply never shows as streaming before it.
-    this.#set({ failure: null, ...(message ? {} : { streaming: true }) });
+    // A wake shows only once the host's reply begins; one with nothing to wake for shows nothing.
+    if (!options.wake) this.#set({ failure: null, ...(message ? {} : { streaming: true }) });
     const start: RunStart = { blocks: this.#state.blocks, streamBlocks: this.#state.streamBlocks };
     // why: A run that answers a gate continues its reply; any other starts one.
     if (!this.#state.session.gatedTool) this.#replyWorkedMs = 0;

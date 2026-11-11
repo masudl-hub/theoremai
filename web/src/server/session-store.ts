@@ -88,6 +88,8 @@ export type SessionToolOperation =
       reply?: ToolOperationReply;
       settledAt: number;
       retainUntil?: number;
+      /** When a wake took this result up. invariant: one wake per result; a message still reads it. */
+      wokenAt?: number;
     })
   | (ToolOperationIdentity & {
       status: 'uncertain';
@@ -247,6 +249,7 @@ const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('s
     reply: toolOperationReplySchema.optional(),
     settledAt: z.number().finite().nonnegative(),
     retainUntil: z.number().finite().nonnegative().optional(),
+    wokenAt: z.number().finite().nonnegative().optional(),
   }),
   z.strictObject({
     ...identityFields,

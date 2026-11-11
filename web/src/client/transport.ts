@@ -274,6 +274,8 @@ export type ConversationView = {
   paused?: { events: TurnEvent[]; blocks: TranscriptBlock[] };
   /** The host pushes the end of a call that still runs. `retryMs` is its wait to reopen the push. */
   notify?: { retryMs?: number };
+  /** Results wait that no reply has read: the page wakes the conversation (`transport.wake`). */
+  wake?: true;
 };
 const conversationView = z.object({
   transcript: z.array(transcriptBlockSchema),
@@ -281,6 +283,7 @@ const conversationView = z.object({
     .object({ events: z.array(turnEventSchema), blocks: z.array(transcriptBlockSchema) })
     .optional(),
   notify: z.object({ retryMs: z.number().optional() }).optional(),
+  wake: z.literal(true).optional(),
 });
 true satisfies Equals<z.infer<typeof conversationView>, ConversationView>;
 
@@ -291,6 +294,31 @@ true satisfies Equals<z.infer<typeof theoremConversationRequest>, TheoremConvers
 /** A `/conversation` body as `createTheoremHandler` reads it. */
 export const theoremConversationRequestSchema: z.ZodType<TheoremConversationRequest> =
   theoremConversationRequest;
+
+/**
+ * Wake the conversation: the model takes up the results of its background calls that ended and it
+ * has not read, in a reply to no message. A `/wake` body. The host does nothing when no result
+ * waits, a reply waits on gates or answers a message, or another wake took them already.
+ */
+export type TheoremWakeRequest = {
+  conversation: string;
+  /** What the page sends with every message: its option picks and context. */
+  input?: Pick<TheoremTurnInput, 'options' | 'context'>;
+  model?: string;
+  effort?: string;
+  /** Client-generated id so the page can stop this reply, as it stops a message's. */
+  turnId?: string;
+};
+const theoremWakeRequest = z.object({
+  conversation: z.string().min(1),
+  input: theoremTurnInput.pick({ options: true, context: true }).optional(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+  turnId: clientId.optional(),
+});
+true satisfies Equals<z.infer<typeof theoremWakeRequest>, TheoremWakeRequest>;
+/** A `/wake` body as `createTheoremHandler` reads it. */
+export const theoremWakeRequestSchema: z.ZodType<TheoremWakeRequest> = theoremWakeRequest;
 
 /** Listen for the ends of this session's background calls: a `/notify` body. */
 export type TheoremNotifyRequest = Record<string, never>;
@@ -352,6 +380,8 @@ export interface TheoremTransport {
   ): Promise<ConversationView>;
   /** Calls `changed` for each line of the host's push, and settles when the push ends. */
   notify?(changed: () => void, signal: AbortSignal): Promise<void>;
+  /** Streams the reply a wake runs; no line at all when the host had nothing to wake for. */
+  wake?(request: TheoremWakeRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   /** The conversation cut after a transcript block, under the ref the host issued for it. */
   rewind(request: TheoremRewindRequest, signal?: AbortSignal): Promise<TheoremRewound>;
   pageResult?(result: PageDispatchResult, signal?: AbortSignal): Promise<void>;
@@ -691,6 +721,8 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
       postNdjson(`${base}/invoke`, body, CHAT_LINES, onEvent, { ...options, signal }),
     conversation: (body, signal) =>
       fetchConversation(`${base}/conversation`, body, { ...options, signal }),
+    wake: (body, onLine, signal) =>
+      postNdjson(`${base}/wake`, body, CHAT_LINES, onLine, { ...options, signal }),
     notify: (changed, signal) =>
       postNdjson(
         `${base}/notify`,

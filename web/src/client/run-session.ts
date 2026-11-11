@@ -22,6 +22,7 @@ import {
 import {
   buildInvokeRequest,
   buildTurnRequest,
+  buildWakeRequest,
   foldAssistantTurn,
   issuedOperationId,
   prepareComposerTurn,
@@ -355,4 +356,46 @@ export async function resumeInterfaceTool(args: {
     };
   }
   return { session, events, posted: true };
+}
+
+/**
+ * Wake the conversation: stream the reply the host runs for results no reply has read. `began`
+ * fires on its first line; a host with nothing to wake for sends none, and the run leaves nothing.
+ */
+export async function streamInterfaceWake(args: {
+  iface: ComposerProfileInterface;
+  transport: TheoremTransport;
+  session: InterfaceTurnSession;
+  scope: RunScope & { conversation: string };
+  view: StreamView;
+  signal?: AbortSignal;
+  began(): void;
+}): Promise<RunOutcome> {
+  const { iface, transport, session, scope, signal } = args;
+  const events: TurnEvent[] = [];
+  const wake = transport.wake?.bind(transport);
+  if (!wake) return { session, events, posted: false };
+  let begun = false;
+  try {
+    await streamFoldedTurn({
+      iface,
+      view: args.view,
+      events,
+      stream: (onLine) =>
+        wake(
+          buildWakeRequest(iface, session, scope.conversation, scope),
+          (line) => {
+            if (!begun) {
+              begun = true;
+              args.began();
+            }
+            onLine(line);
+          },
+          signal,
+        ),
+    });
+  } catch (err) {
+    return { session, events, posted: false, failure: turnFailure(err, iface.labels, signal) };
+  }
+  return { session, events, posted: false };
 }

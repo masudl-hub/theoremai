@@ -19,6 +19,7 @@ export {
   theoremSteerRequestSchema,
   theoremStopRequestSchema,
   theoremTurnRequestSchema,
+  theoremWakeRequestSchema,
 } from '../client/transport.ts';
 export {
   answerReply,
@@ -40,6 +41,8 @@ export {
   statelessRefusal,
   type WalkedAwayCall,
   waitingCalls,
+  wakeableCalls,
+  wakeReply,
 } from './conversation.ts';
 export {
   type ConversationSnapshot,

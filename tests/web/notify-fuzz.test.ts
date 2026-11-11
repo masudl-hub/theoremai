@@ -55,14 +55,14 @@ registerTool({
   },
 });
 
+/** A model that starts the job on a person's message and answers in text otherwise (a tool's or a wake's). */
 function caller(): TurnModel {
-  let step = 0;
   return {
-    complete: () =>
+    complete: (req) =>
       (async function* () {
         await Promise.resolve();
-        step += 1;
-        if (step === 1) {
+        const last = req.history?.at(-1);
+        if (last?.role === 'user' && !last.metadata?.lateResults) {
           calls += 1;
           yield {
             type: 'tool' as const,
@@ -97,8 +97,9 @@ function waitFor(check: () => boolean, why: string): Promise<void> {
 }
 
 /**
- * invariant: Whatever order the ends, turns, cut streams and leaving tabs come in, a page that
- * stays ends up drawing what a fresh read shows, with no stream left open and no turn sent for it.
+ * invariant: Whatever order the ends, turns, wakes, cut streams and leaving tabs come in, a page
+ * that stays ends up drawing what a fresh read shows, with no stream left open and nothing left to
+ * wake for.
  */
 async function run(seed: number): Promise<void> {
   const random = randomFrom(seed);
@@ -174,6 +175,7 @@ async function run(seed: number): Promise<void> {
     blocks.flatMap((block) => (block.kind === 'tool' ? [block.tool.state?.phase] : []));
   assertEquals(phases(chat.getState().blocks), phases(fresh.transcript), `seed ${seed}`);
   assertEquals(fresh.notify, undefined, `seed ${seed}`);
+  assertEquals(fresh.wake, undefined, `seed ${seed}`);
   stay();
 }
 

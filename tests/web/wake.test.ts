@@ -1,6 +1,8 @@
 import { assert, assertEquals } from '@std/assert';
 import {
   defaultKernelScope,
+  type LateResultEnded,
+  type LateResultsAsk,
   type ModelRequest,
   type ProfileDefinition,
   registerTool,
@@ -21,6 +23,7 @@ import {
   createMemoryNotifier,
   createMemorySessionStore,
   createTheoremHandler,
+  pageWakes,
   type TheoremHandlerOptions,
 } from '../../web/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
@@ -119,6 +122,7 @@ function harness(options: Partial<TheoremHandlerOptions> = {}) {
     sessionStore: createMemorySessionStore(),
     session: () => 'one-person',
     background: () => ({ detached: (handle) => handles.push(handle), event: () => {} }),
+    lateResultsDecider: pageWakes,
     ...options,
   });
   const transport: TheoremTransport = createHttpTransport({
@@ -237,27 +241,96 @@ Deno.test('a wake that fails is not tried again, and the next message reads the 
   }
 });
 
-Deno.test('a wake the host refuses runs nothing, and the next message reads the result', async () => {
-  const asked: { host: unknown; conversation: string }[] = [];
+Deno.test('with no decider, nothing tells the model: no wake, and no message reads the result', async () => {
+  const { transport, handles, seen } = harness({ lateResultsDecider: undefined });
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    assertEquals((await transport.conversation({ conversation: ref })).wake, undefined);
+    const before = seen.length;
+    assertEquals((await wake(transport, ref)).lines, []);
+    assertEquals(seen.length, before, 'a wake ran the model');
+    const next = await say(transport, 'any news?', ref);
+    assertEquals(reads(seen, before), 0, 'the message read the result');
+    assertEquals(await lateBlocks(transport, next), 0);
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test('the decider gives each reply its results, and what it holds back stays for later', async () => {
+  const asked: (LateResultsAsk & { reason: string })[] = [];
+  let giving = false;
   const { transport, handles, seen } = harness({
     host: () => ({ person: 'the-asker' }),
-    authorizeWake: (wake) => {
-      asked.push(wake);
-      return false;
+    lateResultsDecider: {
+      due: () => giving,
+      give: (ask) => {
+        asked.push(ask);
+        return giving ? ask.results.map((result) => result.operationId) : [];
+      },
     },
   });
   try {
     const ref = await say(transport, 'start the job');
     held.free();
     await handles[0].done;
+    assertEquals((await transport.conversation({ conversation: ref })).wake, undefined);
     const before = seen.length;
     assertEquals((await wake(transport, ref)).lines, []);
-    assertEquals(seen.length, before);
-    assertEquals(asked, [{ host: { person: 'the-asker' }, conversation: ref }]);
+    assertEquals(seen.length, before, 'a wake given nothing ran the model');
+    assertEquals(
+      asked.map(({ reason, host, conversation, results }) => [
+        reason,
+        host,
+        conversation,
+        results.length,
+      ]),
+      [['wake', { person: 'the-asker' }, ref, 1]],
+    );
+    const held1 = await say(transport, 'any news?', ref);
+    assertEquals(reads(seen, before), 0, 'a message read a result the decider held back');
+    assertEquals(asked.at(-1)?.reason, 'message');
+    giving = true;
+    assertEquals((await transport.conversation({ conversation: held1 })).wake, true);
+    const woke = await wake(transport, held1);
+    assert(reads(seen, before) > 0, 'the wake did not read the result');
+    assertEquals(await lateBlocks(transport, woke.ref), 1);
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test('a decider wakes the chat from the server when a call ends, with no page', async () => {
+  const ended: LateResultEnded[] = [];
+  let ref = '';
+  let woken: Promise<void> | undefined;
+  const { transport, handles, seen } = harness({
+    host: () => ({ person: 'the-asker' }),
+    lateResultsDecider: {
+      give: ({ results }) => results.map((result) => result.operationId),
+      ended: (end) => {
+        ended.push(end);
+        woken = end.wake(ref);
+        return woken;
+      },
+    },
+  });
+  try {
+    ref = await say(transport, 'start the job');
     assertEquals((await transport.conversation({ conversation: ref })).wake, undefined);
-    const next = await say(transport, 'any news?', ref);
-    assert(reads(seen, before) > 0);
-    assertEquals(await lateBlocks(transport, next), 1);
+    const before = seen.length;
+    held.free();
+    await handles[0].done;
+    await waitFor(() => woken !== undefined);
+    await woken;
+    assertEquals(ended.length, 1);
+    assertEquals(ended[0].host, { person: 'the-asker' });
+    assertEquals(ended[0].result.outcome.event.tool.name, TOOL);
+    assertEquals(seen.length - before, 1, 'the server wake ran the model once');
+    assertEquals(await lateBlocks(transport, ref), 1);
+    assertEquals((await wake(transport, ref)).lines, [], 'a page woke it again');
   } finally {
     held.free();
   }

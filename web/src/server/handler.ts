@@ -55,6 +55,7 @@ import {
   type GateReference,
   invokeTool,
   jsonObjectSchema,
+  type LateResult,
   labelText,
   type Profile,
   type ProfileDefinition,
@@ -280,8 +281,11 @@ export type TheoremHandlerOptions = {
     request: Request;
     operation: Extract<SessionToolOperation, { status: 'settled' }>;
   }) => boolean | Promise<boolean>;
-  /** Whether a wake may run: `TurnWiring.authorizeWake`, given the `host` this request makes. */
-  authorizeWake?: TurnWiring['authorizeWake'];
+  /**
+   * Who tells the model that a background call ended: `TurnWiring.lateResultsDecider`. Unset, no
+   * page wakes the chat and no reply reads a late result. `pageWakes` lets the open page wake it.
+   */
+  lateResultsDecider?: TurnWiring['lateResultsDecider'];
   /**
    * Tool credentials by session. Your OAuth callback route saves the token here
    * under the same session id; every turn reads from here. Default: in-process
@@ -834,24 +838,66 @@ function backgroundWiring(
   return service ? { background: announced(ctx, request, sessionId, service) } : {};
 }
 
-/** `service`, telling the session's open page through the notifier when each of its calls ends. */
+/**
+ * `service`, telling the session's open pages when each of its calls ends, and the decider's
+ * `ended`, with the wake and the notify it may use.
+ */
 function announced(
   ctx: HandlerContext,
   request: Request,
   sessionId: string,
   service: ToolBackgroundService,
 ): ToolBackgroundService {
-  const { notifier } = ctx.options;
-  if (!notifier) return service;
+  const { notifier, lateResultsDecider } = ctx.options;
+  const ended = lateResultsDecider?.ended?.bind(lateResultsDecider);
+  if (!notifier && !ended) return service;
+  const notify = async () => {
+    await notifier?.publish(sessionId);
+  };
   return {
     detached(call) {
       service.detached(call);
       void call.done
-        .then(() => notifier.publish(sessionId))
+        .then(async () => {
+          await notify();
+          if (!ended) return;
+          const { operations } = await ctx.sessions.read(sessionId);
+          const operation = Object.hasOwn(operations, call.operationId)
+            ? operations[call.operationId]
+            : undefined;
+          if (operation?.status !== 'settled') return;
+          await ended({
+            host: await ctx.options.host?.(request),
+            result: { operationId: call.operationId, outcome: operation.outcome },
+            wake: (conversation) => serverWake(ctx, request, sessionId, conversation),
+            notify,
+          });
+        })
         .catch((err: unknown) => ctx.options.onError?.(err, { request }));
     },
     event: (event, call) => service.event(event, call),
   };
+}
+
+/**
+ * The decider's wake, with no page: the reply runs on a request of its own, with the headers of
+ * the one that started the call and no signal, because that request has ended.
+ */
+async function serverWake(
+  ctx: HandlerContext,
+  started: Request,
+  sessionId: string,
+  conversation: string,
+): Promise<void> {
+  const request = new Request(started.url, { headers: started.headers });
+  const lines = await wakeLines(ctx, request, { id: sessionId }, conversation, {});
+  if (!lines) return;
+  for await (const line of lines) {
+    if (line.type === 'error') {
+      // labels-exempt: internal diagnostic for the decider's wake; no page reads it
+      throw new TheoremError(line.errorKind, line.errorInternal ?? line.error ?? 'the wake failed');
+    }
+  }
 }
 
 /** A settled call's answer, streamed again. */
@@ -860,19 +906,58 @@ async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerat
 }
 
 /**
- * `turn.input`, with the settled ends of the conversation's detached calls the model has not read.
- * A call the host does not let this request replay stays unread, as its block stays withheld.
+ * `turn.input`, with the late results this reply gives the model: those the wake took, or those
+ * the decider gives a message. A reply that goes on after a pause has none, so it is asked once.
  */
 async function withLateResults(
   ctx: HandlerContext,
   request: Request,
+  host: unknown,
   turn: ReplyTurn,
   operations: TheoremSessionState['operations'],
+  late: LateFeed,
 ): Promise<TurnInput> {
-  const settled = await readableResults(ctx, request, turn.unread ?? [], operations);
-  if (settled.length === 0) return turn.input;
-  const outcomes = settled.map((operation) => operation.outcome);
+  if (!turn.unread) return turn.input;
+  const given =
+    late.given ??
+    (await givenResults(
+      ctx,
+      host,
+      late.conversation,
+      await readableResults(ctx, request, turn.unread, operations),
+      'message',
+    ));
+  if (given.length === 0) return turn.input;
+  const outcomes = given.map((operation) => operation.outcome);
   return { ...turn.input, lateResults: [...(turn.input.lateResults ?? []), ...outcomes] };
+}
+
+/** What a reply reads of its chat's late results: the wake's, or the decider's for a message. */
+type LateFeed = { conversation?: string; given?: readonly SettledOperation[] };
+
+/** Those of `results` the decider gives the reply; none without a decider. */
+async function givenResults(
+  ctx: HandlerContext,
+  host: unknown,
+  conversation: string | undefined,
+  results: readonly SettledOperation[],
+  reason: 'message' | 'wake',
+): Promise<SettledOperation[]> {
+  const decider = ctx.options.lateResultsDecider;
+  if (!decider || conversation === undefined || results.length === 0) return [];
+  const ids = new Set(
+    await decider.give({
+      reason,
+      host,
+      conversation,
+      results: results.map(lateResult),
+    }),
+  );
+  return results.filter((operation) => ids.has(operation.operationId));
+}
+
+function lateResult(operation: SettledOperation): LateResult {
+  return { operationId: operation.operationId, outcome: operation.outcome };
 }
 
 type SettledOperation = Extract<SessionToolOperation, { status: 'settled' }>;
@@ -914,6 +999,7 @@ async function* chatTurn(
   turn: ReplyTurn,
   key: string | undefined,
   stop: AbortController,
+  late: LateFeed,
 ): AsyncGenerator<TurnEvent> {
   const state = await ctx.sessions.read(session.id);
   const provider = await providerFor(ctx, request, turn.model);
@@ -939,7 +1025,7 @@ async function* chatTurn(
           ctx.pageToolBroker,
           ctx.options.pageToolTimeoutMs,
         ).execution,
-        input: await withLateResults(ctx, request, turn, state.operations),
+        input: await withLateResults(ctx, request, host, turn, state.operations, late),
         ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
@@ -977,13 +1063,24 @@ function chatRunner(
   ctx: HandlerContext,
   request: Request,
   session: Session,
-  generation: { model?: string; effort?: string; turnId?: string; stated?: StatedTurn },
+  generation: {
+    conversation?: string;
+    model?: string;
+    effort?: string;
+    turnId?: string;
+    stated?: StatedTurn;
+  },
+  given?: readonly SettledOperation[],
 ): ReplyRunner {
   const key = generation.turnId ? inboxKey(session.id, generation.turnId) : undefined;
   const stop = new AbortController();
   const signal = AbortSignal.any([request.signal, stop.signal]);
   return {
-    run: (turn) => chatTurn(ctx, request, session, turn, key, stop),
+    run: (turn) =>
+      chatTurn(ctx, request, session, turn, key, stop, {
+        ...(generation.conversation === undefined ? {} : { conversation: generation.conversation }),
+        ...(given ? { given } : {}),
+      }),
     async compact(history, tokens, model) {
       const provider = await providerFor(ctx, request, model);
       const compacted = await compactHistory(
@@ -1075,48 +1172,82 @@ async function conversation(
   const host = conversationHost(ctx, session);
   if (!host) throw statelessRefusal('read');
   const opened = await openConversation(host, body.conversation, { kind: 'read' });
-  return jsonResponse(200, await currentView(ctx, request, session, host, opened.conversation));
+  return jsonResponse(
+    200,
+    await currentView(ctx, request, session, host, body.conversation, opened.conversation),
+  );
 }
 
 /**
  * A reply to no message, for results that ended since the model last ran. Each result is taken by
- * one wake, before the model runs, so two pages that wake at once run it once, and a wake that
- * fails or is refused is not tried again; the next message reads what it left.
+ * one wake before the decider is asked, so two pages that wake at once run it once. The decider's
+ * `give` picks what the reply reads; what it leaves is let go, for a later reply.
  */
 async function wake(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   const body = await readBody(request, theoremWakeRequestSchema, ctx.options.maxRequestBytes);
+  const input = kernelTurnInput(body.input ?? {}, await ctx.options.context?.(request));
+  const lines = await wakeLines(ctx, request, session, body.conversation, body, input);
+  return eventStream(ctx, request, lines ? () => lines : async function* () {});
+}
+
+/** The wake's reply, or undefined when the decider gives it nothing to read. */
+async function wakeLines(
+  ctx: HandlerContext,
+  request: Request,
+  session: Session,
+  conversation: string,
+  generation: { model?: string; effort?: string; turnId?: string },
+  input?: Pick<TurnInput, 'options' | 'context'>,
+): Promise<AsyncIterable<ReplyLine> | undefined> {
   const host = conversationHost(ctx, session);
   if (!host) throw statelessRefusal('wake');
-  const opened = await openConversation(host, body.conversation, { kind: 'read' });
+  if (!ctx.options.lateResultsDecider) return undefined;
+  const opened = await openConversation(host, conversation, { kind: 'read' });
   const { operations } = await ctx.sessions.read(session.id);
   const due = await wakeResults(ctx, request, opened.conversation, operations);
+  if (due.length === 0) return undefined;
   const now = Date.now();
-  const taken = due.length
-    ? await ctx.sessions.mutate(session.id, (state) =>
-        due.filter(({ operationId }) => {
-          const operation = state.operations[operationId];
-          if (operation?.status !== 'settled' || operation.wokenAt !== undefined) return false;
-          state.operations[operationId] = { ...operation, wokenAt: now };
-          return true;
-        }),
-      )
-    : [];
-  const { authorizeWake } = ctx.options;
-  const allowed =
-    taken.length > 0 &&
-    (!authorizeWake ||
-      (await authorizeWake({
-        host: await ctx.options.host?.(request),
-        conversation: body.conversation,
-      })));
-  if (!allowed) return eventStream(ctx, request, async function* () {});
-  const runner = chatRunner(ctx, request, session, body);
-  const input = kernelTurnInput(body.input ?? {}, await ctx.options.context?.(request));
+  const taken = await ctx.sessions.mutate(session.id, (state) =>
+    due.filter(({ operationId }) => {
+      const operation = state.operations[operationId];
+      if (operation?.status !== 'settled' || operation.wokenAt !== undefined) return false;
+      state.operations[operationId] = { ...operation, wokenAt: now };
+      return true;
+    }),
+  );
+  let given: SettledOperation[] = [];
+  try {
+    given = await givenResults(ctx, await ctx.options.host?.(request), conversation, taken, 'wake');
+  } finally {
+    const kept = new Set(given.map((operation) => operation.operationId));
+    const left = taken.filter((operation) => !kept.has(operation.operationId));
+    // why: A result the decider did not give leaves no mark, so a later wake can still give it.
+    if (left.length) await letGo(ctx, session, left, now);
+  }
+  if (given.length === 0) return undefined;
+  const runner = chatRunner(ctx, request, session, { ...generation, conversation }, given);
   const { notifier } = ctx.options;
-  return eventStream(ctx, request, async function* () {
-    yield* wakeReply({ host, opened, runner, input });
+  return (async function* () {
+    yield* wakeReply({ host, opened, runner, ...(input ? { input } : {}) });
     // why: The page that woke draws its reply; any other page open on the session reads it now.
     notifier?.publish(session.id);
+  })();
+}
+
+/** Takes the wake's mark off results it did not read. */
+async function letGo(
+  ctx: HandlerContext,
+  session: Session,
+  left: readonly SettledOperation[],
+  wokenAt: number,
+): Promise<void> {
+  await ctx.sessions.mutate(session.id, (state) => {
+    for (const { operationId } of left) {
+      const operation = state.operations[operationId];
+      if (operation?.status !== 'settled' || operation.wokenAt !== wokenAt) continue;
+      const { wokenAt: _taken, ...rest } = operation;
+      state.operations[operationId] = rest;
+    }
   });
 }
 
@@ -1171,6 +1302,7 @@ async function currentView(
   request: Request,
   session: Session,
   host: ConversationHost,
+  ref: string,
   conversation: StoredConversation,
 ): Promise<ConversationView> {
   const view = conversationView(host, conversation);
@@ -1182,15 +1314,35 @@ async function currentView(
     ),
   );
   const { notifier, notifyRetryMs } = ctx.options;
-  const due = await wakeResults(ctx, request, conversation, operations);
   return {
     ...view,
     transcript,
     ...(notifier && transcript.some(isDetachedBlock)
       ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
       : {}),
-    ...(due.length > 0 ? { wake: true as const } : {}),
+    ...((await wakeDue(ctx, request, ref, conversation, operations))
+      ? { wake: true as const }
+      : {}),
   };
+}
+
+/** Whether the page wakes the chat now: results wait that no wake took, and the decider says so. */
+async function wakeDue(
+  ctx: HandlerContext,
+  request: Request,
+  ref: string,
+  conversation: StoredConversation,
+  operations: TheoremSessionState['operations'],
+): Promise<boolean> {
+  const due = ctx.options.lateResultsDecider?.due;
+  if (!due) return false;
+  const results = await wakeResults(ctx, request, conversation, operations);
+  if (results.length === 0) return false;
+  return await due.call(ctx.options.lateResultsDecider, {
+    host: await ctx.options.host?.(request),
+    conversation: ref,
+    results: results.map(lateResult),
+  });
 }
 
 type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
@@ -1276,7 +1428,7 @@ async function rewind(ctx: HandlerContext, request: Request, session: Session): 
   if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
   const rewound: TheoremRewound = {
     conversation: next.ref,
-    view: await currentView(ctx, request, session, host, next.conversation),
+    view: await currentView(ctx, request, session, host, next.ref, next.conversation),
   };
   return jsonResponse(200, rewound);
 }

@@ -15,6 +15,7 @@ import {
   createMemoryConversationStore,
   createMemorySessionStore,
   createTheoremHandler,
+  pageWakes,
 } from '../../web/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -115,6 +116,7 @@ function harness(authorizeToolReplay?: () => boolean) {
     sessionStore: createMemorySessionStore(),
     session: () => 'one-person',
     background: () => ({ detached: (handle) => handles.push(handle), event: () => {} }),
+    lateResultsDecider: pageWakes,
     ...(authorizeToolReplay ? { authorizeToolReplay } : {}),
   });
   const transport: TheoremTransport = createHttpTransport({

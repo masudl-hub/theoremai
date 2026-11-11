@@ -93,6 +93,7 @@ export {
   pageToolResultSchema,
   sessionPageDispatch,
 } from './page-dispatch.ts';
+export { pageWakes } from './page-wakes.ts';
 export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
 export { sessionStateStore } from './session-authority.ts';
 export {

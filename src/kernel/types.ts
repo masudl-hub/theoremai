@@ -1510,6 +1510,61 @@ export interface TurnRequest extends AgentRunRequest {
   input?: TurnInput;
 }
 
+/** A background call's end that the model has not read. */
+export interface LateResult {
+  /** The id the session keeps the call under. */
+  operationId: string;
+  outcome: ToolOperationOutcome;
+}
+
+/** A chat's ended results that no reply has read, as a {@linkcode LateResultsDecider} is asked. */
+export interface LateResultsAsk {
+  /** The turn's `host`: what the app makes of the request. */
+  host: unknown;
+  /** The conversation reference the page holds. */
+  conversation: string;
+  results: readonly LateResult[];
+}
+
+/** A background call ended, and what Theorem lets the decider do about it. */
+export interface LateResultEnded {
+  /** The `host` of the request that started the call. */
+  host: unknown;
+  result: LateResult;
+  /**
+   * Runs a reply to no message in `conversation`, as a page's wake does: the decider's `give` is
+   * asked with `reason: 'wake'`. It runs nothing while a reply waits on gates or answers a
+   * message, and a message posted meanwhile wins. The reference must stay the same across
+   * writes, so a store whose reference changes with each write cannot wake from the server.
+   */
+  wake(conversation: string): Promise<void>;
+  /** Tells the pages open on the session to read the chat again. */
+  notify(): Promise<void>;
+}
+
+/**
+ * Who tells the model that a background call ended. Theorem runs; the decider decides, and it
+ * keeps its own count of what it told, such as a cap or quiet hours.
+ */
+export interface LateResultsDecider {
+  /**
+   * The results a reply gives the model, by `operationId`. `reason` is `'message'` for a reply to
+   * the person's message and `'wake'` for a reply to no message. Asked once for each reply, before
+   * its model runs. The model reads each result you return once. One you leave out stays for a
+   * later reply. A wake you give nothing runs no reply and leaves no mark.
+   */
+  give(
+    ask: LateResultsAsk & { reason: 'message' | 'wake' },
+  ): readonly string[] | Promise<readonly string[]>;
+  /**
+   * Whether a page open on the chat wakes it now. Asked each time a page reads the chat, so it
+   * must change nothing. Say yes only when `give` would give something. Unset, no page wakes it.
+   */
+  due?(ask: LateResultsAsk): boolean | Promise<boolean>;
+  /** A background call ended. Use `wake` to reply from the server, with no page open. */
+  ended?(ended: LateResultEnded): void | Promise<void>;
+}
+
 /**
  * How an application runs its turns: the one value its own call sites, its web handler and the
  * studio all use, so they cannot run a turn differently. An app that calls `runTurn` itself
@@ -1529,12 +1584,12 @@ export interface TurnWiring {
    */
   prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
   /**
-   * Whether a wake may run: a reply to background results that no person asked for. Your limit on
-   * those replies, such as a cap or quiet hours. `host` is the turn's `host`, and `conversation` is
-   * the conversation reference the wake was posted with. A wake you refuse is not tried again for
-   * the same results; the next message reads them. Unset, every wake runs.
+   * Who tells the model that a background call ended, and when. Theorem runs the replies; this
+   * decides. Unset, the model is never told: no page wakes the chat, and no reply reads a late
+   * result. `pageWakes` from `@theoremjs/web/server` lets the open page wake the chat, for an app
+   * with no server of its own.
    */
-  authorizeWake?: (wake: { host: unknown; conversation: string }) => boolean | Promise<boolean>;
+  lateResultsDecider?: LateResultsDecider;
 }
 
 /** A profile projected for a client, with its secrets and server-only fields removed. */

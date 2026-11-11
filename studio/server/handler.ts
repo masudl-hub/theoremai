@@ -152,8 +152,8 @@ export type StudioHandlerOptions = {
   provider?: ProviderHostOptions;
   /** The application's own turn, from the one a chat builds: its entry's `theorem.prepare`. */
   prepare?: TurnWiring['prepare'];
-  /** Whether a chat's wake may run: its entry's `theorem.authorizeWake`, given the acted-as `host`. */
-  authorizeWake?: TurnWiring['authorizeWake'];
+  /** Who tells a chat's model that a background call ended: its entry's `theorem.lateResultsDecider`. */
+  lateResultsDecider?: TurnWiring['lateResultsDecider'];
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
   questions?: ProjectQuestions;
   /** The pictures each decision profile sends, by the profile's id: the images the application passes when it decides. */
@@ -742,7 +742,7 @@ function profileHandlers(
         profile: tracedToPage(profile),
         provider: options.provider ?? {},
         ...(options.prepare ? { prepare: options.prepare } : {}),
-        ...(options.authorizeWake ? { authorizeWake: options.authorizeWake } : {}),
+        ...(options.lateResultsDecider ? { lateResultsDecider: options.lateResultsDecider } : {}),
         ...(isStateless ? {} : { conversationStore: chatStore() }),
         ...sessionsOf(profile.id),
         // The studio's page is the builder's own: its picks choose the prompt lines.

@@ -68,7 +68,7 @@ if (import.meta.main) {
     ...(setup.people !== undefined ? { people: setup.people } : {}),
     ...(theorem.provider ? { provider: theorem.provider } : {}),
     ...(theorem.prepare ? { prepare: theorem.prepare } : {}),
-    ...(theorem.authorizeWake ? { authorizeWake: theorem.authorizeWake } : {}),
+    ...(theorem.lateResultsDecider ? { lateResultsDecider: theorem.lateResultsDecider } : {}),
     ...(questions ? { questions } : {}),
     ...(images ? { images } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),

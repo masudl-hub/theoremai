@@ -72,6 +72,25 @@ if (ctx.stage === 'pre_tool' && ctx.tool === 'generate_report') {
 
 The kernel holds `generate_report` until all identified query calls complete.
 
+### Telling the Model About a Failed Call (`mutate`)
+
+A host can keep a record of every call that settles, the failed ones too, and give the model the record's id. At `post_tool`, `mutate` rewrites what the call settled with:
+
+- On a completed call, `{ output }` replaces the raw output. The output schema checks it again.
+- On a failed call, `{ details }` replaces `failure.details`. The code, the kind, and the message stay.
+
+```ts
+// ... inside onStage
+if (ctx.stage === 'post_tool' && ctx.failure && ctx.callId) {
+  const recordId = await records.save(ctx.callId, ctx.failure);
+  const old = ctx.failure.details;
+  const kept = typeof old === 'object' && old !== null && !Array.isArray(old) ? old : {};
+  return { mutate: { details: { ...kept, recordId } } };
+}
+```
+
+`details` must be a JSON object. The guardrails read the new details before the model does. The model reads them after the failure's code and message. The `error` event, the stored outcome of the call, and the trace carry them too. `{ details }` on a completed call, `{ output }` on a failed call, and `details` that is not a JSON object each give a `mutate_invalid` warning, and the call stays as it settled.
+
 ### Ending the Turn After a Tool (`end`)
 
 On a text turn, a `post_tool` handler can end the turn once the step's calls settle. The model takes no further step unless the reply's checks send it back:

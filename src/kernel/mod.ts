@@ -264,6 +264,7 @@ export type {
   StageEventExtra,
   StageHandler,
   StageMutate,
+  StageMutateSubject,
   StageResult,
 } from './stages.ts';
 export {

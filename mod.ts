@@ -398,6 +398,7 @@ export type {
   StageEventExtra,
   StageHandler,
   StageMutate,
+  StageMutateSubject,
   StageResult,
 } from './src/kernel/stages.ts';
 export {

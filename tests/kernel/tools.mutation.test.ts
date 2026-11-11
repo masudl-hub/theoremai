@@ -147,7 +147,10 @@ Deno.test('tools mutation helpers preserve side-event payloads', () => {
 Deno.test('tools mutation helpers project and format model results exactly', () => {
   const visible = { exposeToModel: true } as FunctionToolDef;
   const hidden = { exposeToModel: false } as FunctionToolDef;
-  assertEquals(projectForModel(hidden, { finding: 'secret' }), { finding: 'Completed.' });
+  assertEquals(projectForModel(hidden, { finding: 'secret' }), {
+    finding: 'Completed.',
+    hidden: true,
+  });
   assertEquals(projectForModel(visible, { finding: 'hello' }), { finding: 'hello' });
   assertEquals(projectForModel(visible, { value: 2 }), { finding: '{"value":2}' });
   // The model reads each result once: no summary means the output is the finding, not repeated.

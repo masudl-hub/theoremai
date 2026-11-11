@@ -131,8 +131,12 @@ interface StageResult {
   deny?: { code?: string; message?: string };
   /** pre_tool only — request confirm/permission gate (not ask_user). Once the user grants it, the call's resume asks nothing more. */
   confirm?: true | { summary?: string };
-  /** pre_tool: replace the input. post_tool: replace the raw output. Both re-validate. */
-  mutate?: { input: unknown } | { output: unknown };
+  /**
+   * pre_tool: `{ input }` replaces the input. post_tool on a completed call: `{ output }` replaces
+   * the raw output. Both validate again. post_tool on a failed call: `{ details }`, a JSON object,
+   * replaces `failure.details`; the code, kind and message stay.
+   */
+  mutate?: { input: unknown } | { output: unknown } | { details: Record<string, unknown> };
   /** post_tool only: the call completed, but the terminal event shows its failed label. */
   labelFailed?: true;
   /** pre_tool only: call ids from `stepCalls` that must settle before this call's body starts. */
@@ -321,9 +325,16 @@ Applies to function, HTTP, and MCP tools on every execute path
     event's `activityPast` carries `activityFailed`: the host's way to say a
     call that ran did not do what was asked. Apply `deny` → the model gets that
     failure instead; apply `mutate { output }` → **re-validate** output schema,
-    re-project, **re-guard**; fail → error settle. `mutate` needs a completed
-    body the host may own: on a failed or unstarted call, or on the T2 loader
-    (whose output drives the snapshot), it is a `mutate_invalid` warning.
+    re-project, **re-guard**; fail → error settle. On a failed or unstarted call,
+    apply `mutate { details }` → the failure keeps its code, kind and message,
+    takes the new `details`, and goes through the failure guard again; the
+    model's read-back, the `error` event, the stored outcome and the trace carry
+    the new details. A host that gives each settled call a record puts the
+    record's id here, for example
+    `mutate: { details: { recordId } }`, spreading the old details in to keep them. The subject is
+    fixed by the fire: `{ details }` on a completed call, `{ output }` on a failed
+    one, `details` that is not a JSON object, and any `mutate` on the T2 loader
+    (whose output drives the snapshot) are `mutate_invalid` warnings.
 13. **One** terminal host event per `callId`, after the host had its say:
     `tool.phase: 'complete'` with the final raw output, or `tool.phase: 'error'`
     with the final failure and the failed label in `activityPast`. Hosts that rebuild history from events therefore

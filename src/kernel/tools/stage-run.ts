@@ -89,8 +89,8 @@ export type PostToolStageOutcome = {
   /** The caller lands these after recording the tool result. */
   inject: InjectUnit[];
   deny?: { code: string; message: string };
-  /** The caller re-validates and re-projects it. */
-  mutate?: { output: unknown };
+  /** `output`: the caller validates and projects it again. `details`: the caller fails the call with them. */
+  mutate?: { output: unknown } | { details: Record<string, unknown> };
   labelFailed?: true;
   /** The turn ends once the step's calls settle. */
   end?: true;
@@ -230,6 +230,7 @@ async function* runPreToolStages(args: {
     handlers: [...(toolPreTool !== undefined ? [() => toolPreTool] : []), ...stages.handlers],
     guardrails: stages.profile.guardrails,
     injectAllowed: false,
+    mutates: 'input',
     host: stages.host,
     signal: stages.signal,
     span: stages.span,
@@ -314,10 +315,10 @@ export async function* runPostToolStages(args: {
   activityFailed?: string;
   failure?: ToolFailure;
   awaiting?: boolean;
-  /** False when there is no completed output for `mutate` to replace. */
-  mutable: boolean;
+  /** What `mutate` rewrites at this fire; absent when there is nothing it may rewrite. */
+  mutates: 'output' | 'details' | undefined;
 }): AsyncGenerator<TurnEvent, PostToolStageOutcome> {
-  const { stages, toolName, callId, mutable, ...call } = args;
+  const { stages, toolName, callId, mutates, ...call } = args;
   stages.bodyEnded?.();
   const applied = yield* runStage({
     ...call,
@@ -328,7 +329,7 @@ export async function* runPostToolStages(args: {
     guardrails: stages.profile.guardrails,
     injectAllowed: stages.injectAllowed,
     injectWouldExceedMaxSteps: stages.injectWouldExceedMaxSteps,
-    mutable,
+    ...(mutates ? { mutates } : {}),
     ...(stages.endAllowed ? { endAllowed: true } : {}),
     host: stages.host,
     signal: stages.signal,
@@ -340,7 +341,7 @@ export async function* runPostToolStages(args: {
   return {
     ...(applied.abort !== undefined ? { abort: applied.abort } : {}),
     ...(applied.deny ? { deny: applied.deny } : {}),
-    ...(applied.mutate && 'output' in applied.mutate ? { mutate: applied.mutate } : {}),
+    ...(applied.mutate && !('input' in applied.mutate) ? { mutate: applied.mutate } : {}),
     ...(applied.labelFailed ? { labelFailed: true as const } : {}),
     ...(applied.end ? { end: true as const } : {}),
     inject: applied.inject,

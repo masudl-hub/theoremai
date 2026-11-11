@@ -16,6 +16,7 @@ import { appendAssistantEventsToHistory } from '../../src/interface/history.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
+import { ToolFailed } from '../../src/kernel/tools/failed.ts';
 import type { FunctionToolDef, ToolContext } from '../../src/kernel/tools/types.ts';
 import type { ModelRequest, TurnEvent, TurnModel, TurnRequest } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/trace.ts';
@@ -499,6 +500,45 @@ Deno.test('post_tool runs at the real end and its inject and abort are gone', as
   assert(known?.kind === 'settled');
   assertEquals(known.outcome.replay.aborted, undefined);
   assertEquals(known.outcome.replay.pendingInject, undefined);
+});
+
+Deno.test('a detached call keeps the details post_tool put on its failure, on its event and its trace', async () => {
+  const release = deferred<void>();
+  const failure = { code: 'name_taken', kind: 'conflict', message: 'Ivy is taken.' } as const;
+  const scope = scopeWith({
+    background: 'always',
+    handler: async () => {
+      await release.promise;
+      throw new ToolFailed(failure);
+    },
+  });
+  const execution = createMemoryToolExecution();
+  const host = recording();
+  const records: TraceRecord[] = [];
+  await turn(
+    scope,
+    caller(callJob()),
+    {
+      execution,
+      background: host.service,
+      onStage: (ctx) =>
+        ctx.stage === 'post_tool' && ctx.failure
+          ? { mutate: { details: { recordId: 'rec-1' } } }
+          : undefined,
+    },
+    records,
+  );
+  const handle = host.handles[0];
+  assert(handle);
+  release.resolve();
+  await handle.done;
+  const known = await execution.lookup(identity(handle));
+  assert(known?.kind === 'settled');
+  assertEquals(known.outcome.replay.failure, { ...failure, details: { recordId: 'rec-1' } });
+  const error = host.sink.find((e) => e.type === 'tool' && e.tool.phase === 'error');
+  assert(error?.type === 'tool' && error.tool.phase === 'error');
+  assertEquals(error.tool.failure.details, { recordId: 'rec-1' });
+  assert(JSON.stringify(records.at(-1)).includes('rec-1'), 'the call trace carries the details');
 });
 
 Deno.test('a body that returns awaiting after the reply settles as a failure', async () => {

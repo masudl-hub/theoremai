@@ -400,6 +400,7 @@ function* reviseAfterStages(
   post: PostToolStageOutcome,
   guard: ResultGuard,
   reproject: Reproject | undefined,
+  failure: ToolFailure | undefined,
 ): Generator<TurnEvent, Revised | undefined> {
   if (post.deny) {
     const failure: ToolFailure = {
@@ -411,6 +412,16 @@ function* reviseAfterStages(
       failure,
       outputRaw: undefined,
       modelResult: (yield* guard.failure(failure)).modelResult,
+      awaiting: false,
+    };
+  }
+  if (post.mutate && 'details' in post.mutate) {
+    if (!failure) return undefined;
+    const detailed: ToolFailure = { ...failure, details: post.mutate.details };
+    return {
+      failure: detailed,
+      outputRaw: undefined,
+      modelResult: (yield* guard.failure(detailed)).modelResult,
       awaiting: false,
     };
   }
@@ -587,9 +598,9 @@ async function* postToolOf(
     activityFailed: failedActivityOf(base),
     failure,
     awaiting: now.awaiting || undefined,
-    mutable: !failure && reproject !== undefined,
+    mutates: failure ? 'details' : reproject ? 'output' : undefined,
   });
-  return { post, revised: yield* reviseAfterStages(post, guard, reproject) };
+  return { post, revised: yield* reviseAfterStages(post, guard, reproject, failure) };
 }
 
 /** The settled output's cited sources, then the media its tool names; the result carrying them. */

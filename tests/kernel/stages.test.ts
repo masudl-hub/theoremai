@@ -258,6 +258,7 @@ Deno.test('applyStageResult: deny / mutate on pre_tool and post_tool, confirm on
   const mutate = applyStageResult({
     stage: 'pre_tool',
     injectAllowed: false,
+    mutates: 'input',
     result: { mutate: { input: { a: 1 } } },
   });
   assertEquals(mutate.mutate, { input: { a: 1 } });
@@ -265,6 +266,7 @@ Deno.test('applyStageResult: deny / mutate on pre_tool and post_tool, confirm on
   const mutateNullInput = applyStageResult({
     stage: 'pre_tool',
     injectAllowed: false,
+    mutates: 'input',
     result: { mutate: { input: null } },
   });
   assertEquals(mutateNullInput.mutate, { input: null });
@@ -279,6 +281,7 @@ Deno.test('applyStageResult: deny / mutate on pre_tool and post_tool, confirm on
   const mutateShape = applyStageResult({
     stage: 'pre_tool',
     injectAllowed: false,
+    mutates: 'input',
     result: { mutate: { wrong: true } },
   });
   assertEquals(mutateShape.mutate, undefined);
@@ -287,6 +290,7 @@ Deno.test('applyStageResult: deny / mutate on pre_tool and post_tool, confirm on
   const mutateOutput = applyStageResult({
     stage: 'post_tool',
     injectAllowed: true,
+    mutates: 'output',
     result: { mutate: { output: { finding: 'redacted' } } },
   });
   assertEquals(mutateOutput.mutate, { output: { finding: 'redacted' } });
@@ -294,6 +298,7 @@ Deno.test('applyStageResult: deny / mutate on pre_tool and post_tool, confirm on
   const mutateWrongSubject = applyStageResult({
     stage: 'post_tool',
     injectAllowed: true,
+    mutates: 'output',
     result: { mutate: { input: { a: 1 } } },
   });
   assertEquals(mutateWrongSubject.mutate, undefined);
@@ -709,6 +714,7 @@ Deno.test('applyStageResult: mutate with an undefined subject or an absent subje
   const undefinedOutput = applyStageResult({
     stage: 'post_tool',
     injectAllowed: true,
+    mutates: 'output',
     result: { mutate: { output: undefined } },
   });
   assertEquals(undefinedOutput.mutate, undefined);
@@ -717,11 +723,40 @@ Deno.test('applyStageResult: mutate with an undefined subject or an absent subje
   const noBody = applyStageResult({
     stage: 'post_tool',
     injectAllowed: true,
-    mutable: false,
     result: { mutate: { output: { finding: 'x' } } },
   });
   assertEquals(noBody.mutate, undefined);
   assertEquals(noBody.warnings[0]?.code, 'mutate_invalid');
+});
+
+Deno.test('applyStageResult: a failed call takes mutate { details }, a JSON object, and nothing else', () => {
+  const failed = (mutate: unknown) =>
+    applyStageResult({
+      stage: 'post_tool',
+      injectAllowed: true,
+      mutates: 'details',
+      result: { mutate },
+    });
+  assertEquals(failed({ details: { recordId: 'r1' } }).mutate, { details: { recordId: 'r1' } });
+  for (const bad of [
+    { output: { finding: 'x' } },
+    { details: 'r1' },
+    { details: ['r1'] },
+    { details: { at: new Date(0) } },
+  ]) {
+    const out = failed(bad);
+    assertEquals(out.mutate, undefined);
+    assertEquals(out.warnings[0]?.code, 'mutate_invalid');
+  }
+  assertEquals(/the call failed/.test(failed({ output: {} }).warnings[0]?.message ?? ''), true);
+  const completed = applyStageResult({
+    stage: 'post_tool',
+    injectAllowed: true,
+    mutates: 'output',
+    result: { mutate: { details: { recordId: 'r1' } } },
+  });
+  assertEquals(completed.mutate, undefined);
+  assertEquals(/the call completed/.test(completed.warnings[0]?.message ?? ''), true);
 });
 
 Deno.test('coerceInjectMessage: every rejected shape warns and every kept field is whitelisted', () => {

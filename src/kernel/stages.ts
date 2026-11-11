@@ -6,6 +6,7 @@ import { requestRefused, sanitizeHistory } from '../guardrails/sanitize.ts';
 import type { SpanHandle } from '../observability/trace-span.ts';
 import { guardrailAttributes } from './engine/turn-trace.ts';
 import { hookFailed } from './hook-failure.ts';
+import { jsonValueSchema } from './json.ts';
 import type { StageApplyWarningCode, TurnStage } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
@@ -122,7 +123,17 @@ export interface StageResult {
   deny?: { code?: string; message?: string };
   /** `pre_tool` only — request a confirm/permission gate. */
   confirm?: true | { summary?: string };
-  /** `pre_tool`: replace the call input. `post_tool`: replace the raw output. Both re-validate. */
+  /**
+   * Rewrites what the call has at this stage.
+   * - `pre_tool`: `{ input }` replaces the call input, which is validated again.
+   * - `post_tool` on a completed call: `{ output }` replaces the raw output, which is validated
+   *   again.
+   * - `post_tool` on a failed call: `{ details }` replaces `failure.details`, a JSON object. The
+   *   code, kind and message stay. To keep the old details, spread `ctx.failure.details` into the
+   *   new ones. The model reads the new details, and the guardrails read them first.
+   *
+   * Any other key at a fire is a `mutate_invalid` warning, and nothing changes.
+   */
   mutate?: StageMutate;
   /**
    * `post_tool` only: the call completed, but show its failed label (`activityFailed`) on the
@@ -143,8 +154,17 @@ export interface StageResult {
   end?: true;
 }
 
-/** A rewrite of a tool call's input or output. */
-export type StageMutate = { input: unknown } | { output: unknown };
+/** A rewrite of a tool call's input, its output, or its failure's details. */
+export type StageMutate =
+  | { input: unknown }
+  | { output: unknown }
+  | { details: Record<string, unknown> };
+
+/**
+ * What `mutate` rewrites at one stage fire: a `pre_tool` call's `input`, a completed call's
+ * `output`, or a failed call's `details`.
+ */
+export type StageMutateSubject = 'input' | 'output' | 'details';
 
 /** A host function the turn calls at each stage. */
 export type StageHandler = (
@@ -160,11 +180,10 @@ export interface StageApplyInput {
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
   /**
-   * False when the stage's mutate subject is absent at this fire (a `post_tool`
-   * whose body never completed, or a tool whose output the kernel must own).
-   * `mutate` is then a `mutate_invalid` warning, never a silent no-op.
+   * What `mutate` rewrites at this fire. Absent when there is nothing to rewrite (a call whose
+   * output the kernel owns): `mutate` is then a `mutate_invalid` warning, never a silent no-op.
    */
-  mutable?: boolean;
+  mutates?: StageMutateSubject;
   /** True on a text turn's tool step, the only place `end` has a turn to end. */
   endAllowed?: boolean;
 }
@@ -543,13 +562,8 @@ function applyEndField(
   }
 }
 
-const MUTATE_SUBJECT = { pre_tool: 'input', post_tool: 'output' } as const satisfies Partial<
-  Record<TurnStage, 'input' | 'output'>
->;
-
-function mutateSubject(stage: TurnStage): 'input' | 'output' | undefined {
-  return stage in MUTATE_SUBJECT ? MUTATE_SUBJECT[stage as keyof typeof MUTATE_SUBJECT] : undefined;
-}
+/** Why a `post_tool` fire takes only `subject`, for a warning that says so. */
+const MUTATE_FIRE = { input: '', output: ': the call completed', details: ': the call failed' }; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 
 function applyMutateField(
   result: Record<string, unknown>,
@@ -567,40 +581,45 @@ function applyMutateField(
     );
     return;
   }
-  const subject = mutateSubject(stage);
+  const subject = input.mutates;
   if (!subject) {
-    // why: Matrix allows mutate but no subject is mapped: a kernel drift, surfaced not swallowed.
     warn(
       out.warnings,
       'mutate_invalid',
       'mutate',
       // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `no mutate subject is defined at stage ${stage}`,
+      `there is nothing to replace at this ${stage} fire`,
     );
     return;
   }
-  if (!isRecord(result.mutate) || result.mutate[subject] === undefined) {
+  const mutate = result.mutate;
+  if (!isRecord(mutate) || mutate[subject] === undefined) {
+    const shape = subject === 'details' ? '{ details: { … } }' : `{ ${subject}: unknown }`;
     warn(
       out.warnings,
       'mutate_invalid',
       'mutate',
       // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `mutate must be { ${subject}: unknown } at stage ${stage}`,
+      `mutate must be ${shape} at this ${stage} fire${MUTATE_FIRE[subject]}`,
     );
     return;
   }
-  if (input.mutable === false) {
-    warn(
-      out.warnings,
-      'mutate_invalid',
-      'mutate',
-      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      `there is no ${subject} to replace at this ${stage} fire`,
-    );
+  if (subject === 'details') {
+    const details = mutate.details;
+    if (!isRecord(details) || !jsonValueSchema.safeParse(details).success) {
+      warn(
+        out.warnings,
+        'mutate_invalid',
+        'mutate',
+        // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        'mutate.details must be a JSON object',
+      );
+      return;
+    }
+    out.mutate = { details };
     return;
   }
-  out.mutate =
-    subject === 'input' ? { input: result.mutate.input } : { output: result.mutate.output };
+  out.mutate = subject === 'input' ? { input: mutate.input } : { output: mutate.output };
 }
 
 /** Never throws: invalid fields become warnings and are dropped. */
@@ -711,7 +730,7 @@ export interface RunStageArgs extends StageCallBag {
   guardrails: Profile['guardrails'];
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
-  mutable?: boolean;
+  mutates?: StageMutateSubject;
   endAllowed?: boolean;
   host?: unknown;
   signal?: AbortSignal;
@@ -794,7 +813,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     guardrails,
     injectAllowed,
     injectWouldExceedMaxSteps,
-    mutable,
+    mutates,
     endAllowed,
     host,
     signal,
@@ -824,7 +843,13 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
   const { parts, crashes } = await applyHandlers(
     handlers,
     ctx,
-    { stage, injectAllowed, injectWouldExceedMaxSteps, mutable, endAllowed },
+    {
+      stage,
+      injectAllowed,
+      injectWouldExceedMaxSteps,
+      ...(mutates ? { mutates } : {}),
+      endAllowed,
+    },
     signal,
   );
   if (stage === 'pre_tool' && crashes.length > 0) {

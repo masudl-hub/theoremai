@@ -602,6 +602,123 @@ Deno.test('a handler that throws ToolFailed settles under its own code, kind, an
   check(toolEventsOf(events, 'complete'), [], 'no completion');
 });
 
+const NAME_TAKEN = {
+  code: 'name_taken',
+  kind: 'conflict',
+  message: 'Another plant is already called Ivy.',
+  details: { name: 'Ivy' },
+} as const;
+
+function takenTool(): FunctionToolDef {
+  return makeTool({
+    handler: () => {
+      throw new ToolFailed(NAME_TAKEN);
+    },
+  });
+}
+
+Deno.test('a post_tool mutate { details } on a failed call reaches the model and the error event', async () => {
+  const seen: unknown[] = [];
+  const stages = stagesOf([
+    afterTool((ctx) => {
+      seen.push(ctx.failure);
+      const old = ctx.failure?.details;
+      const kept = typeof old === 'object' && old !== null && !Array.isArray(old) ? old : {};
+      return { mutate: { details: { ...kept, recordId: 'rec-1' } } };
+    }),
+  ]);
+  const { events, settlement } = await run(takenTool(), { stages });
+  const detailed = { ...NAME_TAKEN, details: { name: 'Ivy', recordId: 'rec-1' } };
+  check(seen, [NAME_TAKEN], 'post_tool saw the stated failure');
+  check(settlement.failure, detailed, 'settled failure keeps code, kind, and message');
+  check(settlement.modelResult?.data, { details: detailed.details }, 'model read-back data');
+  check(
+    settlement.modelResult?.modelText?.includes('rec-1') &&
+      settlement.modelResult.modelText.includes('Tool error (name_taken): '),
+    true,
+    'the guarded read-back text carries the record id',
+  );
+  check(
+    settlement.modelResult?.provenance,
+    { origin: 'local', tool: 'probe', depth: 1 },
+    'guard tag',
+  );
+  check(
+    toolEventsOf(events, 'error').map((e) => e.failure),
+    [detailed],
+    'error event failure',
+  );
+  check(
+    events.flatMap((e) => (e.type === 'stage' ? (e.stageWarnings ?? []) : [])),
+    [],
+    'no warnings',
+  );
+});
+
+Deno.test('a post_tool mutate takes { output } on a completed call and { details } on a failed one, or warns', async () => {
+  const warningsOf = (events: TurnEvent[]) =>
+    events.flatMap((e) =>
+      e.type === 'stage' ? (e.stageWarnings ?? []).map((w) => [w.code, w.message]) : [],
+    );
+  const onCompleted = await run(makeTool(), {
+    stages: stagesOf([afterTool(() => ({ mutate: { details: { recordId: 'rec-1' } } }))]),
+  });
+  check(onCompleted.settlement.outputRaw, { finding: 'ok' }, 'completed output unchanged');
+  check(
+    warningsOf(onCompleted.events),
+    [
+      [
+        'mutate_invalid',
+        'mutate must be { output: unknown } at this post_tool fire: the call completed',
+      ],
+    ],
+    'details on a completed call',
+  );
+  const onFailed = await run(takenTool(), {
+    stages: stagesOf([afterTool(() => ({ mutate: { output: { finding: 'x' } } }))]),
+  });
+  check(onFailed.settlement.failure, NAME_TAKEN, 'failure unchanged');
+  check(
+    warningsOf(onFailed.events),
+    [
+      [
+        'mutate_invalid',
+        'mutate must be { details: { … } } at this post_tool fire: the call failed',
+      ],
+    ],
+    'output on a failed call',
+  );
+  const notObject = await run(takenTool(), {
+    stages: stagesOf([afterTool(() => ({ mutate: { details: 'rec-1' } }) as never)]),
+  });
+  check(notObject.settlement.failure, NAME_TAKEN, 'failure unchanged by bad details');
+  check(
+    warningsOf(notObject.events),
+    [['mutate_invalid', 'mutate.details must be a JSON object']],
+    'details that are not an object',
+  );
+});
+
+Deno.test('the guard reads a failure a post_tool stage detailed as it reads one the handler stated', async () => {
+  const details = { name: 'Ivy', recordId: 'rec-1' };
+  const stated = await run(
+    makeTool({
+      handler: () => {
+        throw new ToolFailed({ ...NAME_TAKEN, details });
+      },
+    }),
+  );
+  const detailed = await run(takenTool(), {
+    stages: stagesOf([afterTool(() => ({ mutate: { details } }))]),
+  });
+  check(detailed.settlement.modelResult, stated.settlement.modelResult, 'same guarded read-back');
+  check(
+    toolEventsOf(detailed.events, 'error').map(({ at: _at, ...event }) => event),
+    toolEventsOf(stated.events, 'error').map(({ at: _at, ...event }) => event),
+    'same error event',
+  );
+});
+
 Deno.test('a handler that throws any other error still settles as handler_error', async () => {
   const tool = makeTool({
     handler: () => {

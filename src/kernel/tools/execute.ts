@@ -407,6 +407,7 @@ function* reviseAfterStages(
       code: post.deny.code,
       kind: 'blocked',
       message: post.deny.message,
+      ...(post.deny.details ? { details: post.deny.details } : {}),
     });
   }
   if (post.mutate && 'details' in post.mutate) {

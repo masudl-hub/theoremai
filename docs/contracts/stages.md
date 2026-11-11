@@ -127,8 +127,12 @@ interface StageResult {
    */
   released?: number;
   abort?: boolean | { reason?: string };
-  /** pre_tool: refuse the call. post_tool: replace the result with this failure. */
-  deny?: { code?: string; message?: string };
+  /**
+   * pre_tool: refuse the call. post_tool: replace the result with this failure. `details`, a JSON
+   * object, become `failure.details`; details that are not one are a `deny_invalid` warning, and
+   * the call is still refused, without them.
+   */
+  deny?: { code?: string; message?: string; details?: Record<string, unknown> };
   /** pre_tool only — request confirm/permission gate (not ask_user). Once the user grants it, the call's resume asks nothing more. */
   confirm?: true | { summary?: string };
   /**
@@ -324,7 +328,7 @@ Applies to function, HTTP, and MCP tools on every execute path
     `labelFailed` → the call stays `complete` with its result, and the terminal
     event's `activityPast` carries `activityFailed`: the host's way to say a
     call that ran did not do what was asked. Apply `deny` → the model gets that
-    failure instead; apply `mutate { output }` → **re-validate** output schema,
+    failure instead, with the deny's `details` when it gives them; apply `mutate { output }` → **re-validate** output schema,
     re-project, **re-guard**; fail → error settle. On a failed or unstarted call,
     apply `mutate { details }` → the failure keeps its code, kind and message,
     takes the new `details`, and goes through the failure guard again; the

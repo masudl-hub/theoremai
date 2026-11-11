@@ -656,6 +656,43 @@ Deno.test('a post_tool mutate { details } on a failed call reaches the model and
   );
 });
 
+Deno.test('a deny carries its details to the failure, at pre_tool and at post_tool', async () => {
+  const refused = {
+    code: 'finish_failed',
+    kind: 'blocked',
+    message: 'The report could not be filed.',
+    details: { recordId: 'rec-1' },
+  };
+  const deny = { code: refused.code, message: refused.message, details: refused.details };
+  const after = await run(makeTool(), { stages: stagesOf([afterTool(() => ({ deny }))]) });
+  check(after.settlement.failure, refused, 'post_tool: settled failure');
+  check(after.settlement.modelResult?.data, { details: refused.details }, 'post_tool: model data');
+  check(
+    toolEventsOf(after.events, 'error').map((e) => e.failure),
+    [refused],
+    'post_tool: error event failure',
+  );
+  const before = await run(makeTool(), {
+    stages: stagesOf([
+      ((ctx) => (ctx.stage === 'pre_tool' ? { deny } : undefined)) as StageHandler,
+    ]),
+  });
+  check(before.settlement.failure, refused, 'pre_tool: settled failure');
+  check(before.settlement.modelResult?.data, { details: refused.details }, 'pre_tool: model data');
+  const bad = await run(makeTool(), {
+    stages: stagesOf([afterTool(() => ({ deny: { ...deny, details: 'rec-1' } }) as never)]),
+  });
+  const { details: _dropped, ...withoutDetails } = refused;
+  check(bad.settlement.failure, withoutDetails, 'bad details: still refused, without details');
+  check(
+    bad.events.flatMap((e) =>
+      e.type === 'stage' ? (e.stageWarnings ?? []).map((w) => [w.code, w.message]) : [],
+    ),
+    [['deny_invalid', 'deny.details must be a JSON object']],
+    'bad details: warning',
+  );
+});
+
 Deno.test('a post_tool mutate takes { output } on a completed call and { details } on a failed one, or warns', async () => {
   const warningsOf = (events: TurnEvent[]) =>
     events.flatMap((e) =>

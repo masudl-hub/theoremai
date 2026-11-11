@@ -119,8 +119,13 @@ export interface StageResult {
    */
   released?: number;
   abort?: boolean | { reason?: string };
-  /** `pre_tool`: refuse the call. `post_tool`: replace the result with this failure. */
-  deny?: { code?: string; message?: string };
+  /**
+   * `pre_tool`: refuse the call. `post_tool`: replace the result with this failure.
+   * `details`, a JSON object, become `failure.details`: the model reads them, and the guardrails
+   * read them first. Details that are not a JSON object are a `deny_invalid` warning, and the call
+   * is still refused, without details.
+   */
+  deny?: { code?: string; message?: string; details?: Record<string, unknown> };
   /** `pre_tool` only — request a confirm/permission gate. */
   confirm?: true | { summary?: string };
   /**
@@ -199,7 +204,7 @@ export interface InjectUnit {
 export interface StageApplyOutput {
   inject?: InjectUnit;
   abort?: boolean | { reason?: string };
-  deny?: { code: string; message: string };
+  deny?: { code: string; message: string; details?: Record<string, unknown> };
   confirm?: { summary?: string };
   mutate?: StageMutate;
   labelFailed?: true;
@@ -452,7 +457,17 @@ function applyDenyField(
       typeof result.deny.message === 'string' && result.deny.message.trim()
         ? result.deny.message.trim()
         : 'Tool execution not authorized'; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    out.deny = { code, message };
+    const details = result.deny.details;
+    if (details === undefined) {
+      out.deny = { code, message };
+    } else if (isRecord(details) && jsonValueSchema.safeParse(details).success) {
+      out.deny = { code, message, details };
+    } else {
+      // why: A refusal stands even when its details are bad; only the details are dropped.
+      out.deny = { code, message };
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      warn(out.warnings, 'deny_invalid', 'deny', 'deny.details must be a JSON object');
+    }
   }
 }
 

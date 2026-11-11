@@ -88,7 +88,7 @@ export type PostToolStageOutcome = {
   abort?: boolean | { reason?: string };
   /** The caller lands these after recording the tool result. */
   inject: InjectUnit[];
-  deny?: { code: string; message: string };
+  deny?: { code: string; message: string; details?: Record<string, unknown> };
   /** `output`: the caller validates and projects it again. `details`: the caller fails the call with them. */
   mutate?: { output: unknown } | { details: Record<string, unknown> };
   labelFailed?: true;
@@ -253,7 +253,12 @@ async function* runPreToolStages(args: {
     return {
       ok: false,
       kind: 'failed',
-      failure: { ...applied.deny, kind: 'blocked' },
+      failure: {
+        code: applied.deny.code,
+        kind: 'blocked',
+        message: applied.deny.message,
+        ...(applied.deny.details ? { details: applied.deny.details } : {}),
+      },
       denied: true,
     };
   }

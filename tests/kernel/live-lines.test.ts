@@ -183,6 +183,29 @@ Deno.test('what the model says before a call is one message with the call', asyn
   await call.end();
 });
 
+Deno.test('what the model speaks before a call is one message with the call', async () => {
+  const call = await openLines('lines_spoken_then_call');
+  await call.session.sendAudio(AUDIO);
+  await call.deliver(heard('Look it up.'), said('Let me look.'));
+  await call.deliver({
+    toolCall: { functionCalls: [{ id: 'c1', name: 'live_lookup', args: {} }] },
+  });
+  const [issued] = call.issued;
+  if (!issued) throw new Error('the session never surfaced the call');
+  await call.session.executeTool({ callId: issued });
+  await call.deliver(said('Found it.'), TURN_COMPLETE);
+  assertEquals(
+    call.history().map((m) => [m.role, m.content ?? null, m.tool_calls?.map((c) => c.id) ?? null]),
+    [
+      ['user', 'Look it up.', null],
+      ['assistant', 'Let me look.', [issued]],
+      ['tool', 'ok', null],
+      ['assistant', 'Found it.', null],
+    ],
+  );
+  await call.end();
+});
+
 Deno.test('without lines, the chunks of what the user said are one history entry', async () => {
   const call = await openLines('lines_unset');
   assertEquals(call.clientTexts(true), []);

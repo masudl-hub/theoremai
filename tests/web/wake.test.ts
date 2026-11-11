@@ -5,6 +5,7 @@ import {
   type ProfileDefinition,
   registerTool,
   type ToolBackgroundHandle,
+  type TurnEvent,
   type TurnModel,
   z,
 } from '../../mod.ts';
@@ -14,6 +15,7 @@ import {
   createHttpTransport,
   type TheoremTransport,
 } from '../../web/src/client/transport.ts';
+import { issuedOperationId } from '../../web/src/client/turn-client.ts';
 import {
   createMemoryConversationStore,
   createMemoryNotifier,
@@ -21,17 +23,19 @@ import {
   createTheoremHandler,
   type TheoremHandlerOptions,
 } from '../../web/src/server/mod.ts';
+import { toolEventsOf } from '../fixtures/events.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
 const TOOL = 'web_wake_job';
+const ASK = 'web_wake_ask';
 
 const PROFILE: ProfileDefinition = {
   type: 'text',
   id: 'web-wake',
   identity: { handle: 'helper', system: 'You help.' },
   models: { stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' } },
-  tools: { allow: [TOOL] },
+  tools: { allow: [TOOL, ASK] },
   inputs: { text: true },
   guardrails: { detect: 'ignore' },
 };
@@ -57,11 +61,27 @@ registerTool({
   },
 });
 
+registerTool({
+  type: 'function',
+  name: ASK,
+  description: 'Asks first.',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'always_confirm',
+  input: z.strictObject({}),
+  output: z.object({ ok: z.boolean() }),
+  handler: () => ({ ok: true }),
+});
+
+type Script = { fail: boolean; gate?: Promise<void>; askAt?: number };
+
 /**
  * A model that calls the job on its first step and answers in text after. It keeps every request;
- * `fail` makes the next step after the first throw.
+ * `fail` makes the next step after the first throw; `askAt` calls the gated tool on that step.
  */
-function caller(seen: ModelRequest[], script: { fail: boolean; gate?: Promise<void> }): TurnModel {
+function caller(seen: ModelRequest[], script: Script): TurnModel {
   let step = 0;
   return {
     complete: (req) =>
@@ -70,6 +90,10 @@ function caller(seen: ModelRequest[], script: { fail: boolean; gate?: Promise<vo
         step += 1;
         if (step === 1) {
           yield { type: 'tool' as const, tool: { name: TOOL, callId: 'call_1', arguments: {} } };
+          return;
+        }
+        if (step === script.askAt) {
+          yield { type: 'tool' as const, tool: { name: ASK, callId: 'ask_1', arguments: {} } };
           return;
         }
         await script.gate;
@@ -86,7 +110,7 @@ function harness(options: Partial<TheoremHandlerOptions> = {}) {
   });
   const handles: ToolBackgroundHandle[] = [];
   const seen: ModelRequest[] = [];
-  const script: { fail: boolean; gate?: Promise<void> } = { fail: false };
+  const script: Script = { fail: false };
   const model = caller(seen, script);
   const handler = createTheoremHandler({
     profile: PROFILE,
@@ -326,3 +350,69 @@ Deno.test('a page opened after the call ended wakes once it draws the conversati
     held.free();
   }
 });
+
+/** A wake that stops on an approval; then `answer` approves, denies or walks away with a message. */
+async function gatedWake(answer: 'approve' | 'deny' | 'message') {
+  const { transport, handles, seen, script } = harness();
+  script.askAt = 3;
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    const woke = await wake(transport, ref);
+    const gate = toolEventsOf(
+      woke.lines.filter(
+        (line): line is TurnEvent =>
+          line.type !== 'conversation' && line.type !== 'unsupported' && line.type !== 'malformed',
+      ),
+      'gate',
+    ).at(-1);
+    assert(gate, 'expected the wake to pause on a gate');
+    const paused = await transport.conversation({ conversation: woke.ref });
+    assertEquals(paused.wake, undefined, 'a paused wake asked to wake again');
+    let left = woke.ref;
+    if (answer === 'message') {
+      await transport.turn(
+        {
+          conversation: woke.ref,
+          input: { text: 'never mind' },
+          abandon: [{ callId: gate.callId, operationId: issuedOperationId(gate) }],
+        },
+        (line) => {
+          if (line.type === 'conversation') left = line.ref;
+        },
+      );
+    } else {
+      await transport.invoke(
+        {
+          conversation: woke.ref,
+          gateId: gate.callId,
+          operationId: issuedOperationId(gate),
+          decision: answer,
+        },
+        (line) => {
+          if (line.type === 'conversation') left = line.ref;
+        },
+      );
+      left = await say(transport, 'any news?', left);
+    }
+    const view = await transport.conversation({ conversation: left });
+    assertEquals(await lateBlocks(transport, left), 1, 'the result was told more than once');
+    assertEquals(view.wake, undefined);
+    assert(
+      JSON.stringify(seen.at(-1)).includes('the-woken-answer'),
+      'the next message lost the result',
+    );
+  } finally {
+    held.free();
+  }
+}
+
+Deno.test('a wake that stops on an approval goes on once approved, and the result is told once', () =>
+  gatedWake('approve'));
+
+Deno.test('a wake that stops on an approval and is denied keeps the result, told once', () =>
+  gatedWake('deny'));
+
+Deno.test('a message over a wake waiting on an approval keeps the result, told once', () =>
+  gatedWake('message'));

@@ -158,8 +158,9 @@ function suspiciousHits(hits: GuardrailHit[], provenance: Provenance): Guardrail
  * Local host tools are still detected — a host tool reading a database returns
  * data the host did not write — but only remote origins are fenced, because
  * fencing a local tool's output would change prompts hosts have already tuned.
- * `boundary` is absent for text that crosses none: a provider builtin's, or a
- * failure already read at its own boundary, whose findings come in as `carried`.
+ * `boundary` is absent for text that crosses none: a provider builtin's. `read` is `'data'` for a
+ * failure: its message was read at the boundary already and framed by the kernel, so only its
+ * details are read here, and the message's findings come in as `carried`.
  */
 function guardToolResult(
   finding: string,
@@ -170,9 +171,13 @@ function guardToolResult(
   callableTools: readonly string[] = [],
   labels?: LabelOverrides,
   carried: GuardrailHit[] = [],
+  read: 'all' | 'data' = 'all',
 ): GuardedToolText {
-  const composed = composeToolText(finding, data);
-  const detected = readAt(composed, boundary, policy.detect, { callable: callableTools });
+  const head = read === 'data' ? finding : '';
+  const composed = composeToolText(read === 'data' ? '' : finding, data);
+  const scanned = readAt(composed, boundary, policy.detect, { callable: callableTools });
+  const detected =
+    scanned.text === undefined ? scanned : { ...scanned, text: `${head}${scanned.text}` };
   const remote = isRemoteOrigin(provenance.origin);
   const suspicious = [...carried, ...suspiciousHits(detected.hits, provenance)];
   const event: GuardrailEvent | undefined =

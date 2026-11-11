@@ -403,38 +403,19 @@ function* reviseAfterStages(
   failure: ToolFailure | undefined,
 ): Generator<TurnEvent, Revised | undefined> {
   if (post.deny) {
-    const failure: ToolFailure = {
+    return yield* failedWith(guard, {
       code: post.deny.code,
       kind: 'blocked',
       message: post.deny.message,
-    };
-    return {
-      failure,
-      outputRaw: undefined,
-      modelResult: (yield* guard.failure(failure)).modelResult,
-      awaiting: false,
-    };
+    });
   }
   if (post.mutate && 'details' in post.mutate) {
     if (!failure) return undefined;
-    const detailed: ToolFailure = { ...failure, details: post.mutate.details };
-    return {
-      failure: detailed,
-      outputRaw: undefined,
-      modelResult: (yield* guard.failure(detailed)).modelResult,
-      awaiting: false,
-    };
+    return yield* failedWith(guard, { ...failure, details: post.mutate.details });
   }
   if (!post.mutate || !reproject) return undefined;
   const next = reproject(plainToolInput(post.mutate.output));
-  if (!next.ok) {
-    return {
-      failure: next.failure,
-      outputRaw: undefined,
-      modelResult: (yield* guard.failure(next.failure)).modelResult,
-      awaiting: false,
-    };
-  }
+  if (!next.ok) return yield* failedWith(guard, next.failure);
   const guarded = yield* guard.result(next.modelResult);
   if (guarded.withheld) {
     return {
@@ -448,6 +429,17 @@ function* reviseAfterStages(
     outputRaw: next.outputRaw,
     modelResult: guarded.modelResult,
     awaiting: isAwaitingUserInput(next.outputRaw),
+  };
+}
+
+/** The call settled as `failure`, or as `output_blocked` when the guard blocked its details. */
+function* failedWith(guard: ResultGuard, failure: ToolFailure): Generator<TurnEvent, Revised> {
+  const guarded = yield* guard.failure(failure);
+  return {
+    failure: guarded.withheld ?? failure,
+    outputRaw: undefined,
+    modelResult: guarded.modelResult,
+    awaiting: false,
   };
 }
 
@@ -509,7 +501,7 @@ async function* settleToolCall(args: {
     ? guard.failure(provisional.failure)
     : guard.result(provisional.modelResult);
   let modelResult = guarded.modelResult;
-  let failure = 'failure' in provisional ? provisional.failure : guarded.withheld;
+  let failure = guarded.withheld ?? ('failure' in provisional ? provisional.failure : undefined);
   let outputRaw = 'outputRaw' in provisional && !failure ? provisional.outputRaw : undefined;
   const callNotStarted = 'callNotStarted' in provisional ? provisional.callNotStarted : undefined;
   let denied = 'denied' in provisional ? provisional.denied : undefined;
@@ -543,7 +535,13 @@ async function* settleToolCall(args: {
   yield failure
     ? failureEvent(
         base,
-        { ...failure, message: String(yield* guard.shown(failure.message)) },
+        {
+          ...failure,
+          message: String(yield* guard.shown(failure.message)),
+          ...(failure.details === undefined
+            ? {}
+            : { details: yield* guard.shown(failure.details) }),
+        },
         formatToolResult(modelResult),
       )
     : completeEvent(base, {
@@ -1868,27 +1866,36 @@ interface GuardInputs {
 /**
  * A remote server writes its own error strings, so a failure's message is read
  * at `tool_failure_<kind>` before the kernel frames it for the model as a system
- * report. A blocked message is replaced by the labels' words. The framed
- * report is the kernel's own text and is not read again.
+ * report. A blocked message is replaced by the labels' words. Its details are
+ * the tool's too, so they are read at the same boundary as a result's data is;
+ * blocked details settle the call as `output_blocked`. The frame is the kernel's
+ * own text and is not read again.
  */
 function* guardFailure(
   failure: ToolFailure,
   guard: GuardInputs,
 ): Generator<TurnEvent, GuardedResult> {
   const start = performance.now();
-  const checked = guardToolFailureText(
-    failure.message,
-    guard.provenance,
-    guard.policy,
-    guard.kind && toolBoundary('tool_failure', guard.kind),
-  );
+  const boundary = guard.kind && toolBoundary('tool_failure', guard.kind);
+  const checked = guardToolFailureText(failure.message, guard.provenance, guard.policy, boundary);
   recordToolCheck(guard.span, 'tool_failure', performance.now() - start, checked.event);
   if (checked.event) {
     yield { type: 'guardrail', guardrail: checked.event };
   }
   const message = checked.text ?? labelText('detect.output_blocked', {}, guard.labels);
+  const framed = frameToolFailure({ ...failure, message });
+  const read = yield* readBack(framed, guard, boundary, checked.suspicious, 'data');
+  if (read) return { modelResult: read };
+  const withheld = blockedOutput(guard);
+  return { modelResult: yield* reportFailure(withheld, guard, checked.suspicious), withheld };
+}
+
+/** The failure a call settles as when the guard blocks what the model would read of it. */
+function blockedOutput(guard: GuardInputs): ToolFailure {
   return {
-    modelResult: yield* reportFailure({ ...failure, message }, guard, checked.suspicious),
+    code: 'output_blocked',
+    kind: 'blocked',
+    message: labelText('detect.output_blocked', {}, guard.labels),
   };
 }
 
@@ -1917,11 +1924,7 @@ function* guardResult(
     guard.kind && toolBoundary('tool_output', guard.kind),
   );
   if (read) return { modelResult: read };
-  const withheld: ToolFailure = {
-    code: 'output_blocked',
-    kind: 'blocked',
-    message: labelText('detect.output_blocked', {}, guard.labels),
-  };
+  const withheld = blockedOutput(guard);
   return { modelResult: yield* reportFailure(withheld, guard), withheld };
 }
 
@@ -1939,6 +1942,7 @@ function* readBack(
   guard: GuardInputs,
   boundary: ToolBoundary | undefined,
   carried?: GuardrailHit[],
+  read?: 'data',
 ): Generator<TurnEvent, ModelToolResult | undefined> {
   const { provenance, span } = guard;
   const start = performance.now();
@@ -1951,6 +1955,7 @@ function* readBack(
     guard.callableTools,
     guard.labels,
     carried,
+    read,
   );
   recordToolCheck(span, 'tool_result', performance.now() - start, guarded.event);
   if (guarded.event) {

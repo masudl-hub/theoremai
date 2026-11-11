@@ -860,8 +860,8 @@ looks, and what it does: a detector, a boundary, an action.
 | `live_user` | Text the person sends in a Live session |
 | `tool_arguments_<kind>` | What the model sends to a tool of that type |
 | `tool_output_<kind>` | What a tool of that type returns, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
-| `tool_failure_<kind>` | The error text of a tool of that type that failed |
-| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output` and `activityPast`, the `error` event's message, and each `trace` |
+| `tool_failure_<kind>` | The error message and `details` of a tool of that type that failed |
+| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output` and `activityPast`, the `error` event's message and `details`, and each `trace` |
 | `reply` | The text the model says to the person |
 | `reply_structured` | The structured output the model returns |
 | `live_reply` | What the model says in a Live session |
@@ -1076,7 +1076,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 | `live_user` | The message is not sent into the session |
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
 | `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |
-| `tool_failure_<kind>` | The model reads labels `detect.output_blocked` in place of the tool's message |
+| `tool_failure_<kind>` | In the message: the model reads labels `detect.output_blocked` in place of it. In the `details`: the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |
 | `tool_shown_<kind>` | The person is shown labels `detect.shown_blocked` in place of the output or error message; a `trace` is not sent. What the model reads is unchanged |
 
 | `reply` | The reply stops before the match. It then goes the way `blockedReply` sets: the model is asked again, the person reads the refusal, or the turn ends withheld |
@@ -1325,8 +1325,13 @@ is the cleanest injection path across this boundary, because the kernel frames i
 for the model as a system report. The kernel reads a failure message at
 `tool_failure_<kind>`, under the profile's settings like any other boundary,
 then frames it as `Tool error (code): …` and passes it through the result
-guard, so a remote failure is fenced like a remote result. The frame is the
-kernel's own text and is not read again. What the boundary did is reported like
+guard, so a remote failure is fenced like a remote result. The result guard
+reads the failure's `details` at the same boundary, as it reads a result's
+data: details a handler states in `ToolFailed` and details a `post_tool`
+stage sets alike. A match set to `redact` is replaced in what the model reads
+back; blocked details settle the call as `output_blocked`, as a blocked result
+does. The frame and the message already read are the kernel's own text and are
+not read again. What the boundary did is reported like
 any other: a `tool_result`-stage event naming the boundary, timed on the tool's
 span as the `tool_failure` check. Rebuilding a failure the model already read
 (history, a live replay) has no profile in hand, so every detector's matches

@@ -41,6 +41,30 @@ test('a late call that ends redraws the open chat, with the project keeping its 
   await page.getByRole('button', { name: /Worked for/ }).click();
   await page.getByRole('button', { name: /Slow report/ }).click();
   await expect(page.getByText('pages')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/Fake reply on full/)).toBeVisible();
+  await expect(page.getByText('pages')).toBeVisible();
+});
+
+test('the chat wakes when a background call ends, and the model reads its result once', async ({
+  page,
+}) => {
+  await open(page);
+  await send(page, '[call slow_report {}]');
+  await expect(page.getByText(/Tool answered on full/)).toBeVisible();
+  await expect(page.getByText(/Fake reply on full/)).toBeVisible();
+  const woken = (await seen(page)).filter((call) =>
+    JSON.stringify(call.body.messages?.at(-1)).includes('pages'),
+  );
+  expect(woken).toHaveLength(1);
+  await page.reload();
+  await page.getByRole('button', { name: 'desk', exact: true }).first().click();
+  await expect(page.getByText(/Fake reply on full/)).toHaveCount(1);
+  await page.waitForTimeout(1000);
+  expect(
+    (await seen(page)).filter((call) =>
+      JSON.stringify(call.body.messages?.at(-1)).includes('pages'),
+    ),
+  ).toHaveLength(1);
 });
 
 test('the tool page sets when the model gets its reply, and save writes it', async ({ page }) => {

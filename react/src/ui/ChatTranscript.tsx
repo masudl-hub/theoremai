@@ -973,7 +973,8 @@ function useTurnElapsed(
 /**
  * The turn's work status; with a trace, a Collapsible over its thinking and
  * tool calls, open while the turn runs so they can be followed, folded away
- * when it ends.
+ * when it ends. invariant: a run's end folds only what the run opened; a trace
+ * the person opened before a wake continued the turn stays open.
  */
 function TurnStatus(props: {
   status: string;
@@ -984,9 +985,11 @@ function TurnStatus(props: {
   const { status, streaming } = props;
   const [traceOpen, setTraceOpen] = useState(streaming);
   const [wasStreaming, setWasStreaming] = useState(streaming);
+  const [openBefore, setOpenBefore] = useState(false);
   if (wasStreaming !== streaming) {
     setWasStreaming(streaming);
-    setTraceOpen(streaming);
+    if (streaming) setOpenBefore(traceOpen);
+    setTraceOpen(streaming || (traceOpen && openBefore));
   }
   if (!status) return null;
   const label = (

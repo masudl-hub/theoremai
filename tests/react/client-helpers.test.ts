@@ -38,6 +38,7 @@ import {
   voiceNoteName,
   workStatusLabel,
 } from '../../react/src/ui/labels.ts';
+import { toolMediaShows } from '../../react/src/ui/tool-media-shown.ts';
 import { transcriptBlockCopyText } from '../../react/src/ui/transcript-copy-text.ts';
 import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
 import { registerTools } from '../../src/kernel/default-scope.ts';
@@ -275,6 +276,61 @@ Deno.test('applyLiveTurnEvent folds a tool call into the block the chat draws', 
   assertEquals(tool.kind === 'tool' && tool.tool.arguments, { city: 'Lisbon' });
   assertEquals(tool.kind === 'tool' && tool.tool.state?.phase, 'complete');
   assertEquals(tool.kind === 'tool' && [tool.tool.startedAt, tool.tool.endedAt], [1, 5]);
+});
+
+Deno.test('a live tool call shows the media it returned where the chat shows it', () => {
+  const call = { name: 'draw_card', callId: 'c1', arguments: {} };
+  let state = applyLiveTurnEvent(emptyLiveCaptionState(), { type: 'tool', tool: call });
+  state = applyLiveTurnEvent(state, {
+    type: 'tool',
+    tool: {
+      ...call,
+      phase: 'complete',
+      at: 2,
+      output: { drawn: true },
+      parts: [
+        { type: 'image', mimeType: 'image/png', data: 'AAAA', sent: true },
+        { type: 'image', mimeType: 'image/png', data: 'BBBB' },
+        {
+          type: 'document',
+          mimeType: 'application/pdf',
+          uri: 'https://files.example.com/card.pdf',
+        },
+      ],
+    },
+  });
+
+  const media = liveCaptionTranscript([], state).blocks.flatMap((block) =>
+    block.kind === 'media' ? [block] : [],
+  );
+  assertEquals(
+    media.map((block) => ({ ...block, id: undefined })),
+    [
+      {
+        id: undefined,
+        kind: 'media',
+        mimeType: 'image/png',
+        fromTool: true,
+        data: 'AAAA',
+        sent: true,
+      },
+      { id: undefined, kind: 'media', mimeType: 'image/png', fromTool: true, data: 'BBBB' },
+      {
+        id: undefined,
+        kind: 'media',
+        mimeType: 'application/pdf',
+        fromTool: true,
+        uri: 'https://files.example.com/card.pdf',
+        type: 'document',
+        sent: true,
+      },
+    ],
+  );
+  // The call view shows what the tool sent, as a chat does by default.
+  assertEquals(
+    media.map((block) => toolMediaShows(block, 'sent')),
+    [true, false, true],
+  );
 });
 
 Deno.test('liveCaptionTranscript turns captions into the transcript blocks the chat draws', () => {

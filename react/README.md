@@ -381,7 +381,7 @@ const call = useLiveCall({ iface, connection: () => ({ profile: 'support.voice' 
 
 This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own message to the relay, add `openMessage`. To use your own socket, add `createSocket`.
 
-`LiveRunner` also accepts `theme`, `mode`, `labels`, and `trace`. Tool gates in a call appear in a dialog over the call.
+`LiveRunner` also accepts `theme`, `mode`, `labels`, `media`, `resolveMedia`, and `trace`. Its captions show the media a tool returns as the chat does: see [Tool media](#tool-media). Tool gates in a call appear in a dialog over the call.
 
 ### A call across pages
 

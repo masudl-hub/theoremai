@@ -99,6 +99,7 @@ export function HarborCallView() {
 - **Camera Flip & Preview**: Manages front and rear camera selection (`facingMode: 'user' | 'environment'`) and downsamples frames to 640x480 at 400ms intervals.
 - **Approval Dialogs**: Renders [`ApprovalCard`](file:///Users/masudlewis/Development/theoremai/react/src/ui/ToolGateCard.tsx) modals over the active call when sensitive tools trigger human confirmation gates.
 - **Captions Drawer**: Provides real-time transcription history with user and agent distinction.
+- **Tool Media**: Captions show the media a tool sent, and a reference through `resolveMedia`, as `TheoremChat` does. Pass `media="all"` to show every piece.
 
 ---
 

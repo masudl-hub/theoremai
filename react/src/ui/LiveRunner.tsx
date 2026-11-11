@@ -29,7 +29,7 @@ import { LiveCaptionsPanel } from './LiveCaptionsPanel.tsx';
 import { LiveToolGateDialog } from './LiveToolGateDialog.tsx';
 import { LiveVideoPreview } from './LiveVideoPreview.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
-import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
+import { useLabels } from './labels-provider.tsx';
 import {
   PANEL_EDGE,
   SidePanel,
@@ -37,11 +37,12 @@ import {
   SidePanelToggle,
   useSidePanel,
 } from './SidePanel.tsx';
-import { DEFAULT_CHAT_MAX_WIDTH } from './TheoremChat.tsx';
+import { SurfaceProviders } from './surface-providers.tsx';
+import { DEFAULT_CHAT_MAX_WIDTH, type TheoremChatProps } from './TheoremChat.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
-import { TheoremThemeProvider } from './theme.tsx';
 
-export type LiveRunnerProps = {
+/** `media` and `resolveMedia` are the chat's: the captions show a tool's media as the chat does. */
+export type LiveRunnerProps = Pick<TheoremChatProps, 'media' | 'resolveMedia'> & {
   /** The call to draw, from `useLiveCall`. The call outlives the runner: it ends when its owner unmounts. */
   call: LiveCall;
   /** Astryx theme, as on `TheoremChat`. Omit to inherit the host's `<Theme>` or use `theoremTheme`. */
@@ -75,13 +76,25 @@ const WAVE_HEIGHT = 320;
  * in a toolbar, and tool gates in a dialog. Offers the trace inspector when
  * the profile records traces.
  */
-export function LiveRunner({ theme, mode, labels, ...props }: LiveRunnerProps) {
+export function LiveRunner({
+  theme,
+  mode,
+  labels,
+  media,
+  resolveMedia,
+  ...props
+}: LiveRunnerProps) {
   return (
-    <TheoremThemeProvider theme={theme} mode={mode}>
-      <TheoremLabelsProvider labels={labels}>
-        <LiveRunnerBody {...props} />
-      </TheoremLabelsProvider>
-    </TheoremThemeProvider>
+    <SurfaceProviders
+      theme={theme}
+      mode={mode}
+      labels={labels}
+      detectCodeLanguage={undefined}
+      media={media}
+      resolveMedia={resolveMedia}
+    >
+      <LiveRunnerBody {...props} />
+    </SurfaceProviders>
   );
 }
 
@@ -89,7 +102,7 @@ function LiveRunnerBody({
   call,
   trace,
   onMinimize,
-}: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
+}: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels' | 'media' | 'resolveMedia'>) {
   const t = useLabels();
   // why: Both panels size against the whole live layout, so a third means the same for each.
   const layoutRef = useRef<HTMLDivElement | null>(null);

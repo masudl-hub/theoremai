@@ -16,6 +16,7 @@ import {
 import { useActingAs } from './lib/acting-as.ts';
 import { liveSocketAddress } from './lib/project-traces.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { STUDIO_TOOL_MEDIA, studioResolveMedia } from './lib/studio-media.ts';
 
 /** What a live call is run with, wherever it runs. */
 export type StudioLiveProps = Pick<LiveRunnerProps, 'trace'> &
@@ -86,5 +87,13 @@ function LiveView({
 /** The call lives here, below the check that the draft is a live profile. */
 function LiveViewCall({ trace, ...input }: LiveCallInput & Pick<LiveRunnerProps, 'trace'>) {
   const call = useLiveCall(input);
-  return <LiveRunner labels={STUDIO_LABELS} call={call} trace={trace} />;
+  return (
+    <LiveRunner
+      labels={STUDIO_LABELS}
+      call={call}
+      trace={trace}
+      media={STUDIO_TOOL_MEDIA}
+      resolveMedia={studioResolveMedia}
+    />
+  );
 }

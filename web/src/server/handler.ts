@@ -280,15 +280,8 @@ export type TheoremHandlerOptions = {
     request: Request;
     operation: Extract<SessionToolOperation, { status: 'settled' }>;
   }) => boolean | Promise<boolean>;
-  /**
-   * Whether this wake may run its reply: your limit on replies no person asked for. A wake you
-   * refuse is not tried again for the same results; the next message reads them. Unset, every wake
-   * runs.
-   */
-  authorizeWake?: (context: {
-    request: Request;
-    conversation: string;
-  }) => boolean | Promise<boolean>;
+  /** Whether a wake may run: `TurnWiring.authorizeWake`, given the `host` this request makes. */
+  authorizeWake?: TurnWiring['authorizeWake'];
   /**
    * Tool credentials by session. Your OAuth callback route saves the token here
    * under the same session id; every turn reads from here. Default: in-process
@@ -1111,7 +1104,11 @@ async function wake(ctx: HandlerContext, request: Request, session: Session): Pr
   const { authorizeWake } = ctx.options;
   const allowed =
     taken.length > 0 &&
-    (!authorizeWake || (await authorizeWake({ request, conversation: body.conversation })));
+    (!authorizeWake ||
+      (await authorizeWake({
+        host: await ctx.options.host?.(request),
+        conversation: body.conversation,
+      })));
   if (!allowed) return eventStream(ctx, request, async function* () {});
   const runner = chatRunner(ctx, request, session, body);
   const input = kernelTurnInput(body.input ?? {}, await ctx.options.context?.(request));

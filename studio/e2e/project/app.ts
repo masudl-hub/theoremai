@@ -44,6 +44,8 @@ export const theorem: TurnWiring = {
     registerProfile(team.scout);
   },
   prepare: (turn) => ({ ...turn, execution, background }),
+  // why: The app's own limit on replies no one asked for: Ana of north has quiet hours.
+  authorizeWake: ({ host }) => (host as { person?: string } | undefined)?.person !== 'north-ana',
   provider: {
     vault: { router_key: 'fixture-placeholder', google_key: 'fixture-placeholder' },
     fetch: fake,

@@ -238,7 +238,14 @@ Deno.test('a wake that fails is not tried again, and the next message reads the 
 });
 
 Deno.test('a wake the host refuses runs nothing, and the next message reads the result', async () => {
-  const { transport, handles, seen } = harness({ authorizeWake: () => false });
+  const asked: { host: unknown; conversation: string }[] = [];
+  const { transport, handles, seen } = harness({
+    host: () => ({ person: 'the-asker' }),
+    authorizeWake: (wake) => {
+      asked.push(wake);
+      return false;
+    },
+  });
   try {
     const ref = await say(transport, 'start the job');
     held.free();
@@ -246,6 +253,7 @@ Deno.test('a wake the host refuses runs nothing, and the next message reads the 
     const before = seen.length;
     assertEquals((await wake(transport, ref)).lines, []);
     assertEquals(seen.length, before);
+    assertEquals(asked, [{ host: { person: 'the-asker' }, conversation: ref }]);
     assertEquals((await transport.conversation({ conversation: ref })).wake, undefined);
     const next = await say(transport, 'any news?', ref);
     assert(reads(seen, before) > 0);

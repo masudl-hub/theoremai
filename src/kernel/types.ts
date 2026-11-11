@@ -1528,6 +1528,13 @@ export interface TurnWiring {
    * image and speech turns run through it.
    */
   prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
+  /**
+   * Whether a wake may run: a reply to background results that no person asked for. Your limit on
+   * those replies, such as a cap or quiet hours. `host` is the turn's `host`, and `conversation` is
+   * the conversation reference the wake was posted with. A wake you refuse is not tried again for
+   * the same results; the next message reads them. Unset, every wake runs.
+   */
+  authorizeWake?: (wake: { host: unknown; conversation: string }) => boolean | Promise<boolean>;
 }
 
 /** A profile projected for a client, with its secrets and server-only fields removed. */

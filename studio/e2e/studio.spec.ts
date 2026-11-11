@@ -209,6 +209,32 @@ test('each person has their own chat', async ({ page }) => {
   await expect(page.getByText('Fake reply on full to "as ana"')).toBeHidden();
 });
 
+test('the project decides whether a wake runs, for the person the studio acts as', async ({
+  page,
+}) => {
+  const woken = async () =>
+    (await seen(page)).filter((call) =>
+      JSON.stringify(call.body.messages?.at(-1)).includes('pages'),
+    ).length;
+  await open(page);
+  await settings(page, 'People');
+  await page.getByRole('radio', { name: 'Ana of north' }).click();
+  await closeSettings(page);
+  await send(page, '[call slow_report {}]');
+  await expect(page.getByText(/Tool answered on full/)).toBeVisible();
+  await page.waitForTimeout(4000);
+  expect(await woken()).toBe(0);
+  await expect(page.getByText(/Fake reply on full/)).toBeHidden();
+  await send(page, 'any news?');
+  await expect.poll(woken).toBe(1);
+  await settings(page, 'People');
+  await page.getByRole('radio', { name: 'No one' }).click();
+  await closeSettings(page);
+  await send(page, '[call slow_report {}]');
+  await expect(page.getByText(/Tool answered on full/).filter({ visible: true })).toBeVisible();
+  await expect.poll(woken).toBe(2);
+});
+
 test('get code gives every agent as files', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);

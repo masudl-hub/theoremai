@@ -590,6 +590,7 @@ export function recordedTools(tools: readonly ToolRegistration[]): ToolRegistrat
       inputSchema: tool.inputSchema,
       outputSchema: tool.outputSchema,
       ...(tool.labels ? { labels: tool.labels } : {}),
+      ...(tool.after ? { after: true } : {}),
       ...(tool.background ? { background: tool.background } : {}),
     };
   });

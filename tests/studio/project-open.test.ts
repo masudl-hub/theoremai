@@ -111,6 +111,29 @@ registerTool({
 registerProfile(
   defineProfile({ type: 'host', id: 'open-shelf', tools: { allow: ['open_fetch', 'open_think'] } }),
 );
+// A tool whose calls the model can order, and the background it may ask for: the kernel adds a field for each.
+registerTool({
+  type: 'function',
+  name: 'open_lookup',
+  description: 'Looks a word up.',
+  input: z.object({ word: z.string() }),
+  output: z.object({ meaning: z.string() }),
+  handler: () => Promise.resolve({ meaning: 'a meaning' }),
+  after: true,
+  background: 'ask',
+  access: 'read-only',
+  category: 'studio',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+});
+registerProfile(
+  defineProfile({
+    type: 'host',
+    id: 'open-lookup',
+    tools: { allow: ['open_lookup', 'open_fetch'] },
+  }),
+);
 // A profile of a type that takes no tools.
 const speaker = compileStudio(
   {
@@ -197,4 +220,20 @@ Deno.test('a project opens as the profiles it registered, but for what studio po
   const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
   const { differences }: StudioDescription = await (await handler(request)).json();
   assertEquals(differences, undefined);
+});
+
+Deno.test('a tool with after opens with the input it declared, and the kernel adds after once', async () => {
+  const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
+  const { workspace, unheld }: StudioDescription = await (await handler(request)).json();
+  assertEquals(unheld, undefined);
+  const tool = workspace.toolSpecs.find((held) => held.toolName === 'open_lookup');
+  assert(tool);
+  assertEquals(JSON.parse(tool.inputJson).properties, { word: { type: 'string' } });
+  const compiled = compileWorkspace(workspace, ON_OWN_KEYS);
+  assertEquals(compiled.ok ? [] : compiled.issues.map((issue) => issue.message), []);
+  assert(compiled.ok);
+  const opened = compiled.agents
+    .flatMap((agent) => agent.customTools)
+    .find((held) => held.name === 'open_lookup');
+  assertEquals([opened?.after, opened?.background], [true, 'ask']);
 });

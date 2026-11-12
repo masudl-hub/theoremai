@@ -311,6 +311,7 @@ export type {
   ToolSteerReceipt,
   ToolSteerRefusal,
 } from './tools/background.ts';
+export { declaredInputSchema } from './tools/call-order.ts';
 export type { StatedToolFailure } from './tools/failed.ts';
 export { ToolFailed } from './tools/failed.ts';
 export {

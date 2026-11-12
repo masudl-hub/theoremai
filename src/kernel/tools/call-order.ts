@@ -49,6 +49,40 @@ export function withCallOrder<TIn>(name: string, input: z.ZodType<TIn>): z.ZodTy
   return withModelField(name, input, FIELD, orderField);
 }
 
+/**
+ * A registered tool's input schema as the tool declared it, without the `after` field the kernel
+ * added for the model. Registering the tool again from it adds the field once.
+ */
+export function declaredInputSchema(tool: {
+  after?: boolean;
+  inputSchema: Record<string, unknown>;
+}): Record<string, unknown> {
+  return tool.after ? withoutField(tool.inputSchema, FIELD) : tool.inputSchema;
+}
+
+function withoutField(schema: Record<string, unknown>, field: string): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...schema };
+  const properties = schema.properties;
+  if (properties && typeof properties === 'object' && Object.hasOwn(properties, field)) {
+    const { [field]: _added, ...rest } = properties as Record<string, unknown>;
+    out.properties = rest;
+    if (Array.isArray(schema.required)) {
+      out.required = schema.required.filter((name) => name !== field);
+    }
+  }
+  for (const key of ['oneOf', 'anyOf'] as const) {
+    const options = schema[key];
+    if (Array.isArray(options)) {
+      out[key] = options.map((option) =>
+        option && typeof option === 'object'
+          ? withoutField(option as Record<string, unknown>, field)
+          : option,
+      );
+    }
+  }
+  return out;
+}
+
 /** The call's input without `after`, and the tool names `after` held. */
 export function splitCallOrder(
   tool: { after?: boolean },

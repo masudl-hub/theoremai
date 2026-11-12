@@ -29,7 +29,7 @@ import {
   type TurnWiring,
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
-import { createProviderRegistry } from '@theoremjs/agents/kernel';
+import { createProviderRegistry, declaredInputSchema } from '@theoremjs/agents/kernel';
 import type { TheoremRewound } from '@theoremjs/web/client';
 import {
   createMemoryNotifier,
@@ -190,7 +190,8 @@ function registeredTools(): ToolRegistration[] {
       // A provider's built-in tool is a model's setting, not a tool the project registers.
       .filter((tool) => tool.type !== 'builtin')
       .map((tool) => {
-        const fields: Record<string, unknown> = { ...tool };
+        // The input as the project declared it: the kernel adds `after` again when the studio registers it.
+        const fields: Record<string, unknown> = { ...tool, inputSchema: declaredInputSchema(tool) };
         for (const own of ['handler', 'input', 'output']) delete fields[own];
         // What the file writes as code (a hook before the call, its sources) is left to the file.
         // A credential in its URL or headers stays in this load: the page gets a mask.

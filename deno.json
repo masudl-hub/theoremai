@@ -71,7 +71,8 @@
       "snyk",
       ".snyk",
       "src/**/*.md",
-      "tests/"
+      "tests/",
+      "tmp/"
     ]
   },
   "imports": {

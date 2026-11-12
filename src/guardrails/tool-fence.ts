@@ -38,7 +38,7 @@ function readToolData(content: string): ToolDataRead[] {
 }
 
 /**
- * Whether a role `user` message holds tool results that `input.lateResults` opened. It is no one's
+ * Whether a role `user` message holds tool results that `TurnRequest.lateResults` gave. It is no one's
  * word to the model. A person who types a fence only makes their own reply stricter.
  */
 function isLateResult(message: TurnHistoryMessage): boolean {
@@ -49,9 +49,25 @@ function isLateResult(message: TurnHistoryMessage): boolean {
   );
 }
 
-/** The history message `input.lateResults` opens; its metadata names the calls it holds. */
-function lateResultsMessage(text: string, operationIds: readonly string[]): TurnHistoryMessage {
-  return { role: 'user', content: text, metadata: { lateResults: [...operationIds] } };
+/**
+ * The history message `TurnRequest.lateResults` lands. Its metadata names the calls it holds, and
+ * says when it landed inside a reply rather than opening one.
+ */
+function lateResultsMessage(
+  text: string,
+  operationIds: readonly string[],
+  inReply: boolean,
+): TurnHistoryMessage {
+  return {
+    role: 'user',
+    content: text,
+    metadata: { lateResults: [...operationIds], ...(inReply ? { lateResultsInReply: true } : {}) },
+  };
+}
+
+/** Whether `message` is a late result that landed inside a reply. Such a message opens no reply. */
+function landedInReply(message: TurnHistoryMessage): boolean {
+  return isLateResult(message) && message.metadata?.lateResultsInReply === true;
 }
 
 /** The calls whose late results a history message holds. */
@@ -60,4 +76,4 @@ function lateResultIds(message: TurnHistoryMessage): string[] {
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
 }
 
-export { isLateResult, lateResultIds, lateResultsMessage, readToolData, TOOL_CLOSE };
+export { isLateResult, landedInReply, lateResultIds, lateResultsMessage, readToolData, TOOL_CLOSE };

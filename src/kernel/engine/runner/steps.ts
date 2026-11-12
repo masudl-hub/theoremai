@@ -60,7 +60,14 @@ import {
   refusedReport,
   restoreMedia,
 } from './refused-media.ts';
-import { applyStageInjects, recordReply, steersToLand } from './stages.ts';
+import {
+  applyStageInjects,
+  type LateResultsAt,
+  landLateResultsAt,
+  recordReply,
+  steersToLand,
+  unreadLateResultsAt,
+} from './stages.ts';
 import { modelHistory, recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import {
@@ -842,6 +849,15 @@ async function* handleModelCalls(
       yield* applyStageInjects(state, 'post_tool', steers.units);
       state.steers?.joined(steers.waiting);
     }
+    // why: Late results land once a step too, after its steers, so a step's results stay together.
+    const at: Pick<LateResultsAt, 'stage' | 'step'> = { stage: 'post_tool', step: state.stepCount };
+    const late = yield* unreadLateResultsAt(state, profile, {
+      ...at,
+      host: generation.host,
+      ...(signal ? { signal } : {}),
+      ...(stages.injectWouldExceedMaxSteps ? { injectWouldExceedMaxSteps: true } : {}),
+    });
+    yield* landLateResultsAt(state, profile, late, at);
   }
   if (cancelled) return false;
   if (gated) {

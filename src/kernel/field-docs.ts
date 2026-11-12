@@ -628,8 +628,6 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     "Your count of the history's tokens, used by compaction that meters history.",
   'runTurn.input.inputTokens':
     "Your count of the whole prompt's tokens, used by compaction that meters input before the call.",
-  'runTurn.input.lateResults':
-    'Background tool calls that settled after their turn, as the host stored them. The model reads each as a tool result, and this reply counts it as a remote read when the call was remote. Pass each one once: the turn emits it as a late_results event, so a history built from events holds it.',
   'runTurn.input.messageId':
     'Your id for the user\'s message, shown to the model on its fence as `<user_data id="…">`: 1 to 32 letters, digits, `.`, `_`, `:` or `-`; any other id is refused.',
   'runTurn.input.options':
@@ -646,6 +644,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
   'runTurn.onEvent':
     "Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw goes to the caller as hook_failed, which this function does not read, and the turn goes on.",
+  'runTurn.lateResults':
+    'Your function that gives the background tool calls that settled after their turn, as you stored them. A text turn asks it when it opens, after each step whose calls settled, and once the model has answered. The model reads each result as a tool result, and the turn counts it as a remote read when the call was remote. A result lands once: one the conversation already holds is not read again. Each landing is a late_results event, so a history built from events holds it, and the event names the moment it landed. Once the model has answered, a landing runs another step, so the model answers what it read.',
   'runTurn.onStage':
     'Your function that sees each stage of a text turn or a live session, and can answer with what the stage allows. A throw at pre_tool fails that call. A throw at any other stage is reported as hook_failed, and the turn goes on without its answer.',
   'runTurn.options':

@@ -864,7 +864,7 @@ async function* executeSingleAttemptCycle(args: {
       };
       return { status: 'terminal' };
     }
-    if (beforeEnd.injectCount > 0) {
+    if (beforeEnd.injectCount > 0 || beforeEnd.lateLanded) {
       continue;
     }
     break;

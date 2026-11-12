@@ -85,7 +85,12 @@ import {
 import { sumEventTokens, sumTurnTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import { createAgentCaller, NESTED_THROWS, turnError } from './nested.ts';
-import { applyTurnStage } from './stages.ts';
+import {
+  applyTurnStage,
+  type LateResultsAt,
+  landLateResultsAt,
+  unreadLateResultsAt,
+} from './stages.ts';
 import {
   cutConversation,
   openTurnState,
@@ -433,11 +438,13 @@ async function* emitTurn(args: {
     ...(args.steers ? { steers: args.steers } : {}),
   });
   args.outState.state = state;
-  if (state.lateResults !== undefined) {
-    const late: TurnEvent = { type: 'late_results', ...state.lateResults };
-    state.allEmittedEvents.push(late);
-    yield late;
-  }
+  const opening: Pick<LateResultsAt, 'stage' | 'step'> = { stage: 'pre_turn', step: 0 };
+  const late = yield* unreadLateResultsAt(state, profile, {
+    ...opening,
+    host: generation.host,
+    ...(safe.signal ? { signal: safe.signal } : {}),
+  });
+  yield* landLateResultsAt(state, profile, late, opening);
 
   const pre = yield* applyTurnStage({
     profile,

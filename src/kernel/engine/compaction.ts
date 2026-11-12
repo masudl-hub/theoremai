@@ -1,4 +1,5 @@
 import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
+import { landedInReply } from '../../guardrails/tool-fence.ts';
 import { mediaChannelForMime } from '../registry/catalog.ts';
 import type {
   CompactionFailure,
@@ -37,11 +38,12 @@ export function compactionMeter(spec: CompactionSpec): CompactionMeter {
   return spec.meter ?? 'history';
 }
 
-// why: An exchange starts at each `user` message; system messages before the first one belong to none.
+// why: An exchange starts at each `user` message, except a late result that landed inside a reply;
+// system messages before the first one belong to none.
 function findExchangeBoundaries(history: TurnHistoryMessage[]): number[] {
   const boundaries: number[] = [];
   for (let i = 0; i < history.length; i++) {
-    if (history[i].role === 'user') {
+    if (history[i].role === 'user' && !landedInReply(history[i])) {
       boundaries.push(i);
     }
   }

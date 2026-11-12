@@ -2,12 +2,13 @@
  * The application's turn wiring (`TurnWiring.prepare`) laid over the turn the handler builds.
  * The handler keeps the fields it owns; the application's stage handler and credentials go
  * first, and the handler's own run when the application's have nothing. An application's own
- * tool record and background service run with the session's, never in place of it.
+ * tool record, background service, and late results run with the session's, never in place of it.
  *
  * @module
  */
 
 import type {
+  LateResultsSource,
   NormalizedTurnRequest,
   StageHandler,
   TurnRequest,
@@ -22,8 +23,11 @@ export type HandlerOwned = Pick<
   'profile' | 'pageExecution' | 'providerState' | 'signal'
 >;
 
-/** The session's tool record and the handler's background service, which `prepare` can add to. */
-export type HandlerTools = Pick<TurnRequest, 'execution' | 'background'>;
+/**
+ * The session's tool record, the handler's background service, and the session's late results,
+ * which `prepare` can add to.
+ */
+export type HandlerTools = Pick<TurnRequest, 'execution' | 'background' | 'lateResults'>;
 
 /** What the handler adds to a turn of its own: the session's credentials and its steering. */
 export type HandlerTurnParts = {
@@ -53,11 +57,13 @@ export async function preparedTurn(
   const onStage = stagesInOrder(app.onStage, handler.onStage);
   const execution = toolsInOrder(app.execution, turn.execution);
   const background = backgroundInOrder(app.background, turn.background, handler.announce);
+  const lateResults = lateResultsInOrder(app.lateResults, turn.lateResults);
   return {
     ...app,
     ...owned,
     ...(execution ? { execution } : {}),
     ...(background ? { background } : {}),
+    ...(lateResults ? { lateResults } : {}),
     credentials: credentialsInOrder(app.credentials, handler.credentials),
     ...(onStage ? { onStage } : {}),
   };
@@ -86,6 +92,18 @@ function backgroundInOrder(
 ): ToolBackgroundService | undefined {
   if (!app || app === own) return own;
   return announce ? announce(app) : app;
+}
+
+/**
+ * The application's late results, then the session's, at each moment the turn asks. The session's
+ * are the results it marked given, so an application's `prepare` cannot drop them.
+ */
+function lateResultsInOrder(
+  app: LateResultsSource | undefined,
+  session: LateResultsSource | undefined,
+): LateResultsSource | undefined {
+  if (!app || !session || app === session) return session ?? app;
+  return async (moment) => [...(await app(moment)), ...(await session(moment))];
 }
 
 /**

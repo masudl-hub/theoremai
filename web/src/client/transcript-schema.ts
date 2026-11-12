@@ -128,6 +128,7 @@ const transcriptBlock = z.discriminatedUnion('kind', [
     kind: z.literal('late-results'),
     text: z.string(),
     operationIds: z.array(z.string()),
+    inReply: z.boolean(),
   }),
   z.object({ ...blockId, kind: z.literal('error'), message: z.string() }),
   z.object({

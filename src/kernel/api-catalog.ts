@@ -47,10 +47,6 @@ export const REQUEST_FIELDS: Record<RequestPath, FieldMeta> = withFieldDocs<Requ
     type: "Partial<Record<'client' | 'server', unknown>>",
     unset: 'No context',
   },
-  'runTurn.input.lateResults': {
-    type: 'ToolOperationOutcome[]',
-    unset: 'No late results',
-  },
   'runTurn.input.attachments': {
     type: 'Array<TurnBlob | TurnMediaRef>',
   },
@@ -154,6 +150,10 @@ export const REQUEST_FIELDS: Record<RequestPath, FieldMeta> = withFieldDocs<Requ
   },
   'runTurn.onStage': {
     type: 'StageHandler',
+  },
+  'runTurn.lateResults': {
+    type: 'LateResultsSource',
+    unset: 'No late results',
   },
   'runTurn.onAgentCall': {
     type: 'AgentCallHook',

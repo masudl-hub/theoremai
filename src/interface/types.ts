@@ -329,7 +329,7 @@ export interface GuardrailBlock extends TranscriptBlockBase {
 }
 
 /**
- * The message `input.lateResults` put in the conversation, as the model read it. Theorem's own
+ * The message `TurnRequest.lateResults` put in the conversation, as the model read it. Theorem's own
  * transcript shows nothing for it: the block keeps it in a history rebuilt from blocks.
  */
 export interface LateResultsBlock extends TranscriptBlockBase {
@@ -337,6 +337,8 @@ export interface LateResultsBlock extends TranscriptBlockBase {
   text: string;
   /** The calls whose results the message holds. */
   operationIds: string[];
+  /** They landed inside a reply; otherwise they opened one. */
+  inReply: boolean;
 }
 
 export interface ErrorBlock extends TranscriptBlockBase {

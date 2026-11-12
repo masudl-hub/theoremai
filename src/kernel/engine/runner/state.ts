@@ -10,6 +10,7 @@ import { TheoremError } from '../../../guardrails/error.ts';
 import { labelText } from '../../../guardrails/labels.ts';
 import {
   isLateResult,
+  landedInReply,
   lateResultIds,
   lateResultsMessage,
   readToolData,
@@ -18,6 +19,7 @@ import type { OwnTools } from '../../../guardrails/tool-leak.ts';
 import { isRemoteOrigin, recordTaint, wrapToolData } from '../../../guardrails/tool-result.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
+import type { TurnInjectStage } from '../../schema.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
 import type { ToolBackgroundSupport } from '../../tools/background.ts';
 import { originOfTool } from '../../tools/execute.ts';
@@ -29,6 +31,7 @@ import type { SteerQueue } from '../../tools/steer.ts';
 import type { MediaRefused } from '../../turn-events.ts';
 import type {
   InteractionPart,
+  LateResultsSource,
   ModelBinding,
   Profile,
   ResolvedGeneration,
@@ -65,6 +68,8 @@ interface StepExecutionState {
   turnStart: number;
   /** Set by a retry: from then on the model reads this turn only, from `turnStart`. */
   turnOnly?: boolean;
+  /** This run goes on with a reply an earlier run began (`continuesReply`). */
+  continuesReply?: boolean;
   stepCount: number;
   /** Model calls sent again this turn under the profile's resumption (`executeResumedStep`). */
   resumes: number;
@@ -92,8 +97,8 @@ interface StepExecutionState {
   replyMessages: { message: TurnHistoryMessage; at: number }[];
   /** The tool call this attempt was writing when the output limit cut its arguments off. */
   cutOffCall?: { name: string; text: string };
-  /** The message `input.lateResults` opened and the calls it holds, until the run can emit it. */
-  lateResults?: { text: string; operationIds: string[] };
+  /** Gives the late results the turn reads at its moments (`TurnRequest.lateResults`). */
+  lateResults?: LateResultsSource;
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */
   canaryCarry?: string;
   /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
@@ -162,10 +167,19 @@ function continuesReply({ continueFrom, input }: TurnRequest): boolean {
   return input?.history?.at(-1)?.role === 'tool';
 }
 
-/** The reply's part of the history. Late results that opened it stand before its first message. */
+/**
+ * The reply's part of the history. Late results that opened it stand before its first message; a
+ * late result that landed inside it is part of it.
+ */
 function replyTail(history: readonly TurnHistoryMessage[]): readonly TurnHistoryMessage[] {
-  let start = history.findLastIndex((message) => message.role === 'user');
-  while (start > 0 && isLateResult(history[start - 1] as TurnHistoryMessage)) start -= 1;
+  let start = history.findLastIndex(
+    (message) => message.role === 'user' && !landedInReply(message),
+  );
+  while (start > 0) {
+    const before = history[start - 1] as TurnHistoryMessage;
+    if (!isLateResult(before) || landedInReply(before)) break;
+    start -= 1;
+  }
   return history.slice(Math.max(start, 0));
 }
 
@@ -193,25 +207,38 @@ function carryReplyReads(state: StepExecutionState, history: readonly TurnHistor
 }
 
 /**
- * A late result is read as a tool's result, so its message is no one's word to the model.
- * invariant: A history holds a late result once, however often the host passes it. Its marks count on each run.
+ * Those of `outcomes` the conversation does not hold yet, each once.
+ *
+ * invariant: A history holds a late result once, however often the host gives it.
  */
-function openLateResults(
+function unreadLateResults(
   state: StepExecutionState,
   outcomes: readonly ToolOperationOutcome[],
-  labels: Profile['labels'],
-): void {
-  if (outcomes.length === 0) return;
+): ToolOperationOutcome[] {
   const read = new Set(state.currentHistory.flatMap(lateResultIds));
-  const unread = outcomes.filter(({ event }) => {
+  return outcomes.filter(({ event }) => {
     const { operationId } = event.tool;
     if (!operationId) {
       // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       throw new TheoremError('request', 'A late result needs the operationId of its call');
     }
-    return !read.has(operationId);
+    if (read.has(operationId)) return false;
+    read.add(operationId);
+    return true;
   });
-  if (unread.length === 0) return;
+}
+
+/**
+ * Puts `unread` (from {@linkcode unreadLateResults}) into turn history as one message, and gives
+ * what it put there. A late result is read as a tool's result, so its message is no one's word to
+ * the model. Its marks count on each run.
+ */
+function landLateResults(
+  state: StepExecutionState,
+  unread: readonly ToolOperationOutcome[],
+  labels: Profile['labels'],
+  stage: TurnInjectStage,
+): { text: string; operationIds: string[]; inReply: boolean } {
   const blocks = unread.map(({ event, replay }) => {
     const { name, operationId = '', readBack = '' } = event.tool;
     const result = replay.modelResult;
@@ -230,10 +257,15 @@ function openLateResults(
   });
   const text = blocks.map((block) => block.text).join('\n\n');
   const operationIds = blocks.map((block) => block.operationId);
-  const message = lateResultsMessage(text, operationIds);
+  // why: At the opening, a reply is under way when the person's message came first or an earlier run began it.
+  const inReply =
+    stage !== 'pre_turn' ||
+    state.continuesReply === true ||
+    state.currentHistory.length > state.turnStart;
+  const message = lateResultsMessage(text, operationIds, inReply);
   state.givenUrls.own.add(message);
   state.currentHistory.push(message);
-  state.lateResults = { text, operationIds };
+  return { text, operationIds, inReply };
 }
 
 /**
@@ -281,11 +313,13 @@ function openTurnState(args: {
   };
   if (profile.type === 'text') {
     if (args.request && continuesReply(args.request)) {
+      state.continuesReply = true;
       carryReplyReads(state, args.request.input?.history ?? []);
     }
     appendUserInput(state, generation.input);
     generation.input = [];
-    openLateResults(state, args.request?.input?.lateResults ?? [], profile.labels);
+    // why: Only a text turn reads late results: an image or speech call reads its input alone.
+    if (args.request?.lateResults) state.lateResults = args.request.lateResults;
   }
   return state;
 }
@@ -301,4 +335,12 @@ function cutConversation(state: StepExecutionState): boolean {
 }
 
 export type { AttemptFlowState, PendingItemFix, StepExecutionState, TurnTraceState };
-export { appendUserInput, cutConversation, modelHistory, openTurnState, recordStepEvent };
+export {
+  appendUserInput,
+  cutConversation,
+  landLateResults,
+  modelHistory,
+  openTurnState,
+  recordStepEvent,
+  unreadLateResults,
+};

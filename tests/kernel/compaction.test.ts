@@ -4,6 +4,7 @@ import { assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { sanitizeTurnRequest } from '../../src/guardrails/sanitize.ts';
+import { lateResultsMessage } from '../../src/guardrails/tool-fence.ts';
 import { getProfile, registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import {
@@ -115,6 +116,27 @@ Deno.test('splitForCompaction retains last N exchanges by count', async () => {
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 6);
   assertEquals(result.toRetain[0].content, 'topic A');
+});
+Deno.test('splitForCompaction keeps a late result that landed inside a reply with that reply', async () => {
+  const late = lateResultsMessage(
+    '<tool_data tool="find_stores" origin="local">\nopen\n</tool_data>',
+    ['op'],
+    true,
+  );
+  const history: TurnHistoryMessage[] = [
+    ...exchange('hello', 'hi'),
+    { role: 'user', content: 'any shops?' },
+    {
+      role: 'assistant',
+      tool_calls: [{ id: 'c', type: 'function', function: { name: 'lookup', arguments: '{}' } }],
+    },
+    { role: 'tool', tool_call_id: 'c', name: 'lookup', content: 'two' },
+    late,
+    { role: 'assistant', content: 'Two shops.' },
+  ];
+  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 1 });
+  assertEquals(result.toRetain[0]?.content, 'any shops?');
+  assertEquals(result.toRetain.includes(late), true);
 });
 Deno.test('splitForCompaction retains all when fewer exchanges than requested', async () => {
   const history = [...exchange('hello', 'hi'), ...exchange('bye', 'later')];

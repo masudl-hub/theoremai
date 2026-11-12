@@ -475,8 +475,8 @@ in turn history, so a `before_end` inject on the retry lands after it.
 | Stage | Trigger |
 | --- | --- |
 | `pre_turn` | After resolve / sanitize / compaction-before / canary bind; before first provider step of the turn |
-| `pre_tool` / `post_tool` | Shared execute path |
-| `before_end` | No further autonomous work (no pending tools, or batch finished without gate); **before** egress/validation finalize. Inject → the answer, then the inject, join turn history and the step loop re-enters if under `maxSteps` |
+| `pre_tool` / `post_tool` | Shared execute path. After a step's calls and their steers, the turn asks `TurnRequest.lateResults` ([kernel.md](./kernel.md#late-results)) |
+| `before_end` | No further autonomous work (no pending tools, or batch finished without gate); **before** egress/validation finalize. Inject or late results → the answer, then the inject, then the late results, join turn history and the step loop re-enters if under `maxSteps` |
 | `post_turn` | Immediately after terminal `done` |
 
 On a text turn the opening user input is already the last message of

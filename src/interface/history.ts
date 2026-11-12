@@ -236,7 +236,7 @@ function foldAssistantEvents(
     if (event.type === 'late_results') {
       flushStep();
       flushText();
-      next = [...next, lateResultsMessage(event.text, event.operationIds)];
+      next = [...next, lateResultsMessage(event.text, event.operationIds, event.inReply)];
       continue;
     }
     if (event.type === 'stage' && event.injected) {
@@ -313,7 +313,7 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
       continue;
     }
     if (block.kind === 'late-results') {
-      history = [...history, lateResultsMessage(block.text, block.operationIds)];
+      history = [...history, lateResultsMessage(block.text, block.operationIds, block.inReply)];
       continue;
     }
     if (block.kind === 'structured') {

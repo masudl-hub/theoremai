@@ -976,7 +976,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'tool.background_started':
     'Told to the model when a call goes on after its reply: the call runs in the background and its result comes later. Takes {tool}.',
   'tool.late_result':
-    'Put in front of a tool call result that a host passes in input.lateResults. Takes {tool}.',
+    'Put in front of a tool call result that a host gives from runTurn.lateResults. Takes {tool}.',
   'tool.after_field':
     "What the model reads on the after field of a tool that sets registerTool.after. Read when the tool registers, so a profile's labels do not change it.",
   'tool.not_visible':

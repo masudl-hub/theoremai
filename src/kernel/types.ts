@@ -19,6 +19,7 @@ import type {
   SummaryMode,
   ThinkingLevel,
   ToolLoadTier,
+  TurnInjectStage,
   TurnStage,
   TurnStopKind,
 } from './schema.ts';
@@ -1297,16 +1298,6 @@ export interface TurnInput {
   voice?: TurnBlob[];
   /** The earlier messages of the conversation, when the host keeps them. */
   history?: TurnHistoryMessage[];
-  /**
-   * Background tool calls that settled after their turn, as the host stored them. The model reads
-   * each as a tool result, and this reply counts it as a remote read when the call was remote. Pass
-   * each one once: the turn emits it as a late_results event, so a history built from events holds
-   * it.
-   *
-   * @remarks Tool calls that settled after their turn, as the host stored them. Each counts as read
-   * in this reply.
-   */
-  lateResults?: ToolOperationOutcome[];
   /** A reply your host rejected and why, so that the model writes it again. */
   repair?: TurnRepairRequest;
   /**
@@ -1445,6 +1436,21 @@ export interface AgentRunRequest extends RunControls, ModelChoice {
 /** A request to `runTurn`: the shared controls and the turn's input. */
 export interface TurnRequest extends AgentRunRequest {
   /**
+   * Your function that gives the background tool calls that settled after their turn, as you
+   * stored them. A text turn asks it when it opens, after each step whose calls settled, and once
+   * the model has answered. The model reads each result as a tool result, and the turn counts it
+   * as a remote read when the call was remote. A result lands once: one the conversation already
+   * holds is not read again. Each landing is a late_results event, so a history built from events
+   * holds it, and the event names the moment it landed. Once the model has answered, a landing
+   * runs another step, so the model answers what it read.
+   *
+   * @remarks Asked only where the model reads what it gives: not mid-turn when the profile's
+   * `turnBehaviour.allowSteering` is false, and not when another step would pass `maxSteps`. What
+   * it gives at a moment it is not asked waits for a later turn. A throw is reported as
+   * hook_failed, and the turn goes on without results.
+   */
+  lateResults?: LateResultsSource;
+  /**
    * A session key a provider may use to route and cache this session's calls together.
    *
    * @remarks Not the same as `projectId`.
@@ -1509,6 +1515,25 @@ export interface TurnRequest extends AgentRunRequest {
   /** What the user sent for the turn. */
   input?: TurnInput;
 }
+
+/** Where a text turn asks for late results. */
+export interface LateResultsMoment {
+  /**
+   * `pre_turn` as the turn opens, `post_tool` after a step whose calls settled, `before_end` once
+   * the model has answered.
+   */
+  stage: TurnInjectStage;
+  /** The model steps the turn has taken; 0 as it opens. */
+  step: number;
+  /** The turn's `host`: what the app makes of the request. */
+  host: unknown;
+  signal?: AbortSignal;
+}
+
+/** Gives the late results a turn reads at a moment; see {@linkcode TurnRequest.lateResults}. */
+export type LateResultsSource = (
+  moment: LateResultsMoment,
+) => readonly ToolOperationOutcome[] | Promise<readonly ToolOperationOutcome[]>;
 
 /** A background call's end that the model has not read. */
 export interface LateResult {

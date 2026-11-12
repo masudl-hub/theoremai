@@ -265,6 +265,7 @@ function standaloneBlock(event: TurnEvent, idPrefix: string): TranscriptBlock | 
         kind: 'late-results',
         text: event.text,
         operationIds: event.operationIds,
+        inReply: event.inReply,
       };
     case 'error':
       return event.error

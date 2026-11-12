@@ -646,7 +646,7 @@ The kernel validates protocol events before it releases them or executes client 
 | `structured_draft` | The next piece of a structured reply's JSON, `text`, read at `reply` as the reply's text and then at `reply_structured`, where the whole is read: a match there stops the drafts. A preview only: the `structured` event that follows is the reply. Sent only under `sse`, and not when the reply was held for its verdict |
 | `structured` | Parsed JSON object when the profile names a structured schema; `removed` lists what item rules took out, `failed` the fields still invalid when validation ran out of retries |
 | `attempt` | The turn threw the reply so far away and asks again: `attempt` counts the retries (1 for the first), `reason` is `validation`, or `egress`. The text, media, and structured events before it in the turn are not the reply. `keptReply(events)` drops them; `foldTurnEvents`, `appendAssistantEventsToHistory` (one assistant message per reply) and an agent tool's output read only the kept reply |
-| `late_results` | The message `input.lateResults` put in the conversation, `text`, and the calls whose results it holds, `operationIds`. It comes first in the run, and a history built from events takes it as a role `user` message |
+| `late_results` | The message `lateResults` put in the conversation, `text`, the calls whose results it holds, `operationIds`, where it landed, `stage` and `step`, and `inReply`, which is true when it landed inside a reply. A history built from events takes it as a role `user` message where the turn put it. See [Late results](#late-results) |
 | `media` | Generated image/audio bytes + mime |
 | `grounding` | Google search metadata: Live `groundingMetadata`, and Interactions tool results (`google_search_result` `search_suggestions` → `searchHtml`). Maps sources add normalized `chunks[].maps` (`title` / `uri` / `placeId`); the raw payload rides on `metadata`. The sources themselves travel as `citation` |
 | `citation` | `sources` (`title` / `uri` / `type` / `placeId?`) a provider or a tool cited. From a provider: Google `url_citation` / `place_citation` annotations and `google_maps_result` places, OpenRouter citations and `url_citation` annotations. From a tool: its `sources(output)` on a completed call, with the call's `callId` (see [Tool sources](#tool-sources)) |
@@ -660,7 +660,7 @@ The kernel validates protocol events before it releases them or executes client 
 | `provider_checkpoint` | Live native checkpoint in `providerState`, with the covered portable `history` |
 | `provider_warning` | Native state mismatch: `warning.code` is `provider_state_rebuilt`; `warning.reason` identifies the mismatch |
 | `error` | `errorKind` (builder), `errorInternal` (host logs only), and `error`, the user's wording for the kind (profile `labels` → `overrideLabels` → default) — see [Public errors](guardrails.md#public-errors) |
-| `hook_failed` | A host hook threw and the turn went on without its answer: `hook`, `stage` (for `onStage`), `callId` (when the hook ran for a call), `errorKind`, and `errorInternal` (host logs only). See [Host hook crashes](#host-hook-crashes) |
+| `hook_failed` | A host hook threw and the turn went on without its answer: `hook`, `stage` (for `onStage` and `lateResults`), `callId` (when the hook ran for a call), `errorKind`, and `errorInternal` (host logs only). See [Host hook crashes](#host-hook-crashes) |
 
 ### Host hook crashes
 
@@ -671,6 +671,7 @@ itself does. Each crash is reported once:
 | --- | --- | --- |
 | `onStage` at `pre_tool`, `preTool`, `onAgentCall` | Fails the call as not started: the call cannot run unapproved | `hook_failed` with the call's `callId`. The call's `tool` `error` event has `failure.code: 'hook_failed'` and the `tool.hook_failed` wording, which the model reads |
 | `onStage` at any other stage | The stage applies nothing from that handler | `hook_failed`, `hook: 'onStage'` |
+| `lateResults` | Nothing lands at that moment. The source is asked again at the next one | `hook_failed`, `hook: 'lateResults'`, with the moment's `stage` |
 | `onEvent` | The caller still gets the event | `hook_failed`, `hook: 'onEvent'`, which `onEvent` does not read |
 | `execution` `lookup` or `begin` | Fails the call as not started | `hook_failed`, `hook: 'execution'`, with the call's `callId`, and the failed call as above |
 | `execution` `settle`, `detach` or `markUncertain`, after the call ran | The model reads the real result; the call is marked uncertain | `hook_failed`, `hook: 'execution'` |
@@ -686,7 +687,7 @@ start, `tool.execution_uncertain` for one the store lost after it started.
 
 A `TheoremError` that `execution` `lookup` or `begin` throws is the store's
 answer, not a crash: a held operation or a full session ends the turn as before.
-A crash of `onStage`, `tools.t1Policy`, `outputs.validation` or `compaction.trigger` in a turn
+A crash of `onStage`, `lateResults`, `tools.t1Policy`, `outputs.validation` or `compaction.trigger` in a turn
 is also a `theorem.hook_failed` event on the turn's trace.
 
 ### Token usage
@@ -1311,7 +1312,27 @@ After the reply:
 - The call writes its own trace record at its real end, joined to the turn through `traceparent`. A store crash after the reply reaches `event` as a `hook_failed` event with the call's `callId`, and is also a `theorem.hook_failed` event on that record. A throw from `event` itself is only on that record.
 - `maxOutcomeBytes` applies to the final outcome.
 
-The late result reaches the model only through the host, in `input.lateResults` of a later turn. The host passes the outcome it stored, once. With `createTheoremHandler`, the host is your `TurnWiring.lateResultsDecider`: it picks which outcomes each reply reads, and with none set no reply reads them. The model reads the result as a tool result after the person's message, and the reply counts it as a read ([How long the marks last](./guardrails.md#how-long-the-marks-last)). The run emits a `late_results` event, so a history built from events holds the message, and later turns read it. A transcript keeps it in a `late-results` block with its `operationIds` and shows nothing for it. Each outcome needs its call's `operationId`: the message's `metadata.lateResults` names the calls it holds, and an outcome whose call the history already holds adds no second message. Its marks still count. An outcome with no `operationId` is a `request` error. Text in `input.context` or `input.history` reads as the host's or the user's.
+The late result reaches the model only through the host, in `TurnRequest.lateResults` (see [Late results](#late-results)). With `createTheoremHandler`, the host is your `TurnWiring.lateResultsDecider`: it picks which outcomes each reply reads as it opens, and with none set no reply reads them. Text in `input.context` or `input.history` reads as the host's or the user's.
+
+### Late results
+
+Use `TurnRequest.lateResults` when a call can end after the turn that started it, and the model must read its result: in the next turn, or in the turn that is running when it ends. It is your function. It takes a `LateResultsMoment` and gives the stored outcomes (`ToolOperationOutcome`) the model has not read yet.
+
+A text turn asks it at three moments:
+
+| Moment `stage` | `step` | When | Then |
+| --- | --- | --- | --- |
+| `pre_turn` | `0` | The turn opens, before the `pre_turn` stage runs | The model reads them after the person's message |
+| `post_tool` | The step that ended | A step's calls all settled, after the steers of that step. Not on a step that a gate held, that `end` ended, or that was stopped | The model reads them on its next step |
+| `before_end` | The step that answered | The model answered, after the host's injects and the steers. Not when the stage aborts | The answer joins turn history first, and the model takes another step |
+
+Mid-turn, the turn does not ask when the profile sets `allowSteering: false`, or when another step would pass `maxSteps`. The outcomes wait in your store for the next moment, or the next turn. An image, speech or live turn never asks.
+
+What lands at one moment is one role `user` message, after everything else that moment adds. The model reads each result as a tool result, and the reply counts it as a read ([How long the marks last](./guardrails.md#how-long-the-marks-last)). Each landing is a `late_results` event with its `stage` and `step`, so a history built from events holds the message where the turn put it. Its `inReply` is `false` only when the message opens a reply: at the opening, with no message from the person and no reply to go on with. After the person's message, mid-turn, or as a paused reply goes on, it is `true`. A retry keeps it, as it keeps the turn's tool calls. A transcript keeps it in a `late-results` block with its `operationIds` and `inReply`, and shows nothing for it.
+
+Each outcome needs its call's `operationId`: the message's `metadata.lateResults` names the calls it holds, and `metadata.lateResultsInReply` is `true` when it landed inside a reply. An outcome whose call the history already holds adds no second message, and neither does a second outcome with the same id at one moment. Its marks still count. An outcome with no `operationId` is a `request` error. A source that throws is a `hook_failed` event, and the turn goes on (see [Host hook crashes](#host-hook-crashes)).
+
+`createTheoremHandler` gives the session's outcomes as the reply opens. A `TurnWiring.prepare` that returns its own `lateResults` runs with the session's: at each moment the application's come first, then the session's.
 
 Only a top-level call detaches. A tool inside an agent tool runs inline. A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and on a `tools.t2Loader` tool, and on a tool with its own `background` input.
 

@@ -15,6 +15,7 @@ import {
   createTheoremHandler,
 } from '../../web/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
+import { atOpen } from '../fixtures/late-results.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
@@ -197,7 +198,7 @@ Deno.test('a late result passed once stays through an approval and on later turn
     prepare: (turn) => {
       const lateResults = pending;
       pending = [];
-      return lateResults.length > 0 ? { ...turn, input: { ...turn.input, lateResults } } : turn;
+      return lateResults.length > 0 ? { ...turn, lateResults: atOpen(lateResults) } : turn;
     },
   });
   let cookie = '';
@@ -238,4 +239,91 @@ Deno.test('a late result passed once stays through an approval and on later turn
     read.map(holdsLate),
     read.map(() => true),
   );
+});
+
+Deno.test('a late result that lands mid-reply before an approval keeps what the reply read', async () => {
+  registerAll();
+  const calm: ToolOperationOutcome = {
+    event: {
+      type: 'tool',
+      tool: {
+        phase: 'complete',
+        name: 'research',
+        callId: 'calm',
+        operationId: 'calm-op',
+        output: {},
+        readBack: 'Nothing new.',
+        at: 0,
+      },
+    },
+    effects: 'completed',
+    replay: { modelResult: { finding: 'Nothing new.' } },
+  };
+  const original = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ page: PAGE }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )) as typeof fetch;
+  try {
+    const model = steeredModel();
+    const handler = createTheoremHandler({
+      profile: defineProfile({
+        type: 'text',
+        id: 'taint_pause_mid',
+        identity: { handle: 'deputy' },
+        models: { fast: HOST_BINDINGS.gemini35FlashLite },
+        maxSteps: 4,
+        tools: { allow: ['web_fetch', 'confirm_booking', 'send_email'] },
+        inputs: { text: true },
+        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+      }),
+      sessionStore: createMemorySessionStore(),
+      conversationStore: createMemoryConversationStore(),
+      provider: () => fixtureHostOptions(model),
+      prepare: (turn) => ({
+        ...turn,
+        lateResults: ({ stage, step }) => (stage === 'post_tool' && step === 1 ? [calm] : []),
+      }),
+    });
+    let cookie = '';
+    let ref: string | undefined;
+    const transport = createHttpTransport({
+      endpoint: 'http://host.test/api/theorem',
+      fetch: async (url, init) => {
+        const headers = new Headers(init?.headers);
+        if (cookie) headers.set('cookie', cookie);
+        const response = await handler(new Request(url, { ...init, headers }));
+        cookie = response.headers.get('set-cookie')?.split(';')[0] ?? cookie;
+        return response;
+      },
+    });
+    const events: TurnEvent[] = [];
+    const sink = (line: Parameters<Parameters<typeof transport.turn>[1]>[0]) => {
+      if (line.type === 'conversation') ref = line.ref;
+      else if (line.type !== 'unsupported' && line.type !== 'malformed') events.push(line);
+    };
+    await transport.turn({ input: { text: 'book it' } }, sink);
+    assertEquals(
+      events.flatMap((event) => (event.type === 'late_results' ? [event.inReply] : [])),
+      [true],
+    );
+    const gate = toolEventsOf(events, 'gate').at(-1);
+    assert(gate, 'expected the reply to pause on a gate');
+    await transport.invoke(
+      {
+        ...(ref ? { conversation: ref } : {}),
+        gateId: gate.callId,
+        operationId: issuedOperationId(gate),
+        decision: 'approve',
+      },
+      sink,
+    );
+    const send = toolEventsOf(events, 'error').find((tool) => tool.name === 'send_email');
+    assertEquals(send?.failure?.code, 'tainted_turn');
+  } finally {
+    globalThis.fetch = original;
+  }
 });

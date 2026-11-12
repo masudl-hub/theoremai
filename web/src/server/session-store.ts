@@ -148,7 +148,6 @@ const inputSchema: z.ZodType<TurnInput> = z.strictObject({
     .optional(),
   voice: z.array(blobSchema).optional(),
   history: z.array(turnHistoryMessageSchema).optional(),
-  lateResults: z.array(toolOperationOutcomeSchema).optional(),
   repair: z
     .strictObject({ previousOutput: z.string(), rejection: z.string(), guidance: z.string() })
     .optional(),

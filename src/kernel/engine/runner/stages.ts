@@ -1,4 +1,6 @@
 import { throwIfAborted } from '../../../guardrails/error.ts';
+import { hookFailed } from '../../hook-failure.ts';
+import type { TurnInjectStage } from '../../schema.ts';
 import {
   type InjectUnit,
   injectedStageEvent,
@@ -12,6 +14,7 @@ import {
   stageAllowsAffordance,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
+import type { ToolOperationOutcome } from '../../tools/operation.ts';
 import type {
   Profile,
   ResolvedGeneration,
@@ -19,7 +22,7 @@ import type {
   TurnHistoryMessage,
   TurnStage,
 } from '../../types.ts';
-import type { StepExecutionState } from './state.ts';
+import { landLateResults, type StepExecutionState, unreadLateResults } from './state.ts';
 
 export interface ApplyTurnStageArgs extends StageCallBag {
   profile: Profile;
@@ -55,6 +58,8 @@ export function recordReply(
 export interface ApplyTurnStageResult {
   abort?: boolean | { reason?: string };
   injectCount: number;
+  /** Late results landed at this stage: the model takes another step to read them. */
+  lateLanded: boolean;
   warnings: StageApplyWarning[];
 }
 
@@ -161,6 +166,65 @@ export function* steersToLand(
   return { waiting, units: next.value };
 }
 
+/** Where a turn asks its late-results source, and whether the model reads another step after it. */
+export interface LateResultsAt {
+  stage: TurnInjectStage;
+  step: number;
+  host: unknown;
+  signal?: AbortSignal;
+  /** Another model step would pass `maxSteps`: mid-turn, nothing is asked. */
+  injectWouldExceedMaxSteps?: boolean;
+}
+
+/**
+ * The late results the turn's source gives at `at` that the conversation does not hold yet. It is
+ * asked only where the model reads what lands: as the turn opens, or mid-turn when the profile
+ * takes steering and another step fits. A source that throws is reported and gives nothing.
+ */
+export async function* unreadLateResultsAt(
+  state: StepExecutionState,
+  profile: Profile,
+  at: LateResultsAt,
+): AsyncGenerator<TurnEvent, ToolOperationOutcome[]> {
+  const source = state.lateResults;
+  if (!source) return [];
+  if (at.stage !== 'pre_turn' && (!profileAllowsInject(profile) || at.injectWouldExceedMaxSteps)) {
+    return [];
+  }
+  let given: readonly ToolOperationOutcome[];
+  try {
+    given = await source({
+      stage: at.stage,
+      step: at.step,
+      host: at.host,
+      ...(at.signal ? { signal: at.signal } : {}),
+    });
+  } catch (err) {
+    throwIfAborted(at.signal);
+    const failed = hookFailed('lateResults', err, { stage: at.stage, span: state.trace.root });
+    state.allEmittedEvents.push(failed);
+    yield failed;
+    return [];
+  }
+  throwIfAborted(at.signal);
+  return unreadLateResults(state, given);
+}
+
+/** Lands `unread` in turn history with the `late_results` event that records where. */
+export function* landLateResultsAt(
+  state: StepExecutionState,
+  profile: Profile,
+  unread: readonly ToolOperationOutcome[],
+  at: Pick<LateResultsAt, 'stage' | 'step'>,
+): Generator<TurnEvent, boolean> {
+  if (unread.length === 0) return false;
+  const landed = landLateResults(state, unread, profile.labels, at.stage);
+  const event: TurnEvent = { type: 'late_results', ...landed, stage: at.stage, step: at.step };
+  state.allEmittedEvents.push(event);
+  yield event;
+  return true;
+}
+
 /**
  * Runs a turn stage: the host's handler, then the steers waiting for the turn. Both land together,
  * the host's first; an abort lands neither.
@@ -191,9 +255,23 @@ export async function* applyTurnStage(
     ? undefined
     : yield* steersToLand(state, profile, call.stage, call.injectWouldExceedMaxSteps);
   const units = [...out.inject, ...(steers?.units ?? [])];
-  // why: The model goes on after the inject, so it reads the answer it wrote before it.
-  if (reply && injectMessages(units).length > 0) recordReply(state, reply, replyAt);
+  // why: pre_turn's late results land as the turn opens, before this stage runs.
+  const lateAt =
+    !out.abort && call.stage === 'before_end' ? { stage: call.stage, step: call.step } : undefined;
+  const late = lateAt
+    ? yield* unreadLateResultsAt(state, profile, {
+        ...lateAt,
+        host: host ?? generation.host,
+        ...(call.signal ? { signal: call.signal } : {}),
+        ...(call.injectWouldExceedMaxSteps ? { injectWouldExceedMaxSteps: true } : {}),
+      })
+    : [];
+  // why: The model goes on after the inject or the late results, so it reads the answer it wrote before them.
+  if (reply && (injectMessages(units).length > 0 || late.length > 0)) {
+    recordReply(state, reply, replyAt);
+  }
   const injectCount = yield* applyStageInjects(state, call.stage, units);
   if (steers) state.steers?.joined(steers.waiting);
-  return { abort: out.abort, injectCount, warnings: out.warnings };
+  const lateLanded = lateAt ? yield* landLateResultsAt(state, profile, late, lateAt) : false;
+  return { abort: out.abort, injectCount, lateLanded, warnings: out.warnings };
 }

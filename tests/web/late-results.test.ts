@@ -7,6 +7,7 @@ import {
   type ToolBackgroundHandle,
   type TurnEvent,
   type TurnModel,
+  type TurnWiring,
   z,
 } from '../../mod.ts';
 import { createHttpTransport, type TheoremTransport } from '../../web/src/client/transport.ts';
@@ -18,6 +19,7 @@ import {
   pageWakes,
 } from '../../web/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
+import { atOpen } from '../fixtures/late-results.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
@@ -102,7 +104,7 @@ function caller(seen: ModelRequest[]): TurnModel {
   };
 }
 
-function harness(authorizeToolReplay?: () => boolean) {
+function harness(authorizeToolReplay?: () => boolean, prepare?: TurnWiring['prepare']) {
   held.until = new Promise<void>((resolve) => {
     held.free = resolve;
   });
@@ -118,6 +120,7 @@ function harness(authorizeToolReplay?: () => boolean) {
     background: () => ({ detached: (handle) => handles.push(handle), event: () => {} }),
     lateResultsDecider: pageWakes,
     ...(authorizeToolReplay ? { authorizeToolReplay } : {}),
+    ...(prepare ? { prepare } : {}),
   });
   const transport: TheoremTransport = createHttpTransport({
     endpoint: 'http://host.test/api/theorem',
@@ -153,6 +156,48 @@ Deno.test("the next turn reads a background call's result once it settles, and o
     await say(transport, 'and now?', ref);
     const after = await transport.conversation({ conversation: ref });
     assertEquals(after.transcript.filter((block) => block.kind === 'late-results').length, 1);
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test("an application's late results join the session's, and neither replaces the other", async () => {
+  const own = 'the-application-answer';
+  const outcome = {
+    event: {
+      type: 'tool' as const,
+      tool: {
+        phase: 'complete' as const,
+        name: 'own_job',
+        callId: 'own_call',
+        operationId: 'own-op',
+        output: { done: own },
+        readBack: own,
+        at: 0,
+      },
+    },
+    effects: 'completed' as const,
+    replay: { modelResult: { finding: own } },
+  };
+  let given = false;
+  const { transport, handles, seen } = harness(undefined, (turn) => {
+    if (given || !turn.lateResults) return turn;
+    given = true;
+    return { ...turn, lateResults: atOpen([outcome]) };
+  });
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    const before = seen.length;
+    await say(transport, 'any news?', ref);
+    assert(reads(seen, before) > 0, "the session's result was dropped");
+    const read = seen.slice(before).some((req) => JSON.stringify(req).includes(own));
+    assert(read, "the application's result was dropped");
+    const view = await transport.conversation({ conversation: ref });
+    const ids = view.transcript.flatMap((b) => (b.kind === 'late-results' ? b.operationIds : []));
+    assertEquals(ids.length, 2);
+    assert(ids.includes('own-op'));
   } finally {
     held.free();
   }

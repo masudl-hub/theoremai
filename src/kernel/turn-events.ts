@@ -34,8 +34,10 @@ import {
   type ToolAccess,
   type ToolAuthType,
   type ToolPermission,
+  TURN_INJECT_STAGES,
   TURN_STAGES,
   TURN_STOP_KINDS,
+  type TurnInjectStage,
   type TurnStage,
   type TurnStopKind,
 } from './schema.ts';
@@ -476,6 +478,7 @@ const HOOK_NAMES = [
   'execution',
   'background',
   'onStage',
+  'lateResults',
   'onEvent',
   'onAgentCall',
   'tools.preTool',
@@ -1038,10 +1041,19 @@ export type TurnEvent =
    */
   | { type: 'attempt'; attempt: number; reason: AttemptReason }
   /**
-   * The message `input.lateResults` put in the conversation, role `user`. It enters a history built
-   * from events like any other message. `operationIds` are the calls whose results it holds.
+   * The message `lateResults` put in the conversation, role `user`. It enters a history built from
+   * events like any other message. `operationIds` are the calls whose results it holds; `stage` and
+   * `step` are where it landed. `inReply` is true when it landed inside a reply: after the person's
+   * message, mid-turn, or as a paused reply went on. Otherwise it opened the reply.
    */
-  | { type: 'late_results'; text: string; operationIds: string[] }
+  | {
+      type: 'late_results';
+      text: string;
+      operationIds: string[];
+      stage: TurnInjectStage;
+      step: number;
+      inReply: boolean;
+    }
   | { type: 'media'; media: { mimeType: string; data: string } }
   | { type: 'grounding'; grounding: GroundingEvent }
   /** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
@@ -1249,6 +1261,9 @@ const TURN_EVENTS = {
     type: z.literal('late_results'),
     text: z.string(),
     operationIds: z.array(z.string()),
+    stage: z.enum(TURN_INJECT_STAGES),
+    step: z.number().int().nonnegative(),
+    inReply: z.boolean(),
   }),
   media: z.object({
     type: z.literal('media'),

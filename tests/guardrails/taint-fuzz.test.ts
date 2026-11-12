@@ -10,6 +10,7 @@ import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ToolOperationOutcome } from '../../src/kernel/tools/operation.ts';
 import type {
+  LateResultsSource,
   ModelRequest,
   TurnEvent,
   TurnHistoryMessage,
@@ -107,6 +108,7 @@ async function run(
   steps: readonly Step[],
   first: number,
   pages: Map<string, string>,
+  late: LateResultsSource,
 ) {
   const calls = steps.map((step, index) => callFor(step, first + index, pages));
   const model: TurnModel = {
@@ -116,7 +118,8 @@ async function run(
     },
   };
   const events: TurnEvent[] = [];
-  for await (const event of runTurn({ profile, input }, model)) events.push(event);
+  const request = { profile, input, lateResults: late };
+  for await (const event of runTurn(request, model)) events.push(event);
   const verdicts = toolCallsOf(events)
     .filter((call) => call.name === 'send_email')
     .map((call) => failureOf(call.state)?.code ?? 'sent');
@@ -131,23 +134,44 @@ async function verdicts(
   steps: readonly Step[],
   cuts: readonly number[],
   pages: Map<string, string>,
-  late: { page: string; onEachRun: boolean } | undefined,
+  late: Late | undefined,
 ) {
   const seen: string[] = [];
-  const lateResults = late ? [lateResult(late.page)] : undefined;
-  let input: TurnInput = {
-    text: `Please write to ${FRIEND}`,
-    ...(lateResults ? { lateResults } : {}),
-  };
+  const lateResults = late ? [lateResult(late.page)] : [];
+  let input: TurnInput = { text: `Please write to ${FRIEND}` };
+  let gaveBefore = false;
+  let history: TurnHistoryMessage[] = [];
   let at = 0;
   for (const cut of [...cuts, steps.length]) {
-    const { history, verdicts } = await run(profile, input, steps.slice(at, cut), at, pages);
-    assertEquals(history.filter(isLateResult).length, late ? 1 : 0);
-    seen.push(...verdicts);
-    input = { history, ...(lateResults && late?.onEachRun ? { lateResults } : {}) };
+    const span = steps.slice(at, cut);
+    const first = at;
+    let gave = false;
+    // The script's step the turn has reached: the opening, or the step whose calls just settled.
+    const source: LateResultsSource = ({ stage, step }) => {
+      if (!late || stage === 'before_end') return [];
+      // why: A pause holds a call for approval, and a held step lands no late results.
+      if (cut < steps.length && stage === 'post_tool' && step === span.length) return [];
+      const reached = first + (stage === 'pre_turn' ? 0 : step);
+      if (reached < late.after || (gaveBefore && !late.onEachRun)) return [];
+      gave = true;
+      return lateResults;
+    };
+    const ran = await run(profile, input, span, at, pages, source);
+    history = ran.history;
+    seen.push(...ran.verdicts);
+    gaveBefore ||= gave;
+    input = { history };
     at = cut;
   }
+  assertEquals(history.filter(isLateResult).length, late ? 1 : 0);
   return seen;
+}
+
+/** A late result, given once the script reaches step `after` (0: as the reply opens). */
+interface Late {
+  page: string;
+  after: number;
+  onEachRun: boolean;
 }
 
 function random(seed: number): () => number {
@@ -206,9 +230,13 @@ Deno.test('a pause never changes what the gates decide', async () => {
       for (let seed = 1; seed <= 300; seed += 1) {
         const next = random(seed);
         const steps = scriptOf(next);
-        const late =
+        const late: Late | undefined =
           next() < 0.4
-            ? { page: PAGES[Math.floor(next() * PAGES.length)] as string, onEachRun: next() < 0.5 }
+            ? {
+                page: PAGES[Math.floor(next() * PAGES.length)] as string,
+                after: Math.floor(next() * (steps.length + 1)),
+                onEachRun: next() < 0.5,
+              }
             : undefined;
         const whole = await verdicts(profile, steps, [], pages, late);
         const cuts = [...new Set(steps.map((_, i) => i).filter((i) => i > 0 && next() < 0.5))];

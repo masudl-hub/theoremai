@@ -768,7 +768,8 @@ export async function* messageReply(args: {
 
 /**
  * The conversation as a save that `err` lost to left it, while this reply's hold still has the chat.
- * Undefined when `err` is no such loss, the hold lost the chat, or no newer save is there to read.
+ * Undefined when no hold runs the reply or it lost the chat: with no hold, the save it lost to is
+ * another message's.
  *
  * why: The hold a message took the chat from may land the one save it began first; no save of it follows.
  */
@@ -778,9 +779,21 @@ async function savedSince(
   runner: ReplyRunner,
   err: unknown,
 ): Promise<OpenedConversation | undefined> {
+  if (!runner.held || !(await runner.held())) return undefined;
+  return newerSave(host, opened, err);
+}
+
+/**
+ * The conversation as the save that `err` lost to left it. Undefined when `err` is no such loss or
+ * no newer save is there to read.
+ */
+async function newerSave(
+  host: ConversationHost,
+  opened: OpenedConversation,
+  err: unknown,
+): Promise<OpenedConversation | undefined> {
   if (!(err instanceof TheoremError && err.cause === CONFLICT) || opened.ref === null)
     return undefined;
-  if (runner.held && !(await runner.held())) return undefined;
   const snapshot = await host.store.read(host.sessionId, opened.ref);
   if (!snapshot || snapshot.revision === opened.revision) return undefined;
   return { ref: opened.ref, revision: snapshot.revision, conversation: snapshot.conversation };
@@ -906,25 +919,47 @@ export async function rewindConversation(args: {
   at: number;
   walkAway?: readonly IssuedWalkAway[];
 }): Promise<OpenedConversation> {
-  const { host, opened, at } = args;
+  const { host, at } = args;
+  let { opened } = args;
   let { conversation } = opened;
   requireRewindPoint(conversation, at);
   requireWalkAway(conversation, args.walkAway);
-  if (conversation.paused) {
-    const walked = pausedReply(conversation.paused);
+  const { paused } = conversation;
+  if (paused) {
+    const walked = pausedReply(paused);
     const settling = settleWalkedAway(walked, args.walkAway ?? []);
     let step = await settling.next();
     while (!step.done) step = await settling.next();
     if (step.value) throw failureOf(step.value);
     conversation = committed(host, conversation, walked);
   }
-  const transcript = conversation.transcript.slice(0, at + 1);
-  return save(host, opened, {
-    version: 2,
-    id: conversation.id,
-    transcript,
-    history: historyFromTranscriptBlocks(transcript),
-  });
+  for (;;) {
+    const transcript = conversation.transcript.slice(0, at + 1);
+    try {
+      return await save(host, opened, {
+        version: 2,
+        id: conversation.id,
+        transcript,
+        history: historyFromTranscriptBlocks(transcript),
+      });
+    } catch (err) {
+      const moved = paused ? undefined : await newerSave(host, opened, err);
+      if (!moved || !keepsThrough(moved.conversation, transcript)) throw err;
+      requireWalkAway(moved.conversation, undefined);
+      opened = moved;
+      conversation = moved.conversation;
+    }
+  }
+}
+
+/**
+ * Whether `conversation` still holds `kept` as its first blocks: a save that only added after the
+ * cut leaves the rewind the same cut.
+ *
+ * why: A reply that held the chat may land the save it began as the person rewinds.
+ */
+function keepsThrough(conversation: StoredConversation, kept: readonly TranscriptBlock[]): boolean {
+  return kept.every((block, index) => conversation.transcript[index]?.id === block.id);
 }
 
 /** A paused call's operation: every call a session issued carries one. */

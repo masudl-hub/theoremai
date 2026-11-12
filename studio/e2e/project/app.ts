@@ -22,6 +22,9 @@ const fake: typeof fetch = (input, init) => {
   return fetch(`${FAKE}${url.pathname}`, init);
 };
 
+const quiet = (host: unknown) =>
+  typeof host === 'object' && host !== null && 'person' in host && host.person === 'north-ana';
+
 export const theorem: TurnWiring = {
   register() {
     registerProvider(openRouterProvider, { id: 'router', keySlot: 'router_key', connection: {} });
@@ -44,8 +47,13 @@ export const theorem: TurnWiring = {
     registerProfile(team.scout);
   },
   prepare: (turn) => ({ ...turn, execution, background }),
-  // why: The app decides who hears of a late result: here, the first reply that runs.
-  lateResultsDecider: { policy: (items) => ({ tell: items.map((item) => item.id) }) },
+  // why: The app decides who hears of a late result. Ana of north has quiet hours: no reply she
+  // did not ask for tells her one, and her next message reads it.
+  lateResultsDecider: {
+    policy: (items, { host, opening }) => ({
+      tell: opening !== 'message' && quiet(host) ? [] : items.map((item) => item.id),
+    }),
+  },
   provider: {
     vault: { router_key: 'fixture-placeholder', google_key: 'fixture-placeholder' },
     fetch: fake,

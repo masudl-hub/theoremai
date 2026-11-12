@@ -1047,11 +1047,12 @@ function heldLines(
   const chat = chatInbox(ctx, request, session, host, opened);
   const ref = () => chat.ref;
   return sent<ReplyLine>(async (send) => {
+    const whose = await ctx.options.host?.(request);
     const runOnce = (begin: ReplyStart, lines: (held: HeldRun) => AsyncIterable<ReplyLine>) =>
       runConversation({
         conversation: chat.key,
         inbox: chat.inbox,
-        policy: decider.policy,
+        policy: (items, moment) => decider.policy(items, { ...moment, host: whose }),
         start: begin,
         newId: () => crypto.randomUUID(),
         renewEveryMs: chat.leaseMs / 3,
@@ -1480,7 +1481,12 @@ async function wakeDue(
   const chat = chatInbox(ctx, request, session, host, { ref, conversation });
   const { items } = await chat.inbox.read(chat.key);
   if (items.length === 0) return false;
-  const { tell } = await decider.policy(items, { stage: 'pre_turn', step: 0, opening: 'wake' });
+  const { tell } = await decider.policy(items, {
+    stage: 'pre_turn',
+    step: 0,
+    opening: 'wake',
+    host: await ctx.options.host?.(request),
+  });
   return tell.length > 0;
 }
 

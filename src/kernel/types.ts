@@ -237,7 +237,7 @@ export interface ProfileImageSpec {
   includeText?: boolean;
 }
 
-import type { InboxItem, InboxPolicy } from '../conversation/types.ts';
+import type { InboxItem, PolicyChoice, PolicyMoment } from '../conversation/types.ts';
 import type { DecisionModelBinding, ModelBinding } from './protocols/binding.ts';
 import type { ProviderHostOptions } from './protocols/runtime.ts';
 
@@ -1551,6 +1551,12 @@ export interface LateResultItem extends InboxItem<'late_result'> {
   outcome: ToolOperationOutcome;
 }
 
+/** A moment the decider's policy is asked at, and whose chat it is. */
+export interface LateResultsPolicyMoment extends PolicyMoment {
+  /** The `host` of the request the reply runs for, as `ended` gets it: whose chat it is. */
+  host: unknown;
+}
+
 /** A background call ended, and what Theorem lets the decider do about it. */
 export interface LateResultEnded {
   /** The `host` of the request that started the call. */
@@ -1580,7 +1586,10 @@ export interface LateResultsDecider {
    * (`opening: 'wake'`, to say whether the page wakes it). It must change nothing. A result it
    * leaves waits for a later reply; one it gives up is reported once to `onError`.
    */
-  policy: InboxPolicy<LateResultItem>;
+  policy(
+    items: readonly LateResultItem[],
+    moment: LateResultsPolicyMoment,
+  ): PolicyChoice | Promise<PolicyChoice>;
   /** A background call ended. Use `wake` to reply from the server, with no page open. */
   ended?(ended: LateResultEnded): void | Promise<void>;
 }

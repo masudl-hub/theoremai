@@ -16,6 +16,7 @@ import { createChatController } from '../../web/src/client/chat.ts';
 import {
   type ChatLine,
   createHttpTransport,
+  isTheoremStreamError,
   type TheoremTransport,
 } from '../../web/src/client/transport.ts';
 import { issuedOperationId } from '../../web/src/client/turn-client.ts';
@@ -366,9 +367,11 @@ Deno.test('with no decider, nothing tells the model: no wake, and no message rea
 });
 
 Deno.test('the decider gives each reply its results, and what it holds back stays for later', async () => {
-  const asked: (PolicyMoment & { items: number })[] = [];
+  const asked: (PolicyMoment & { items: number; host: unknown })[] = [];
   let giving = false;
+  const ana = { person: 'ana' };
   const { transport, handles, seen } = harness({
+    host: () => ana,
     lateResultsDecider: {
       policy: (items, moment) => {
         asked.push({ ...moment, items: items.length });
@@ -381,15 +384,27 @@ Deno.test('the decider gives each reply its results, and what it holds back stay
     held.free();
     await handles[0].done;
     assertEquals((await transport.conversation({ conversation: ref })).wake, undefined);
-    assertEquals(asked.at(-1), { stage: 'pre_turn', step: 0, opening: 'wake', items: 1 });
+    assertEquals(asked.at(-1), {
+      stage: 'pre_turn',
+      step: 0,
+      opening: 'wake',
+      host: ana,
+      items: 1,
+    });
     const before = seen.length;
     assertEquals((await wake(transport, ref)).lines, []);
     assertEquals(seen.length, before, 'a wake given nothing ran the model');
     asked.length = 0;
     const held1 = await say(transport, 'any news?', ref);
     assertEquals(reads(seen, before), 0, 'a message read a result the decider held back');
-    assertEquals(asked[0], { stage: 'pre_turn', step: 0, opening: 'message', items: 1 });
-    assertEquals(asked.at(-1), { stage: 'pre_turn', step: 0, opening: 'follow_up', items: 1 });
+    assertEquals(asked[0], { stage: 'pre_turn', step: 0, opening: 'message', host: ana, items: 1 });
+    assertEquals(asked.at(-1), {
+      stage: 'pre_turn',
+      step: 0,
+      opening: 'follow_up',
+      host: ana,
+      items: 1,
+    });
     giving = true;
     assertEquals((await transport.conversation({ conversation: held1 })).wake, true);
     const woke = await wake(transport, held1);
@@ -533,6 +548,98 @@ Deno.test('a message that reads the chat as a wake pauses on an approval is refu
   assertEquals(woke, 'committed');
   assert(view.paused, 'the approval the wake stopped on is gone');
   assertEquals(view.transcript.filter((b) => b.kind === 'user-text').length, 1);
+});
+
+/**
+ * A wake that has passed its hold's check and begun its save, the save held until the next write:
+ * then it lands first. `pauses` makes the wake stop on an approval. `act` is the person's request
+ * against the chat as the wake read it.
+ */
+async function overHeldWakeSave<T>(
+  pauses: boolean,
+  act: (transport: TheoremTransport, ref: string) => Promise<T>,
+) {
+  const store = createMemoryConversationStore();
+  let holding = false;
+  let wakeSave: (() => Promise<void>) | undefined;
+  const conversationStore: typeof store = {
+    ...store,
+    write(sessionId, ref, expected, next) {
+      const land = () => store.write(sessionId, ref, expected, next);
+      if (holding) {
+        holding = false;
+        return new Promise((resolve, reject) => {
+          wakeSave = () => land().then(resolve, reject);
+        });
+      }
+      const landWake = wakeSave;
+      wakeSave = undefined;
+      return landWake ? landWake().then(land) : land();
+    },
+  };
+  const { transport, handles, seen, script } = harness({ conversationStore });
+  if (pauses) script.askAt = 3;
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    let release = () => {};
+    script.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const asked = seen.length;
+    const waking = wake(transport, ref).then(
+      () => 'committed',
+      () => 'refused',
+    );
+    while (seen.length === asked) await new Promise((resolve) => setTimeout(resolve, 1));
+    script.gate = undefined;
+    holding = true;
+    release();
+    while (!wakeSave) await new Promise((resolve) => setTimeout(resolve, 1));
+    const acted = await act(transport, ref).then(
+      (done) => ({ done }),
+      (failure: unknown) => ({ failure }),
+    );
+    assertEquals(await waking, 'committed');
+    assertEquals(wakeSave, undefined, "the wake's save never landed");
+    return { acted, transport, ref };
+  } finally {
+    held.free();
+  }
+}
+
+Deno.test("a wake's save that lands after the message read its result tells the result once", async () => {
+  const { acted, transport } = await overHeldWakeSave(false, (t, ref) => say(t, 'hello?', ref));
+  assert('done' in acted, 'the message failed because the wake saved first');
+  const view = await transport.conversation({ conversation: acted.done });
+  const told = view.transcript.flatMap((b) => (b.kind === 'late-results' ? b.operationIds : []));
+  assertEquals(told.length, 1, 'the result was told twice, or never');
+  assertEquals(view.transcript.filter((b) => b.kind === 'user-text').length, 2);
+});
+
+Deno.test("a rewind that reads the chat as a wake saves cuts after the wake's reply lands", async () => {
+  /** The last block of the first reply, as the page shows it before the wake. */
+  let cutAt = -1;
+  const { acted } = await overHeldWakeSave(false, async (t, ref) => {
+    cutAt = (await t.conversation({ conversation: ref })).transcript.length - 1;
+    return t.rewind({ conversation: ref, at: cutAt });
+  });
+  assert('done' in acted, 'the rewind failed because the wake saved first');
+  const kinds = acted.done.view.transcript.map((b) => b.kind);
+  assertEquals(kinds.length, cutAt + 1);
+  assertEquals(kinds.includes('late-results'), false);
+});
+
+Deno.test('a rewind that reads the chat as a wake pauses on an approval is refused; the approval waits', async () => {
+  const { acted, transport, ref } = await overHeldWakeSave(true, (t, chat) =>
+    t.rewind({ conversation: chat, at: 0 }),
+  );
+  assert('failure' in acted, 'the rewind cut away an approval the person never saw');
+  assert(isTheoremStreamError(acted.failure));
+  assertEquals(acted.failure.publicMessage, labelText('session.gate_pending'));
+  const view = await transport.conversation({ conversation: ref });
+  assert(view.paused, 'the approval the wake stopped on is gone');
 });
 
 function waitFor(check: () => boolean): Promise<void> {

@@ -15,12 +15,14 @@ import {
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import type { ToolOperationOutcome } from '../../tools/operation.ts';
+import { promoteTurnTools } from '../../tools/resolve.ts';
 import type {
   Profile,
   ResolvedGeneration,
   TurnEvent,
   TurnHistoryMessage,
   TurnStage,
+  TurnToolSnapshot,
 } from '../../types.ts';
 import { landLateResults, type StepExecutionState, unreadLateResults } from './state.ts';
 
@@ -119,10 +121,12 @@ function dropDraft(state: StepExecutionState, released: number | undefined): num
 
 /**
  * Sanitized stage injects extend portable history. An inject whose host says the user has only
- * part of the attempt's reply drops the rest first (`StageResult.released`).
+ * part of the attempt's reply drops the rest first (`StageResult.released`); the tools it brings
+ * go on the turn's list as it lands (`StageResult.promote`).
  */
 export function* applyStageInjects(
   state: StepExecutionState,
+  snapshot: TurnToolSnapshot,
   stage: TurnStage,
   units: readonly InjectUnit[],
   extra?: { callId?: string; toolName?: string },
@@ -131,6 +135,11 @@ export function* applyStageInjects(
   if (inject.length === 0) return 0;
   const released = dropDraft(state, releasedOf(units));
   state.currentHistory.push(...inject);
+  promoteTurnTools(
+    state.tools,
+    snapshot,
+    units.flatMap((unit) => unit.promote ?? []),
+  );
   const landed = injectedStageEvent(stage, units, {
     ...extra,
     ...(released === undefined ? {} : { released }),
@@ -270,7 +279,7 @@ export async function* applyTurnStage(
   if (reply && (injectMessages(units).length > 0 || late.length > 0)) {
     recordReply(state, reply, replyAt);
   }
-  const injectCount = yield* applyStageInjects(state, call.stage, units);
+  const injectCount = yield* applyStageInjects(state, generation.tools, call.stage, units);
   if (steers) state.steers?.joined(steers.waiting);
   const lateLanded = lateAt ? yield* landLateResultsAt(state, profile, late, lateAt) : false;
   return { abort: out.abort, injectCount, lateLanded, warnings: out.warnings };

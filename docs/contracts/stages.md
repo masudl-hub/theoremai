@@ -126,6 +126,11 @@ interface StageResult {
    * reply when the inject lands. Left out, the user has all of it.
    */
   released?: number;
+  /**
+   * With `inject`: tools the model may call once the inject lands. Only a T2 tool among the
+   * turn's gated tools goes on the list; any other id is left out.
+   */
+  promote?: ToolId[];
   abort?: boolean | { reason?: string };
   /**
    * pre_tool: refuse the call. post_tool: replace the result with this failure. `details`, a JSON
@@ -231,6 +236,14 @@ ran; `warnings` lists warning codes. See
    never drop. A value that is not a non-negative whole number warns
    `inject_released_invalid` and nothing drops. Live speaks as it goes, so it
    has nothing to drop and does not read `released`.
+8. `promote` with an inject: the tools the model may call once the inject
+   lands. Use it when the inject asks the model to act with a tool the turn
+   did not open with. When the inject lands, each id that is a T2 tool among
+   the turn's gated tools goes on the list, the same as an id from
+   `tools.t1Policy`. Any other id is left out without a warning. The model gets
+   the tools on its next step. A `promote` that is not a list of non-empty ids,
+   or a `promote` without an `inject`, warns `inject_promote_invalid` and
+   promotes nothing. An inject that does not land promotes nothing.
 
 **Reply text across model calls.** Each model call writes as if it starts the
 message. When a call's first text follows reply text that ends without

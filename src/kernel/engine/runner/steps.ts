@@ -49,6 +49,7 @@ import type {
   TurnModel,
   TurnRequest,
   TurnStop,
+  TurnToolSnapshot,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
@@ -647,6 +648,7 @@ function recordProviderToolFailure(
 function* applyToolSettlement(
   settlement: ToolExecuteSettlement,
   state: StepExecutionState,
+  snapshot: TurnToolSnapshot,
   call: ModelCall,
 ): Generator<TurnEvent, 'continue' | 'stop_cancelled' | 'gated' | 'ended'> {
   if (settlement.aborted) {
@@ -674,7 +676,7 @@ function* applyToolSettlement(
   }
   recordToolModelResult(state, call, settlement.modelResult);
   if (settlement.pendingInject) {
-    yield* applyStageInjects(state, 'post_tool', settlement.pendingInject, {
+    yield* applyStageInjects(state, snapshot, 'post_tool', settlement.pendingInject, {
       callId: call.callId,
       toolName: call.name,
     });
@@ -832,7 +834,7 @@ async function* handleModelCalls(
     }
     const settlement = settlements[index];
     if (!settlement) continue;
-    const outcome = yield* applyToolSettlement(settlement, state, call);
+    const outcome = yield* applyToolSettlement(settlement, state, generation.tools, call);
     if (outcome === 'stop_cancelled') cancelled = true;
     if (outcome === 'gated') gated = true;
     if (outcome === 'ended') ended = true;
@@ -846,7 +848,7 @@ async function* handleModelCalls(
       stages.injectWouldExceedMaxSteps,
     );
     if (steers) {
-      yield* applyStageInjects(state, 'post_tool', steers.units);
+      yield* applyStageInjects(state, generation.tools, 'post_tool', steers.units);
       state.steers?.joined(steers.waiting);
     }
     // why: Late results land once a step too, after its steers, so a step's results stay together.

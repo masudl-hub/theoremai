@@ -16,7 +16,7 @@ import type {
   StageApplyWarning,
   TurnEventOf,
 } from './turn-events.ts';
-import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
+import type { Profile, ToolId, TurnEvent, TurnHistoryMessage } from './types.ts';
 import { isRecord } from './util/record.ts';
 
 export type { AwaitingUserInput, ToolGate };
@@ -49,7 +49,12 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
     post_turn: Object.freeze([] as const),
   });
 
-const STAGE_RESULT_KEYS = new Set<string>([...STAGE_AFFORDANCES, 'injectId', 'released']);
+const STAGE_RESULT_KEYS = new Set<string>([
+  ...STAGE_AFFORDANCES,
+  'injectId',
+  'released',
+  'promote',
+]);
 
 /** A call the model made in this step, as the host was shown it. */
 export interface StepCall {
@@ -118,6 +123,11 @@ export interface StageResult {
    * after the part they have. Left out, they have all of it.
    */
   released?: number;
+  /**
+   * With `inject`: tools the model may call once the inject lands. Only a tool the turn could load
+   * goes on its list (`loadTier: 'T2'`, among the turn's gated tools); any other id is left out.
+   */
+  promote?: ToolId[];
   abort?: boolean | { reason?: string };
   /**
    * `pre_tool`: refuse the call. `post_tool`: replace the result with this failure.
@@ -198,6 +208,8 @@ export interface InjectUnit {
   messages: TurnHistoryMessage[];
   /** {@linkcode StageResult.released}: the reply text the user has when this inject lands. */
   released?: number;
+  /** {@linkcode StageResult.promote}: the tools the model may call once this inject lands. */
+  promote?: ToolId[];
 }
 
 /** A stage handler's result after validation: the parts the turn will act on. */
@@ -353,6 +365,21 @@ function injectReleased(raw: unknown, warnings: StageApplyWarning[]): number | u
   return undefined;
 }
 
+/** `promote` as a list of tool ids; anything else is a warning, and no tool is promoted. */
+function injectPromote(raw: unknown, warnings: StageApplyWarning[]): ToolId[] | undefined {
+  if (raw === undefined) return undefined;
+  if (Array.isArray(raw) && raw.every((id) => typeof id === 'string' && id.trim() !== '')) {
+    return raw;
+  }
+  warn(
+    warnings,
+    'inject_promote_invalid',
+    'promote',
+    'promote must be a list of tool ids; ignored', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  return undefined;
+}
+
 /** The inject's messages under its id; an unusable id refuses the inject whole. */
 function injectUnit(
   result: Record<string, unknown>,
@@ -361,7 +388,12 @@ function injectUnit(
   const messages = coerceHistoryMessages(result.inject, warnings);
   if (!messages) return undefined;
   const released = injectReleased(result.released, warnings);
-  const unit: InjectUnit = { messages, ...(released === undefined ? {} : { released }) };
+  const promote = injectPromote(result.promote, warnings);
+  const unit: InjectUnit = {
+    messages,
+    ...(released === undefined ? {} : { released }),
+    ...(promote === undefined ? {} : { promote }),
+  };
   if (result.injectId === undefined) return unit;
   if (typeof result.injectId === 'string' && result.injectId.trim()) {
     return { id: result.injectId, ...unit };
@@ -386,6 +418,9 @@ function applyInjectField(
     }
     if (result.released !== undefined) {
       warn(out.warnings, 'inject_released_invalid', 'released', 'released without inject ignored'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    if (result.promote !== undefined) {
+      warn(out.warnings, 'inject_promote_invalid', 'promote', 'promote without inject ignored'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return;
   }

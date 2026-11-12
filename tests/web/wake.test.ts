@@ -2,6 +2,7 @@ import { assert, assertEquals } from '@std/assert';
 import {
   defaultKernelScope,
   type LateResultEnded,
+  labelText,
   type ModelRequest,
   type ProfileDefinition,
   registerTool,
@@ -95,11 +96,11 @@ function caller(seen: ModelRequest[], script: Script): TurnModel {
           yield { type: 'tool' as const, tool: { name: TOOL, callId: 'call_1', arguments: {} } };
           return;
         }
+        await script.gate;
         if (step === script.askAt) {
           yield { type: 'tool' as const, tool: { name: ASK, callId: 'ask_1', arguments: {} } };
           return;
         }
-        await script.gate;
         if (script.fail) throw new Error('the-model-broke');
         yield { type: 'text' as const, text: 'It finished.' };
         yield { type: 'done' as const, stop: { kind: 'completed' } };
@@ -459,6 +460,79 @@ Deno.test('a message sent while a wake runs keeps the conversation; the wake wri
   } finally {
     held.free();
   }
+});
+
+/**
+ * A message reads the chat, then the wake it takes the chat over from lands its save first.
+ * `pauses` makes the wake stop on an approval. Gives the chat as the message left it, or the
+ * message's failure, and how the wake ended.
+ */
+async function messageOverSavingWake(pauses: boolean) {
+  const store = createMemoryConversationStore();
+  /** Runs once, on the next read, before that read returns what it read. */
+  let afterRead: (() => Promise<void>) | undefined;
+  const conversationStore: typeof store = {
+    ...store,
+    async read(sessionId, ref) {
+      const snapshot = await store.read(sessionId, ref);
+      const hook = afterRead;
+      afterRead = undefined;
+      if (hook) await hook();
+      return snapshot;
+    },
+  };
+  const { transport, handles, seen, script } = harness({ conversationStore });
+  if (pauses) script.askAt = 3;
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    let release = () => {};
+    script.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const before = seen.length;
+    const waking = wake(transport, ref).then(
+      () => 'committed',
+      () => 'refused',
+    );
+    while (seen.length === before) await new Promise((resolve) => setTimeout(resolve, 1));
+    script.gate = undefined;
+    afterRead = async () => {
+      release();
+      await waking;
+    };
+    const sent = await say(transport, 'hello?', ref).then(
+      (next) => ({ next }),
+      (failure: unknown) => ({ failure }),
+    );
+    const view = await transport.conversation({
+      conversation: 'next' in sent ? sent.next : ref,
+    });
+    return { sent, view, woke: await waking };
+  } finally {
+    held.free();
+  }
+}
+
+Deno.test("a message that reads the chat as a wake saves posts after the wake's reply", async () => {
+  const { sent, view, woke } = await messageOverSavingWake(false);
+  assert('next' in sent, 'the message failed because the wake saved first');
+  assertEquals(woke, 'committed');
+  const kinds = view.transcript.map((b) => b.kind);
+  assertEquals(kinds.filter((kind) => kind === 'user-text').length, 2);
+  assertEquals(kinds.filter((kind) => kind === 'late-results').length, 1);
+  assert(kinds.indexOf('late-results') < kinds.lastIndexOf('user-text'));
+});
+
+Deno.test('a message that reads the chat as a wake pauses on an approval is refused; the approval waits', async () => {
+  const { sent, view, woke } = await messageOverSavingWake(true);
+  assert('failure' in sent, 'the message posted over an approval the person never saw');
+  assert(sent.failure instanceof Error);
+  assertEquals(sent.failure.message, labelText('session.gate_pending'));
+  assertEquals(woke, 'committed');
+  assert(view.paused, 'the approval the wake stopped on is gone');
+  assertEquals(view.transcript.filter((b) => b.kind === 'user-text').length, 1);
 });
 
 function waitFor(check: () => boolean): Promise<void> {

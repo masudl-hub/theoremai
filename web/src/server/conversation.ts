@@ -729,15 +729,26 @@ export async function* messageReply(args: {
     }
     opened = { ...opened, conversation: committed(host, opened.conversation, walked) };
   }
-  const { conversation } = opened;
   const withMessage = (history: TurnHistoryMessage[]) =>
     appendUserDraftToHistory(history, message.draft, message.media);
-  // why: The message posts before the model runs, so a reply the browser stops still leaves it, in the transcript and the history.
-  opened = await save(host, opened, {
-    ...conversation,
-    transcript: [...conversation.transcript, ...message.blocks],
-    history: withMessage(conversation.history),
-  });
+  let base = opened;
+  for (;;) {
+    try {
+      // why: The message posts before the model runs, so a reply the browser stops still leaves it, in the transcript and the history.
+      opened = await save(host, base, {
+        ...base.conversation,
+        transcript: [...base.conversation.transcript, ...message.blocks],
+        history: withMessage(base.conversation.history),
+      });
+      break;
+    } catch (err) {
+      const moved = paused ? undefined : await savedSince(host, base, runner, err);
+      if (!moved) throw err;
+      requireWalkAway(moved.conversation, undefined);
+      base = moved;
+    }
+  }
+  const { conversation } = base;
   yield* refLine(opened, 'posted');
   const reply: Reply = {
     base: withMessage(conversation.history),
@@ -753,6 +764,26 @@ export async function* messageReply(args: {
     { ...message.input, ...historyInput(conversation) },
     withMessage,
   );
+}
+
+/**
+ * The conversation as a save that `err` lost to left it, while this reply's hold still has the chat.
+ * Undefined when `err` is no such loss, the hold lost the chat, or no newer save is there to read.
+ *
+ * why: The hold a message took the chat from may land the one save it began first; no save of it follows.
+ */
+async function savedSince(
+  host: ConversationHost,
+  opened: OpenedConversation,
+  runner: ReplyRunner,
+  err: unknown,
+): Promise<OpenedConversation | undefined> {
+  if (!(err instanceof TheoremError && err.cause === CONFLICT) || opened.ref === null)
+    return undefined;
+  if (runner.held && !(await runner.held())) return undefined;
+  const snapshot = await host.store.read(host.sessionId, opened.ref);
+  if (!snapshot || snapshot.revision === opened.revision) return undefined;
+  return { ref: opened.ref, revision: snapshot.revision, conversation: snapshot.conversation };
 }
 
 /** The conversation's history as a run reads it, with its meters. */

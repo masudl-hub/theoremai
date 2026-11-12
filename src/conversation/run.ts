@@ -23,7 +23,7 @@ export interface RunConversationOptions<Item extends InboxItem> {
   inbox: ConversationInbox<Item>;
   policy: InboxPolicy<Item>;
   start: ReplyStart;
-  /** Makes the ids of holds and replies. */
+  /** Makes the ids of replies, and of holds the start does not name. */
   newId: () => string;
   /** How often the hold renews its lease while the reply runs, in milliseconds. */
   renewEveryMs: number;
@@ -42,7 +42,7 @@ export async function runConversation<Item extends InboxItem>(
   options: RunConversationOptions<Item>,
 ): Promise<ConversationRun> {
   const { conversation, inbox, start } = options;
-  const hold = start.opening === 'follow_up' ? start.hold : options.newId();
+  const hold = start.hold ?? options.newId();
   // why: A follow-up's hold is checked where it acts: handing, giving up, and before `continue`.
   if (start.opening === 'message' && start.takeOver) {
     await inbox.takeOver(conversation, hold);

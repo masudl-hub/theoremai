@@ -31,7 +31,7 @@ The layer has no HTTP and no transcript. The app gives two things:
 ## Rules that must stay true
 
 1. **Saved first.** An item is in the inbox before anything tells it. A wake is a nudge, not a delivery: it can come twice, late, or not at all.
-2. **One hold at a time.** `open` gives the conversation to one hold, on a lease. A person's message uses `takeOver`: the old hold can no longer renew, hand, or save.
+2. **One hold at a time.** `open` gives the conversation to one hold, on a lease. A person's message uses `takeOver`: the old hold can no longer renew, hand, or save. An app that takes the conversation itself, such as in the write that saves the person's message, names that hold in `ReplyStart.hold`. `open` with the hold that has the conversation keeps it.
 3. **Told means saved.** The reply's own save marks what it told, in the same write as the reply, and only while its hold still has the conversation. A reply that fails gives back what it read, with the handover kept, so a later reply can say what came of it.
 4. **The fence.** A reply checks its hold before each save. A reply whose hold lost the conversation saves nothing.
 5. **Release has a version check.** `release` lets the conversation go only while the inbox version is the one the last read saw. An item that arrives between the policy's answer and the release moves the version, so the hold reads again.

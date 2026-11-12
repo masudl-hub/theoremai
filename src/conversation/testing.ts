@@ -174,6 +174,27 @@ export function conversationScenarios<Item extends InboxItem>(
       },
     ),
 
+    scenario('a message under the hold the app already took runs, and lets go', async (s) => {
+      await s.h.arrive('r');
+      const opened = await s.h.inbox.open(s.h.conversation, 'app-hold');
+      if (opened.outcome !== 'opened') fail('the app did not take the conversation');
+      const ran = await s.run({ opening: 'message', hold: 'app-hold' });
+      expectOutcome(ran, 'released', 'the message');
+      await s.expectTold(['r']);
+    }),
+
+    scenario('a message under a hold the app does not have is held', async (s) => {
+      const opened = await s.h.inbox.open(s.h.conversation, 'other-hold');
+      if (opened.outcome !== 'opened') fail('the other hold did not take the conversation');
+      let replied = false;
+      const ran = await s.run({ opening: 'message', hold: 'app-hold' }, () => {
+        replied = true;
+        return Promise.resolve();
+      });
+      expectOutcome(ran, 'held', 'the message');
+      if (replied) fail('a message under a hold it does not have ran a reply');
+    }),
+
     scenario('an item that arrives during a step is read at the next moment', async (s) => {
       const ran = await s.run({ opening: 'message' }, async (reply) => {
         await s.h.arrive('b');

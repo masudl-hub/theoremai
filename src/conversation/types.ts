@@ -120,13 +120,17 @@ export interface ConversationInbox<Item extends InboxItem = InboxItem> {
 }
 
 /**
- * What opens a reply. A `message` or a `wake` opens the conversation under a new hold; a message
- * with `takeOver` takes it from any hold that has it. A `follow_up` runs under the hold a run
- * before it returned with `continue`.
+ * What opens a reply. A `message` or a `wake` opens the conversation under a new hold, or under
+ * `hold` when the app names it; a message with `takeOver` takes it from any hold that has it. A
+ * `follow_up` runs under the hold a run before it returned with `continue`.
+ *
+ * @remarks Name the `hold` when the app takes the conversation itself, such as in the write that
+ * saves the person's message. `open` with the hold that has the conversation keeps it, so the run
+ * goes on under that hold.
  */
 export type ReplyStart =
-  | { opening: 'message'; takeOver?: boolean }
-  | { opening: 'wake' }
+  | { opening: 'message'; takeOver?: boolean; hold?: string }
+  | { opening: 'wake'; hold?: string }
   | { opening: 'follow_up'; hold: string };
 
 /** When the policy is asked: the moment, and what opened the reply. */

@@ -5,6 +5,8 @@ import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { applyStageResult, type StageResult } from '../../src/kernel/stages.ts';
+import { createMemoryToolExecution } from '../../src/kernel/tools/memory-execution.ts';
+import type { ToolExecutionCoordinator } from '../../src/kernel/tools/operation.ts';
 import type { TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -34,7 +36,12 @@ tool('promote_other', 'T2');
  * A turn whose first call uses a tool and whose second answers. The handler injects at `stage`
  * once; returns the tools each model call was offered.
  */
-async function offered(id: string, stage: 'post_tool' | 'before_end', inject: StageResult) {
+async function offered(
+  id: string,
+  stage: 'post_tool' | 'before_end',
+  inject: StageResult,
+  execution?: ToolExecutionCoordinator,
+) {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -63,6 +70,7 @@ async function offered(id: string, stage: 'post_tool' | 'before_end', inject: St
     {
       profile: id,
       input: { text: 'hi' },
+      ...(execution ? { execution } : {}),
       onStage: (ctx) => {
         if (ctx.stage !== stage || injected) return;
         injected = true;
@@ -79,6 +87,17 @@ Deno.test('promote: a post_tool inject puts the T2 tool it brings on the next ca
     inject: [steer],
     promote: ['promote_later'],
   });
+  assertEquals(listed, [['promote_here'], ['promote_here', 'promote_later']]);
+});
+
+Deno.test('promote: a post_tool inject a tool coordinator saves keeps the tool it brings', async () => {
+  const execution = createMemoryToolExecution();
+  const listed = await offered(
+    'promote.post_tool.coordinated',
+    'post_tool',
+    { inject: [steer], promote: ['promote_later'] },
+    execution,
+  );
   assertEquals(listed, [['promote_here'], ['promote_here', 'promote_later']]);
 });
 

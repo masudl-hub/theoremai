@@ -203,6 +203,7 @@ export const toolOperationOutcomeSchema: z.ZodType<ToolOperationOutcome> = z.str
           id: z.string().optional(),
           messages: z.array(turnHistoryMessageSchema),
           released: z.number().int().nonnegative().optional(),
+          promote: z.array(z.string().min(1)).optional(),
         }),
       )
       .optional(),

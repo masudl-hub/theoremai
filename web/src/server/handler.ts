@@ -135,7 +135,7 @@ import {
   waitingCalls,
   wakeReply,
 } from './conversation.ts';
-import { sessionConversationInbox } from './conversation-inbox.ts';
+import { detachedEnd, sessionConversationInbox } from './conversation-inbox.ts';
 import {
   type StoredConversation,
   type TheoremConversationStore,
@@ -872,13 +872,19 @@ function announced(
           await notify();
           if (!ended) return;
           const { operations } = await ctx.sessions.read(sessionId);
-          const operation = Object.hasOwn(operations, call.operationId)
-            ? operations[call.operationId]
+          const { operationId, callId, toolId } = call;
+          const operation = Object.hasOwn(operations, operationId)
+            ? operations[operationId]
             : undefined;
-          if (operation?.status !== 'settled') return;
+          const outcome = detachedEnd(
+            { operationId, callId, name: toolId, at: Date.now() },
+            operation,
+            ctx.profile.labels,
+          );
+          if (!outcome) return;
           await ended({
             host: await ctx.options.host?.(request),
-            result: { operationId: call.operationId, outcome: operation.outcome },
+            result: { operationId, outcome },
             wake: (conversation) => serverWake(ctx, request, sessionId, conversation),
             notify,
           });
@@ -964,6 +970,7 @@ function chatInbox(
       return conversation?.id === key ? conversation : undefined;
     },
     readable: (operation) => replayAllowed(ctx, request, operation),
+    labels: ctx.profile.labels,
   });
   return {
     inbox,
@@ -1522,23 +1529,15 @@ async function lateBlock(
       return block;
     return { ...block, tool: { ...tool, state, endedAt: operation.settledAt } };
   }
-  const message = labelText('tool.execution_uncertain', {}, labels);
-  const failure = {
-    code: operation?.status === 'uncertain' ? operation.reason : 'outcome_not_retained',
-    kind: 'internal',
-    message,
-  } as const;
   const { name, callId } = tool;
-  const at =
-    operation?.status === 'uncertain' ? operation.detectedAt : (tool.state?.at ?? Date.now());
-  return {
-    ...block,
-    tool: {
-      ...tool,
-      state: { name, callId, at, phase: 'error', failure, readBack: message },
-      endedAt: at,
-    },
-  };
+  const unresolved = detachedEnd(
+    { operationId: id ?? '', callId, name, at: tool.state?.at ?? Date.now() },
+    operation,
+    labels,
+  );
+  if (!unresolved) return block;
+  const { operationId: _id, ...state } = unresolved.event.tool;
+  return { ...block, tool: { ...tool, state, endedAt: state.at } };
 }
 
 /** The conversation cut after one block; a reply that waits on gates is walked away from first. */

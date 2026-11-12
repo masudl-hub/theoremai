@@ -397,15 +397,13 @@ export function pruneGates<Gate extends { createdAt: number; expiresAt?: number 
 }
 
 /**
- * Drops what the inbox keeps for results the session no longer holds, and conversations no hold
- * has with nothing kept.
+ * Drops the conversations no hold has with nothing kept.
+ *
+ * invariant: An entry outlives its result: a result the session dropped is still told, as unresolved.
  */
 export function pruneInbox(state: TheoremSessionState, now: number): void {
   if (!state.inbox) return;
   for (const [key, conversation] of Object.entries(state.inbox.conversations)) {
-    for (const id of Object.keys(conversation.entries)) {
-      if (!Object.hasOwn(state.operations, id)) delete conversation.entries[id];
-    }
     if (conversation.leasedUntil <= now && Object.keys(conversation.entries).length === 0) {
       delete state.inbox.conversations[key];
     }

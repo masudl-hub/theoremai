@@ -104,13 +104,15 @@ function saveOutcome(
     outcome,
     settledAt,
   };
-  // why: A detached call's end is an item in its conversation's inbox; a hold reads again before it lets go.
-  if (reply) {
-    state.inbox = {
-      version: (state.inbox?.version ?? 0) + 1,
-      conversations: state.inbox?.conversations ?? {},
-    };
-  }
+  if (reply) movedInbox(state);
+}
+
+/** why: A detached call's end is an item in its conversation's inbox; a hold reads again before it lets go. */
+function movedInbox(state: TheoremSessionState): void {
+  state.inbox = {
+    version: (state.inbox?.version ?? 0) + 1,
+    conversations: state.inbox?.conversations ?? {},
+  };
 }
 
 export function sessionToolCoordinator(
@@ -198,6 +200,7 @@ export function sessionToolCoordinator(
           reason,
           detectedAt: Date.now(),
         };
+        if (reply) movedInbox(state);
       });
     },
   };

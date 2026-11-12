@@ -6,7 +6,12 @@
  * @module
  */
 
-import type { LateResultItem } from '@theoremjs/agents';
+import {
+  type LateResultItem,
+  labelText,
+  type Profile,
+  type ToolOperationOutcome,
+} from '@theoremjs/agents';
 import type { ConversationInbox, Handover, InboxRead } from '@theoremjs/agents/conversation';
 import type { StoredConversation } from './conversation-store.ts';
 import type { MutableStore } from './session-authority.ts';
@@ -20,6 +25,39 @@ import type {
 /** A background call that ended, as the session keeps it. */
 export type SettledOperation = Extract<SessionToolOperation, { status: 'settled' }>;
 
+/** A detached call as its chat's transcript keeps it: what an end is told about. */
+export type DetachedCall = { operationId: string; callId: string; name: string; at: number };
+
+/**
+ * What became of a detached call, as the model and the page read it: the end the session saved, or
+ * that it is unresolved when the session holds no end (the call was cut off, or its saved end was
+ * dropped). Undefined while it runs.
+ */
+export function detachedEnd(
+  call: DetachedCall,
+  operation: SessionToolOperation | undefined,
+  labels: Profile['labels'],
+): ToolOperationOutcome | undefined {
+  if (operation?.status === 'settled') return operation.outcome;
+  if (operation !== undefined && operation.status !== 'uncertain') return undefined;
+  const message = labelText('tool.execution_uncertain', {}, labels);
+  const failure = {
+    code: operation ? operation.reason : 'outcome_not_retained',
+    kind: 'internal',
+    message,
+  } as const;
+  const { operationId, callId, name } = call;
+  const at = operation ? operation.detectedAt : call.at;
+  return {
+    event: {
+      type: 'tool',
+      tool: { name, callId, operationId, at, phase: 'error', failure, readBack: message },
+    },
+    effects: 'unknown',
+    replay: { failure },
+  };
+}
+
 /** Options for {@link sessionConversationInbox}. */
 export type SessionConversationInboxOptions = {
   sessions: MutableStore<TheoremSessionState>;
@@ -30,33 +68,45 @@ export type SessionConversationInboxOptions = {
   conversation: (key: string) => Promise<StoredConversation | undefined>;
   /** Whether this request may read the call's result: the handler's `authorizeToolReplay`. */
   readable: (operation: SettledOperation) => Promise<boolean>;
+  /** The profile's labels, for the words of an end the session does not hold. */
+  labels: Profile['labels'];
   now?: () => number;
 };
 
-/** The operation ids a chat's saved replies told, and those its paused reply holds. */
+/** The operation ids a chat's saved replies told, those its paused reply holds, and its untold calls. */
 function transcriptState(conversation: StoredConversation | undefined) {
   const told = new Set<string>();
-  const detached: string[] = [];
+  const detached: DetachedCall[] = [];
   for (const block of conversation?.transcript ?? []) {
     if (block.kind === 'late-results') for (const id of block.operationIds) told.add(id);
-    if (block.kind === 'tool' && block.tool.state?.phase === 'background' && block.tool.operationId)
-      detached.push(block.tool.operationId);
+    const { tool } = block.kind === 'tool' ? block : { tool: undefined };
+    if (tool?.state?.phase === 'background' && tool.operationId) {
+      const { operationId, callId, name } = tool;
+      detached.push({ operationId, callId, name, at: tool.state.at });
+    }
   }
   const paused = new Set<string>();
+  const draft: DetachedCall[] = [];
   for (const event of conversation?.paused?.events ?? []) {
     if (event.type === 'late_results') for (const id of event.operationIds) paused.add(id);
+    const tool = event.type === 'tool' ? event.tool : undefined;
+    if (tool?.phase === 'background' && tool.operationId) {
+      const { operationId, callId, name, at } = tool;
+      draft.push({ operationId, callId, name, at });
+    }
   }
   return {
     told,
     paused,
     pausedReply: conversation?.paused?.reply,
-    untold: detached.filter((id) => !told.has(id)),
+    untold: detached.filter((call) => !told.has(call.operationId)),
+    /** The calls the paused reply read, wherever it detached them. */
+    kept: [...detached, ...draft].filter((call) => paused.has(call.operationId)),
   };
 }
 
-function settledOperation(state: TheoremSessionState, id: string): SettledOperation | undefined {
-  const operation = Object.hasOwn(state.operations, id) ? state.operations[id] : undefined;
-  return operation?.status === 'settled' ? operation : undefined;
+function operationOf(state: TheoremSessionState, id: string): SessionToolOperation | undefined {
+  return Object.hasOwn(state.operations, id) ? state.operations[id] : undefined;
 }
 
 /** Creates the {@link ConversationInbox} of one session's chats, keyed by `StoredConversation.id`. */
@@ -81,12 +131,19 @@ export function sessionConversationInbox(
     if (!Object.hasOwn(inbox.entries, id)) inbox.entries[id] = { handovers: [] };
     return inbox.entries[id];
   };
-  const item = (operation: SettledOperation, entry: SessionInboxEntry | undefined) => ({
-    id: operation.operationId,
-    kind: 'late_result' as const,
+  const item = (
+    id: string,
+    outcome: ToolOperationOutcome,
+    entry: SessionInboxEntry | undefined,
+  ): LateResultItem => ({
+    id,
+    kind: 'late_result',
     handovers: [...(entry?.handovers ?? [])],
-    outcome: operation.outcome,
+    outcome,
   });
+  /** The call's end; undefined while it runs. */
+  const endOf = (state: TheoremSessionState, call: DetachedCall) =>
+    detachedEnd(call, operationOf(state, call.operationId), options.labels);
   const handTo = (
     entry: SessionInboxEntry,
     hold: string,
@@ -97,28 +154,28 @@ export function sessionConversationInbox(
     if (entry.handed) entry.handovers.push(entry.handed);
     entry.handed = { ...handover, hold, at };
   };
-  /** The untold results no live hold has and no paused reply keeps, as this request may read them. */
-  const readableIds = async (key: string) => {
+  /** The chat's untold calls that no paused reply keeps. */
+  const untoldCalls = async (key: string) => {
     const conversation = await options.conversation(key);
     const chat = transcriptState(conversation);
-    return { chat, ids: chat.untold.filter((id) => !chat.paused.has(id)) };
+    return { chat, calls: chat.untold.filter((call) => !chat.paused.has(call.operationId)) };
   };
+  /** The call's end, while it waits for a reply: ended, not given up, and no live hold has it. */
   const waiting = (
     inbox: SessionConversationInbox,
     state: TheoremSessionState,
-    id: string,
+    call: DetachedCall,
     at: number,
-  ): SettledOperation | undefined => {
-    const operation = settledOperation(state, id);
-    if (!operation) return undefined;
+  ): ToolOperationOutcome | undefined => {
+    const id = call.operationId;
     const entry = Object.hasOwn(inbox.entries, id) ? inbox.entries[id] : undefined;
     if (entry?.givenUp || (entry && heldLive(inbox, entry, at))) return undefined;
-    return operation;
+    return endOf(state, call);
   };
-  const authorized = async (operations: readonly SettledOperation[]) => {
-    const kept: SettledOperation[] = [];
-    for (const operation of operations) if (await options.readable(operation)) kept.push(operation);
-    return kept;
+  /** Whether this request may read the end: a saved result only as the host allows; an unresolved end always. */
+  const readable = (state: TheoremSessionState, id: string) => {
+    const operation = operationOf(state, id);
+    return operation?.status === 'settled' ? options.readable(operation) : Promise.resolve(true);
   };
 
   /** Changes one chat's lock and entries in one session write. */
@@ -133,16 +190,16 @@ export function sessionConversationInbox(
     ids: readonly string[],
     act: (entry: SessionInboxEntry, at: number) => void,
   ) => {
-    const { ids: open } = await readableIds(key);
-    const wanted = ids.filter((id) => open.includes(id));
+    const { calls } = await untoldCalls(key);
+    const wanted = calls.filter((call) => ids.includes(call.operationId));
     return change(key, (inbox, state, at) => {
       if (!has(inbox, hold, at)) return [];
-      return wanted.flatMap((id) => {
-        const operation = waiting(inbox, state, id, at);
-        if (!operation) return [];
-        const entry = entryOf(inbox, id);
+      return wanted.flatMap((call) => {
+        const outcome = waiting(inbox, state, call, at);
+        if (!outcome) return [];
+        const entry = entryOf(inbox, call.operationId);
         act(entry, at);
-        return [item(operation, entry)];
+        return [item(call.operationId, outcome, entry)];
       });
     });
   };
@@ -172,24 +229,24 @@ export function sessionConversationInbox(
       });
     },
     async read(key): Promise<InboxRead<LateResultItem>> {
-      const { ids } = await readableIds(key);
+      const { calls } = await untoldCalls(key);
       const state = await sessions.read(sessionId);
       const inbox = state.inbox?.conversations[key] ?? { leasedUntil: 0, entries: {} };
       const at = now();
-      const found = ids.flatMap((id) => {
-        const operation = waiting(inbox, state, id, at);
-        return operation ? [operation] : [];
-      });
-      const items = (await authorized(found)).map((operation) =>
-        item(operation, inbox.entries[operation.operationId]),
-      );
+      const items: LateResultItem[] = [];
+      for (const call of calls) {
+        const id = call.operationId;
+        const outcome = waiting(inbox, state, call, at);
+        if (outcome && (await readable(state, id)))
+          items.push(item(id, outcome, inbox.entries[id]));
+      }
       return { items, version: String(state.inbox?.version ?? 0) };
     },
     hand(key, hold, handover, ids) {
       return actOnWaiting(key, hold, ids, (entry, at) => handTo(entry, hold, handover, at));
     },
     async giveBack(key, hold, reply, ids) {
-      const { chat } = await readableIds(key);
+      const { chat } = await untoldCalls(key);
       await change(key, (inbox) => {
         for (const id of ids) {
           const entry = Object.hasOwn(inbox.entries, id) ? inbox.entries[id] : undefined;
@@ -204,16 +261,16 @@ export function sessionConversationInbox(
       });
     },
     async resume(key, hold, paused, handover) {
-      const { chat } = await readableIds(key);
+      const { chat } = await untoldCalls(key);
       if (chat.pausedReply !== paused) return [];
       return change(key, (inbox, state, at) => {
         if (!has(inbox, hold, at)) return [];
-        return [...chat.paused].flatMap((id) => {
-          const operation = settledOperation(state, id);
-          const entry = entryOf(inbox, id);
-          if (!operation || heldLive(inbox, entry, at)) return [];
+        return chat.kept.flatMap((call) => {
+          const outcome = endOf(state, call);
+          const entry = entryOf(inbox, call.operationId);
+          if (!outcome || heldLive(inbox, entry, at)) return [];
           handTo(entry, hold, handover, at);
-          return [item(operation, entry)];
+          return [item(call.operationId, outcome, entry)];
         });
       });
     },

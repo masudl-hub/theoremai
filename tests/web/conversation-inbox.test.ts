@@ -1,5 +1,5 @@
-import { assert } from '@std/assert';
-import type { LateResultItem, ToolOperationIdentity } from '../../mod.ts';
+import { assert, assertEquals } from '@std/assert';
+import { type LateResultItem, labelText, type ToolOperationIdentity } from '../../mod.ts';
 import { conversationScenarios } from '../../src/conversation/testing.ts';
 import { sessionConversationInbox } from '../../web/src/server/conversation-inbox.ts';
 import {
@@ -117,6 +117,7 @@ for (const scenario of conversationScenarios<LateResultItem>({
         return stored.id === key ? stored : undefined;
       },
       readable: () => Promise.resolve(true),
+      labels: undefined,
     });
     /** A save of `reply` under `hold`: only while the hold has the chat and was handed each id. */
     const fenced = async (hold: string, reply: string, ids: readonly string[]) => {
@@ -195,3 +196,58 @@ for (const scenario of conversationScenarios<LateResultItem>({
 })) {
   Deno.test(`session inbox: ${scenario.name}`, scenario.run);
 }
+
+/** One chat with one detached call that ended, and the session it ended in. */
+async function oneEndedCall() {
+  const sessions = sessionStateStore(
+    createMemorySessionStore(),
+    undefined,
+    DEFAULT_OPERATION_RETENTION_MS,
+  );
+  const conversations = createMemoryConversationStore();
+  const first = await conversations.write(SESSION, null, null, emptyConversation());
+  assert(first.written);
+  const block = await arrived(sessions, 'op');
+  const snapshot = await conversations.read(SESSION, first.ref);
+  assert(snapshot);
+  const stored = { ...snapshot.conversation, transcript: [block] };
+  assert((await conversations.write(SESSION, first.ref, snapshot.revision, stored)).written);
+  const inbox = sessionConversationInbox({
+    sessions,
+    sessionId: SESSION,
+    leaseMs: LEASE_MS,
+    conversation: (key) => Promise.resolve(key === stored.id ? stored : undefined),
+    readable: () => Promise.resolve(true),
+    labels: undefined,
+  });
+  /** The session drops the call's saved end, as its retention or its capacity does. */
+  const drop = () =>
+    sessions.mutate(SESSION, (state) => {
+      delete state.operations.op;
+    });
+  return { inbox, key: stored.id, drop };
+}
+
+Deno.test('session inbox: an end the session dropped is read as unresolved, with its handovers', async () => {
+  const { inbox, key, drop } = await oneEndedCall();
+  assert((await inbox.open(key, 'hold')).outcome === 'opened');
+  const handed = await inbox.hand(key, 'hold', { reply: 'r1', stage: 'pre_turn', step: 0 }, ['op']);
+  assertEquals(handed[0].outcome.effects, 'completed');
+  await inbox.giveBack(key, 'hold', 'r1', ['op']);
+  await drop();
+  const { items } = await inbox.read(key);
+  assertEquals(items.length, 1);
+  assertEquals(items[0].handovers.length, 1);
+  const { tool } = items[0].outcome.event;
+  assertEquals(tool.phase, 'error');
+  assertEquals(tool.phase === 'error' ? tool.failure.code : undefined, 'outcome_not_retained');
+  assertEquals(tool.readBack, labelText('tool.execution_uncertain'));
+});
+
+Deno.test('session inbox: an end given up stays given up after the session drops it', async () => {
+  const { inbox, key, drop } = await oneEndedCall();
+  assert((await inbox.open(key, 'hold')).outcome === 'opened');
+  assertEquals((await inbox.giveUp(key, 'hold', ['op'])).length, 1);
+  await drop();
+  assertEquals((await inbox.read(key)).items, []);
+});

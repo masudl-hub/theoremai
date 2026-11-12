@@ -1,6 +1,8 @@
 import { assert, assertEquals } from '@std/assert';
 import {
   defaultKernelScope,
+  type LateResultsDecider,
+  labelText,
   type ModelRequest,
   type ProfileDefinition,
   registerTool,
@@ -113,7 +115,11 @@ function caller(seen: ModelRequest[]): TurnModel {
   };
 }
 
-function harness(authorizeToolReplay?: () => boolean, prepare?: TurnWiring['prepare']) {
+function harness(
+  authorizeToolReplay?: () => boolean,
+  prepare?: TurnWiring['prepare'],
+  options: { operationRetentionMs?: number; decider?: LateResultsDecider } = {},
+) {
   held.until = new Promise<void>((resolve) => {
     held.free = resolve;
   });
@@ -128,7 +134,8 @@ function harness(authorizeToolReplay?: () => boolean, prepare?: TurnWiring['prep
     sessionStore: createMemorySessionStore(),
     session: () => 'one-person',
     background: () => ({ detached: (handle) => handles.push(handle), event: () => {} }),
-    lateResultsDecider: tellEveryResult,
+    lateResultsDecider: options.decider ?? tellEveryResult,
+    ...(options.operationRetentionMs ? { operationRetentionMs: options.operationRetentionMs } : {}),
     ...(authorizeToolReplay ? { authorizeToolReplay } : {}),
     ...(prepare ? { prepare } : {}),
   });
@@ -427,6 +434,62 @@ Deno.test('a reply that goes on, compacts, and fails leaves no result it read in
     );
   } finally {
     askSteps.clear();
+    held.free();
+  }
+});
+
+/** The late-results blocks of the chat that name `operationId`. */
+async function toldBlocks(transport: TheoremTransport, ref: string, operationId: string) {
+  const view = await transport.conversation({ conversation: ref });
+  return view.transcript.filter(
+    (block) => block.kind === 'late-results' && block.operationIds.includes(operationId),
+  ).length;
+}
+
+const UNRESOLVED = labelText('tool.execution_uncertain');
+
+Deno.test('a result the session no longer keeps is told as unresolved, once', async () => {
+  const { transport, handles, seen } = harness(undefined, undefined, { operationRetentionMs: 1 });
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const before = seen.length;
+    await say(transport, 'any news?', ref);
+    const read = seen.slice(before).filter((req) => JSON.stringify(req).includes(UNRESOLVED));
+    assert(read.length > 0, 'the turn after the result was dropped did not read that it was lost');
+    assertEquals(await toldBlocks(transport, ref, handles[0].operationId), 1);
+    await say(transport, 'and now?', ref);
+    assertEquals(await toldBlocks(transport, ref, handles[0].operationId), 1);
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test('a call shut down with no end wakes the decider and is told as unresolved, once', async () => {
+  const ended: string[] = [];
+  const decider: LateResultsDecider = {
+    policy: tellEveryResult.policy,
+    ended: ({ result }) => {
+      ended.push(result.outcome.event.tool.readBack ?? '');
+    },
+  };
+  const { transport, handles, seen } = harness(undefined, undefined, { decider });
+  try {
+    const ref = await say(transport, 'start the job');
+    handles[0].stop(undefined, { graceMs: 0 });
+    await handles[0].done;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assertEquals(ended, [UNRESOLVED]);
+    const before = seen.length;
+    await say(transport, 'any news?', ref);
+    const read = seen.slice(before).filter((req) => JSON.stringify(req).includes(UNRESOLVED));
+    assert(read.length > 0, 'the turn after the call was shut down did not read that it was lost');
+    assertEquals(await toldBlocks(transport, ref, handles[0].operationId), 1);
+    await say(transport, 'and now?', ref);
+    assertEquals(await toldBlocks(transport, ref, handles[0].operationId), 1);
+  } finally {
     held.free();
   }
 });

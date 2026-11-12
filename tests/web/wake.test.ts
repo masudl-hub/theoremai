@@ -154,6 +154,14 @@ async function wake(transport: TheoremTransport, ref: string) {
 const reads = (seen: ModelRequest[], from: number) =>
   seen.slice(from).filter((req) => JSON.stringify(req).includes('the-woken-answer')).length;
 
+/** A failure the handler reported for results the policy gave up. */
+const givenUp = (err: unknown) =>
+  err instanceof Error &&
+  typeof err.cause === 'object' &&
+  err.cause !== null &&
+  'code' in err.cause &&
+  err.cause.code === 'late_results_given_up';
+
 const lateBlocks = async (transport: TheoremTransport, ref: string) =>
   (await transport.conversation({ conversation: ref })).transcript.filter(
     (block) => block.kind === 'late-results',
@@ -235,6 +243,68 @@ Deno.test('a wake that fails lets its result go: the chat wakes again and reads 
     const woke = await wake(transport, left);
     assert(reads(seen, before) > 0, 'the second wake did not read the result');
     assertEquals(await lateBlocks(transport, woke.ref), 1);
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test('a result the model keeps failing on is read twice, then given up and reported once', async () => {
+  const errors: unknown[] = [];
+  const { transport, handles, seen, script } = harness({ onError: (err) => errors.push(err) });
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    script.fail = true;
+    const before = seen.length;
+    let left = ref;
+    for (let tries = 0; tries < 2; tries += 1) {
+      assertEquals((await transport.conversation({ conversation: left })).wake, true);
+      await transport
+        .wake?.({ conversation: left }, (line) => {
+          if (line.type === 'conversation') left = line.ref;
+        })
+        .catch(() => {});
+    }
+    assertEquals(reads(seen, before), 2, 'the result was not read exactly twice');
+    const view = await transport.conversation({ conversation: left });
+    assertEquals(view.wake, undefined, 'a given-up result still wakes the chat');
+    assertEquals((await wake(transport, left)).lines, []);
+    assertEquals(seen.length - before, 2, 'the model ran again after the result was given up');
+    const given = errors.filter(givenUp);
+    assertEquals(given.length, 1, 'the give-up was not reported once');
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test('a server wake whose model keeps failing tries twice, then gives the result up', async () => {
+  let ref = '';
+  let woken: Promise<void> | undefined;
+  const errors: unknown[] = [];
+  const { transport, handles, seen, script } = harness({
+    onError: (err) => errors.push(err),
+    lateResultsDecider: {
+      ...tellEveryResult,
+      ended: (end) => {
+        woken = end.wake(ref);
+        return woken;
+      },
+    },
+  });
+  try {
+    ref = await say(transport, 'start the job');
+    script.fail = true;
+    const before = seen.length;
+    held.free();
+    await handles[0].done;
+    await waitFor(() => woken !== undefined);
+    await woken?.catch(() => {});
+    assertEquals(reads(seen, before), 2, 'the server wake did not read the result exactly twice');
+    const after = await transport.conversation({ conversation: ref });
+    assertEquals(after.wake, undefined);
+    const given = errors.filter(givenUp);
+    assertEquals(given.length, 1);
   } finally {
     held.free();
   }

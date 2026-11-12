@@ -1312,7 +1312,7 @@ After the reply:
 - The call writes its own trace record at its real end, joined to the turn through `traceparent`. A store crash after the reply reaches `event` as a `hook_failed` event with the call's `callId`, and is also a `theorem.hook_failed` event on that record. A throw from `event` itself is only on that record.
 - `maxOutcomeBytes` applies to the final outcome.
 
-The late result reaches the model only through the host, in `TurnRequest.lateResults` (see [Late results](#late-results)). With `createTheoremHandler`, the host is your `TurnWiring.lateResultsDecider`: it picks which outcomes each reply reads as it opens, and with none set no reply reads them. Text in `input.context` or `input.history` reads as the host's or the user's.
+The late result reaches the model only through the host, in `TurnRequest.lateResults` (see [Late results](#late-results)). With `createTheoremHandler`, the host is your `TurnWiring.lateResultsDecider`: its `policy` picks which outcomes each reply reads at each moment, and with none set no reply reads them. Text in `input.context` or `input.history` reads as the host's or the user's.
 
 ### Late results
 
@@ -1332,7 +1332,7 @@ What lands at one moment is one role `user` message, after everything else that 
 
 Each outcome needs its call's `operationId`: the message's `metadata.lateResults` names the calls it holds, and `metadata.lateResultsInReply` is `true` when it landed inside a reply. An outcome whose call the history already holds adds no second message, and neither does a second outcome with the same id at one moment. Its marks still count. An outcome with no `operationId` is a `request` error. A source that throws is a `hook_failed` event, and the turn goes on (see [Host hook crashes](#host-hook-crashes)).
 
-`createTheoremHandler` gives the session's outcomes as the reply opens. A `TurnWiring.prepare` that returns its own `lateResults` runs with the session's: at each moment the application's come first, then the session's.
+`createTheoremHandler` runs each reply under a hold of the chat ([conversation](./conversation.md)), and gives the session's outcomes that the decider's `policy` tells, at each of the three moments. A `TurnWiring.prepare` that returns its own `lateResults` runs with the session's: at each moment the application's come first, then the session's.
 
 Only a top-level call detaches. A tool inside an agent tool runs inline. A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and on a `tools.t2Loader` tool, and on a tool with its own `background` input.
 

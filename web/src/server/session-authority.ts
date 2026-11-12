@@ -3,6 +3,7 @@ import { checkedCapacity, fitSession, type TheoremSessionCapacity } from './sess
 import {
   emptySessionState,
   pruneGates,
+  pruneInbox,
   type TheoremSessionState,
   type TheoremSessionStore,
   theoremSessionStateSchema,
@@ -59,6 +60,7 @@ export function sessionStateStore(
           now < (operation.retainUntil ?? operation.settledAt + operationRetentionMs),
       ),
     );
+    pruneInbox(state, now);
     return { revision: snapshot?.revision ?? null, state };
   };
   return {
@@ -79,6 +81,7 @@ export function sessionStateStore(
             operation.retainUntil ??= operation.settledAt + operationRetentionMs;
         }
         if (capacity) fitSession(state, capacity);
+        pruneInbox(state, now);
         const next = theoremSessionStateSchema.safeParse(state);
         if (!next.success) {
           throw new TheoremError('config', labelText('error.config'), {

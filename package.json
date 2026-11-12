@@ -42,7 +42,9 @@
     "./surface": "./src/surface/mod.ts",
     "./cli": "./src/cli/index.ts",
     "./schema": "./src/kernel/schema.ts",
-    "./evals": "./src/evals/mod.ts"
+    "./evals": "./src/evals/mod.ts",
+    "./conversation": "./src/conversation/mod.ts",
+    "./conversation/testing": "./src/conversation/testing.ts"
   },
   "files": [
     "README.md",

@@ -96,7 +96,7 @@ These rules must stay true:
 The kernel's boundary rule, "Host decides, Theorem runs", keeps assistants and
 demo product out of the `@theoremjs/agents` package.
 `scripts/verify-publish-bundle.ts` checks that `studio/` stays out of the
-kernel's npm and JSR packages. `scripts/build-npm-studio.ts` builds the npm package
+kernel's npm and JSR packages, and that no public entrypoint re-exports a test hook. `scripts/build-npm-studio.ts` builds the npm package
 `@theoremjs/studio` (`npm run build:npm:studio`), and copies `studio/README.md` into it.
 
 The studio's server, its runs and its exported handlers use `@theoremjs/web`, which has no React. Its peers are `zod`, `@theoremjs/agents` and `@theoremjs/web`, and `@theoremjs/react` as an optional exact peer. React, React DOM and the design packages are not peers, so `npx theorem-studio` installs beside any React, or none: npm refuses an install when a peer, even an optional one, is present at a version outside its range. The command runs the built page and checks only those packages (`studio/installed.mjs`). A host that shows the screen in its app installs `@theoremjs/react` and its peers.

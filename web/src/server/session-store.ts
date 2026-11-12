@@ -18,12 +18,14 @@ import {
   TOOL_AUTH_TYPES,
   TOOL_GATE_KINDS,
   TOOL_PERMISSION,
+  TURN_INJECT_STAGES,
   toolOperationOutcomeSchema,
   toolOperationReplySchema,
   turnHistoryMessageSchema,
   turnToolSnapshotSchema,
   z,
 } from '@theoremjs/agents';
+import type { Handover } from '@theoremjs/agents/conversation';
 import type { ToolGateAuth } from '@theoremjs/agents/interface';
 import type {
   AnsweredGate,
@@ -88,8 +90,6 @@ export type SessionToolOperation =
       reply?: ToolOperationReply;
       settledAt: number;
       retainUntil?: number;
-      /** When a wake took this result up. invariant: one wake per result; a message still reads it. */
-      wokenAt?: number;
     })
   | (ToolOperationIdentity & {
       status: 'uncertain';
@@ -111,6 +111,33 @@ export function detachedReply(operation: SessionToolOperation): ToolOperationRep
 
 export const DEFAULT_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 
+/** What the replies of one conversation did with one late result, until a saved reply tells it. */
+export type SessionInboxEntry = {
+  /** The reply it is handed to now, while that reply's hold has the conversation. */
+  handed?: Handover;
+  /** Each reply it was handed to that ended without telling it, oldest first. */
+  handovers: Handover[];
+  /** The policy gave it up: no reply reads it. */
+  givenUp?: true;
+};
+
+/**
+ * One conversation's hold, and what its replies did with the session's late results, by
+ * operation id. Whether a result was told is the transcript's to say.
+ */
+export type SessionConversationInbox = {
+  /** The hold that has the conversation until `leasedUntil` (epoch ms). */
+  hold?: string;
+  leasedUntil: number;
+  entries: Record<string, SessionInboxEntry>;
+};
+
+/** The session's conversation inboxes, and the version each result's end moves. */
+export type SessionInbox = {
+  version: number;
+  conversations: Record<string, SessionConversationInbox>;
+};
+
 export type TheoremSessionState = {
   version: 3;
   operations: Record<string, SessionToolOperation>;
@@ -120,6 +147,8 @@ export type TheoremSessionState = {
   gates: Record<string, PendingToolGate>;
   /** Checkpoint identities this session produced, newest last. */
   providerCheckpoints: string[];
+  /** Unset until a call first ends or a reply first holds a conversation. */
+  inbox?: SessionInbox;
 };
 
 const blobSchema = z.strictObject({
@@ -248,7 +277,6 @@ const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('s
     reply: toolOperationReplySchema.optional(),
     settledAt: z.number().finite().nonnegative(),
     retainUntil: z.number().finite().nonnegative().optional(),
-    wokenAt: z.number().finite().nonnegative().optional(),
   }),
   z.strictObject({
     ...identityFields,
@@ -261,6 +289,26 @@ const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('s
   }),
 ]);
 
+const handoverSchema: z.ZodType<Handover> = z.strictObject({
+  hold: z.string().min(1),
+  reply: z.string().min(1),
+  stage: z.enum(TURN_INJECT_STAGES),
+  step: z.number().int().nonnegative(),
+  at: z.number().finite().nonnegative(),
+});
+const conversationInboxSchema: z.ZodType<SessionConversationInbox> = z.strictObject({
+  hold: z.string().min(1).optional(),
+  leasedUntil: z.number().finite().nonnegative(),
+  entries: z.record(
+    z.string().min(1),
+    z.strictObject({
+      handed: handoverSchema.optional(),
+      handovers: z.array(handoverSchema),
+      givenUp: z.literal(true).optional(),
+    }),
+  ),
+});
+
 /** Stored authority is checked before the handler reads or changes it. */
 export const theoremSessionStateSchema: z.ZodType<TheoremSessionState> = z
   .strictObject({
@@ -269,6 +317,12 @@ export const theoremSessionStateSchema: z.ZodType<TheoremSessionState> = z
     permissions: z.array(z.string().min(1)),
     gates: z.record(z.string().min(1), pendingSchema),
     providerCheckpoints: z.array(z.string().min(1)),
+    inbox: z
+      .strictObject({
+        version: z.number().int().nonnegative(),
+        conversations: z.record(z.string().min(1), conversationInboxSchema),
+      })
+      .optional(),
   })
   .superRefine((state, ctx) => {
     for (const [operationId, operation] of Object.entries(state.operations)) {
@@ -340,6 +394,22 @@ export function pruneGates<Gate extends { createdAt: number; expiresAt?: number 
         : !gateExpired(gate.createdAt, now, ttlMs),
     ),
   );
+}
+
+/**
+ * Drops what the inbox keeps for results the session no longer holds, and conversations no hold
+ * has with nothing kept.
+ */
+export function pruneInbox(state: TheoremSessionState, now: number): void {
+  if (!state.inbox) return;
+  for (const [key, conversation] of Object.entries(state.inbox.conversations)) {
+    for (const id of Object.keys(conversation.entries)) {
+      if (!Object.hasOwn(state.operations, id)) delete conversation.entries[id];
+    }
+    if (conversation.leasedUntil <= now && Object.keys(conversation.entries).length === 0) {
+      delete state.inbox.conversations[key];
+    }
+  }
 }
 
 export type MemorySessionStoreOptions = {

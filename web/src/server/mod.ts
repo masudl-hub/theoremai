@@ -41,7 +41,6 @@ export {
   statelessRefusal,
   type WalkedAwayCall,
   waitingCalls,
-  wakeableCalls,
   wakeReply,
 } from './conversation.ts';
 export {
@@ -93,7 +92,6 @@ export {
   pageToolResultSchema,
   sessionPageDispatch,
 } from './page-dispatch.ts';
-export { pageWakes } from './page-wakes.ts';
 export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
 export { sessionStateStore } from './session-authority.ts';
 export {
@@ -123,5 +121,6 @@ export {
   steerUnitOf,
   stopOnRequest,
 } from './steer-inbox.ts';
+export { tellEveryResult } from './tell-every-result.ts';
 export { sessionToolCoordinator } from './tool-operations.ts';
 export { kernelTurnInput, liveSessionOpen } from './turn-input.ts';

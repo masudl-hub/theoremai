@@ -25,7 +25,7 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | `scripts/docs-truth/release-notes.test.mjs` | Release notes tests |
 | `scripts/docs-truth/export-drift.test.mjs` | Export drift tests |
 | `scripts/docs-truth/graph.test.mjs` | Contract tests |
-| `docs/_map.mjs` | Entrypoint and document ownership graph |
+| `docs/_map.mjs` | Entrypoint and document ownership graph: one entry for each `deno.json` export |
 | `react/README.md` | Consumer guide owned by the `react-package` entry |
 | `web/README.md` | Consumer guide owned by the `web-package` entry |
 

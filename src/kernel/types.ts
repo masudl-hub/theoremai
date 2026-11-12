@@ -237,6 +237,7 @@ export interface ProfileImageSpec {
   includeText?: boolean;
 }
 
+import type { InboxItem, InboxPolicy } from '../conversation/types.ts';
 import type { DecisionModelBinding, ModelBinding } from './protocols/binding.ts';
 import type { ProviderHostOptions } from './protocols/runtime.ts';
 
@@ -1542,13 +1543,12 @@ export interface LateResult {
   outcome: ToolOperationOutcome;
 }
 
-/** A chat's ended results that no reply has read, as a {@linkcode LateResultsDecider} is asked. */
-export interface LateResultsAsk {
-  /** The turn's `host`: what the app makes of the request. */
-  host: unknown;
-  /** The conversation reference the page holds. */
-  conversation: string;
-  results: readonly LateResult[];
+/**
+ * A background call's end in a chat's inbox: the item a {@linkcode LateResultsDecider}'s policy
+ * reads. Its `id` is the call's `operationId`.
+ */
+export interface LateResultItem extends InboxItem<'late_result'> {
+  outcome: ToolOperationOutcome;
 }
 
 /** A background call ended, and what Theorem lets the decider do about it. */
@@ -1557,10 +1557,11 @@ export interface LateResultEnded {
   host: unknown;
   result: LateResult;
   /**
-   * Runs a reply to no message in `conversation`, as a page's wake does: the decider's `give` is
-   * asked with `reason: 'wake'`. It runs nothing while a reply waits on gates or answers a
-   * message, and a message posted meanwhile wins. The reference must stay the same across
-   * writes, so a store whose reference changes with each write cannot wake from the server.
+   * Runs a reply to no message in `conversation`, as a page's wake does, for what the policy tells
+   * at `opening: 'wake'`. While another reply holds the chat, that reply's hold tells what waits
+   * as it ends, and this wake tries once more when the hold's lease runs out. The reference must
+   * stay the same across writes, so a store whose reference changes with each write cannot wake
+   * from the server.
    */
   wake(conversation: string): Promise<void>;
   /** Tells the pages open on the session to read the chat again. */
@@ -1568,24 +1569,18 @@ export interface LateResultEnded {
 }
 
 /**
- * Who tells the model that a background call ended. Theorem runs; the decider decides, and it
- * keeps its own count of what it told, such as a cap or quiet hours.
+ * Who tells the model that a background call ended. Theorem runs the replies under a hold of the
+ * chat; the decider's policy chooses what each reply reads, and it keeps its own count of what it
+ * told, such as a cap or quiet hours.
  */
 export interface LateResultsDecider {
   /**
-   * The results a reply gives the model, by `operationId`. `reason` is `'message'` for a reply to
-   * the person's message and `'wake'` for a reply to no message. Asked once for each reply, before
-   * its model runs. The model reads each result you return once. One you leave out stays for a
-   * later reply. A wake you give nothing runs no reply and leaves no mark.
+   * What a reply reads now, and what no reply reads again. Asked as a reply opens, at its later
+   * moments, as its hold ends (`opening: 'follow_up'`), and each time a page reads the chat
+   * (`opening: 'wake'`, to say whether the page wakes it). It must change nothing. A result it
+   * leaves waits for a later reply; one it gives up is reported once to `onError`.
    */
-  give(
-    ask: LateResultsAsk & { reason: 'message' | 'wake' },
-  ): readonly string[] | Promise<readonly string[]>;
-  /**
-   * Whether a page open on the chat wakes it now. Asked each time a page reads the chat, so it
-   * must change nothing. Say yes only when `give` would give something. Unset, no page wakes it.
-   */
-  due?(ask: LateResultsAsk): boolean | Promise<boolean>;
+  policy: InboxPolicy<LateResultItem>;
   /** A background call ended. Use `wake` to reply from the server, with no page open. */
   ended?(ended: LateResultEnded): void | Promise<void>;
 }
@@ -1611,8 +1606,8 @@ export interface TurnWiring {
   /**
    * Who tells the model that a background call ended, and when. Theorem runs the replies; this
    * decides. Unset, the model is never told: no page wakes the chat, and no reply reads a late
-   * result. `pageWakes` from `@theoremjs/web/server` lets the open page wake the chat, for an app
-   * with no server of its own.
+   * result. `tellEveryResult` from `@theoremjs/web/server` tells each result to the first reply
+   * that runs, and lets the open page wake the chat, for an app with no server of its own.
    */
   lateResultsDecider?: LateResultsDecider;
 }

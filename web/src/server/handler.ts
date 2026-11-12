@@ -55,7 +55,7 @@ import {
   type GateReference,
   invokeTool,
   jsonObjectSchema,
-  type LateResult,
+  type LateResultItem,
   type LateResultsSource,
   labelText,
   type Profile,
@@ -72,6 +72,7 @@ import {
   toolInvocationHash,
   type z,
 } from '@theoremjs/agents';
+import { type ReplyRun, type ReplyStart, runConversation } from '@theoremjs/agents/conversation';
 import {
   type ClientError,
   type ClientTurnOptions,
@@ -119,9 +120,9 @@ import {
   answerReply,
   type ConversationHost,
   conversationView,
-  type DetachedCall,
   type IssuedWalkAway,
   messageReply,
+  type OpenedConversation,
   openConversation,
   postedMessage,
   type ReplyLine,
@@ -132,9 +133,9 @@ import {
   rewindConversation,
   statelessRefusal,
   waitingCalls,
-  wakeableCalls,
   wakeReply,
 } from './conversation.ts';
+import { sessionConversationInbox } from './conversation-inbox.ts';
 import {
   type StoredConversation,
   type TheoremConversationStore,
@@ -284,9 +285,16 @@ export type TheoremHandlerOptions = {
   }) => boolean | Promise<boolean>;
   /**
    * Who tells the model that a background call ended: `TurnWiring.lateResultsDecider`. Unset, no
-   * page wakes the chat and no reply reads a late result. `pageWakes` lets the open page wake it.
+   * page wakes the chat and no reply reads a late result. `tellEveryResult` tells each result to
+   * the first reply that runs, and lets the open page wake the chat.
    */
   lateResultsDecider?: TurnWiring['lateResultsDecider'];
+  /**
+   * How long a reply keeps its chat after it last renewed, in milliseconds: it renews every third
+   * of it while it runs. A wake the chat turned away tries again once this runs out, and a reply
+   * that stopped without letting go keeps the chat no longer. Default 60000.
+   */
+  conversationLeaseMs?: number;
   /**
    * Tool credentials by session. Your OAuth callback route saves the token here
    * under the same session id; every turn reads from here. Default: in-process
@@ -326,6 +334,7 @@ export type TheoremHostHandlerOptions = Omit<
   | 'prepare'
   | 'notifier'
   | 'notifyRetryMs'
+  | 'conversationLeaseMs'
 > & {
   /** Host profile to serve. Registered with the kernel when the handler is created. */
   profile: Extract<Profile, { type: 'host' }> | Extract<ProfileDefinition, { type: 'host' }>;
@@ -882,17 +891,30 @@ function announced(
 
 /**
  * The decider's wake, with no page: the reply runs on a request of its own, with the headers of
- * the one that started the call and no signal, because that request has ended.
+ * the one that started the call and no signal, because that request has ended. When another reply
+ * holds the chat, it tries again as that hold's lease runs out.
  */
 async function serverWake(
   ctx: HandlerContext,
   started: Request,
   sessionId: string,
-  conversation: string,
+  ref: string,
 ): Promise<void> {
   const request = new Request(started.url, { headers: started.headers });
-  const lines = await wakeLines(ctx, request, { id: sessionId }, conversation, {});
-  if (!lines) return;
+  const session = { id: sessionId };
+  const host = conversationHost(ctx, session);
+  if (!host) throw statelessRefusal('wake');
+  const retry = (leasedUntil: number) => {
+    setTimeout(
+      () => {
+        serverWake(ctx, started, sessionId, ref).catch((err: unknown) =>
+          ctx.options.onError?.(err, { request }),
+        );
+      },
+      Math.max(0, leasedUntil - Date.now()),
+    );
+  };
+  const lines = await wakeLines(ctx, request, session, host, ref, {}, { retry });
   for await (const line of lines) {
     if (line.type === 'error') {
       // labels-exempt: internal diagnostic for the decider's wake; no page reads it
@@ -906,90 +928,195 @@ async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerat
   yield withPublicLabels(event, labels);
 }
 
+/** Whether this request may read a settled call's result: the host's `authorizeToolReplay`. */
+async function replayAllowed(
+  ctx: HandlerContext,
+  request: Request,
+  operation: Extract<SessionToolOperation, { status: 'settled' }>,
+): Promise<boolean> {
+  const { authorizeToolReplay } = ctx.options;
+  return !authorizeToolReplay || (await authorizeToolReplay({ request, operation }));
+}
+
+const DEFAULT_CONVERSATION_LEASE_MS = 60_000;
+
 /**
- * The late results this reply gives the model as it opens: those the wake took, or those the
- * decider gives a message. A reply that goes on after a pause has none, so it is asked once.
+ * The chat's inbox as this request reads it: the chat as this request last wrote it, and the
+ * results this request may read. `seen` follows each line's ref, because a store's ref can change
+ * with each write.
  */
-async function openingLateResults(
+function chatInbox(
   ctx: HandlerContext,
   request: Request,
-  host: unknown,
-  turn: ReplyTurn,
-  operations: TheoremSessionState['operations'],
-  late: LateFeed,
-): Promise<{ lateResults?: LateResultsSource }> {
-  if (!turn.unread) return {};
-  const given =
-    late.given ??
-    (await givenResults(
-      ctx,
-      host,
-      late.conversation,
-      await readableResults(ctx, request, turn.unread, operations),
-      'message',
-    ));
-  if (given.length === 0) return {};
-  const outcomes = given.map((operation) => operation.outcome);
-  return { lateResults: ({ stage }) => (stage === 'pre_turn' ? outcomes : []) };
+  session: Session,
+  host: ConversationHost,
+  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
+) {
+  let ref = opened.ref;
+  const leaseMs = ctx.options.conversationLeaseMs ?? DEFAULT_CONVERSATION_LEASE_MS;
+  const inbox = sessionConversationInbox({
+    sessions: ctx.sessions,
+    sessionId: session.id,
+    leaseMs,
+    conversation: async (key) => {
+      const conversation =
+        ref === null ? opened.conversation : (await host.store.read(session.id, ref))?.conversation;
+      return conversation?.id === key ? conversation : undefined;
+    },
+    readable: (operation) => replayAllowed(ctx, request, operation),
+  });
+  return {
+    inbox,
+    key: opened.conversation.id,
+    leaseMs,
+    seen(line: ReplyLine) {
+      if (line.type === 'conversation') ref = line.ref;
+    },
+    get ref() {
+      return ref;
+    },
+  };
 }
 
-/** What a reply reads of its chat's late results: the wake's, or the decider's for a message. */
-type LateFeed = { conversation?: string; given?: readonly SettledOperation[] };
-
-/** Those of `results` the decider gives the reply; none without a decider. */
-async function givenResults(
-  ctx: HandlerContext,
-  host: unknown,
-  conversation: string | undefined,
-  results: readonly SettledOperation[],
-  reason: 'message' | 'wake',
-): Promise<SettledOperation[]> {
-  const decider = ctx.options.lateResultsDecider;
-  if (!decider || conversation === undefined || results.length === 0) return [];
-  const ids = new Set(
-    await decider.give({
-      reason,
-      host,
-      conversation,
-      results: results.map(lateResult),
-    }),
+/** The values `produce` sends, as it sends them, then its end or what it threw. */
+async function* sent<T>(produce: (send: (value: T) => void) => Promise<void>): AsyncGenerator<T> {
+  const queue: T[] = [];
+  let ended: { failed: false } | { failed: true; failure: unknown } | undefined;
+  let wake = () => {};
+  produce((value) => {
+    queue.push(value);
+    wake();
+  }).then(
+    () => {
+      ended = { failed: false };
+      wake();
+    },
+    (failure: unknown) => {
+      ended = { failed: true, failure };
+      wake();
+    },
   );
-  return results.filter((operation) => ids.has(operation.operationId));
-}
-
-function lateResult(operation: SettledOperation): LateResult {
-  return { operationId: operation.operationId, outcome: operation.outcome };
-}
-
-type SettledOperation = Extract<SessionToolOperation, { status: 'settled' }>;
-
-/** The calls among `unread` that ended, as this request may read them. */
-async function readableResults(
-  ctx: HandlerContext,
-  request: Request,
-  unread: readonly DetachedCall[],
-  operations: TheoremSessionState['operations'],
-): Promise<SettledOperation[]> {
-  const readable: SettledOperation[] = [];
-  for (const { operationId } of unread) {
-    const operation = Object.hasOwn(operations, operationId) ? operations[operationId] : undefined;
-    if (operation?.status !== 'settled') continue;
-    const { authorizeToolReplay } = ctx.options;
-    if (authorizeToolReplay && !(await authorizeToolReplay({ request, operation }))) continue;
-    readable.push(operation);
+  for (;;) {
+    if (queue.length > 0) {
+      yield queue.splice(0, 1)[0];
+      continue;
+    }
+    if (ended?.failed) throw ended.failure;
+    if (ended) return;
+    await new Promise<void>((resolve) => {
+      wake = resolve;
+    });
   }
-  return readable;
 }
 
-/** The results a wake would take up: readable, and no wake has taken them. */
-async function wakeResults(
+/** A reply under a hold of the chat: the run, and the renewal each save checks first. */
+type HeldRun = { run: ReplyRun<LateResultItem>; renew: () => Promise<boolean> };
+
+/** What a held reply does once its hold ends with results waiting, or finds the chat held. */
+type HeldFollow = {
+  /** A server's wake: it runs the next reply itself, and tries again when the chat is held. */
+  retry?: (leasedUntil: number) => void;
+};
+
+/**
+ * Runs a reply under a hold of the chat, and streams its lines. The reply reads the late results
+ * the decider's policy tells it. Without a decider no reply reads one, and no hold is taken.
+ * invariant: One hold has a chat at a time, and lets it go only once nothing waits that may be told.
+ * A page's reply that leaves results waiting lets the chat go, so the page wakes for them; a
+ * server's wake runs the next reply under its hold.
+ */
+function heldLines(
   ctx: HandlerContext,
   request: Request,
-  conversation: StoredConversation,
-  operations: TheoremSessionState['operations'],
-): Promise<SettledOperation[]> {
-  const readable = await readableResults(ctx, request, wakeableCalls(conversation), operations);
-  return readable.filter((operation) => operation.wokenAt === undefined);
+  session: Session,
+  host: ConversationHost,
+  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
+  start: Exclude<ReplyStart, { opening: 'follow_up' }>,
+  reply: (held: HeldRun | undefined, ref: () => string | null) => AsyncIterable<ReplyLine>,
+  follow: HeldFollow = {},
+): AsyncIterable<ReplyLine> {
+  const decider = ctx.options.lateResultsDecider;
+  if (!decider) return reply(undefined, () => opened.ref);
+  const chat = chatInbox(ctx, request, session, host, opened);
+  const ref = () => chat.ref;
+  return sent<ReplyLine>(async (send) => {
+    const runOnce = (begin: ReplyStart, lines: (held: HeldRun) => AsyncIterable<ReplyLine>) =>
+      runConversation({
+        conversation: chat.key,
+        inbox: chat.inbox,
+        policy: decider.policy,
+        start: begin,
+        newId: () => crypto.randomUUID(),
+        renewEveryMs: chat.leaseMs / 3,
+        reply: async (run) => {
+          const renew = () => chat.inbox.renew(chat.key, run.hold);
+          for await (const line of lines({ run, renew })) {
+            chat.seen(line);
+            send(line);
+          }
+        },
+        gaveUp: (items) => {
+          ctx.options.onError?.(
+            // labels-exempt: internal diagnostic; no reader sees a given-up result
+            new TheoremError('unavailable', 'The late-results policy gave up results', {
+              cause: { code: 'late_results_given_up', operationIds: items.map((item) => item.id) },
+            }),
+            { request },
+          );
+        },
+      });
+    let run = await runOnce(start, (held) => reply(held, ref));
+    let failure = run.outcome === 'held' ? undefined : run.failure;
+    while (run.outcome === 'continue') {
+      const paused = await isPaused(host, session, chat.ref, opened.conversation);
+      if (follow.retry === undefined || paused) {
+        await letGo(chat.inbox, chat.key, run.hold);
+        break;
+      }
+      run = await runOnce({ opening: 'follow_up', hold: run.hold }, (held) =>
+        wakeReplyLines(ctx, request, session, host, chat.ref, {}, held),
+      );
+      if (run.outcome !== 'held' && run.failure !== undefined) failure ??= run.failure;
+    }
+    if (run.outcome === 'held') follow.retry?.(run.leasedUntil);
+    if (failure !== undefined) throw failure;
+  });
+}
+
+/** Whether the chat waits on gates: a wake leaves it to the answer that goes on. */
+async function isPaused(
+  host: ConversationHost,
+  session: Session,
+  ref: string | null,
+  fallback: StoredConversation,
+): Promise<boolean> {
+  const conversation =
+    ref === null ? fallback : (await host.store.read(session.id, ref))?.conversation;
+  return conversation?.paused !== undefined;
+}
+
+/** Lets the chat go under `hold`, reading again each time a result arrives first. */
+async function letGo(
+  inbox: ReturnType<typeof chatInbox>['inbox'],
+  key: string,
+  hold: string,
+): Promise<void> {
+  for (;;) {
+    const { version } = await inbox.read(key);
+    if ((await inbox.release(key, hold, version)) !== 'moved') return;
+  }
+}
+
+/** The late results a reply's model reads: what it opened with, then what each later moment hands it. */
+function lateSource(run: ReplyRun<LateResultItem>): LateResultsSource {
+  let opening = true;
+  return async ({ stage, step }) => {
+    if (opening && stage === 'pre_turn') {
+      opening = false;
+      return run.opened.map((item) => item.outcome);
+    }
+    return (await run.take({ stage, step })).map((item) => item.outcome);
+  };
 }
 
 /** One model run of a chat's reply, its gates recorded in the session as they pause. */
@@ -999,8 +1126,9 @@ async function* chatTurn(
   session: Session,
   turn: ReplyTurn,
   key: string | undefined,
+  signal: AbortSignal,
   stop: AbortController,
-  late: LateFeed,
+  late: ReplyRun<LateResultItem> | undefined,
 ): AsyncGenerator<TurnEvent> {
   const state = await ctx.sessions.read(session.id);
   const provider = await providerFor(ctx, request, turn.model);
@@ -1027,11 +1155,11 @@ async function* chatTurn(
           ctx.options.pageToolTimeoutMs,
         ).execution,
         input: turn.input,
-        ...(await openingLateResults(ctx, request, host, turn, state.operations, late)),
+        ...(late ? { lateResults: lateSource(late) } : {}),
         ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
-        signal: AbortSignal.any([request.signal, stop.signal]),
+        signal,
         host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
@@ -1060,29 +1188,27 @@ async function* chatTurn(
   }
 }
 
-/** How this request runs the model for a reply: its generation, and its abort (the request's, or a stop). */
+/**
+ * How this request runs the model for a reply: its generation, its abort (the request's, a stop,
+ * or its hold losing the chat), and the chat's hold it saves under.
+ */
 function chatRunner(
   ctx: HandlerContext,
   request: Request,
   session: Session,
   generation: {
-    conversation?: string;
     model?: string;
     effort?: string;
     turnId?: string;
     stated?: StatedTurn;
   },
-  given?: readonly SettledOperation[],
+  held?: HeldRun,
 ): ReplyRunner {
   const key = generation.turnId ? inboxKey(session.id, generation.turnId) : undefined;
   const stop = new AbortController();
-  const signal = AbortSignal.any([request.signal, stop.signal]);
+  const signal = AbortSignal.any([request.signal, stop.signal, ...(held ? [held.run.signal] : [])]);
   return {
-    run: (turn) =>
-      chatTurn(ctx, request, session, turn, key, stop, {
-        ...(generation.conversation === undefined ? {} : { conversation: generation.conversation }),
-        ...(given ? { given } : {}),
-      }),
+    run: (turn) => chatTurn(ctx, request, session, turn, key, signal, stop, held?.run),
     async compact(history, tokens, model) {
       const provider = await providerFor(ctx, request, model);
       const compacted = await compactHistory(
@@ -1101,6 +1227,7 @@ function chatRunner(
     ...(generation.effort ? { effort: generation.effort } : {}),
     ...(generation.stated ? { stated: generation.stated } : {}),
     signal,
+    ...(held ? { reply: held.run.reply, held: held.renew } : {}),
   };
 }
 
@@ -1132,12 +1259,12 @@ async function turn(
     body.input,
     await ctx.options.context?.(request),
   );
-  const runner = chatRunner(ctx, request, session, body);
   const host = conversationHost(ctx, session);
   if (!host) {
     if (body.conversation !== undefined) throw statelessRefusal('continue');
     // labels-exempt: internal diagnostic; the user reads error.request
     if (body.abandon) throw statelessRefusal('walk away from');
+    const runner = chatRunner(ctx, request, session, body);
     return eventStream(ctx, request, () =>
       runner.run({
         input: message.input,
@@ -1156,7 +1283,15 @@ async function turn(
     ? await takeWalkedAway(ctx, request, session, body.abandon, opened.conversation)
     : undefined;
   return eventStream(ctx, request, () =>
-    messageReply({ host, opened, message, ...(walkAway ? { walkAway } : {}), runner }),
+    heldLines(ctx, request, session, host, opened, { opening: 'message', takeOver: true }, (held) =>
+      messageReply({
+        host,
+        opened,
+        message,
+        ...(walkAway ? { walkAway } : {}),
+        runner: chatRunner(ctx, request, session, body, held),
+      }),
+    ),
   );
 }
 
@@ -1181,76 +1316,69 @@ async function conversation(
 }
 
 /**
- * A reply to no message, for results that ended since the model last ran. Each result is taken by
- * one wake before the decider is asked, so two pages that wake at once run it once. The decider's
- * `give` picks what the reply reads; what it leaves is let go, for a later reply.
+ * A reply to no message, for results that ended since the model last ran. It runs under a hold of
+ * the chat, so two pages that wake at once run it once, and reads what the decider's policy tells.
  */
 async function wake(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   const body = await readBody(request, theoremWakeRequestSchema, ctx.options.maxRequestBytes);
   const input = kernelTurnInput(body.input ?? {}, await ctx.options.context?.(request));
-  const lines = await wakeLines(ctx, request, session, body.conversation, body, input);
-  return eventStream(ctx, request, lines ? () => lines : async function* () {});
+  const host = conversationHost(ctx, session);
+  if (!host) throw statelessRefusal('wake');
+  const lines = await wakeLines(ctx, request, session, host, body.conversation, body, {}, input);
+  return eventStream(ctx, request, () => lines);
 }
 
-/** The wake's reply, or undefined when the decider gives it nothing to read. */
+/**
+ * The wake's reply under a hold of the chat; nothing when no decider tells a result, or while a
+ * reply waits on gates: the answer that goes on reads what waits.
+ */
 async function wakeLines(
   ctx: HandlerContext,
   request: Request,
   session: Session,
-  conversation: string,
+  host: ConversationHost,
+  ref: string,
   generation: { model?: string; effort?: string; turnId?: string },
+  follow: HeldFollow,
   input?: Pick<TurnInput, 'options' | 'context'>,
-): Promise<AsyncIterable<ReplyLine> | undefined> {
-  const host = conversationHost(ctx, session);
-  if (!host) throw statelessRefusal('wake');
-  if (!ctx.options.lateResultsDecider) return undefined;
-  const opened = await openConversation(host, conversation, { kind: 'read' });
-  const { operations } = await ctx.sessions.read(session.id);
-  const due = await wakeResults(ctx, request, opened.conversation, operations);
-  if (due.length === 0) return undefined;
-  const now = Date.now();
-  const taken = await ctx.sessions.mutate(session.id, (state) =>
-    due.filter(({ operationId }) => {
-      const operation = state.operations[operationId];
-      if (operation?.status !== 'settled' || operation.wokenAt !== undefined) return false;
-      state.operations[operationId] = { ...operation, wokenAt: now };
-      return true;
-    }),
+): Promise<AsyncIterable<ReplyLine>> {
+  const opened = await openConversation(host, ref, { kind: 'read' });
+  if (!ctx.options.lateResultsDecider || opened.conversation.paused) return noLines();
+  return heldLines(
+    ctx,
+    request,
+    session,
+    host,
+    opened,
+    { opening: 'wake' },
+    (held, current) =>
+      wakeReplyLines(ctx, request, session, host, current(), generation, held, input),
+    follow,
   );
-  let given: SettledOperation[] = [];
-  try {
-    given = await givenResults(ctx, await ctx.options.host?.(request), conversation, taken, 'wake');
-  } finally {
-    const kept = new Set(given.map((operation) => operation.operationId));
-    const left = taken.filter((operation) => !kept.has(operation.operationId));
-    // why: A result the decider did not give leaves no mark, so a later wake can still give it.
-    if (left.length) await letGo(ctx, session, left, now);
-  }
-  if (given.length === 0) return undefined;
-  const runner = chatRunner(ctx, request, session, { ...generation, conversation }, given);
-  const { notifier } = ctx.options;
-  return (async function* () {
-    yield* wakeReply({ host, opened, runner, ...(input ? { input } : {}) });
-    // why: The page that woke draws its reply; any other page open on the session reads it now.
-    notifier?.publish(session.id);
-  })();
 }
 
-/** Takes the wake's mark off results it did not read. */
-async function letGo(
+/** No reply lines. */
+async function* noLines(): AsyncGenerator<ReplyLine> {}
+
+/**
+ * A reply to no message under `held`, on the chat as it stands now. The page that woke draws it;
+ * any other page open on the session reads it once it ends.
+ */
+async function* wakeReplyLines(
   ctx: HandlerContext,
+  request: Request,
   session: Session,
-  left: readonly SettledOperation[],
-  wokenAt: number,
-): Promise<void> {
-  await ctx.sessions.mutate(session.id, (state) => {
-    for (const { operationId } of left) {
-      const operation = state.operations[operationId];
-      if (operation?.status !== 'settled' || operation.wokenAt !== wokenAt) continue;
-      const { wokenAt: _taken, ...rest } = operation;
-      state.operations[operationId] = rest;
-    }
-  });
+  host: ConversationHost,
+  ref: string | null,
+  generation: { model?: string; effort?: string; turnId?: string },
+  held: HeldRun | undefined,
+  input?: Pick<TurnInput, 'options' | 'context'>,
+): AsyncGenerator<ReplyLine> {
+  if (ref === null) return;
+  const opened = await openConversation(host, ref, { kind: 'read' });
+  const runner = chatRunner(ctx, request, session, generation, held);
+  yield* wakeReply({ host, opened, runner, ...(input ? { input } : {}) });
+  ctx.options.notifier?.publish(session.id);
 }
 
 const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
@@ -1322,29 +1450,31 @@ async function currentView(
     ...(notifier && transcript.some(isDetachedBlock)
       ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
       : {}),
-    ...((await wakeDue(ctx, request, ref, conversation, operations))
+    ...((await wakeDue(ctx, request, session, host, ref, conversation))
       ? { wake: true as const }
       : {}),
   };
 }
 
-/** Whether the page wakes the chat now: results wait that no wake took, and the decider says so. */
+/**
+ * Whether the page wakes the chat now: the decider's policy tells a waiting result to a reply to no
+ * message. Never while a reply waits on gates: the answer that goes on reads what waits.
+ */
 async function wakeDue(
   ctx: HandlerContext,
   request: Request,
+  session: Session,
+  host: ConversationHost,
   ref: string,
   conversation: StoredConversation,
-  operations: TheoremSessionState['operations'],
 ): Promise<boolean> {
-  const due = ctx.options.lateResultsDecider?.due;
-  if (!due) return false;
-  const results = await wakeResults(ctx, request, conversation, operations);
-  if (results.length === 0) return false;
-  return await due.call(ctx.options.lateResultsDecider, {
-    host: await ctx.options.host?.(request),
-    conversation: ref,
-    results: results.map(lateResult),
-  });
+  const decider = ctx.options.lateResultsDecider;
+  if (!decider || conversation.paused) return false;
+  const chat = chatInbox(ctx, request, session, host, { ref, conversation });
+  const { items } = await chat.inbox.read(chat.key);
+  if (items.length === 0) return false;
+  const { tell } = await decider.policy(items, { stage: 'pre_turn', step: 0, opening: 'wake' });
+  return tell.length > 0;
 }
 
 type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
@@ -1596,10 +1726,30 @@ async function invoke(ctx: HandlerContext, request: Request, session: Session): 
   const call = { callId: body.gateId, operationId: body.operationId };
   const opened = await openConversation(host, body.conversation, { kind: 'answer', call });
   const settling = await settlingOf(ctx, request, session, body);
-  const runner = chatRunner(ctx, request, session, body);
+  const paused = opened.conversation.paused?.reply;
   return eventStream(ctx, request, () =>
-    answerReply({ host, opened, call, settling: settling(), runner }),
+    heldLines(ctx, request, session, host, opened, { opening: 'message', takeOver: true }, (held) =>
+      answered(held, paused, () =>
+        answerReply({
+          host,
+          opened,
+          call,
+          settling: settling(),
+          runner: chatRunner(ctx, request, session, body, held),
+        }),
+      ),
+    ),
   );
+}
+
+/** The answer's reply, handed first what the paused reply read, so it tells them as it goes on. */
+async function* answered(
+  held: HeldRun | undefined,
+  paused: string | undefined,
+  reply: () => AsyncIterable<ReplyLine>,
+): AsyncGenerator<ReplyLine> {
+  if (held && paused) await held.run.resume(paused);
+  yield* reply();
 }
 
 /** The answered call's events: its saved outcome again, or the call run as answered. */

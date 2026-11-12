@@ -426,6 +426,8 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). `agents studio …` runs the studio the project installed. |
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 | `jsr:@theoremjs/agents/evals` / `@theoremjs/agents/evals` | Graders that read trace records and write their results as trace records through the same sink. |
+| `jsr:@theoremjs/agents/conversation` / `@theoremjs/agents/conversation` | One reply at a time per conversation: the inbox contract your storage implements, the policy for what the model may be told now, and `runConversation`, which runs each reply under a hold. |
+| `jsr:@theoremjs/agents/conversation/testing` / `@theoremjs/agents/conversation/testing` | The scenarios every conversation inbox must pass (`conversationScenarios`). Test only. |
 
 The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. The same package shows the studio as a screen in your own app, with one server handler. Its README has both.
 

@@ -303,41 +303,7 @@ export type ReplyTurn = {
   stated?: StatedTurn;
   /** The tools and steps the reply had when it paused, for a reply that goes on. */
   carried?: ReplyCarried;
-  /** The conversation's detached calls whose results its model has not read yet. */
-  unread?: DetachedCall[];
 };
-
-/** A call that detached in a conversation: the operation the session keeps its end under. */
-export type DetachedCall = { callId: string; operationId: string };
-
-/**
- * The conversation's detached calls that no late-results block names.
- * invariant: The transcript is the record of what the model read, so a result is fed once.
- */
-function unreadDetachedCalls(transcript: readonly TranscriptBlock[]): DetachedCall[] {
-  const read = new Set(
-    transcript.flatMap((block) => (block.kind === 'late-results' ? block.operationIds : [])),
-  );
-  return transcript.flatMap((block) =>
-    block.kind === 'tool' &&
-    block.tool.state?.phase === 'background' &&
-    block.tool.operationId &&
-    !read.has(block.tool.operationId)
-      ? [{ callId: block.tool.callId, operationId: block.tool.operationId }]
-      : [],
-  );
-}
-
-/**
- * The calls a wake would read: none while a reply waits on gates or answers a message just posted.
- * invariant: A wake never runs beside a reply, so it never takes a person's message from one.
- */
-export function wakeableCalls(conversation: StoredConversation): DetachedCall[] {
-  if (conversation.paused) return [];
-  const last = conversation.transcript.at(-1);
-  if (!last || last.kind.startsWith('user-')) return [];
-  return unreadDetachedCalls(conversation.transcript);
-}
 
 /** What a reply's model run takes from the host. */
 export type ReplyRunner = {
@@ -357,6 +323,13 @@ export type ReplyRunner = {
   stated?: StatedTurn;
   carried?: ReplyCarried;
   signal: AbortSignal;
+  /** The reply's id under its chat's hold: a paused reply keeps it, so the reply that goes on resumes what it read. */
+  reply?: string;
+  /**
+   * Whether the reply's hold still has its chat, asked before each save. A reply that lost it saves
+   * nothing: the hold that took the chat tells what it read.
+   */
+  held?: () => Promise<boolean>;
 };
 
 /** A reply in progress: the history it was given, and its events. */
@@ -417,7 +390,7 @@ function committed(
 function pausedOn(
   conversation: StoredConversation,
   reply: Reply,
-  runner: Pick<ReplyRunner, 'model' | 'effort' | 'stated'>,
+  runner: Pick<ReplyRunner, 'model' | 'effort' | 'stated' | 'reply'>,
 ): StoredConversation {
   const paused: PausedReply = {
     events: reply.events,
@@ -428,18 +401,28 @@ function pausedOn(
     ...(runner.model ? { model: runner.model } : {}),
     ...(runner.effort ? { effort: runner.effort } : {}),
     ...(runner.stated ? { stated: runner.stated } : {}),
+    ...(runner.reply ? { reply: runner.reply } : {}),
   };
   return { ...conversation, ...metered(conversation, reply.events), paused };
 }
 
-/** The reply failed: it commits as far as it got, closed by its error. */
+/**
+ * The reply failed: it commits as far as it got, closed by its error. The late results it read
+ * leave with it, so a later reply tells them.
+ */
 function failed(
   host: ConversationHost,
   conversation: StoredConversation,
   reply: Reply,
   failure: ErrorEvent,
 ): StoredConversation {
-  const next = committed(host, conversation, reply);
+  const unread = (events: readonly TurnEvent[]) =>
+    events.filter((event) => event.type !== 'late_results');
+  const next = committed(host, conversation, {
+    ...reply,
+    events: unread(reply.events),
+    baseEvents: unread(reply.events.slice(0, reply.baseEvents)).length,
+  });
   if (next.transcript.slice(conversation.transcript.length).some((b) => b.kind === 'error')) {
     return next;
   }
@@ -483,8 +466,9 @@ async function* runReply(
   const { conversation } = opened;
   const startedAt = Date.now();
   const worked = () => ({ ...reply, workedMs: reply.workedMs + (Date.now() - startedAt) });
+  // invariant: A reply whose hold lost its chat saves nothing; the hold that has it tells what this one read.
+  const held = async () => !runner.held || (await runner.held());
   let errorEvent: ErrorEvent | undefined;
-  let current = opened;
   try {
     const events = runner.run({
       input,
@@ -494,8 +478,6 @@ async function* runReply(
       effort: runner.effort,
       ...(runner.stated ? { stated: runner.stated } : {}),
       ...(runner.carried ? { carried: runner.carried } : {}),
-      // why: Late results open a reply; a reply that goes on after a pause reads them on the next one.
-      ...(runner.carried ? {} : { unread: unreadDetachedCalls(conversation.transcript) }),
     });
     for await (const event of events) {
       reply.events.push(event);
@@ -511,35 +493,37 @@ async function* runReply(
       yield event;
     }
   } catch (err) {
-    current = await save(
-      host,
-      current,
-      runner.signal.aborted
-        ? stopped(host, conversation, worked())
-        : failed(host, conversation, worked(), toErrorEvent(err)),
-    );
-    yield* refLine(current);
+    if (await held()) {
+      const written = await save(
+        host,
+        opened,
+        runner.signal.aborted
+          ? stopped(host, conversation, worked())
+          : failed(host, conversation, worked(), toErrorEvent(err)),
+      );
+      yield* refLine(written);
+    }
     // why: A stopped reply is no failure; the browser draws what it left from the ref.
     if (!runner.signal.aborted) throw err;
     return;
   }
   const settled = worked();
+  if (!(await held())) return;
   if (runner.signal.aborted) {
-    current = await save(host, current, stopped(host, conversation, settled));
+    yield* refLine(await save(host, opened, stopped(host, conversation, settled)));
   } else if (errorEvent) {
-    current = await save(host, current, failed(host, conversation, settled, errorEvent));
+    yield* refLine(await save(host, opened, failed(host, conversation, settled, errorEvent)));
+    yield errorEvent;
   } else if (gatedToolsFromEvents(settled.events).length) {
-    current = await save(host, current, pausedOn(conversation, settled, runner));
+    yield* refLine(await save(host, opened, pausedOn(conversation, settled, runner)));
   } else {
-    current = await save(host, current, committed(host, conversation, settled));
+    const current = await save(host, opened, committed(host, conversation, settled));
     yield* refLine(current);
     // why: The reply is the browser's before compaction runs, so a failed compaction loses none of it.
+    if (!(await held())) return;
     const compacted = await compactedAfter(host, current, settled, runner, withMessage);
     if (compacted) yield* refLine(compacted);
-    return;
   }
-  yield* refLine(current);
-  if (errorEvent) yield errorEvent;
 }
 
 /**
@@ -827,6 +811,7 @@ export async function* answerReply(args: {
     // why: An answer that failed before its call settled leaves the reply as it was, to answer again.
     const settledCall = reply.events.some((event) => settlesToolCall(event, args.call.callId));
     const events = error && !settledCall ? paused.events : reply.events;
+    if (runner.held && !(await runner.held())) return;
     opened = await save(host, opened, {
       ...opened.conversation,
       paused: { ...paused, events, workedMs: reply.workedMs, endedAt: Date.now() },

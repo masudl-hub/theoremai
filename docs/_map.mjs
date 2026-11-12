@@ -454,6 +454,36 @@ const graph = {
       ],
     },
 
+    conversation: {
+      export: './conversation',
+      doc: 'docs/contracts/conversation.md',
+      owns: ['src/conversation/'],
+      owns_except: ['src/conversation/testing.ts'],
+      validates: ['tests/conversation/', 'tests/web/conversation-inbox.test.ts'],
+      required_sections: [
+        'Export',
+        'Ownership',
+        'Rules that must stay true',
+        'The run',
+        'Paused replies',
+        'Exported API',
+      ],
+      section_triggers: [
+        { paths: ['src/conversation/run.ts'], sections: ['Rules that must stay true', 'The run'] },
+        { paths: ['src/conversation/memory.ts'], sections: ['Paused replies'] },
+        { paths: ['src/conversation/types.ts'], sections: ['Exported API'] },
+      ],
+    },
+
+    'conversation-testing': {
+      export: './conversation/testing',
+      doc: 'docs/contracts/conversation.md',
+      owns: ['src/conversation/testing.ts'],
+      validates: ['tests/conversation/memory.test.ts', 'tests/web/conversation-inbox.test.ts'],
+      required_sections: ['Export', 'Scenarios', 'Exported API'],
+      section_triggers: [{ paths: ['src/conversation/testing.ts'], sections: ['Scenarios'] }],
+    },
+
     'guardrails-testing': {
       export: './guardrails/testing',
       doc: 'docs/contracts/guardrails.md',

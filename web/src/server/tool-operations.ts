@@ -104,6 +104,13 @@ function saveOutcome(
     outcome,
     settledAt,
   };
+  // why: A detached call's end is an item in its conversation's inbox; a hold reads again before it lets go.
+  if (reply) {
+    state.inbox = {
+      version: (state.inbox?.version ?? 0) + 1,
+      conversations: state.inbox?.conversations ?? {},
+    };
+  }
 }
 
 export function sessionToolCoordinator(

@@ -16,7 +16,7 @@ import {
   createMemoryConversationStore,
   createMemorySessionStore,
   createTheoremHandler,
-  pageWakes,
+  tellEveryResult,
 } from '../../web/src/server/mod.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { atOpen } from '../fixtures/late-results.ts';
@@ -118,7 +118,7 @@ function harness(authorizeToolReplay?: () => boolean, prepare?: TurnWiring['prep
     sessionStore: createMemorySessionStore(),
     session: () => 'one-person',
     background: () => ({ detached: (handle) => handles.push(handle), event: () => {} }),
-    lateResultsDecider: pageWakes,
+    lateResultsDecider: tellEveryResult,
     ...(authorizeToolReplay ? { authorizeToolReplay } : {}),
     ...(prepare ? { prepare } : {}),
   });
@@ -257,7 +257,7 @@ Deno.test('a call still running at the next turn is read once, after it settles'
   }
 });
 
-Deno.test('a result that settles while a reply waits on an approval is read once, by the next turn', async () => {
+Deno.test('a result that settles while a reply waits on an approval is read once, by the reply that goes on', async () => {
   const { transport, handles, seen } = harness();
   askSteps.add(3);
   try {
@@ -281,9 +281,9 @@ Deno.test('a result that settles while a reply waits on an approval is read once
       },
       () => {},
     );
-    assertEquals(reads(seen, before), 0, 'the reply that went on read it mid-reply');
-    await say(transport, 'any news?', ref);
-    const view = await transport.conversation({ conversation: ref });
+    assert(reads(seen, before) > 0, 'the reply that went on did not read it');
+    const next = await say(transport, 'any news?', ref);
+    const view = await transport.conversation({ conversation: next });
     assertEquals(view.transcript.filter((b) => b.kind === 'late-results').length, 1);
   } finally {
     askSteps.clear();

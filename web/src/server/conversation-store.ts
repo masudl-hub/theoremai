@@ -42,6 +42,8 @@ export type PausedReply = {
   model?: string;
   effort?: string;
   stated?: StatedTurn;
+  /** The reply's id under its chat's hold, so the reply that goes on after its gates resumes what it read. */
+  reply?: string;
 };
 
 /** One conversation as the host stores it. */
@@ -73,6 +75,7 @@ const pausedReply = z.object({
   model: z.string().optional(),
   effort: z.string().optional(),
   stated: statedTurnSchema.optional(),
+  reply: z.string().min(1).optional(),
 });
 true satisfies Equals<z.infer<typeof pausedReply>, PausedReply>;
 

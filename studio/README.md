@@ -116,7 +116,7 @@ export const theorem: TurnWiring = {
 | `register()` | Calls it once as it loads the project, before anything runs: register the project's profiles and tools here. It may be `async`. |
 | `provider` | The keys, network, and limits every model call runs on. Without it, a run's model call fails for want of a key. |
 | `prepare(turn)` | Gives it each text, image and speech turn, and runs the turn it returns: add the system prompt, history, credentials or `onStage` your app adds, and the `execution` and `background` that keep your app's late tool calls. The studio keeps the profile and the context the run was given, and records each call in its own session too. |
-| `lateResultsDecider` | Decides, as your server does, who tells a chat's model that a background call ended, with the `host` of the person the run acts as. Unset, no chat wakes and no reply reads a late result. |
+| `lateResultsDecider` | Decides, as your server does, who tells a chat's model that a background call ended. Unset, no chat wakes and no reply reads a late result. |
 
 The studio's chat keeps its own conversation and never writes to your app's stores. `prepare` can change the history it is given.
 

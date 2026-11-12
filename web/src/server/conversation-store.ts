@@ -27,6 +27,9 @@ import { transcriptBlockSchema } from '../client/transcript-schema.ts';
 import { type StatedTurn, statedTurnSchema } from '../client/transport.ts';
 import { type MemorySessionStoreOptions, memoryStoreLimits } from './session-store.ts';
 
+/** A reply's base and the count of its events that base holds, as they stood before a compaction. */
+export type UncompactedBase = { base: TurnHistoryMessage[]; baseEvents: number };
+
 /** A reply paused on gates: its events so far, and the history it was given. */
 export type PausedReply = {
   events: TurnEvent[];
@@ -34,6 +37,8 @@ export type PausedReply = {
   base: TurnHistoryMessage[];
   /** How many of `events` `base` already holds: a compaction mid-reply moves the base. */
   baseEvents: number;
+  /** The base before a compaction folded in late results this reply read; a failure goes back to it. */
+  uncompacted?: UncompactedBase;
   /** How long the reply worked before it paused (ms), approval waits excluded. */
   workedMs: number;
   /** When the reply last paused (epoch ms). */
@@ -70,6 +75,12 @@ const pausedReply = z.object({
   events: z.array(turnEventSchema),
   base: z.array(turnHistoryMessageSchema),
   baseEvents: z.number().int().nonnegative(),
+  uncompacted: z
+    .object({
+      base: z.array(turnHistoryMessageSchema),
+      baseEvents: z.number().int().nonnegative(),
+    })
+    .optional(),
   workedMs: z.number().nonnegative(),
   endedAt: z.number(),
   model: z.string().optional(),

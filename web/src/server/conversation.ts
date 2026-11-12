@@ -63,6 +63,7 @@ import {
   type PausedReply,
   type StoredConversation,
   type TheoremConversationStore,
+  type UncompactedBase,
   unknownConversation,
 } from './conversation-store.ts';
 import { kernelTurnInput } from './turn-input.ts';
@@ -338,6 +339,8 @@ type Reply = {
   events: TurnEvent[];
   /** How many of `events` `base` already holds. */
   baseEvents: number;
+  /** The base before the first compaction that folded in late results this reply read. */
+  uncompacted?: UncompactedBase;
   workedMs: number;
 };
 
@@ -396,6 +399,7 @@ function pausedOn(
     events: reply.events,
     base: reply.base,
     baseEvents: reply.baseEvents,
+    ...(reply.uncompacted ? { uncompacted: reply.uncompacted } : {}),
     workedMs: reply.workedMs,
     endedAt: Date.now(),
     ...(runner.model ? { model: runner.model } : {}),
@@ -408,7 +412,8 @@ function pausedOn(
 
 /**
  * The reply failed: it commits as far as it got, closed by its error. The late results it read
- * leave with it, so a later reply tells them.
+ * leave with it, so a later reply tells them. A compaction that folded them in is undone too: the
+ * history goes back to its base before that compaction, and the next reply compacts again.
  */
 function failed(
   host: ConversationHost,
@@ -416,12 +421,19 @@ function failed(
   reply: Reply,
   failure: ErrorEvent,
 ): StoredConversation {
+  const from = reply.uncompacted ?? reply;
   const unread = (events: readonly TurnEvent[]) =>
-    events.filter((event) => event.type !== 'late_results');
+    events.filter(
+      (event, index) =>
+        event.type !== 'late_results' &&
+        !(reply.uncompacted && event.type === 'compaction' && index >= from.baseEvents),
+    );
+  const events = unread(reply.events);
   const next = committed(host, conversation, {
-    ...reply,
-    events: unread(reply.events),
-    baseEvents: unread(reply.events.slice(0, reply.baseEvents)).length,
+    base: from.base,
+    events,
+    baseEvents: unread(reply.events.slice(0, from.baseEvents)).length,
+    workedMs: reply.workedMs,
   });
   if (next.transcript.slice(conversation.transcript.length).some((b) => b.kind === 'error')) {
     return next;
@@ -487,6 +499,10 @@ async function* runReply(
         continue;
       }
       if (event.type === 'compaction') {
+        // invariant: A failure must not leave in the history a late result it gives back.
+        if (!reply.uncompacted && reply.events.some((seen) => seen.type === 'late_results')) {
+          reply.uncompacted = { base: reply.base, baseEvents: reply.baseEvents };
+        }
         reply.base = withMessage(event.history);
         reply.baseEvents = reply.events.length;
       }
@@ -670,6 +686,7 @@ function pausedReply(paused: PausedReply): Reply {
     base: paused.base,
     events: [...paused.events],
     baseEvents: paused.baseEvents,
+    ...(paused.uncompacted ? { uncompacted: paused.uncompacted } : {}),
     workedMs: paused.workedMs,
   };
 }

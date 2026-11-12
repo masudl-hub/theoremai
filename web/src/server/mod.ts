@@ -54,6 +54,7 @@ export {
   type StoredConversation,
   storedConversationSchema,
   type TheoremConversationStore,
+  type UncompactedBase,
   unknownConversation,
 } from './conversation-store.ts';
 export {

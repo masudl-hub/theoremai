@@ -72,21 +72,21 @@ Deno.test('a shown option sends its first value until one is picked, and a dropp
   });
 });
 
-Deno.test("code options send their first value until picked, and path goes as the turn's own", () => {
+Deno.test("code options go unset until picked, and path goes as the turn's own", () => {
   const draft = createExampleDraft();
   draft.identity.options = [
     option('path', ['web', 'voice'], { isShownInChat: false }),
     option('plan', ['free', 'paid'], { isShownInChat: false }),
   ];
   const inputs = pageInputsOf(payloadOf(draft));
-  assertEquals(sentPageValues(inputs, { options: {}, contextJson: '' }).stated, {
-    path: 'web',
-    options: { plan: 'free' },
-  });
+  assertEquals(sentPageValues(inputs, { options: {}, contextJson: '' }).stated, { options: {} });
   const picked = { options: { path: 'voice', plan: 'gone' }, contextJson: '' };
   assertEquals(sentPageValues(inputs, picked).stated, {
     path: 'voice',
-    options: { plan: 'free' },
+    options: {},
+  });
+  assertEquals(sentPageValues(inputs, { options: { plan: 'paid' }, contextJson: '' }).stated, {
+    options: { plan: 'paid' },
   });
   assertEquals(
     sentPageValues(pageInputsOf(payloadOf(createExampleDraft())), picked).stated,

@@ -79,28 +79,37 @@ export function pageInputsOf(payload: StudioRunPayload): PageInputs | null {
   return { person, code, takesContext, pageTools };
 }
 
-/** The value a pick sends: the one picked while the profile still lists it, else its first. */
-function pickedValue(allowed: readonly string[], picked: string | undefined): string {
-  return allowed.find((value) => value === picked) ?? allowed.at(0) ?? '';
+/**
+ * The value an option states. One the code states goes unset until picked, as code may leave it;
+ * one a person picks holds its first value until picked, as the chat's own picker does.
+ */
+export function pickedValue(
+  allowed: readonly string[],
+  picked: string | undefined,
+  isPersonsPick: boolean,
+): string | undefined {
+  const value = allowed.find((each) => each === picked);
+  return value ?? (isPersonsPick ? allowed.at(0) : undefined);
 }
 
-/** Each option's pick. */
+/** Each option's value; one left unset is not sent. */
 function picksOf(
   declared: Record<string, readonly string[]>,
   values: PageValues,
+  isPersonsPick: boolean,
 ): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(declared).map(([name, allowed]) => [
-      name,
-      pickedValue(allowed, values.options[name]),
-    ]),
+    Object.entries(declared).flatMap(([name, allowed]) => {
+      const value = pickedValue(allowed, values.options[name], isPersonsPick);
+      return value === undefined ? [] : [[name, value]];
+    }),
   );
 }
 
 /** The turn's path and options as picked: the `path` option is the turn's own path. */
 function statedTurn(inputs: PageInputs, values: PageValues): StatedTurn | undefined {
   if (!Object.keys(inputs.code).length) return undefined;
-  const { path, ...options } = picksOf(inputs.code, values);
+  const { path, ...options } = picksOf(inputs.code, values, false);
   return { ...(path === undefined ? {} : { path }), options };
 }
 
@@ -115,7 +124,9 @@ export function sentPageValues(
   contextError?: string;
 } {
   if (!inputs) return {};
-  const options = Object.keys(inputs.person).length ? picksOf(inputs.person, values) : undefined;
+  const options = Object.keys(inputs.person).length
+    ? picksOf(inputs.person, values, true)
+    : undefined;
   const stated = statedTurn(inputs, values);
   const sent = { options, ...(stated ? { stated } : {}) };
   const typed = inputs.takesContext ? values.contextJson.trim() : '';

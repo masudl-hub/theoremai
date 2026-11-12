@@ -303,7 +303,12 @@ import {
   type WorkspaceAgent,
   WorkspaceContext,
 } from './inspector-context.ts';
-import { CONTEXT_PLACEHOLDER, contextErrorOf, usePageValues } from './lib/studio-page.ts';
+import {
+  CONTEXT_PLACEHOLDER,
+  contextErrorOf,
+  pickedValue,
+  usePageValues,
+} from './lib/studio-page.ts';
 import { useProject } from './lib/studio-project.ts';
 import {
   setToolCredential,
@@ -519,15 +524,10 @@ function SystemPromptSection({
   );
 }
 
-/** The value an option states: the page's pick while the option still takes it, or its first. */
-const statedValue = (option: OptionDraft, picked: string | undefined) => {
-  const values = option.choices.map(({ value }) => value);
-  return values.find((value) => value === picked) ?? values[0];
-};
-
 /** A value's hover: what the catalog says of it, then what pressing it does here. */
-const valueHint = (meta: ReturnType<typeof fieldMeta>) => ({
-  marked: `${meta?.doc ?? ''} The studio states this value.`.trim(),
+const valueHint = (meta: ReturnType<typeof fieldMeta>, canUnset: boolean) => ({
+  marked:
+    `${meta?.doc ?? ''} The studio states this value.${canUnset ? ' Press to leave it unset.' : ''}`.trim(),
   other: `${meta?.doc ?? ''} Press to state this value.`.trim(),
 });
 
@@ -675,6 +675,7 @@ function OptionRow({
             option.isShownInChat
               ? fieldMeta('inputs.options.*.choices.*.value')
               : fieldMeta('identity.options.*.choices.*.value'),
+            !option.isShownInChat,
           )}
           onChange={(values) => {
             onChange({ choices: optionChoices(values, option.choices) });
@@ -730,9 +731,18 @@ function OptionRows({
               option={option}
               at={at}
               canShow={canShow}
-              stated={statedValue(option, values.options[option.name])}
+              stated={pickedValue(
+                option.choices.map(({ value }) => value),
+                values.options[option.name],
+                option.isShownInChat,
+              )}
               onState={(value) => {
-                setValues({ ...values, options: { ...values.options, [option.name]: value } });
+                const { [option.name]: stated, ...rest } = values.options;
+                const isUnpick = stated === value && !option.isShownInChat;
+                setValues({
+                  ...values,
+                  options: isUnpick ? rest : { ...rest, [option.name]: value },
+                });
               }}
               onChange={(change) => {
                 set({

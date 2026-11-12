@@ -6,7 +6,12 @@ import { invokeTool, registerProfile, registerTool } from '../../src/kernel/defa
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
-import { stepCallIds, withCallOrder } from '../../src/kernel/tools/call-order.ts';
+import {
+  declaredInputSchema,
+  stepCallIds,
+  withCallOrder,
+} from '../../src/kernel/tools/call-order.ts';
+import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -171,6 +176,20 @@ Deno.test('after reaches each option of a union', () => {
   assertEquals(kinds.parse({ kind: 'b', after: ['x'] }), { kind: 'b', after: ['x'] });
   const either = withCallOrder('either', z.union([z.object({ a: z.string() }), z.object({})]));
   assertEquals(either.parse({ after: ['x'] }), { after: ['x'] });
+});
+
+Deno.test('a union tool read back from its schema takes after again, as a union', () => {
+  const input = z.discriminatedUnion('action', [
+    z.strictObject({ action: z.literal('find'), q: z.string() }),
+    z.strictObject({ action: z.literal('list'), limit: z.number() }),
+  ]);
+  const inputSchema = jsonSchemaFromZod(withCallOrder('union_read', input), 'input');
+  assertEquals(inputSchema.type, 'object');
+  const declared = declaredInputSchema({ after: true, inputSchema });
+  assertEquals(declared.type, undefined);
+  const read = z.fromJSONSchema(declared as Parameters<typeof z.fromJSONSchema>[0]);
+  const again = withCallOrder('union_read', read);
+  assertEquals(again.safeParse({ action: 'find', q: 'fern', after: ['x'] }).success, true);
 });
 
 Deno.test('a call outside a step has nothing to wait on', () => {

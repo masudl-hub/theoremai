@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import type { StepCall } from '../stages.ts';
+import { zodJsonSchema } from './schema.ts';
 
 const FIELD = 'after';
 
@@ -50,14 +51,16 @@ export function withCallOrder<TIn>(name: string, input: z.ZodType<TIn>): z.ZodTy
 }
 
 /**
- * A registered tool's input schema as the tool declared it, without the `after` field the kernel
- * added for the model. Registering the tool again from it adds the field once.
+ * A registered tool's input schema as the tool declared it: without the `after` field the kernel
+ * added for the model, and a union without the root `type` its JSON Schema was given. Registering
+ * the tool again from it adds the field once, to the same union.
  */
 export function declaredInputSchema(tool: {
   after?: boolean;
   inputSchema: Record<string, unknown>;
 }): Record<string, unknown> {
-  return tool.after ? withoutField(tool.inputSchema, FIELD) : tool.inputSchema;
+  const declared = zodJsonSchema(tool.inputSchema);
+  return tool.after ? withoutField(declared, FIELD) : declared;
 }
 
 function withoutField(schema: Record<string, unknown>, field: string): Record<string, unknown> {

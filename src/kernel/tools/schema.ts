@@ -72,16 +72,30 @@ function validateToolSchema(schema: JsonSchema, label: 'input' | 'output'): void
   }
 }
 
+/** The root `type` a union's schema is given, which the union itself never states. */
+const UNION_ROOT_TYPE = 'object';
+
 function jsonSchemaFromZod(schema: ZodType, io: 'input' | 'output' = 'output'): JsonSchema {
   const json = z.toJSONSchema(schema, { target: 'draft-7', io }) as JsonSchema;
   delete json.$schema;
   if (!json.type) {
-    json.type = 'object';
+    json.type = UNION_ROOT_TYPE;
   }
   return json;
 }
 
-export { jsonSchemaFromZod, validateToolSchema };
+/**
+ * `schema` as zod wrote it, without the root `type` `jsonSchemaFromZod` gives a union. Read back
+ * with that type beside its `oneOf` or `anyOf`, a union is an intersection with an object.
+ */
+function zodJsonSchema(schema: JsonSchema): JsonSchema {
+  const isUnion = schema.oneOf !== undefined || schema.anyOf !== undefined;
+  if (!isUnion || schema.type !== UNION_ROOT_TYPE || schema.properties !== undefined) return schema;
+  const { type: _added, ...union } = schema;
+  return union;
+}
+
+export { jsonSchemaFromZod, validateToolSchema, zodJsonSchema };
 
 /** Strips prototype-pollution keys before validation. */
 export function plainToolInput(input: unknown): unknown {

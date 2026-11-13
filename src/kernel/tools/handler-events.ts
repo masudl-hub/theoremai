@@ -4,7 +4,7 @@ import {
   DraftReader,
   type ProgressiveYieldGate,
 } from '../../guardrails/progressive-yield.ts';
-import { guardShownValue, guardToolResult } from '../../guardrails/tool-result.ts';
+import { guardToolResult, guardToolValue } from '../../guardrails/tool-result.ts';
 import type { Provenance, ResolvedGuardrailPolicy } from '../../guardrails/types.ts';
 import type { TurnEvent } from '../types.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
@@ -91,7 +91,7 @@ export class HandlerEvents {
   private *shown(value: unknown): Generator<TurnEvent, { shown: boolean; value?: unknown }> {
     const checks = this.checks;
     if (!checks) return { shown: true, value };
-    const read = guardShownValue(value, checks.provenance, checks.policy, checks.shown);
+    const read = guardToolValue(value, checks.provenance, checks.policy, checks.shown);
     if (read.event) yield { type: 'guardrail', guardrail: read.event };
     return 'value' in read ? { shown: true, value: read.value } : { shown: false };
   }

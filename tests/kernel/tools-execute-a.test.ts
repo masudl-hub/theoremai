@@ -818,6 +818,82 @@ function guardedProfile(detect: Record<string, unknown>): Profile {
   return { ...profileOf(), guardrails: { detect } } as unknown as Profile;
 }
 
+Deno.test("the guard reads a tool's text parts where the model reads them, and every part where the person sees it", async () => {
+  const profile = guardedProfile({
+    credentials: { at: { tool_output_function: 'redact', tool_shown_function: 'redact' } },
+  });
+  const tool = makeTool({
+    output: z.unknown(),
+    handler: () => ({
+      finding: 'ok',
+      parts: [
+        { type: 'text', text: `model text ${TEST_OPENAI_KEY}` },
+        { type: 'image', mimeType: 'image/png', data: 'abc', sent: true },
+        {
+          type: 'document',
+          mimeType: 'application/pdf',
+          uri: 'gs://bucket/card.pdf',
+          metadata: { caption: `shown ${TEST_OPENAI_KEY}` },
+        },
+      ],
+    }),
+  });
+  const { events, settlement } = await run(tool, { profile, ctx: { profile } });
+  const [complete] = toolEventsOf(events, 'complete');
+  check(
+    JSON.stringify(settlement.modelResult?.parts).includes(TEST_OPENAI_KEY),
+    false,
+    'model parts',
+  );
+  check(JSON.stringify(complete?.parts).includes(TEST_OPENAI_KEY), false, 'shown parts');
+  check(complete?.parts?.length, 3, 'every part is still shown');
+  check(
+    complete?.parts?.[1],
+    { type: 'image', mimeType: 'image/png', data: 'abc', sent: true },
+    'bytes pass unread and whole',
+  );
+  check(
+    events
+      .filter((e) => e.type === 'guardrail')
+      .map((e) => (e.type === 'guardrail' ? e.guardrail.boundary : undefined)),
+    ['tool_output_function', 'tool_shown_function', 'tool_shown_function'],
+    'each read is reported at its boundary',
+  );
+});
+
+Deno.test('a blocked text part withholds the result, and a blocked part is not shown', async () => {
+  const keyed = (where: 'text' | 'caption') =>
+    makeTool({
+      output: z.unknown(),
+      handler: () => ({
+        finding: 'ok',
+        parts: [
+          { type: 'text', text: where === 'text' ? TEST_OPENAI_KEY : 'plain' },
+          {
+            type: 'document',
+            mimeType: 'application/pdf',
+            uri: 'gs://bucket/a.pdf',
+            metadata: { caption: where === 'caption' ? TEST_OPENAI_KEY : 'plain' },
+          },
+          { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/b.pdf' },
+        ],
+      }),
+    });
+  const model = guardedProfile({ credentials: { at: { tool_output_function: 'block' } } });
+  const withheld = await run(keyed('text'), { profile: model, ctx: { profile: model } });
+  check(withheld.settlement.failure?.code, 'output_blocked', 'the model reads no result');
+
+  const person = guardedProfile({ credentials: { at: { tool_shown_function: 'block' } } });
+  const shown = await run(keyed('caption'), { profile: person, ctx: { profile: person } });
+  const [complete] = toolEventsOf(shown.events, 'complete');
+  check(
+    complete?.parts?.map((part) => ('uri' in part ? part.uri : part.type)),
+    ['text', 'gs://bucket/b.pdf'],
+    'only the blocked file is left out',
+  );
+  check(shown.settlement.modelResult?.media?.length, 3, 'the model side is untouched');
+});
+
 for (const from of ['handler', 'stage'] as const) {
   Deno.test(`the guard redacts a secret in failure details the ${from} set, read back and shown alike`, async () => {
     const profile = guardedProfile({

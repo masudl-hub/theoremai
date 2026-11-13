@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { type ToolBoundary, type ToolKind, toolBoundary } from '../../guardrails/boundaries.ts';
 import { checkDestinationGate } from '../../guardrails/destinations.ts';
 import { type DetectScope, scopeOf } from '../../guardrails/detect-at.ts';
@@ -6,9 +7,9 @@ import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import {
   checkTaintGate,
-  guardShownValue,
   guardToolFailureText,
   guardToolResult,
+  guardToolValue,
   inspectToolArguments,
   toolCallEvent,
 } from '../../guardrails/tool-result.ts';
@@ -28,7 +29,12 @@ import {
 import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
-import { isAwaitingUserInput, type Source } from '../turn-events.ts';
+import {
+  isAwaitingUserInput,
+  type Source,
+  type ToolOutputPart,
+  toolOutputPartRecord,
+} from '../turn-events.ts';
 import type { Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
@@ -340,6 +346,8 @@ interface ResultGuard {
   handlerEvents: (drafts: boolean) => HandlerEventChecks | undefined;
   /** What the person is shown of a value the call settles with, apart from what the model reads. */
   shown: (value: unknown) => Generator<TurnEvent, unknown>;
+  /** The parts the person is shown, each read without its bytes; one a match blocks is left out. */
+  shownParts: (parts: readonly ToolOutputPart[]) => Generator<TurnEvent, ToolOutputPart[]>;
 }
 
 /** What the model reads back from a call. */
@@ -420,11 +428,12 @@ function completeEvent(
     input: unknown;
     outputRaw: unknown;
     modelResult: ModelToolResult;
+    parts: readonly ToolOutputPart[];
     labels?: ToolLabels;
     labelFailed?: true;
   },
 ): TurnEvent {
-  const { input, outputRaw, modelResult } = settled;
+  const { input, outputRaw, modelResult, parts } = settled;
   const activityPast = settled.labelFailed
     ? failedActivityOf(base)
     : pastActivity(settled.labels, input, outputRaw);
@@ -432,7 +441,7 @@ function completeEvent(
     phase: 'complete',
     output: outputRaw,
     readBack: formatToolResult(modelResult),
-    ...(modelResult.media?.length ? { parts: modelResult.media } : {}),
+    ...(parts.length ? { parts: [...parts] } : {}),
     ...(modelResult.hidden ? { hidden: true as const } : {}),
     ...(activityPast ? { activityPast } : {}),
   });
@@ -511,6 +520,7 @@ async function* settleToolCall(args: {
         input,
         outputRaw: yield* guard.shown(outputRaw),
         modelResult,
+        parts: yield* guard.shownParts(modelResult.media ?? []),
         labels: args.labels,
         ...(post?.labelFailed ? { labelFailed: true as const } : {}),
       });
@@ -672,6 +682,7 @@ function resultGuard(
       drafts,
     };
   const shown = (value: unknown) => showValue(value, inputs);
+  const shownParts = (parts: readonly ToolOutputPart[]) => showParts(parts, inputs);
   const service = isGateResumeGranted(ctx.resume) ? signInService(tool, ctx.resume) : undefined;
   if (!service) {
     return {
@@ -679,6 +690,7 @@ function resultGuard(
       failure: (failure) => guardFailure(failure, inputs),
       handlerEvents,
       shown,
+      shownParts,
     };
   }
   const note = labelText('sign_in.done', { service }, ctx.profile.labels);
@@ -687,6 +699,7 @@ function resultGuard(
     failure: (failure) => afterSignIn(note, guardFailure(failure, inputs)),
     handlerEvents,
     shown,
+    shownParts,
   };
 }
 
@@ -1889,20 +1902,74 @@ function* guardResult(
   result: ModelToolResult,
   guard: GuardInputs,
 ): Generator<TurnEvent, GuardedResult> {
-  const read = yield* readBack(
-    result,
-    guard,
-    guard.kind && toolBoundary('tool_output', guard.kind),
-  );
+  const boundary = guard.kind && toolBoundary('tool_output', guard.kind);
+  const texts = yield* readTextParts(result, guard, boundary);
+  const read = texts && (yield* readBack(texts, guard, boundary));
   if (read) return { modelResult: read };
   const withheld = blockedOutput(guard);
   return { modelResult: yield* reportFailure(withheld, guard), withheld };
 }
 
+/**
+ * `result` with the text parts the model reads beside its read-back read at `boundary`, each
+ * match set to `redact` replaced; `undefined` when a match blocks them.
+ */
+function* readTextParts(
+  result: ModelToolResult,
+  guard: GuardInputs,
+  boundary: ToolBoundary | undefined,
+): Generator<TurnEvent, ModelToolResult | undefined> {
+  const media = result.media;
+  if (!media?.some((part) => part.type === 'text')) return result;
+  const texts = media.map((part) => (part.type === 'text' ? part.text : null));
+  const read = guardToolValue(texts, guard.provenance, guard.policy, boundary, {
+    callable: guard.callableTools,
+  });
+  if (read.event) yield { type: 'guardrail', guardrail: read.event };
+  if (!('value' in read)) return undefined;
+  const kept = keptTexts.safeParse(read.value);
+  if (!kept.success || kept.data.length !== media.length) {
+    throw new TheoremError('internal', 'A guard changed the shape of the text parts it read'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const { media: _media, parts: _parts, ...rest } = result;
+  return withMedia(
+    rest,
+    media.map((part, index) => {
+      const text = kept.data[index];
+      return part.type === 'text' && typeof text === 'string' ? { ...part, text } : part;
+    }),
+  );
+}
+
+const keptTexts = z.array(z.string().nullable());
+
+/** The parts the person is shown, each read without its bytes at `tool_shown_<kind>`; a blocked one is left out. */
+function* showParts(
+  parts: readonly ToolOutputPart[],
+  guard: GuardInputs,
+): Generator<TurnEvent, ToolOutputPart[]> {
+  const boundary = guard.kind && toolBoundary('tool_shown', guard.kind);
+  const shown: ToolOutputPart[] = [];
+  for (const part of parts) {
+    const { data, ...read } = 'data' in part ? part : { ...part, data: undefined };
+    const checked = guardToolValue(read, guard.provenance, guard.policy, boundary);
+    if (checked.event) yield { type: 'guardrail', guardrail: checked.event };
+    if (!('value' in checked)) continue;
+    const kept = toolOutputPartRecord.safeParse(
+      data === undefined || !isRecord(checked.value) ? checked.value : { ...checked.value, data },
+    );
+    if (!kept.success) {
+      throw new TheoremError('internal', 'A guard changed the shape of a part it read'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    shown.push(kept.data);
+  }
+  return shown;
+}
+
 /** What the person is shown of `value`, read at `tool_shown_<kind>`; a blocked one is the labels' words. */
 function* showValue(value: unknown, guard: GuardInputs): Generator<TurnEvent, unknown> {
   const boundary = guard.kind && toolBoundary('tool_shown', guard.kind);
-  const shown = guardShownValue(value, guard.provenance, guard.policy, boundary);
+  const shown = guardToolValue(value, guard.provenance, guard.policy, boundary);
   if (shown.event) yield { type: 'guardrail', guardrail: shown.event };
   return 'value' in shown ? shown.value : labelText('detect.shown_blocked', {}, guard.labels);
 }

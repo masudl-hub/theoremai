@@ -828,6 +828,10 @@ one throws. A host that formats a result without `modelText` through
 replaced, except those of `email`, `phone`, and `bank_account`.
 Its `output` (and an `error`'s message) is what the person is shown, read at
 `tool_shown_<kind>` apart from `readBack`; neither read changes the other.
+The text parts the model reads are read at `tool_output_<kind>` with the result; a
+block there withholds the result as `output_blocked`. Each of the event's `parts` is read at
+`tool_shown_<kind>` on its own, without its bytes, so a key in a reference's `metadata` is
+redacted too. A part a guard blocks there is left out of the event, and the other parts stay.
 
 ### Kernel scope
 
@@ -963,7 +967,7 @@ the chat's media block, and the `reference` that `resolveMedia` gets carry them 
 
 The kernel checks the parts with `toolOutputPartSchema` after the tool's own output schema. A
 part with a field it does not name, empty bytes, a blank `mimeType`, or an empty `uri` fails the
-call as `invalid_output`, with the bad field under `parts`. The kernel never drops a part. A
+call as `invalid_output`, with the bad field under `parts`. The check never drops a part. A
 `post_tool` `mutate` that replaces the output is checked the same way.
 
 A **reference** names a file the app can load, such as a `gs://` object or a signed address. The
@@ -973,7 +977,7 @@ returns for it, or the file name.
 
 `ModelToolResult.media` holds every part the tool returned. `ModelToolResult.parts` is what the
 model reads: the text and bytes, without `sent`, and no reference. One function makes `parts`
-from `media`, so the two never disagree. The `complete` event carries `media` as its `parts`, and
+from `media`, so the two never disagree. The `complete` event carries `media`, after the guards, as its `parts`, and
 the stored operation outcome keeps it, so a detached call settles with the same parts.
 
 - **Function tools** return the parts as `parts` in their output.

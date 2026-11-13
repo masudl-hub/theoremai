@@ -228,27 +228,29 @@ function guardToolFailureText(
   };
 }
 
-/** What a call shows the person of one value, after it was read at `tool_shown_<kind>`. */
-export interface ShownToolValue {
-  /** The value to show: every match set to `redact` replaced. Absent when a match blocks it. */
+/** One value of a call after it was read at its boundary. */
+export interface GuardedToolValue {
+  /** The value to pass on: every match set to `redact` replaced. Absent when a match blocks it. */
   value?: unknown;
   event?: GuardrailEvent;
 }
 
 /**
- * A call's output, error, and trace reach the person on the turn's events, apart from
- * what the model read back: the host's server forwards them to the browser as they are. Each is
- * read here at `tool_shown_<kind>`, so a key a tool returned is not shown. `readBack` is
- * untouched: what the model read is settled at `tool_output_<kind>`.
+ * A value of a call read whole at `boundary`, each match set to `redact` replaced in the string
+ * it sits in. A call's output, error, trace and parts reach the person on the turn's events,
+ * apart from what the model read back: the host's server forwards them to the browser as they
+ * are, so each is read at `tool_shown_<kind>`. The text parts the model reads beside its
+ * read-back are read at `tool_output_<kind>`, with `scope`.
  */
-function guardShownValue(
+function guardToolValue(
   value: unknown,
   provenance: Provenance,
   policy: ResolvedGuardrailPolicy,
   boundary: ToolBoundary | undefined,
-): ShownToolValue {
+  scope?: DetectScope,
+): GuardedToolValue {
   if (!boundary || value === undefined) return { value };
-  const found = readValue(value, boundary, policy.detect);
+  const found = readValue(value, boundary, policy.detect, scope);
   const event = detectEvent(boundary, found, provenance);
   return {
     ...(found.action === 'block' ? {} : { value: found.value }),
@@ -405,9 +407,9 @@ function checkTaintGate(
 export {
   checkTaintGate,
   composeToolText,
-  guardShownValue,
   guardToolFailureText,
   guardToolResult,
+  guardToolValue,
   inspectToolArguments,
   isRemoteOrigin,
   isSuspicious,

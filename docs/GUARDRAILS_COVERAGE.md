@@ -17,6 +17,7 @@ The contract's current wording, in [`docs/contracts/guardrails.md#invariant`](co
 - **Provider built-in tools.** They run inside the provider, before the kernel sees the call. The kernel reads the provider's report afterwards and ends the turn on a hit. That is detection, not a hold.
 - **`voice` reads nothing.** A voice clip is audio, and nothing turns it into text the boundary can read. See the proof table.
 - **`history` replays tool calls and reasoning unread.** Only the text of each message is read.
+- **A tool's file bytes pass unread.** An image, audio, video, or document a tool returns reaches the model and the person without a check. Its `uri`, `mimeType`, and `metadata` are read; its bytes are not text the detectors read.
 
 ## Where text is read
 
@@ -93,7 +94,7 @@ Status as of 20/10/2026. Every cited test passes. Each also fails when the kerne
 | `tool_arguments` · `http` | same | [tool-boundary.test.ts:529](../tests/guardrails/tool-boundary.test.ts#L529) | Proven |
 | `tool_arguments` · `mcp` | same | [tool-boundary.test.ts:550](../tests/guardrails/tool-boundary.test.ts#L550) | Proven |
 | `tool_arguments` · `agent` | same | [agent-tool.test.ts:1023](../tests/kernel/agent-tool.test.ts#L1023) | Proven |
-| `tool_output` · `function` | [execute.ts:1901](../src/kernel/tools/execute.ts#L1901); text parts: [execute.ts:1917](../src/kernel/tools/execute.ts#L1917) | [tool-boundary.test.ts:178](../tests/guardrails/tool-boundary.test.ts#L178); text parts: [tools-execute-a.test.ts:821](../tests/kernel/tools-execute-a.test.ts#L821), [tools-execute-a.test.ts:901](../tests/kernel/tools-execute-a.test.ts#L901) | Proven |
+| `tool_output` · `function` | [execute.ts:1901](../src/kernel/tools/execute.ts#L1901); text parts: [execute.ts:1917](../src/kernel/tools/execute.ts#L1917) | [tool-boundary.test.ts:178](../tests/guardrails/tool-boundary.test.ts#L178); text parts: [tools-execute-a.test.ts:821](../tests/kernel/tools-execute-a.test.ts#L821), [tools-execute-a.test.ts:922](../tests/kernel/tools-execute-a.test.ts#L922) | Proven |
 | `tool_output` · `http` | same | [tool-boundary.test.ts:202](../tests/guardrails/tool-boundary.test.ts#L202) | Proven |
 | `tool_output` · `mcp` | same | [tool-boundary.test.ts:565](../tests/guardrails/tool-boundary.test.ts#L565) | Proven |
 | `tool_output` · `agent` | same | [agent-tool.test.ts:1037](../tests/kernel/agent-tool.test.ts#L1037) | Proven |
@@ -101,7 +102,7 @@ Status as of 20/10/2026. Every cited test passes. Each also fails when the kerne
 | `tool_failure` · `http` | same | [tool-boundary.test.ts:323](../tests/guardrails/tool-boundary.test.ts#L323) | Proven |
 | `tool_failure` · `mcp` | same | [tool-boundary.test.ts:582](../tests/guardrails/tool-boundary.test.ts#L582) | Proven |
 | `tool_failure` · `agent` | same | [agent-tool.test.ts:1049](../tests/kernel/agent-tool.test.ts#L1049) | Proven |
-| `tool_shown` · `function` | [execute.ts:1977](../src/kernel/tools/execute.ts#L1977); parts: [execute.ts:1947](../src/kernel/tools/execute.ts#L1947) | [tool-shown.test.ts:67](../tests/kernel/tool-shown.test.ts#L67); parts: [tools-execute-a.test.ts:821](../tests/kernel/tools-execute-a.test.ts#L821), [tools-execute-a.test.ts:864](../tests/kernel/tools-execute-a.test.ts#L864), [tool-images.test.ts:204](../tests/kernel/tool-images.test.ts#L204) | Proven. A file's bytes, `uri`, and `mimeType` are not read |
+| `tool_shown` · `function` | [execute.ts:1971](../src/kernel/tools/execute.ts#L1971); parts: [execute.ts:1947](../src/kernel/tools/execute.ts#L1947) | [tool-shown.test.ts:67](../tests/kernel/tool-shown.test.ts#L67); parts: [tools-execute-a.test.ts:821](../tests/kernel/tools-execute-a.test.ts#L821), [tools-execute-a.test.ts:864](../tests/kernel/tools-execute-a.test.ts#L864), [tools-execute-a.test.ts:885](../tests/kernel/tools-execute-a.test.ts#L885), [tool-images.test.ts:204](../tests/kernel/tool-images.test.ts#L204) | Proven for every field but a file's bytes, which pass unread (see Gaps) |
 | `tool_shown` · `http` | same | [tool-boundary.test.ts:598](../tests/guardrails/tool-boundary.test.ts#L598) | Proven |
 | `tool_shown` · `mcp` | same | [tool-boundary.test.ts:615](../tests/guardrails/tool-boundary.test.ts#L615) | Proven |
 | `tool_shown` · `agent` | same | [agent-tool.test.ts:1059](../tests/kernel/agent-tool.test.ts#L1059) | Proven |

@@ -1951,19 +1951,13 @@ function* showParts(
   const boundary = guard.kind && toolBoundary('tool_shown', guard.kind);
   const shown: ToolOutputPart[] = [];
   for (const part of parts) {
-    // invariant: only a part's words are read (its text or `metadata`); bytes, `uri`, and `mimeType` are the file, and a signed `uri` must still load.
-    const words = part.type === 'text' ? part.text : part.metadata;
-    if (words === undefined) {
-      shown.push(part);
-      continue;
-    }
-    const checked = guardToolValue(words, guard.provenance, guard.policy, boundary);
+    // why: bytes are not text the detectors read; every other field of the part is read as it is shown.
+    const { data, ...read } = 'data' in part ? part : { ...part, data: undefined };
+    const checked = guardToolValue(read, guard.provenance, guard.policy, boundary);
     if (checked.event) yield { type: 'guardrail', guardrail: checked.event };
     if (!('value' in checked)) continue;
     const kept = toolOutputPartRecord.safeParse(
-      part.type === 'text'
-        ? { ...part, text: checked.value }
-        : { ...part, metadata: checked.value },
+      data === undefined || !isRecord(checked.value) ? checked.value : { ...checked.value, data },
     );
     if (!kept.success) {
       throw new TheoremError('internal', 'A guard changed the shape of a part it read'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

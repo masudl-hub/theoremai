@@ -201,23 +201,19 @@ Deno.test('a reference that breaks the part shape is a warning, not a failed cal
   assertEquals(toolEventsOf(events, 'error'), []);
 });
 
-Deno.test("a reference's metadata is read where the person sees it, and its address is left whole", async () => {
-  const signed = `https://files.example.com/card.pdf?token=${'eyJ'}hbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln`;
+Deno.test("a reference's address and metadata are read where the person sees it", async () => {
   registerShotTool('shot_shown', [], { tool_shown_http: 'redact' }, undefined, () => [
     {
       type: 'document',
       mimeType: 'application/pdf',
-      uri: signed,
-      metadata: { caption: `card ${TEST_OPENAI_KEY}`, link: signed },
+      uri: `https://files.example.com/card.pdf?key=${TEST_OPENAI_KEY}`,
+      metadata: { caption: `card ${TEST_OPENAI_KEY}` },
     },
   ]);
   const events = await run('shot_shown', {});
   const [complete] = toolEventsOf(events, 'complete');
-  const [part] = complete?.parts ?? [];
-  const ref = part && 'uri' in part ? part : undefined;
-  assertEquals(ref?.uri, signed);
-  assertEquals(JSON.stringify(ref?.metadata).includes(TEST_OPENAI_KEY), false);
-  assertEquals(ref?.metadata?.link === signed, false);
+  assertEquals(complete?.parts?.length, 1);
+  assertEquals(JSON.stringify(complete?.parts).includes(TEST_OPENAI_KEY), false);
 });
 
 Deno.test('a result the output guard blocks fetches no pictures', async () => {

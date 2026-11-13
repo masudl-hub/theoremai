@@ -830,8 +830,8 @@ Its `output` (and an `error`'s message) is what the person is shown, read at
 `tool_shown_<kind>` apart from `readBack`; neither read changes the other.
 The text parts the model reads are read at `tool_output_<kind>` with the result; a
 block there withholds the result as `output_blocked`. Each of the event's `parts` is read at
-`tool_shown_<kind>` on its own: a text part's `text` and a file's `metadata`. A file's bytes,
-`uri`, and `mimeType` are not read, so a signed `uri` still loads. A part a guard blocks there is left out of the event, and the other parts stay.
+`tool_shown_<kind>` on its own, every field but a file's bytes: its `text`, `uri`, `mimeType`,
+and `metadata`. A part a guard blocks there is left out of the event, and the other parts stay.
 
 ### Kernel scope
 

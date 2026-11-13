@@ -861,6 +861,27 @@ Deno.test("the guard reads a tool's text parts where the model reads them, and e
   );
 });
 
+Deno.test('what the person is shown of a file is read the same in the output and in the parts', async () => {
+  const profile = guardedProfile({ credentials: { at: { tool_shown_function: 'redact' } } });
+  const tool = makeTool({
+    output: z.unknown(),
+    handler: () => ({
+      finding: 'ok',
+      parts: [
+        {
+          type: 'document',
+          mimeType: 'application/pdf',
+          uri: `https://files.example.com/a.pdf?key=${TEST_OPENAI_KEY}`,
+        },
+      ],
+    }),
+  });
+  const { events } = await run(tool, { profile, ctx: { profile } });
+  const [complete] = toolEventsOf(events, 'complete');
+  check(JSON.stringify(complete?.output).includes(TEST_OPENAI_KEY), false, 'output');
+  check(JSON.stringify(complete?.parts).includes(TEST_OPENAI_KEY), false, 'parts');
+});
+
 Deno.test("a post_tool mutate's parts are read at both boundaries", async () => {
   const profile = guardedProfile({
     credentials: { at: { tool_output_function: 'redact', tool_shown_function: 'redact' } },

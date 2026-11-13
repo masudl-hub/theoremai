@@ -1,239 +1,196 @@
 # Guardrails coverage
 
-This page tracks what the kernel checks and where. Each name links to its one definition in the code. When this page and the code disagree, the code is right.
+Use this page to find out how Theorem's detectors read text at each boundary, and what crosses with no check. It shows methods only. The action at each cell is the builder's choice, so actions and defaults are not on this page. Scores for each cell are in the benchmark docs on the `guardrails-bench` branch.
 
-> **Not re-confirmed on 0.3.3.** This page came from the 0.3.4 branch. Its defaults table and its dataset figures were measured there on 20–21/10 and are not re-measured on 0.3.3. Read the defaults from `DETECTOR_META` until a new measurement replaces this page.
+When this page and the code disagree, the code is right. Each name in a code span exists in the code, and `node scripts/docs-claims.mjs check docs/GUARDRAILS_COVERAGE.md` fails when one does not.
 
 ## Invariant
 
 > **No data enters or leaves a Theorem agent without the ability to be checked and actioned.**
 
-This is the invariant we build and audit against. Each gap below is a place where it does not hold yet.
+This is the invariant we build and audit against. Each item under [Gaps](#gaps) is a place where it does not hold yet.
 
 The contract's current wording, in [`docs/contracts/guardrails.md#invariant`](contracts/guardrails.md#invariant), is narrower: it covers only what leaves. It will change once the gaps are closed or accepted.
 
-### Gaps
+## Terms
 
-- **Provider built-in tools.** They run inside the provider, before the kernel sees the call. The kernel reads the provider's report afterwards and ends the turn on a hit. That is detection, not a hold.
-- **`voice` reads nothing.** A voice clip is audio, and nothing turns it into text the boundary can read. See the proof table.
-- **`history` replays tool calls and reasoning unread.** Only the text of each message is read.
-- **A tool's file bytes pass unread.** An image, audio, video, or document a tool returns reaches the model and the person without a check. Its `uri`, `mimeType`, and `metadata` are read; its bytes are not text the detectors read.
+- **Boundary:** a place where the kernel reads text as it crosses. The list is `BOUNDARIES` in [`src/guardrails/boundaries.ts`](../src/guardrails/boundaries.ts), in the order a turn meets them.
+- **Detector:** a check that finds one kind of text, such as an email address or the canary token. The list is `DETECTORS` in [`src/guardrails/detectors.ts`](../src/guardrails/detectors.ts).
+- **Declared:** a detector is declared at a boundary when a builder can set an action for it there. `DETECTOR_BOUNDARIES` holds the declared boundaries for each detector. At a boundary that is not declared, the detector never runs.
+- **Method:** how a detector finds a match. Every method on this page is a rule in code: a pattern, a checksum, an exact match, or a run of words. No detector uses a model.
+- **Rewrite:** a second reading of the same text, such as the text with homoglyphs folded or base64 decoded. A match in a rewrite is mapped back to the stretch of the original text it came from.
 
-## Where text is read
+## Matrix
 
-A **boundary** is a place where the kernel reads text as it crosses. The order below is the order a turn meets them.[^boundaries] Each boundary's label and description is in `BOUNDARY_META`.[^boundary-meta]
+Each cell names the method of a detector at a boundary, and links to its entry below. A dash means the detector is not declared there.
 
-| Group | Boundaries | Defined |
-| --- | --- | --- |
-| Inbound: to the model from the person or the host | `user`, `attachment`, `voice`, `slots`, `context`, `history`, `injected`, `system`, `repair`, `live_user` | `INBOUND_BOUNDARIES`[^inbound] |
-| Tool: each crossing, for each kind of tool | crossings `tool_arguments`, `tool_output`, `tool_failure`, `tool_shown`, each paired with a kind `function`, `http`, `mcp`, `agent` (for example `tool_output_mcp`) | `TOOL_CROSSINGS`[^crossings] × `TOOL_KINDS`[^kinds] |
-| Outbound: the model's own text to the person | `reply`, `reply_structured`, `live_reply`, `thought` | `OUTBOUND_BOUNDARIES`[^outbound] |
+The columns group boundaries that read the same way:
 
-## What is looked for
+- **Inbound** is every boundary in `INBOUND_BOUNDARIES`.
+- Each tool column is one crossing for all four kinds in `TOOL_KINDS`.
 
-A **detector** finds one kind of text.[^detectors] Each detector belongs to a group[^groups] and takes an action at each boundary it reads.[^actions] The actions are:
+The detectors are declared at the same boundaries in every group, and for every tool kind. A script that read `DETECTOR_BOUNDARIES` confirmed this.
 
-- `ignore`: the text is not read.
-- `flag`: the hit is reported.
-- `redact`: the hit is replaced.
-- `block`: the text does not cross.
+| Detector | Inbound | `tool_arguments` | `tool_output` | `tool_failure` | `tool_shown` | `reply` | `reply_structured` | `live_reply` | `thought` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ids` | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) |
+| `financial` | [Checksums](#checksums) | [Checksums](#checksums) | [Checksums](#checksums) | [Checksums](#checksums) | [Checksums](#checksums) | [Checksums](#checksums) | [Checksums](#checksums) | [Checksums](#checksums) | [Checksums](#checksums) |
+| `network` | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) |
+| `credentials` | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) | [Secret rules](#secret-rules) |
+| `email` | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) |
+| `phone` | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) |
+| `bank_account` | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) | [Patterns](#patterns) |
+| `injection` | [Phrases](#phrases) | [Phrases](#phrases) | [Phrases and orders](#phrases-and-orders) | [Phrases and orders](#phrases-and-orders) | [Phrases](#phrases) | – | – | – | – |
+| `canary_leak` | – | [Token forms](#token-forms) | – | – | – | [Token forms](#token-forms) | [Token forms](#token-forms) | [Token forms](#token-forms) | [Token forms](#token-forms) |
+| `prompt_leak` | – | [Word runs](#word-runs) | – | – | – | [Word runs](#word-runs) | [Word runs](#word-runs) | [Word runs](#word-runs) | [Word runs](#word-runs) |
+| `marker_leak` | – | – | – | – | – | [Markers](#markers) | [Markers](#markers) | [Markers](#markers) | [Markers](#markers) |
+| `ungiven_images` | – | – | – | – | – | [Addresses](#addresses) | [Addresses](#addresses) | [Addresses](#addresses) | [Addresses](#addresses) |
+| `ungiven_links` | – | – | – | – | – | [Addresses](#addresses) | [Addresses](#addresses) | [Addresses](#addresses) | [Addresses](#addresses) |
+| `tool_leak` | – | – | – | – | – | [Names](#names) | [Names](#names) | [Names](#names) | [Names](#names) |
 
-A builder sets these under `guardrails.detect`, per detector or per boundary.[^detect-field]
+A builder can also add a detector of their own under `guardrails.detect`. See [Host detectors](#host-detectors). A host detector can be declared at every boundary.
 
-## Defaults
+`tests/guardrails/detect-matrix.test.ts` sends a match through every declared cell with every action, and checks that each detector stays silent at the boundaries it is not declared at.
 
-**Not re-confirmed on 0.3.3.** The default action is also the recommended one. The table below is copied from `DETECTOR_META`.[^meta] Each row links to its own entry. A blank cell means the detector does not apply at that boundary, so a builder cannot set it there.
+## Methods
 
-Key: R is redact, F is flag, B is block, and – is ignore.
+`detectAt` in [`src/guardrails/detect-at.ts`](../src/guardrails/detect-at.ts) is the one place where a match becomes an action. `theoremSpans` in the same file picks the method for each detector.
 
-| Detector | Group | Inbound | Tool arguments | Tool output and errors: `function` / others | Tool shown | `reply` / `reply_structured` / `live_reply` / `thought` |
-| --- | --- | --- | --- | --- | --- | --- |
-| `ids`[^ids] | data | R | F | R / R | – | – / – / – / – |
-| `financial`[^financial] | data | R | F | R / R | – | – / – / – / – |
-| `network`[^network] | data | R | F | R / R | – | – / – / – / – |
-| `credentials`[^credentials] | data | R | F | R / R | R | R / R / – / – |
-| `email`[^email] | data | F | F | F / F | – | – / – / – / – |
-| `phone`[^phone] | data | F | F | F / F | – | – / – / – / – |
-| `bank_account`[^bank-account] | data | F | F | F / F | – | – / – / – / – |
-| `injection`[^injection] | manipulation | R | – | R / R | – | – / – / – / – |
-| `canary_leak`[^canary-leak] | setup | | B | | | B / B / B / R |
-| `prompt_leak`[^prompt-leak] | setup | | F | | | B / B / B / R |
-| `marker_leak`[^marker-leak] | setup | | | | | B / B / B / R |
-| `tool_leak`[^tool-leak] | setup | | | | | F / F / F / F |
-| `ungiven_images`[^ungiven-images] | addresses | | | | | B / B / B / R |
-| `ungiven_links`[^ungiven-links] | addresses | | | | | – / – / – / – |
+### Patterns
 
-The patterns behind the detectors can be configured in two ways:
+`ids`, `network`, `email`, `phone`, and `bank_account` read the text as written with regular expressions. Each method is the same at every boundary. The patterns are in [`src/guardrails/sensitive.ts`](../src/guardrails/sensitive.ts) and run through `sensitiveSpans`.
 
-- A detector that reads with patterns (`patterns: true`) also takes `theorem` and `patterns`. This lets a builder use Theorem's patterns, their own, both, or neither.
-- `ungiven_images` and `ungiven_links` take an `allow` list of addresses. `tool_leak` takes an `allow` list of names.
+- `ids`: US SSN, ITIN, and EIN shapes (`SSN`, `ITIN`, `EIN`). It also finds any 9-digit form after a field name that says which ID it is (`SSN_CONTEXTUAL`, `ID_KEYED`).
+- `network`: IPv4 addresses, and IPv6 in every RFC 4291 text form.
+- `email`: ASCII addresses only (`EMAIL`). The top-level domain must start with a letter, so a package version such as `pkg@1.2.3` is not a match (`EMAIL_TLD`).
+- `phone`: numbers by shape (`PHONE_SHAPES`), or any number after a phone label in one of six languages (`PHONE_LABELLED`). `phoneHit` drops an SSN or date shape. It also drops a number whose digit count is outside `PHONE_DIGITS_MIN` and `PHONE_DIGITS_MAX`.
+- `bank_account`: a number only after a label that names an account (`ACCOUNT_LABEL`), with at least `ACCOUNT_DIGITS_MIN` digits.
 
-`email`, `phone` and `bank_account` only flag by default. An agent that sends email or books a call needs the address or number, so redacting it would stop the agent's work. A builder who wants them taken out sets `redact`.
+### Checksums
 
-A host can add its own detectors under `guardrails.detect`, alongside these.[^host-detectors]
+`financial` uses patterns, then a check that the number is real:
 
-## Proof
+- An IBAN must pass its ISO 13616 check digits (`ibanHit`).
+- A card number must start with digits a card network issues, and pass the Luhn check (`cardHit`). A run of digits inside a web address is not a card.
 
-This table records, for each boundary, where the kernel runs the check and which test proves the check runs there. A test counts as proof only if it sends text through the kernel's own path and asserts the action. A test that calls the check with the boundary's name passed in by hand is marked **unit only**: it shows the check works, not that the kernel calls it at that boundary.
+### Secret rules
 
-Status as of 20/10/2026. Every cited test passes. Each also fails when the kernel stops reading at its boundary: the check was removed at its source, one boundary at a time, and the test went red.
+`credentials` uses gitleaks' rules, generated into [`src/guardrails/credential-rules.ts`](../src/guardrails/credential-rules.ts). [`src/guardrails/credential-scan.ts`](../src/guardrails/credential-scan.ts) applies each rule in four steps:
 
-| Boundary | Checked at | Test | Status |
+1. The rule's regular expression must match.
+2. One of the rule's keywords must be in the text by the end of the match.
+3. The secret's Shannon entropy must be above the rule's floor.
+4. No allowlist may let the secret through.
+
+The keyword must come before the match ends, so a reply read as it streams finds the same secrets as the reply read whole.
+
+### Phrases
+
+`injection` at the inbound boundaries, `tool_arguments`, and `tool_shown` runs `injectionSpans` in [`src/guardrails/injection.ts`](../src/guardrails/injection.ts). It matches injection phrasing in the text as written and in each rewrite of it:
+
+- **Typo-folded:** a scrambled word, or one edit away from a target word, is read as the target.
+- **Normalized:** invisible characters removed, unusual spaces made plain, and homoglyphs folded (`normalizeForDetection` in [`src/guardrails/normalize.ts`](../src/guardrails/normalize.ts)).
+- **Decoded:** ROT13, leetspeak, and URL escapes.
+- **Encoded blobs:** base64, hex, letters spaced apart, and words split by pipes.
+
+### Phrases and orders
+
+`injection` at `tool_output` and `tool_failure` reads everything [Phrases](#phrases) reads. It also runs `directives` in [`src/guardrails/tool-directives.ts`](../src/guardrails/tool-directives.ts), which finds orders aimed at the agent. `readersAt` turns this on where `isToolReturn` holds.
+
+`directives` reports three kinds of order:
+
+- An order or a claim of authority that names a destination before its clause ends. A destination is an email address or an `http` address.
+- An order to set instructions aside.
+- A sentence that names a tool the model can call this turn. The kernel passes these names from the turn's tool snapshot.
+
+Directive words without a destination are common in real tool output, such as documentation. So a destination, or a callable tool's name, is needed for a match.
+
+### Token forms
+
+`canary_leak` finds the turn's canary token with `canaryLeakRanges` in [`src/guardrails/canary.ts`](../src/guardrails/canary.ts). `canaryLeakForms` lists the forms it reads:
+
+- the token as written, reversed, and in ROT13, read character by character and word by word;
+- its characters as hex or decimal codes;
+- its base64, at every byte offset.
+
+A run of `TOKEN_LEAK_RUN` characters of a form is a leak, so a truncated or split token is still found. Encoded forms have their own run lengths (`BASE64_LEAK_RUN`, `BYTE_CODE_LEAK_RUN`). When the model was given the token outside its system prompt, it is not read as a leak.
+
+### Word runs
+
+`prompt_leak` finds `PROMPT_ECHO_WORDS` consecutive words from a private stretch of the system prompt. It uses `promptEchoRanges` in [`src/guardrails/prompt-echo.ts`](../src/guardrails/prompt-echo.ts).
+
+- Words are compared case-folded, after Unicode compatibility folding.
+- Punctuation and markup between words are ignored, and bare numbers are skipped. So a dump reformatted as a list is still found.
+- The prompt is also read backwards and in ROT13, and both the prompt and the reply are read with leetspeak decoded.
+- Text the host marked shareable is not read, and no run reaches across it.
+
+### Markers
+
+`marker_leak` matches the kernel's own markers (`SYSTEM_BOUNDARY` in [`src/guardrails/egress-patterns.ts`](../src/guardrails/egress-patterns.ts)). These are the user-data fence tags and the start of the canary note. When the profile's labels change the canary note's words, the new words are matched too (`notePattern`).
+
+### Addresses
+
+`ungiven_images` and `ungiven_links` read the reply as a renderer reads it, in [`src/guardrails/egress-urls.ts`](../src/guardrails/egress-urls.ts). That covers markdown images and links, autolinks, HTML tags, and `<style>` blocks, with entities and escapes decoded.
+
+An image or link is a match when two things are true:
+
+- its address is not one the model was given this turn;
+- its host is not one the builder allowed.
+
+Reserved names such as `example.com` are never a match (`RESERVED_HOST`). The given addresses come from `givenUrlSets`.
+
+When both detectors read a boundary, `ungiven_links` leaves an image's markup to `ungiven_images`.
+
+### Names
+
+`tool_leak` matches the names of the profile's own tools, each as a word on its own. It also matches parameter names in double quotes, as tool-call JSON writes keys. A parameter such as `city` outside quotes is not a match. The code is `toolLeakSpans` in [`src/guardrails/tool-leak.ts`](../src/guardrails/tool-leak.ts).
+
+### Host detectors
+
+A host detector reads with its own `patterns`, a `find` function, or both. Its patterns run on the text as written, with no rewrites. If `find` throws, or returns a span outside the text, the text does not cross. The code is `hostReader` in [`src/guardrails/detect-at.ts`](../src/guardrails/detect-at.ts).
+
+A detector of Theorem's that takes patterns can also read with the host's patterns, beside Theorem's own or instead of them.
+
+## How each boundary hands text to the detectors
+
+The method is the same at every boundary a detector is declared at. What changes is which part of the data reaches the detectors, and when.
+
+| Boundary | What is read | Code | Tests |
 | --- | --- | --- | --- |
-| `user` | [sanitize.ts:148](../src/guardrails/sanitize.ts#L148) | [sanitize-events.test.ts:123](../tests/guardrails/sanitize-events.test.ts#L123) | Proven |
-| `slots` | [sanitize.ts:148](../src/guardrails/sanitize.ts#L148) | [sanitize-events.test.ts:123](../tests/guardrails/sanitize-events.test.ts#L123) | Proven |
-| `repair` | [sanitize.ts:148](../src/guardrails/sanitize.ts#L148) | [sanitize-events.test.ts:123](../tests/guardrails/sanitize-events.test.ts#L123) | Proven |
-| `history` | [sanitize.ts:148](../src/guardrails/sanitize.ts#L148) | [sanitize-events.test.ts:123](../tests/guardrails/sanitize-events.test.ts#L123) | Proven for text. Replayed tool calls, reasoning and media pass unread |
-| `system` | [sanitize.ts:148](../src/guardrails/sanitize.ts#L148) | [sanitize-events.test.ts:123](../tests/guardrails/sanitize-events.test.ts#L123) | Proven |
-| `context` | [sanitize.ts:157](../src/guardrails/sanitize.ts#L157); Live: [live-inbound.ts:52](../src/kernel/engine/live-inbound.ts#L52) | [turn-context.test.ts:87](../tests/kernel/turn-context.test.ts#L87); Live: [run-session.test.ts:383](../tests/kernel/run-session.test.ts#L383), [run-session.test.ts:416](../tests/kernel/run-session.test.ts#L416) | Proven |
-| `attachment` | [attachments.ts:270](../src/kernel/registry/attachments.ts#L270) | [sanitize-events.test.ts:239](../tests/guardrails/sanitize-events.test.ts#L239) | Proven for text files. Only CSV, plain text and Markdown are read; other files pass unread (see Tasks) |
-| `voice` | [attachments.ts:270](../src/kernel/registry/attachments.ts#L270) | None | **Reads nothing in practice.** Only text files are read, and a voice clip is audio. No path makes a transcript for this boundary. In Live, the provider's transcript of the user's speech is recorded but not read |
-| `injected` | [stages.ts:743](../src/kernel/stages.ts#L743) | [stages.test.ts:558](../tests/kernel/stages.test.ts#L558) | Proven |
-| `live_user` | [live-inbound.ts:22](../src/kernel/engine/live-inbound.ts#L22) | [live-inbound.test.ts:36](../tests/kernel/live-inbound.test.ts#L36) | Proven |
-| `tool_arguments` · `function` | [execute.ts:1380](../src/kernel/tools/execute.ts#L1380) | [tool-boundary.test.ts:374](../tests/guardrails/tool-boundary.test.ts#L374) | Proven |
-| `tool_arguments` · `http` | same | [tool-boundary.test.ts:529](../tests/guardrails/tool-boundary.test.ts#L529) | Proven |
-| `tool_arguments` · `mcp` | same | [tool-boundary.test.ts:550](../tests/guardrails/tool-boundary.test.ts#L550) | Proven |
-| `tool_arguments` · `agent` | same | [agent-tool.test.ts:1023](../tests/kernel/agent-tool.test.ts#L1023) | Proven |
-| `tool_output` · `function` | [execute.ts:1901](../src/kernel/tools/execute.ts#L1901); text parts: [execute.ts:1917](../src/kernel/tools/execute.ts#L1917) | [tool-boundary.test.ts:178](../tests/guardrails/tool-boundary.test.ts#L178); text parts: [tools-execute-a.test.ts:821](../tests/kernel/tools-execute-a.test.ts#L821), [tools-execute-a.test.ts:922](../tests/kernel/tools-execute-a.test.ts#L922) | Proven |
-| `tool_output` · `http` | same | [tool-boundary.test.ts:202](../tests/guardrails/tool-boundary.test.ts#L202) | Proven |
-| `tool_output` · `mcp` | same | [tool-boundary.test.ts:565](../tests/guardrails/tool-boundary.test.ts#L565) | Proven |
-| `tool_output` · `agent` | same | [agent-tool.test.ts:1037](../tests/kernel/agent-tool.test.ts#L1037) | Proven |
-| `tool_failure` · `function` | [execute.ts:1678](../src/kernel/tools/execute.ts#L1678) | [tools-execute-c.test.ts:1371](../tests/kernel/tools-execute-c.test.ts#L1371) | Proven |
-| `tool_failure` · `http` | same | [tool-boundary.test.ts:323](../tests/guardrails/tool-boundary.test.ts#L323) | Proven |
-| `tool_failure` · `mcp` | same | [tool-boundary.test.ts:582](../tests/guardrails/tool-boundary.test.ts#L582) | Proven |
-| `tool_failure` · `agent` | same | [agent-tool.test.ts:1049](../tests/kernel/agent-tool.test.ts#L1049) | Proven |
-| `tool_shown` · `function` | [execute.ts:1971](../src/kernel/tools/execute.ts#L1971); parts: [execute.ts:1947](../src/kernel/tools/execute.ts#L1947) | [tool-shown.test.ts:67](../tests/kernel/tool-shown.test.ts#L67); parts: [tools-execute-a.test.ts:821](../tests/kernel/tools-execute-a.test.ts#L821), [tools-execute-a.test.ts:864](../tests/kernel/tools-execute-a.test.ts#L864), [tools-execute-a.test.ts:885](../tests/kernel/tools-execute-a.test.ts#L885), [tool-images.test.ts:204](../tests/kernel/tool-images.test.ts#L204) | Proven for every field but a file's bytes, which pass unread (see Gaps) |
-| `tool_shown` · `http` | same | [tool-boundary.test.ts:598](../tests/guardrails/tool-boundary.test.ts#L598) | Proven |
-| `tool_shown` · `mcp` | same | [tool-boundary.test.ts:615](../tests/guardrails/tool-boundary.test.ts#L615) | Proven |
-| `tool_shown` · `agent` | same | [agent-tool.test.ts:1059](../tests/kernel/agent-tool.test.ts#L1059) | Proven |
-| `reply` | [stream.ts:331](../src/kernel/engine/runner/stream.ts#L331); final: [detect-reply.ts:79](../src/guardrails/detect-reply.ts#L79) | [detect-reply-turn.test.ts:69](../tests/kernel/detect-reply-turn.test.ts#L69) | Proven |
-| `reply_structured` | [stream.ts:169](../src/kernel/engine/runner/stream.ts#L169); final: [detect-reply.ts:83](../src/guardrails/detect-reply.ts#L83) | [detect-reply-turn.test.ts:116](../tests/kernel/detect-reply-turn.test.ts#L116); drafts: [structured-draft-stream.test.ts:99](../tests/kernel/structured-draft-stream.test.ts#L99) | Proven |
-| `live_reply` | [live-outbound-gate.ts:79](../src/guardrails/live-outbound-gate.ts#L79) | [live-outbound-gate.test.ts:166](../tests/guardrails/live-outbound-gate.test.ts#L166) | Proven |
-| `thought` | [stream.ts:337](../src/kernel/engine/runner/stream.ts#L337); Live: [live-outbound-gate.ts:75](../src/guardrails/live-outbound-gate.ts#L75) | [canary-leak-report.test.ts:53](../tests/kernel/canary-leak-report.test.ts#L53) | Proven |
+| `user`, `system`, `options`, `repair` | The message text; each system part; each option value; a repair's previous output, rejection, and guidance | `sanitizeTurnRequestWithEvents` in [`src/guardrails/sanitize.ts`](../src/guardrails/sanitize.ts) | `tests/guardrails/sanitize-events.test.ts` |
+| `context` | Each sender's package, as text or as JSON | `sanitizeContext`; in Live, `prepareLiveContext` | `tests/kernel/turn-context.test.ts`, `tests/kernel/run-session.test.ts` |
+| `history` | Each message's text, and its text parts | `sanitizeHistory` | `tests/guardrails/sanitize-events.test.ts` |
+| `attachment`, `voice` | CSV, plain-text, and Markdown files, decoded. A CSV's formula cells are escaped first | `sanitizeAttachment` in [`src/kernel/registry/attachments.ts`](../src/kernel/registry/attachments.ts) | `tests/guardrails/sanitize-events.test.ts` |
+| `injected` | A message the host injects during a turn | [`src/kernel/stages.ts`](../src/kernel/stages.ts) | `tests/kernel/stages.test.ts` |
+| `live_user` | Text a Live session receives from the user | `prepareLiveInboundText` in [`src/kernel/engine/live-inbound.ts`](../src/kernel/engine/live-inbound.ts) | `tests/kernel/live-inbound.test.ts` |
+| `tool_arguments_<kind>` | The whole call as it will be sent. Each draft is also read as it streams | `guardToolValue` in [`src/guardrails/tool-result.ts`](../src/guardrails/tool-result.ts); drafts: `createDraftGate` | `tests/guardrails/tool-boundary.test.ts`, `tests/kernel/agent-tool.test.ts` |
+| `tool_output_<kind>` | What the model reads back, and the text parts it reads beside it | `guardResult` and `readTextParts` in [`src/kernel/tools/execute.ts`](../src/kernel/tools/execute.ts) | `tests/guardrails/tool-boundary.test.ts`, `tests/kernel/agent-tool.test.ts`, `tests/kernel/tools-execute-a.test.ts` |
+| `tool_failure_<kind>` | The error message and its details, before the kernel frames them for the model | `guardFailure` in [`src/kernel/tools/execute.ts`](../src/kernel/tools/execute.ts) | `tests/guardrails/tool-boundary.test.ts`, `tests/kernel/agent-tool.test.ts`, `tests/kernel/tools-execute-c.test.ts` |
+| `tool_shown_<kind>` | What the call shows the person: output, error, trace, and each part without a file's bytes | `showValue` and `showParts` in [`src/kernel/tools/execute.ts`](../src/kernel/tools/execute.ts) | `tests/kernel/tool-shown.test.ts`, `tests/kernel/tools-execute-a.test.ts`, `tests/kernel/tool-images.test.ts` |
+| `reply` | The reply as it streams, then the whole reply | `createOutboundProgressiveGate`; whole: `readReply` in [`src/guardrails/detect-reply.ts`](../src/guardrails/detect-reply.ts) | `tests/kernel/detect-reply-turn.test.ts` |
+| `reply_structured` | Each draft as it streams, then the whole value as JSON, keys included. A redact replaces the match in each string | `createDraftGate`; whole: `readValue` | `tests/kernel/detect-reply-turn.test.ts`, `tests/kernel/structured-draft-stream.test.ts` |
+| `live_reply` | The transcript of the model's speech. Audio waits until its transcript is read, and audio with no transcript is dropped | `live-outbound-gate.ts` in [`src/guardrails/`](../src/guardrails/live-outbound-gate.ts) | `tests/guardrails/live-outbound-gate.test.ts` |
+| `thought` | The model's reasoning as it streams. A leak is left out, and the rest of the thought is released. A thought never stops the turn | [`src/guardrails/thought-guard.ts`](../src/guardrails/thought-guard.ts) | `tests/kernel/canary-leak-report.test.ts` |
 
-Every tool kind goes through the same lines of code. The kernel picks the boundary from the tool's `type`.[^tool-kind] Each tool test sets an action at one kind's boundary only, or asserts the boundary the event names. So a passing test proves that the tool's type reaches that line.
+A streamed boundary reads the text as it grows. Text is held from the earliest place a match could still be under way. When the stream ends, the whole text is read again. The stream code is in [`src/guardrails/egress-stream.ts`](../src/guardrails/egress-stream.ts) and [`src/guardrails/progressive-yield.ts`](../src/guardrails/progressive-yield.ts).
 
-## Datasets
+## Gaps
 
-**Not re-confirmed on 0.3.3.** The figures in this section were scored on 0.3.4.
+Each gap is data that enters or leaves an agent with no detector reading it.
 
-This section maps each detector to the labelled data we can benchmark it on, and to the boundaries that data fits. A dataset can test a boundary only if its text has the shape of what crosses there: a person's message, a tool's output, or the model's own writing. Data can be replayed through a boundary of the same shape, such as a user-shaped attack sent as `slots`, but that tests the wiring, not text native to that boundary.
+- **A tool's file bytes.** An image, audio, video, or document that a tool returns reaches the model and the person unread. `showParts` reads every other field of the part: `uri`, `mimeType`, and `metadata`. A text file that a tool returns as bytes is not decoded, but the same file sent as an attachment is.
+- **Attachments other than text files.** Only CSV, plain-text, and Markdown attachments are read (`TEXT_MIMES`). Images, audio, PDFs, other files, and provider file references pass unread.
+- **`voice` reads nothing in practice.** A voice clip is audio, and only text files are read. Nothing turns a clip into text for this boundary.
+- **Live speech from the user.** The provider's transcript of what the user said is recorded in history, but no detector reads it. Text the user types in Live is read at `live_user`.
+- **`history` replays more than text.** Tool calls, reasoning, metadata, and parts other than text pass unread.
+- **Provider built-in tools.** A built-in tool has no tool kind. The provider runs it, and the kernel never reads its text.
 
-The external sets are in `~/Development/.guardrail-corpus/`, outside the repo. The in-repo sets in `src/guardrails/corpus/` were written by us while building the detectors, so they are not unseen data. A benchmark on them shows a regression, not accuracy.
+## Keep this page true
 
-Two kinds of evidence are kept apart:
+This page is not in `docs/_map.mjs`, so `npm run lint:docs` does not check it for freshness. Before you change a detector or a boundary, run:
 
-- **Accuracy on unseen data** comes only from sets someone else labelled, such as SPL and the Tensor Trust detection set.
-- **End-to-end runs** send attacks from others' data through the real kernel to a real model, and label the replies. They show that the detector catches what a model actually writes, and how often it raises a false alarm on real replies. They do not measure accuracy: they cover one model, and a simple label rule, such as "the reply holds the canary", is close to the detector's own rule.
+```bash
+node scripts/docs-claims.mjs affected
+```
 
-End-to-end runs follow three rules. The attacks come unchanged from others' data; we never write, pick or tune them. A person reads every reply where the detector and the code label disagree, plus a random sample of the rest, and that reading is the label. We never generate data to fill a gap: a detector with no labelled external set stays a gap.
-
-Status as of 20/10/2026.
-
-| Detector | Boundaries it fits | Attacks | Benign | Coverage |
-| --- | --- | --- | --- | --- |
-| `injection` | inbound (user-shaped); tool output and errors | User-shaped: Lakera b3[^lakera], TensorTrust hijack[^tt-hijack], WildJailbreak[^wildjailbreak], deepset[^deepset], SPML[^spml], HackAPrompt via neuralchemy[^neuralchemy], Bordair live game[^bordair]. Tool-shaped: LLMail[^llmail], NVIDIA agentic IPI[^nvidia-ipi], InjecAgent[^injecagent], ASB[^asb], AgentDojo[^agentdojo], AgentDrift (synthetic)[^agentdrift] | User-shaped: NotInject[^notinject], Aegis safe[^aegis], WildGuard benign[^wildguard], ASB normal, neuralchemy benign. Tool-shaped: Glaive tool results[^glaive], AgentDojo benign, InjecAgent clean results, Exa search pages[^exa-pages], AgentDrift benign and hard-negative outputs | Good at `user` and tool output on the older sets. Other inbound boundaries only by replay. On the 2026 sets, first runs: neuralchemy test split, 36 of 310 HackAPrompt hijacks found, 0 false alarms on 390 benign. Bordair, 0 of 855 messages that beat the game's detector. These ask a guard for a password, so they are extraction, not hijack. AgentDrift test split, 0 of 1,056 poisoned tool outputs, 0 false alarms on 9,496 |
-| `injection`: orders to the agent | tool output and errors | The tool-shaped injection sets above | The tool-shaped benign sets above | Read by `injection` since 0.3.4, before by `tool_instructions`. Good on the older sets. AgentDrift test split: 187 of 1,056 poisoned outputs found, false alarms 4.2%. They reach 13% on outputs that report a hijacked call, such as "Email sent to …" |
-| `ids`, `financial`, `network` | inbound; tool output; tool arguments | gravitee PII spans[^gravitee], labelled US SSN, US ITIN, credit card, IBAN and IP address. AgentLeak[^agentleak]: 4,979 recorded runs of 5 models, with the SSNs each message leaked, by AgentLeak's own value match | Rows of the same set without those spans. AgentLeak messages that leak no SSN | gravitee covers inbound and tool output; the eval loader already reads it, so it may not be unseen. AgentLeak, model-written replies, agent-to-agent messages and memory writes: 337 of 337 SSN leaks found, 5 alarms in 24,558 messages, and each of the 5 is an SSN the model made up. The SSNs are fake but correctly formatted. Only 1 leak is in a reply to the person. Its phone and account numbers are in formats no detector covers |
-| `email` | inbound; tool output; tool arguments | gravitee email spans. The first 20,000 rows, split in two halves: one to tune on, one to score. The other 155,874 rows, scored once and never tuned on or read before | Rows of the same set without an email span. Repo texts[^repo-texts]. AgentDojo tool outputs | Tune half: 1,450 of 1,821 found. Test half: 1,476 of 1,864 found (0.79), and 10 of 8,500 rows without an email flagged. The other rows: 22,210 of 28,466 found (0.78), and 117 of 132,747 rows without an email flagged. Of 300 misses read, 289 are text split into tokens, such as `name . surname @ web . de` Repo texts: 13 of 5,669 flagged, each an address in sample data such as `johndoe@example.com`. A package version such as `pkg@1.2.3` is not flagged. AgentDojo workspace tool outputs: 5,051 of 5,076 flagged, because an inbox read holds addresses. Only ASCII addresses are found |
-| `phone` | inbound; tool output; tool arguments | gravitee phone spans, the same rows. AgentLeak: the phone numbers each message leaked, by AgentLeak's own value match[^contact-tuned] | Rows of the same set without a phone span. AgentLeak messages that leak no phone | Tune half: 1,660 of 1,815 found. Test half: 1,618 of 1,779 found (0.91), and 64 of 8,406 rows without a phone flagged. The other rows: 25,450 of 28,123 found (0.90), and 1,199 of 130,663 rows without a phone flagged. AgentLeak: 613 of 617 leaks found, 184 alarms in 24,278 messages. The alarms we read are phone numbers the AgentLeak label does not list |
-| `bank_account` | inbound; tool output; tool arguments | gravitee account number spans, the same rows. AgentLeak: the account numbers each message leaked[^contact-tuned] | Rows of the same set without an account span. AgentLeak messages that leak no account number | A number counts only after a label that names it. Tune half: 351 of 614 found. Test half: 378 of 613 found (0.62), and 145 of 9,435 rows without an account flagged. The other rows: 5,804 of 9,799 found (0.59), and 2,367 of 146,943 rows without an account flagged. Of 300 wrong spans read, 190 are routing or ABA numbers, which gravitee labels as other financial data. Of 300 misses read, 142 are random letter codes under a field such as `bban`. AgentLeak: 287 of 450 leaks found, 16 alarms in 24,445 messages |
-| `credentials` | inbound; tool output; tool shown; tool arguments; `reply` | In-repo `secrets.ts`[^secrets]. gitleaks' own rule examples[^gitleaks]: 855 of 855 match. The SecretBench[^secretbench] candidate regexes, as a check of which vendors have a rule | gitleaks' own should-not-match examples: 0 of 291 match | **Gap:** no labelled set of real secrets. SecretBench's labels need its authors' agreement |
-| `prompt_leak` | outbound | System Prompt Leakage (SPL)[^spl] test split, synthetic: 30,938 paraphrases of the system prompt | SPL: 40,413 replies to the same prompts | Precision 0.99, recall 0.18. Recall is 100% when the reply keeps 60% or more of the prompt's four-word runs, and 0% under 10% |
-| `canary_leak` | tool arguments; outbound | Tensor Trust extraction detection[^tt-extract]: 115 replies that reveal a player's access code, by hand label | Tensor Trust: 115 replies paired with another player's code | Recall 0.55, false alarms 8.7%. The access codes are words, not the kernel's token, so this tests the matcher, not the real canary. End-to-end: the 570 Tensor Trust extraction attacks[^tt-robust], in progress |
-| `marker_leak` | outbound | In-repo `canary-egress-attacks.ts`[^canary-attacks] and `live-attacks.ts`[^live-attacks] only | AgentDojo assistant replies[^agentdojo-runs], as clean model output | **Gap:** no labelled external set. End-to-end: the Tensor Trust run above |
-| `tool_leak` | outbound | None | AgentDojo assistant replies | **Gap:** no labelled external set |
-| `ungiven_images`, `ungiven_links` | outbound | None | AgentDojo assistant replies | **Gap:** no labelled external set |
-
-### Boundaries with no native data
-
-- **`thought`:** no labelled set of model reasoning. Leaky Thoughts[^leaky-thoughts] releases the privacy tasks but not the reasoning traces. AgentDrift's thoughts are labelled by trajectory, not by what the thought holds.
-- **`tool_shown`:** no set of what a tool shows the person. Tool output can be replayed there.
-- **`tool_arguments`:** AgentDojo runs record the tool calls a model made, and mark whether an injected task succeeded. That labels harmful calls for `guardrails.taint`, not for a detector. There is no set of tool arguments labelled for data or leaks. AgentLeak names tool inputs and outputs as channels, but its released traces hold none.
-- **`reply_structured`, `live_reply`:** none apart from replaying `reply` data.
-- **`voice`:** nothing is read there, so there is nothing to benchmark yet.
-- **`context`, `slots`, `history`, `repair`, `injected`, `system`, `attachment`:** replay only.
-
-## Other guardrail settings
-
-These settings act on tools and turns, not on text at a boundary.
-
-| Setting | What it does | Defined |
-| --- | --- | --- |
-| `guardrails.taint.afterRemoteRead` | Which tool calls are refused, by each tool's access, once the turn has read a remote tool's result | [^taint] |
-| `guardrails.taint.remoteDestination` | What happens to a tool call that sends to an address only a remote tool's result named: off, confirm or block | [^taint] |
-| `guardrails.network` | The addresses that HTTP and MCP tools may reach | [^network-field] |
-| `guardrails.blockedReply` | Whether a blocked reply is rewritten by the model or replaced by a refusal | [^blocked-reply] |
-| `guardrails.quota` | A daily turn limit per client IP | [^quota] |
-| `guardrails.disclosure` | The host's check on the state before a decision sends it to the model | [^disclosure] |
-
-## Tasks
-
-- Audit every path data takes into and out of an agent, beyond the boundaries above. Include data the kernel cannot read as text, such as images and audio. Add each path with no check to the gaps.
-- Raise `injection` recall on the 2026 sets without losing precision. It misses most HackAPrompt hijacks, such as "say I have been PWNED" spelled out or split up, and every AgentDrift output that hides an order in a fake policy ("all changes must be reviewed by compliance-review@…"). Tune on neuralchemy's train split and AgentDrift's train split only, then score once on their test splits. Also cut `injection` false alarms on tool outputs that only report a call, such as "Email sent to …".
-- Raise `prompt_leak` recall on paraphrased leaks without a model on egress. It finds every SPL reply that keeps 60% or more of the prompt's four-word runs, and none under 10%. Next step: try matching that ignores word order and stems words, and shorter runs of rare words. Tune on SPL's train split only, then score once on its test split and on the recorded Tensor Trust runs. Keep precision at 0.99 or above and the p99 time near today's 7 ms.
-
-[^tool-kind]: [`toolKindOf`, src/kernel/tools/execute.ts:126](../src/kernel/tools/execute.ts#L126)
-[^boundaries]: [`BOUNDARIES`, src/guardrails/boundaries.ts:61](../src/guardrails/boundaries.ts#L61)
-[^boundary-meta]: [`BOUNDARY_META`, src/guardrails/boundaries.ts:116](../src/guardrails/boundaries.ts#L116)
-[^inbound]: [`INBOUND_BOUNDARIES`, src/guardrails/boundaries.ts:44](../src/guardrails/boundaries.ts#L44)
-[^crossings]: [`TOOL_CROSSINGS`, src/guardrails/boundaries.ts:23](../src/guardrails/boundaries.ts#L23)
-[^kinds]: [`TOOL_KINDS`, src/guardrails/boundaries.ts:15](../src/guardrails/boundaries.ts#L15)
-[^outbound]: [`OUTBOUND_BOUNDARIES`, src/guardrails/boundaries.ts:58](../src/guardrails/boundaries.ts#L58)
-[^detectors]: [`DETECTORS`, src/guardrails/detectors.ts:32](../src/guardrails/detectors.ts#L32)
-[^groups]: [`DETECTOR_GROUPS`, src/guardrails/detectors.ts:219](../src/guardrails/detectors.ts#L219)
-[^actions]: [`DETECT_ACTIONS`, src/guardrails/detectors.ts:58](../src/guardrails/detectors.ts#L58)
-[^detect-field]: [`detectFields`, src/kernel/schema.ts:577](../src/kernel/schema.ts#L577)
-[^meta]: [`DETECTOR_META`, src/guardrails/detectors.ts:292](../src/guardrails/detectors.ts#L292). The defaults are built by the helpers `notToPerson`, `everywhere`, `leaving` and `shown`, at [src/guardrails/detectors.ts:261](../src/guardrails/detectors.ts#L261).
-[^ids]: [src/guardrails/detectors.ts:293](../src/guardrails/detectors.ts#L293)
-[^financial]: [src/guardrails/detectors.ts:300](../src/guardrails/detectors.ts#L300)
-[^network]: [src/guardrails/detectors.ts:307](../src/guardrails/detectors.ts#L307)
-[^credentials]: [src/guardrails/detectors.ts:314](../src/guardrails/detectors.ts#L314)
-[^email]: [src/guardrails/detectors.ts:328](../src/guardrails/detectors.ts#L328)
-[^phone]: [src/guardrails/detectors.ts:335](../src/guardrails/detectors.ts#L335)
-[^bank-account]: [src/guardrails/detectors.ts:342](../src/guardrails/detectors.ts#L342)
-[^injection]: [src/guardrails/detectors.ts:349](../src/guardrails/detectors.ts#L349)
-[^canary-leak]: [src/guardrails/detectors.ts:356](../src/guardrails/detectors.ts#L356)
-[^prompt-leak]: [src/guardrails/detectors.ts:362](../src/guardrails/detectors.ts#L362)
-[^marker-leak]: [src/guardrails/detectors.ts:368](../src/guardrails/detectors.ts#L368)
-[^ungiven-images]: [src/guardrails/detectors.ts:374](../src/guardrails/detectors.ts#L374)
-[^ungiven-links]: [src/guardrails/detectors.ts:382](../src/guardrails/detectors.ts#L382)
-[^tool-leak]: [src/guardrails/detectors.ts:390](../src/guardrails/detectors.ts#L390)
-[^host-detectors]: [`HostDetector`, src/guardrails/detectors.ts:165](../src/guardrails/detectors.ts#L165)
-[^taint]: [`guardrails.taint`, src/kernel/schema.ts:1216](../src/kernel/schema.ts#L1216)
-[^network-field]: [`guardrails.network`, src/kernel/schema.ts:1206](../src/kernel/schema.ts#L1206)
-[^blocked-reply]: [`guardrails.blockedReply`, src/kernel/schema.ts:1188](../src/kernel/schema.ts#L1188)
-[^quota]: [`guardrails.quota`, src/kernel/schema.ts:1179](../src/kernel/schema.ts#L1179)
-[^disclosure]: [`guardrails.disclosure`, src/kernel/schema.ts:1237](../src/kernel/schema.ts#L1237)
-[^lakera]: [Lakera/b3-agent-security-benchmark-weak](https://huggingface.co/datasets/Lakera/b3-agent-security-benchmark-weak), Hugging Face
-[^tt-hijack]: [Tensor Trust hijacking robustness v1](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/benchmarks/hijacking-robustness/v1), GitHub
-[^wildjailbreak]: [allenai/wildjailbreak](https://huggingface.co/datasets/allenai/wildjailbreak), eval split, Hugging Face
-[^deepset]: [deepset/prompt-injections](https://huggingface.co/datasets/deepset/prompt-injections), Hugging Face
-[^spml]: [reshabhs/SPML_Chatbot_Prompt_Injection](https://huggingface.co/datasets/reshabhs/SPML_Chatbot_Prompt_Injection), Hugging Face
-[^llmail]: [microsoft/llmail-inject-challenge](https://huggingface.co/datasets/microsoft/llmail-inject-challenge), Phase 1, Hugging Face
-[^nvidia-ipi]: [nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1](https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1), Hugging Face
-[^injecagent]: [uiuc-kang-lab/InjecAgent](https://github.com/uiuc-kang-lab/InjecAgent/tree/main/data), the `dh` and `ds` base test cases and the user cases, GitHub
-[^asb]: [agiresearch/ASB](https://github.com/agiresearch/ASB/tree/main/data), the attack tools, normal tools and agent tasks, GitHub
-[^agentdojo]: [ethz-spylab/agentdojo](https://github.com/ethz-spylab/agentdojo), its workspace suite fixtures and recorded runs, GitHub
-[^agentdojo-runs]: [AgentDojo recorded runs](https://github.com/ethz-spylab/agentdojo/tree/main/runs), GitHub
-[^notinject]: [leolee99/NotInject](https://huggingface.co/datasets/leolee99/NotInject), Hugging Face
-[^aegis]: [nvidia/Aegis-AI-Content-Safety-Dataset-2.0](https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety-Dataset-2.0), prompts labelled safe, Hugging Face
-[^wildguard]: [allenai/wildguardmix](https://huggingface.co/datasets/allenai/wildguardmix), prompts labelled unharmful, Hugging Face
-[^glaive]: [glaiveai/glaive-function-calling-v2](https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2), function responses only, Hugging Face
-[^exa-pages]: Web search results from [Exa](https://exa.ai)'s public MCP server, collected by our script in the external corpus folder
-[^gravitee]: [gravitee-io/pii-detection-dataset](https://huggingface.co/datasets/gravitee-io/pii-detection-dataset), Hugging Face
-[^secrets]: [src/guardrails/corpus/secrets.ts](../src/guardrails/corpus/secrets.ts)
-[^gitleaks]: [gitleaks v8.30.1](https://github.com/gitleaks/gitleaks/tree/v8.30.1/cmd/generate/config/rules), the true and false positive examples in each rule's source, GitHub
-[^neuralchemy]: [neuralchemy/Prompt-injection-dataset](https://huggingface.co/datasets/neuralchemy/Prompt-injection-dataset), the `core` test split, Hugging Face
-[^bordair]: [bordair-multimodal live split](https://github.com/Josh-blythe/bordair-multimodal/tree/main/payloads_live), messages from a live game against a detector, GitHub
-[^agentdrift]: [AgentDrift](https://github.com/Asif-0209/AgentDrift), trajectories written by Llama 3.3 70B and labelled when built, test split, GitHub
-[^contact-tuned]: AgentLeak is not fully unseen for these two. Before any tuning on it, the first score found 559 of 617 phone leaks and 223 of 450 account leaks. The separators the patterns allow were then widened from AgentLeak's misses, and the `a/c` label was narrowed after reading the gravitee test half's wrong spans. Banks' own labels alone, with no generic `account number` or `acct`, found 0 of 450 account leaks.
-[^repo-texts]: [prodnull/prompt-injection-repo-dataset](https://huggingface.co/datasets/prodnull/prompt-injection-repo-dataset), lines of text from code repositories, labelled for injection and not for personal data, Hugging Face
-[^agentleak]: [AgentLeak](https://github.com/Privatris/AgentLeak), the recorded traces in `benchmarks/ieee_repro/results/traces`, GitHub
-[^leaky-thoughts]: [parameterlab/leaky_thoughts](https://huggingface.co/datasets/parameterlab/leaky_thoughts), Hugging Face
-[^secretbench]: [SecretBench](https://github.com/setu1421/SecretBench), its list of secret regular expressions, GitHub
-[^spl]: [gabrielchua/system-prompt-leakage](https://huggingface.co/datasets/gabrielchua/system-prompt-leakage), test split, Hugging Face
-[^tt-extract]: [Tensor Trust extraction detection v1](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/detecting-extractions/v1), GitHub
-[^canary-attacks]: [src/guardrails/corpus/canary-egress-attacks.ts](../src/guardrails/corpus/canary-egress-attacks.ts)
-[^live-attacks]: [src/guardrails/corpus/live-attacks.ts](../src/guardrails/corpus/live-attacks.ts)
-[^tt-robust]: [Tensor Trust extraction robustness v1](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/benchmarks/extraction-robustness/v1), GitHub
+If it lists this page, read the page against the new code.

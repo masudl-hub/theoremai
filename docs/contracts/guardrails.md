@@ -1347,7 +1347,7 @@ in the string it sits in, and a match in a key or across values blocks it.
 the model read or what history replays. The settlement handed to the host's own
 code (`outputRaw`) is the handler's output, unread. `progress` and `draft` are
 still read at `tool_output_<kind>`. Each of the `complete` event's `parts` is read on its own,
-every field but a file's bytes. A text file's bytes (CSV, plain text, or Markdown) are read too, decoded the same way as an attachment's. The text parts and text files the model reads are read at `tool_output_<kind>` with the result.
+every field but a file's bytes. A text file's bytes (CSV, plain text, or Markdown) are read too, decoded the same way as an attachment's (see `decodeTextFile` in the kernel contract). The text parts and text files the model reads are read at `tool_output_<kind>` with the result. A tool with `exposeToModel: false` gives the model nothing, so it is not read there. A redact in a text file is written back in the file's own encoding. In a charset with no single-byte table, such as Shift_JIS, the guards read only the file's ASCII.
 
 **Arguments.** Arguments are model-authored, so the risk is exfiltration — a
 credential lifted from context and posted outward as a parameter.

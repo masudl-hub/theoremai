@@ -16,6 +16,7 @@ import type {
   ToolCredential,
 } from '../auth/types.ts';
 import { mapStrings } from '../engine/tree.ts';
+import { isTextFile, modelTextFile } from '../registry/attachments.ts';
 import { mediaKindForMime } from '../registry/catalog.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
 import type { InteractionPart, ToolOutputPart, ToolWarning } from '../turn-events.ts';
@@ -442,7 +443,8 @@ function readParts(media: readonly ToolOutputPart[]): InteractionPart[] {
   return media.flatMap((part): InteractionPart[] => {
     if (part.type === 'text') return [part];
     if (!('data' in part)) return [];
-    return [{ type: part.type, mimeType: part.mimeType, data: part.data }];
+    const file = isTextFile(part.mimeType) ? modelTextFile(part.mimeType, part.data) : part;
+    return [{ type: part.type, mimeType: file.mimeType, data: file.data }];
   });
 }
 

@@ -160,7 +160,7 @@ The method is the same at every boundary a detector is declared at. What changes
 | `user`, `system`, `options`, `repair` | The message text; each system part; each option value; a repair's previous output, rejection, and guidance | `sanitizeTurnRequestWithEvents` in [`src/guardrails/sanitize.ts`](../src/guardrails/sanitize.ts) | `tests/guardrails/sanitize-events.test.ts` |
 | `context` | Each sender's package, as text or as JSON | `sanitizeContext`; in Live, `prepareLiveContext` | `tests/kernel/turn-context.test.ts`, `tests/kernel/run-session.test.ts` |
 | `history` | Each message's text, and its text parts | `sanitizeHistory` | `tests/guardrails/sanitize-events.test.ts` |
-| `attachment`, `voice` | CSV, plain-text, and Markdown files, decoded. A CSV's formula cells are escaped first | `sanitizeAttachment` in [`src/kernel/registry/attachments.ts`](../src/kernel/registry/attachments.ts) | `tests/guardrails/sanitize-events.test.ts` |
+| `attachment`, `voice` | CSV, plain-text, and Markdown files, decoded. A CSV's formula cells are escaped first | `sanitizeAttachment` in [`src/kernel/registry/attachments.ts`](../src/kernel/registry/attachments.ts) | `tests/guardrails/sanitize-events.test.ts`, `tests/kernel/tool-text-files-fuzz.test.ts` |
 | `injected` | A message the host injects during a turn | [`src/kernel/stages.ts`](../src/kernel/stages.ts) | `tests/kernel/stages.test.ts` |
 | `live_user` | Text a Live session receives from the user | `prepareLiveInboundText` in [`src/kernel/engine/live-inbound.ts`](../src/kernel/engine/live-inbound.ts) | `tests/kernel/live-inbound.test.ts` |
 | `tool_arguments_<kind>` | The whole call as it will be sent. Each draft is also read as it streams | `guardToolValue` in [`src/guardrails/tool-result.ts`](../src/guardrails/tool-result.ts); drafts: `createDraftGate` | `tests/guardrails/tool-boundary.test.ts`, `tests/kernel/agent-tool.test.ts` |
@@ -179,6 +179,7 @@ A streamed boundary reads the text as it grows. Text is held from the earliest p
 Each gap is data that enters or leaves an agent with no detector reading it.
 
 - **A tool's file bytes other than text files.** An image, audio, video, or document that a tool returns reaches the model and the person unread. Only CSV, plain-text, and Markdown bytes are decoded and read (`isTextFile`). `showParts` reads every other field of the part: `uri`, `mimeType`, and `metadata`.
+- **Text in a charset with no single-byte table.** A text file whose `charset` names an encoding such as Shift_JIS is read one byte to one character, so only its ASCII is read. Its other characters reach the model and the person unread.
 - **Attachments other than text files.** Only CSV, plain-text, and Markdown attachments are read (`TEXT_MIMES`). Images, audio, PDFs, other files, and provider file references pass unread.
 - **`voice` reads nothing in practice.** A voice clip is audio, and only text files are read. Nothing turns a clip into text for this boundary.
 - **Live speech from the user.** The provider's transcript of what the user said is recorded in history, but no detector reads it. Text the user types in Live is read at `live_user`.

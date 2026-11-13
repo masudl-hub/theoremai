@@ -393,6 +393,21 @@ provider file reference:
 | `TurnMediaRef` | `{ mimeType, uri, name? }` (a file the provider already holds) | MIME acceptance, file count, and kind resolution only — no base64 or byte limits; the host owns upload and cleanup |
 | `InteractionMediaRefPart` | `{ type: MediaInputKind, mimeType, uri }` | Provider part emitted for a `TurnMediaRef`; `isMediaRefPart` narrows it |
 
+A **text file** is a CSV, plain-text, or Markdown file (`isTextFile`). The kernel decodes its
+bytes in this order (`decodeTextFile`):
+
+1. A UTF-8, UTF-16LE, or UTF-16BE byte order mark.
+2. The `charset` the MIME type names. A single-byte charset is read through its table. A charset
+   with no table, such as Shift_JIS, is read one byte to one character, so the guard reads only
+   its ASCII.
+3. UTF-8, when the bytes are valid UTF-8.
+4. windows-1252.
+
+The model reads a text file as UTF-8, with no byte order mark and with `charset=utf-8` when the
+type names a charset (`modelTextFile`). A CSV's formula cells are escaped in the model's copy.
+A redact writes the new text back in the file's own encoding, with its byte order mark
+(`rewriteTextFile`). A text file whose bytes are not base64 is refused.
+
 Each protocol says how it sends a reference part, or that it refuses one: see
 `docs/contracts/providers.md`.
 
@@ -829,8 +844,10 @@ replaced, except those of `email`, `phone`, and `bank_account`.
 Its `output` (and an `error`'s message) is what the person is shown, read at
 `tool_shown_<kind>` apart from `readBack`; neither read changes the other.
 The text parts and text files the model reads are read at `tool_output_<kind>` with the result; a
-block there withholds the result as `output_blocked`. A text file is a CSV, plain-text, or Markdown
-part: its bytes are decoded, and a CSV's formula cells escaped, as an attachment's are. Each of the
+block there withholds the result as `output_blocked`. A text file part is decoded as an attachment
+is (see the text file rules under turn media). The person keeps its bytes unless a guard redacts
+them. A tool with `exposeToModel: false` is not read at `tool_output_<kind>`. A text file part
+whose `data` is not base64 fails the call as `invalid_output`. Each of the
 event's `parts` is read at `tool_shown_<kind>` on its own: its `text`, `uri`, `mimeType`, and
 `metadata`, and a text file's decoded bytes. A text file in the event's `output` is read decoded
 the same way. Other bytes are not read. A part a guard blocks there is left out of the event, and the other parts stay.

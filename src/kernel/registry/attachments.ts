@@ -91,12 +91,140 @@ function b64DecodedLen(data: string): number {
   return Math.floor((data.length * B64_TRIPLET) / B64_WORD) - pad;
 }
 
-function decodeText(bytes: Uint8Array): string {
+/**
+ * How a text file's bytes spell its text, so a changed text is written back the same way:
+ * UTF-8, UTF-16, a single-byte charset through its table, or `bytes`, one byte to one character,
+ * for a charset with no table.
+ */
+type TextEncoding =
+  | { kind: 'utf-8' | 'utf-16le' | 'utf-16be' }
+  | { kind: 'table'; table: ByteTable }
+  | { kind: 'bytes'; name: string };
+
+interface ByteTable {
+  chars: readonly string[];
+  bytes: ReadonlyMap<string, number>;
+}
+
+interface DecodedText {
+  text: string;
+  encoding: TextEncoding;
+  /** The byte order mark the file opened with, kept when it is written back. */
+  bom: boolean;
+}
+
+const BOMS: readonly ['utf-8' | 'utf-16le' | 'utf-16be', readonly number[]][] = [
+  ['utf-8', [0xef, 0xbb, 0xbf]],
+  ['utf-16le', [0xff, 0xfe]],
+  ['utf-16be', [0xfe, 0xff]],
+];
+const CHUNK = 0x8000;
+const CHARSET = /(;\s*charset\s*=\s*)("[^"]*"|[^;\s]+)/i;
+/** why: what a browser reads text with no charset in when it is not UTF-8. */
+const FALLBACK_CHARSET = 'windows-1252';
+const tables = new Map<string, ByteTable | null>();
+
+/** The `charset` a MIME type names, lowercased. */
+function charsetOf(mimeType: string): string | undefined {
+  return CHARSET.exec(mimeType)?.[2]?.replaceAll('"', '').toLowerCase();
+}
+
+/** The encoding a charset label names, as the decoder knows it; `undefined` for one it does not know. */
+function encodingName(label: string): string | undefined {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder(label).encoding;
   } catch {
-    return new TextDecoder('latin1').decode(bytes);
+    return undefined;
   }
+}
+
+/** A single-byte charset's table, each byte to one character and back; `null` for a charset that is not one. */
+function byteTable(name: string): ByteTable | null {
+  const known = tables.get(name);
+  if (known !== undefined) return known;
+  const decoder = new TextDecoder(name);
+  const chars = Array.from({ length: 256 }, (_, byte) => decoder.decode(Uint8Array.of(byte)));
+  const bytes = new Map(chars.map((char, byte) => [char, byte]));
+  const table =
+    chars.every((char) => char.length === 1) && bytes.size === 256 ? { chars, bytes } : null;
+  tables.set(name, table);
+  return table;
+}
+
+function validUtf8(bytes: Uint8Array): string | undefined {
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Text as its bytes spell it: a byte order mark first, then the charset the type names, then UTF-8 when it is valid. */
+function decodeText(mimeType: string, bytes: Uint8Array): DecodedText {
+  for (const [kind, mark] of BOMS) {
+    if (mark.every((byte, index) => bytes[index] === byte)) {
+      const body = bytes.subarray(mark.length);
+      return { text: decodeAs({ kind }, body), encoding: { kind }, bom: true };
+    }
+  }
+  const label = charsetOf(mimeType);
+  const named = label === undefined ? undefined : encodingName(label);
+  if (named === 'utf-16le' || named === 'utf-16be') return decodedAs({ kind: named }, bytes);
+  const table = named === undefined || named === 'utf-8' ? null : byteTable(named);
+  if (table) return decodedAs({ kind: 'table', table }, bytes);
+  // why: a charset with no table, such as Shift_JIS, is read byte for byte, so its ASCII is read and every byte comes back as it was.
+  if (named !== undefined && named !== 'utf-8')
+    return decodedAs({ kind: 'bytes', name: named }, bytes);
+  const utf8 = validUtf8(bytes);
+  if (utf8 !== undefined) return { text: utf8, encoding: { kind: 'utf-8' }, bom: false };
+  const fallback = byteTable(FALLBACK_CHARSET);
+  if (!fallback) throw new TheoremError('internal', `${FALLBACK_CHARSET} has no byte table`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  return decodedAs({ kind: 'table', table: fallback }, bytes);
+}
+
+function decodedAs(encoding: TextEncoding, bytes: Uint8Array): DecodedText {
+  return { text: decodeAs(encoding, bytes), encoding, bom: false };
+}
+
+function decodeAs(encoding: TextEncoding, bytes: Uint8Array): string {
+  if (encoding.kind === 'utf-8' || encoding.kind === 'utf-16le' || encoding.kind === 'utf-16be') {
+    return new TextDecoder(encoding.kind, { ignoreBOM: true }).decode(bytes);
+  }
+  const chars = encoding.kind === 'table' ? encoding.table.chars : undefined;
+  let text = '';
+  for (let at = 0; at < bytes.length; at += CHUNK) {
+    const chunk = bytes.subarray(at, at + CHUNK);
+    text += chars
+      ? Array.from(chunk, (byte) => chars[byte]).join('')
+      : String.fromCharCode(...chunk);
+  }
+  return text;
+}
+
+function encodeAs(encoding: TextEncoding, text: string): Uint8Array {
+  if (encoding.kind === 'utf-8') return new TextEncoder().encode(text);
+  if (encoding.kind === 'utf-16le' || encoding.kind === 'utf-16be') {
+    const bytes = new Uint8Array(text.length * 2);
+    const view = new DataView(bytes.buffer);
+    for (let index = 0; index < text.length; index++) {
+      view.setUint16(index * 2, text.charCodeAt(index), encoding.kind === 'utf-16le');
+    }
+    return bytes;
+  }
+  const table = encoding.kind === 'table' ? encoding.table.bytes : undefined;
+  const bytes: number[] = [];
+  for (const char of text) {
+    const byte = table ? table.get(char) : latin1Byte(char);
+    // why: a character the charset has no byte for can only come from the guard's own placeholder, which is written as UTF-8.
+    if (byte === undefined) bytes.push(...new TextEncoder().encode(char));
+    else bytes.push(byte);
+  }
+  return Uint8Array.from(bytes);
+}
+
+function latin1Byte(char: string): number | undefined {
+  const code = char.charCodeAt(0);
+  return char.length === 1 && code <= 0xff ? code : undefined;
 }
 
 /** CSV formula injection: formula-like cells get an apostrophe before they reach a model. */
@@ -112,14 +240,72 @@ function isTextFile(mimeType: string): boolean {
   return TEXT_MIMES.has(mimeEssence(mimeType));
 }
 
-/** A text file's base64 bytes as the model reads them: decoded, and a CSV's formula cells escaped. */
-function textFileText(mimeType: string, data: string): string {
-  const text = decodeText(base64ToBytes(data));
-  return mimeEssence(mimeType) === 'text/csv' ? sanitizeCsvText(text) : text;
+/** A text file's base64 bytes, decoded; `null` when they are not base64. */
+function decodeTextFile(mimeType: string, data: string): DecodedText | null {
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToBytes(data);
+  } catch {
+    return null;
+  }
+  return decodeText(mimeType, bytes);
 }
 
-/** Text as a text file's base64 bytes. */
-function textFileData(text: string): string {
+/** Whether a text file's bytes are base64, so it can be decoded and read. */
+function isTextFileData(mimeType: string, data: string): boolean {
+  return decodeTextFile(mimeType, data) !== null;
+}
+
+/** A text file's text; throws when its bytes are not base64, which every source of a file refuses first. */
+function textFileText(mimeType: string, data: string): string {
+  const decoded = decodeTextFile(mimeType, data);
+  if (decoded === null) {
+    throw new TheoremError('internal', 'A text file was read before its bytes were checked'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  return decoded.text;
+}
+
+/** `text` as the file's base64 bytes, in the encoding the file was read in; the given bytes when the text is unchanged. */
+function rewriteTextFile(mimeType: string, data: string, text: string): string {
+  const decoded = decodeTextFile(mimeType, data);
+  if (decoded === null) {
+    throw new TheoremError('internal', 'A text file was written before its bytes were checked'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (decoded.text === text) return data;
+  const mark = decoded.bom
+    ? (BOMS.find(([kind]) => kind === decoded.encoding.kind)?.[1] ?? [])
+    : [];
+  const body = encodeAs(decoded.encoding, text);
+  const bytes = new Uint8Array(mark.length + body.length);
+  bytes.set(mark);
+  bytes.set(body, mark.length);
+  return bytesToBase64(bytes);
+}
+
+/** A text file as the model reads it: its text as UTF-8, under a charset that says so, with a CSV's formula cells escaped. */
+function modelTextFile(mimeType: string, data: string): { mimeType: string; data: string } {
+  const decoded = decodeTextFile(mimeType, data);
+  if (decoded === null) {
+    throw new TheoremError('internal', 'A text file was read before its bytes were checked'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  // why: a charset with no table is read byte for byte by the guard, and by its own decoder for the model, which reads UTF-8.
+  const read =
+    decoded.encoding.kind === 'bytes'
+      ? new TextDecoder(decoded.encoding.name).decode(base64ToBytes(data))
+      : decoded.text;
+  const text = mimeEssence(mimeType) === 'text/csv' ? sanitizeCsvText(read) : read;
+  if (decoded.encoding.kind === 'utf-8' && !decoded.bom && text === decoded.text) {
+    return { mimeType, data };
+  }
+  return { mimeType: utf8MimeType(mimeType), data: utf8Data(text) };
+}
+
+/** The MIME type with a charset it names said as UTF-8. */
+function utf8MimeType(mimeType: string): string {
+  return charsetOf(mimeType) === undefined ? mimeType : mimeType.replace(CHARSET, '$1utf-8');
+}
+
+function utf8Data(text: string): string {
   return bytesToBase64(new TextEncoder().encode(text));
 }
 
@@ -278,7 +464,14 @@ function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T, reader: 
   if (!isTextFile(mimeType)) {
     return blob;
   }
-  return { ...blob, data: textFileData(reader.read(textFileText(mimeType, data))) };
+  const model = modelTextFile(mimeType, data);
+  const text = textFileText(model.mimeType, model.data);
+  const read = reader.read(text);
+  return {
+    ...blob,
+    mimeType: model.mimeType,
+    data: rewriteTextFile(model.mimeType, model.data, read),
+  };
 }
 
 type TurnAttachments = Array<TurnBlob | TurnMediaRef>;
@@ -311,12 +504,14 @@ export {
   attachmentsRefused,
   base64Bytes,
   isTextFile,
+  isTextFileData,
   isTurnMediaRef,
   maxBytesForMime,
+  modelTextFile,
   requireMediaLimits,
   resolveMediaLimits,
+  rewriteTextFile,
   sanitizeCsvText,
   sanitizeTurnBlobs,
-  textFileData,
   textFileText,
 };

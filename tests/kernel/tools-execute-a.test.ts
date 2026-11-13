@@ -1078,6 +1078,98 @@ Deno.test("an order in a tool's text file is read as one at tool_output", async 
   );
 });
 
+const bytesFile = (mimeType: string, bytes: number[]) => ({
+  type: 'document',
+  mimeType,
+  data: btoa(String.fromCharCode(...bytes)),
+  sent: true,
+});
+const filesTool = (parts: unknown[], over: Record<string, unknown> = {}) =>
+  makeTool({ output: z.unknown(), handler: () => ({ finding: 'ok', parts }), ...over });
+const bytesOf = (part: unknown) =>
+  part && typeof part === 'object' && 'data' in part
+    ? [...atob(String(part.data))].map((c) => c.charCodeAt(0))
+    : undefined;
+const utf16 = (text: string, little: boolean) =>
+  [...text].flatMap((c) => {
+    const unit = c.charCodeAt(0);
+    return little ? [unit & 0xff, unit >> 8] : [unit >> 8, unit & 0xff];
+  });
+
+Deno.test("a hidden tool's sent text file reaches the person, and the model reads none of it", async () => {
+  const profile = guardedProfile({});
+  const tool = filesTool([textFile('text/plain', 'for the person only')], { exposeToModel: false });
+  const { events, settlement } = await run(tool, { profile, ctx: { profile } });
+  check(settlement.modelResult?.parts, undefined, 'the model gets no parts');
+  const [complete] = toolEventsOf(events, 'complete');
+  check(complete?.parts?.map(fileText), ['for the person only'], 'the person is shown the file');
+});
+
+Deno.test('a file the guard leaves alone keeps its bytes, and the model reads it as UTF-8', async () => {
+  const profile = guardedProfile({});
+  const latin1 = [0x63, 0x61, 0x66, 0xe9, 0x80];
+  const tool = filesTool([bytesFile('text/plain', latin1), textFile('text/csv', 'a,=1+1\n')]);
+  const { events, settlement } = await run(tool, { profile, ctx: { profile } });
+  const [complete] = toolEventsOf(events, 'complete');
+  check(bytesOf(complete?.parts?.[0]), latin1, 'the person is shown the bytes as given');
+  check(fileText(complete?.parts?.[1]), 'a,=1+1\n', "the person's CSV is not escaped");
+  const output = complete?.output as { parts?: unknown[] } | undefined;
+  check(bytesOf(output?.parts?.[0]), latin1, 'the output keeps the bytes as given');
+  const read = settlement.modelResult?.parts ?? [];
+  check(
+    new TextDecoder().decode(Uint8Array.from(bytesOf(read[0]) ?? [])),
+    'café€',
+    'the model reads windows-1252 as UTF-8',
+  );
+  check(fileText(read[1]), "a,'=1+1\n", "the model's CSV is escaped");
+});
+
+Deno.test('a UTF-16 file is read, and redacted in UTF-16 with its byte order mark', async () => {
+  const profile = guardedProfile({
+    credentials: { at: { tool_output_function: 'redact', tool_shown_function: 'redact' } },
+  });
+  const text = `key ${TEST_OPENAI_KEY} end`;
+  const tool = filesTool([
+    bytesFile('text/plain', [0xff, 0xfe, ...utf16(text, true)]),
+    bytesFile('text/plain; charset=utf-16be', utf16(text, false)),
+  ]);
+  const { events, settlement } = await run(tool, { profile, ctx: { profile } });
+  const [complete] = toolEventsOf(events, 'complete');
+  const want = 'key [omitted - sensitive] end';
+  check(
+    bytesOf(complete?.parts?.[0]),
+    [0xff, 0xfe, ...utf16(want, true)],
+    'the BOM file is kept as UTF-16LE',
+  );
+  check(bytesOf(complete?.parts?.[1]), utf16(want, false), 'the labelled file is kept as UTF-16BE');
+  const read = settlement.modelResult?.parts ?? [];
+  check(read.map(fileText), [want, want], 'the model reads both as UTF-8');
+  check(
+    read.map((part) => ('mimeType' in part ? part.mimeType : undefined)),
+    ['text/plain', 'text/plain; charset=utf-8'],
+    'a charset named for the model says UTF-8',
+  );
+});
+
+Deno.test('a file read by its charset keeps a byte the label gives it', async () => {
+  const profile = guardedProfile({ credentials: { at: { tool_shown_function: 'redact' } } });
+  const latin1 = [...new TextEncoder().encode(`Ã© ${TEST_OPENAI_KEY} `)];
+  const tool = filesTool([bytesFile('text/plain; charset=iso-8859-1', latin1)]);
+  const { events, settlement } = await run(tool, { profile, ctx: { profile } });
+  const [complete] = toolEventsOf(events, 'complete');
+  const kept = String.fromCharCode(...(bytesOf(complete?.parts?.[0]) ?? []));
+  check(
+    kept,
+    `${String.fromCharCode(...latin1.slice(0, 4))} [omitted - sensitive] `,
+    'redacted byte for byte',
+  );
+  check(
+    new TextDecoder().decode(Uint8Array.from(bytesOf(settlement.modelResult?.parts?.[0]) ?? [])),
+    new TextDecoder('windows-1252').decode(Uint8Array.from(latin1)),
+    'the model reads it by its label, not as UTF-8',
+  );
+});
+
 for (const from of ['handler', 'stage'] as const) {
   Deno.test(`the guard redacts a secret in failure details the ${from} set, read back and shown alike`, async () => {
     const profile = guardedProfile({

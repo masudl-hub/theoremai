@@ -417,6 +417,12 @@ Deno.test('text attachments are decoded, scrubbed of injections and secrets, and
   check(decode(first(csv).data), "a,'=1+1\n", 'csv formula quoted');
   const charset = run([{ mimeType: 'text/csv; charset=utf-8', data: b64('a,=1+1\n') }]);
   check(decode(first(charset).data), "a,'=1+1\n", 'csv formula quoted with a charset named');
+  const wide = [0xfe, 0xff, ...[...'a,=1+1'].flatMap((c) => [0, c.charCodeAt(0)])];
+  const utf16 = run([
+    { mimeType: 'text/csv; charset=utf-16', data: btoa(String.fromCharCode(...wide)) },
+  ]);
+  check(decode(first(utf16).data), "a,'=1+1", 'a UTF-16 attachment is read and sent as UTF-8');
+  check(first(utf16).mimeType, 'text/csv; charset=utf-8', 'under a charset that says so');
   const plain = run([{ mimeType: 'text/plain', data: b64('=1+1') }]);
   check(decode(first(plain).data), '=1+1', 'plain text keeps formulas');
   const md = run([{ mimeType: 'text/markdown', data: b64('# hi') }]);

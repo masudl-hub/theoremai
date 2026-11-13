@@ -223,6 +223,47 @@ function WordsField({ field, value, onChange }: Edit & { field: SchemaField }) {
   );
 }
 
+/** The shapes to pick from: segments when they are few and short, else a menu. */
+function BranchPicker({
+  label,
+  labels,
+  isMenu,
+  value,
+  onPick,
+}: {
+  label: string;
+  labels: string[];
+  isMenu: boolean;
+  value: string | undefined;
+  onPick: (label: string) => void;
+}) {
+  if (isMenu) {
+    return <Selector label={label} size="sm" options={labels} value={value} onChange={onPick} />;
+  }
+  return (
+    <HStack>
+      <SegmentedControl label={label} size="sm" value={value ?? ''} onChange={onPick}>
+        {labels.map((each) => (
+          <SegmentedControlItem key={each} value={each} label={each} />
+        ))}
+      </SegmentedControl>
+    </HStack>
+  );
+}
+
+/** A field that holds other fields, under its label and description. */
+function FieldGroup({ field, children }: { field: SchemaField; children: ReactNode }) {
+  return (
+    <Group
+      label={field.label}
+      isRequired={field.isRequired}
+      description={field.description && <Description text={field.description} />}
+    >
+      {children}
+    </Group>
+  );
+}
+
 /** Which shape a value takes, then what that shape asks for. Picking one starts it at its sample. */
 function BranchFields({
   label,
@@ -236,17 +277,14 @@ function BranchFields({
     const branch = branches.find((each) => each.label === next);
     if (branch && branch !== chosen) onChange(branchSample(branch));
   };
-  const labels = branches.map((branch) => branch.label);
-  const picker = isMenu ? (
-    <Selector label={label} size="sm" options={labels} value={chosen?.label} onChange={pick} />
-  ) : (
-    <HStack>
-      <SegmentedControl label={label} size="sm" value={chosen?.label ?? ''} onChange={pick}>
-        {labels.map((each) => (
-          <SegmentedControlItem key={each} value={each} label={each} />
-        ))}
-      </SegmentedControl>
-    </HStack>
+  const picker = (
+    <BranchPicker
+      label={label}
+      labels={branches.map((branch) => branch.label)}
+      isMenu={isMenu}
+      value={chosen?.label}
+      onPick={pick}
+    />
   );
   if (!chosen) return picker;
   const body = branchField(chosen);
@@ -350,20 +388,12 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
     <RowsField field={field} item={control.item} value={value} onChange={onChange} />
   ),
   group: ({ field, control, value, onChange }) => (
-    <Group
-      label={field.label}
-      isRequired={field.isRequired}
-      description={field.description && <Description text={field.description} />}
-    >
+    <FieldGroup field={field}>
       <ObjectFields schema={control.schema} value={isRow(value) ? value : {}} onChange={onChange} />
-    </Group>
+    </FieldGroup>
   ),
   branches: ({ field, control, value, onChange }) => (
-    <Group
-      label={field.label}
-      isRequired={field.isRequired}
-      description={field.description && <Description text={field.description} />}
-    >
+    <FieldGroup field={field}>
       <BranchFields
         label={field.label}
         branches={control.branches}
@@ -371,7 +401,7 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
         value={value}
         onChange={onChange}
       />
-    </Group>
+    </FieldGroup>
   ),
   json: ({ field, value, onChange }) => (
     <JsonField field={field} value={value} onChange={onChange} />

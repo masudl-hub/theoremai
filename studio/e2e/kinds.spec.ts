@@ -46,6 +46,27 @@ test('a host runs a tool', async ({ page }) => {
   await expect(await seen(page)).toHaveLength(0);
 });
 
+test('a tool request picks one of its shapes, and sends null on purpose', async ({ page }) => {
+  await open(page, 'errands');
+  const shapes = page.getByRole('radiogroup', { name: 'Action' });
+  const call = shapes.getByRole('radio', { name: 'Call', exact: true });
+  const text = shapes.getByRole('radio', { name: 'Text', exact: true });
+  const body = page.getByRole('textbox', { name: /^Body/ });
+  const at = page.getByRole('textbox', { name: /^At/ });
+  await expect(call).toHaveAttribute('aria-checked', 'true');
+  await expect(body).toBeHidden();
+  await text.click();
+  await expect(text).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('textbox', { name: /^Number/ }).fill('555');
+  await body.fill('on my way');
+  await expect(at).toBeVisible();
+  await page.getByRole('switch', { name: 'Send null' }).click();
+  await expect(at).toBeHidden();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByText('text now', { exact: true })).toBeVisible();
+  await expect(await seen(page)).toHaveLength(0);
+});
+
 test('an image agent draws', async ({ page }) => {
   await open(page, 'picture');
   await send(page, 'a red pixel');

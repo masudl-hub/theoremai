@@ -110,6 +110,12 @@ export const gatekeeper = defineProfile({
   tools: { allow: ['lookup_city', 'wipe_desk'] },
 });
 
+export const errands = defineProfile({
+  type: 'host',
+  id: 'errands',
+  tools: { allow: ['plan_errand'] },
+});
+
 // why: a long option value and two models, so a narrow composer has more to show than room.
 export const scout = defineProfile({
   id: 'scout',

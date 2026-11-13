@@ -16,11 +16,18 @@ import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
   blankRow,
+  branchField,
+  branchSample,
+  branchValue,
+  chosenBranch,
+  inBranch,
   isRow,
   type JsonSchema,
   json,
+  type SchemaBranch,
   type SchemaControl,
   type SchemaField,
+  schemaControl,
   schemaFields,
   withField,
 } from '@theoremjs/web/client';
@@ -216,6 +223,52 @@ function WordsField({ field, value, onChange }: Edit & { field: SchemaField }) {
   );
 }
 
+/** Which shape a value takes, then what that shape asks for. Picking one starts it at its sample. */
+function BranchFields({
+  label,
+  branches,
+  isMenu,
+  value,
+  onChange,
+}: Edit & { label: string; branches: SchemaBranch[]; isMenu: boolean }) {
+  const chosen = chosenBranch(branches, value);
+  const pick = (next: string) => {
+    const branch = branches.find((each) => each.label === next);
+    if (branch && branch !== chosen) onChange(branchSample(branch));
+  };
+  const labels = branches.map((branch) => branch.label);
+  const picker = isMenu ? (
+    <Selector label={label} size="sm" options={labels} value={chosen?.label} onChange={pick} />
+  ) : (
+    <HStack>
+      <SegmentedControl label={label} size="sm" value={chosen?.label ?? ''} onChange={pick}>
+        {labels.map((each) => (
+          <SegmentedControlItem key={each} value={each} label={each} />
+        ))}
+      </SegmentedControl>
+    </HStack>
+  );
+  if (!chosen) return picker;
+  const body = branchField(chosen);
+  const edit = (next: unknown) => onChange(inBranch(chosen, next));
+  const current = branchValue(chosen, value);
+  return (
+    <VStack gap={3}>
+      {picker}
+      {/* why: The picker already names the shape, so its fields sit under it without a second heading. */}
+      {body.control.kind === 'group' ? (
+        <ObjectFields
+          schema={body.control.schema}
+          value={isRow(current) ? current : {}}
+          onChange={edit}
+        />
+      ) : (
+        <Field field={body} value={current} onChange={edit} />
+      )}
+    </VStack>
+  );
+}
+
 type ControlKind = SchemaControl['kind'];
 type ControlProps<K extends ControlKind> = Edit & {
   field: SchemaField;
@@ -305,21 +358,73 @@ const CONTROLS: { [K in ControlKind]: (props: ControlProps<K>) => ReactNode } = 
       <ObjectFields schema={control.schema} value={isRow(value) ? value : {}} onChange={onChange} />
     </Group>
   ),
+  branches: ({ field, control, value, onChange }) => (
+    <Group
+      label={field.label}
+      isRequired={field.isRequired}
+      description={field.description && <Description text={field.description} />}
+    >
+      <BranchFields
+        label={field.label}
+        branches={control.branches}
+        isMenu={control.isMenu}
+        value={value}
+        onChange={onChange}
+      />
+    </Group>
+  ),
   json: ({ field, value, onChange }) => (
     <JsonField field={field} value={value} onChange={onChange} />
   ),
 };
 
 function Field({ field, value, onChange }: Edit & { field: SchemaField }) {
+  if (field.isNullable) return <NullableField field={field} value={value} onChange={onChange} />;
+  return <FieldInput field={field} value={value} onChange={onChange} />;
+}
+
+function FieldInput({ field, value, onChange }: Edit & { field: SchemaField }) {
   const control = CONTROLS[field.control.kind] as (props: ControlProps<ControlKind>) => ReactNode;
   const input = control({ field, control: field.control, value, onChange });
   // why: A group already says its description under its name.
-  const isGroup = field.control.kind === 'rows' || field.control.kind === 'group';
+  const isGroup =
+    field.control.kind === 'rows' ||
+    field.control.kind === 'group' ||
+    field.control.kind === 'branches';
   if (!field.description || isGroup) return input;
   return (
     <VStack gap={1}>
       {input}
       <Description text={field.description} />
+    </VStack>
+  );
+}
+
+/**
+ * A field that also takes null: its own input, and a switch that sends null instead. Turning the
+ * switch off leaves the field out, so null is sent only when asked for.
+ */
+function NullableField({ field, value, onChange }: Edit & { field: SchemaField }) {
+  const t = useLabels();
+  const isNull = value === null;
+  const toggle = (
+    <Switch
+      label={t('@theorem.decision.send_null')}
+      value={isNull}
+      onChange={(on) => onChange(on ? null : undefined)}
+    />
+  );
+  if (isNull) {
+    return (
+      <Labelled label={field.label} isRequired={field.isRequired}>
+        {toggle}
+      </Labelled>
+    );
+  }
+  return (
+    <VStack gap={1}>
+      <FieldInput field={field} value={value} onChange={onChange} />
+      {toggle}
     </VStack>
   );
 }
@@ -383,5 +488,18 @@ export function SchemaFields({
   value,
   onChange,
 }: StateEdit<Record<string, unknown>> & { schema: JsonSchema }) {
+  const t = useLabels();
+  const control = schemaControl(schema);
+  if (control.kind === 'branches') {
+    return (
+      <BranchFields
+        label={t('@theorem.decision.shape')}
+        branches={control.branches}
+        isMenu={control.isMenu}
+        value={value}
+        onChange={(next) => onChange(isRow(next) ? next : {})}
+      />
+    );
+  }
   return <ObjectFields schema={schema} value={value} onChange={onChange} />;
 }

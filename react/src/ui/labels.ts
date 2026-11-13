@@ -463,6 +463,15 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Add a value',
     description: 'A list of words in the state, while it is empty.',
   },
+  '@theorem.decision.send_null': {
+    defaultMessage: 'Send null',
+    description: 'Sends the JSON null for a field that takes it, instead of leaving the field out.',
+  },
+  '@theorem.decision.shape': {
+    defaultMessage: 'Kind',
+    description:
+      'Picks which of its shapes a request takes, for a tool whose input is one of several.',
+  },
   '@theorem.decision.invalid_json': {
     defaultMessage: 'Not valid JSON yet',
     description: "The state doesn't parse.",

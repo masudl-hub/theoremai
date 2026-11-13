@@ -105,4 +105,25 @@ export function registerTools(): void {
       return { pages: 12 };
     },
   });
+  // why: one input that picks a shape, and one that may be null on purpose.
+  registerTool({
+    ...IN_ANY_TURN,
+    access: 'read-only',
+    permission: 'auto',
+    name: 'plan_errand',
+    description: 'Plans a call or a text, now or later.',
+    category: 'desk',
+    input: z.object({
+      action: z.union([
+        z.object({ call: z.object({ number: z.string().min(1) }) }),
+        z.object({ text: z.object({ number: z.string().min(1), body: z.string().min(1) }) }),
+      ]),
+      later: z.object({ at: z.string().min(1) }).nullable(),
+    }),
+    output: z.object({ plan: z.string() }),
+    handler: (input) => {
+      const { action, later } = input as { action: object; later: { at: string } | null };
+      return { plan: `${Object.keys(action)[0]} ${later === null ? 'now' : later.at}` };
+    },
+  });
 }

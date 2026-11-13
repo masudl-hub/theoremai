@@ -7,7 +7,7 @@ const tools = path.join(PROJECT, 'tools.ts');
 const STARTED = 'has started and is still running';
 
 async function toolPage(page: Page, name: string) {
-  await page.getByRole('radio', { name: /Tools, 6/ }).click();
+  await page.getByRole('radio', { name: /Tools, 7/ }).click();
   await page.getByRole('button', { name, exact: true }).first().click();
 }
 

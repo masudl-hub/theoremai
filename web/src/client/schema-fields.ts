@@ -29,13 +29,28 @@ export type SchemaControl =
   | { kind: 'words' }
   | { kind: 'rows'; item: JsonSchema }
   | { kind: 'group'; schema: JsonSchema }
+  | { kind: 'branches'; branches: SchemaBranch[]; isMenu: boolean }
   | { kind: 'json' };
+
+/**
+ * One of the shapes a field of several (`anyOf` or `oneOf`) can take, and how its value shows
+ * which: `key` holds the constant `is`, or, with no `is`, the object holds `key` alone.
+ */
+export type SchemaBranch = {
+  label: string;
+  key: string;
+  is?: string | number | boolean;
+  /** What the form asks for in this shape: the rest of the object, or the value under `key`. */
+  body: JsonSchema;
+};
 
 export type SchemaField = {
   key: string;
   label: string;
   description?: string;
   isRequired: boolean;
+  /** The field also takes `null`, which the form sends only when asked: left out stays left out. */
+  isNullable?: true;
   control: SchemaControl;
 };
 
@@ -67,6 +82,140 @@ function enumOf(prop: JsonSchema | undefined): string[] | undefined {
     options.every((option) => typeof option === 'string')
     ? options
     : undefined;
+}
+
+function optionsOf(prop: JsonSchema): JsonSchema[] | undefined {
+  const options = Array.isArray(prop.anyOf)
+    ? prop.anyOf
+    : Array.isArray(prop.oneOf)
+      ? prop.oneOf
+      : undefined;
+  return options?.filter(isRow);
+}
+
+const isNullSchema = (prop: JsonSchema) => prop.type === 'null';
+
+/** The field's schema without its `null` option, and whether it has one. */
+function withoutNull(prop: JsonSchema): { schema: JsonSchema; isNullable: boolean } {
+  if (Array.isArray(prop.type) && prop.type.includes('null')) {
+    return { schema: prop, isNullable: true };
+  }
+  const options = optionsOf(prop);
+  if (!options?.some(isNullSchema)) return { schema: prop, isNullable: false };
+  const rest = options.filter((option) => !isNullSchema(option));
+  const { anyOf: _anyOf, oneOf: _oneOf, ...own } = prop;
+  const [only] = rest;
+  return {
+    schema: rest.length === 1 && only ? { ...only, ...own } : { ...own, anyOf: rest },
+    isNullable: true,
+  };
+}
+
+function constOf(prop: unknown): string | number | boolean | undefined {
+  if (!isRow(prop)) return undefined;
+  const value =
+    'const' in prop
+      ? prop.const
+      : Array.isArray(prop.enum) && prop.enum.length === 1
+        ? prop.enum[0]
+        : undefined;
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? value
+    : undefined;
+}
+
+function titleOf(prop: JsonSchema): string | undefined {
+  return typeof prop.title === 'string' && prop.title ? prop.title : undefined;
+}
+
+const isDistinct = (values: readonly unknown[]) => new Set(values).size === values.length;
+
+/** Shapes told apart by a property each holds a different constant in. */
+function taggedBranches(options: JsonSchema[]): SchemaBranch[] | undefined {
+  const shapes = options.map((option) => option.properties as Record<string, unknown>);
+  for (const key of Object.keys(shapes[0] ?? {})) {
+    const tags = shapes.map((shape) => constOf(shape[key]));
+    if (!isDistinct(tags)) continue;
+    const branches = options.map((option, at): SchemaBranch | undefined => {
+      const is = tags[at];
+      if (is === undefined) return undefined;
+      const { [key]: _tag, ...rest } = shapes[at] ?? {};
+      const required = Array.isArray(option.required)
+        ? { required: option.required.filter((name) => name !== key) }
+        : {};
+      return {
+        label: titleOf(option) ?? humanize(String(is)),
+        key,
+        is,
+        body: { ...option, properties: rest, ...required },
+      };
+    });
+    if (branches.every((branch) => branch !== undefined)) return branches;
+  }
+  return undefined;
+}
+
+/** Shapes that each hold one key of their own: the key says which. */
+function keyedBranches(options: JsonSchema[]): SchemaBranch[] | undefined {
+  const branches = options.map((option): SchemaBranch | undefined => {
+    const entries = Object.entries(option.properties as Record<string, unknown>);
+    const [entry] = entries;
+    if (entries.length !== 1 || !entry || !isRow(entry[1])) return undefined;
+    const [key, body] = entry;
+    return { label: titleOf(option) ?? humanize(key), key, body };
+  });
+  if (!branches.every((branch) => branch !== undefined)) return undefined;
+  return isDistinct(branches.map((branch) => branch.key)) ? branches : undefined;
+}
+
+/** The shapes of a field of several objects, when its value shows which one it is in. */
+function branchesOf(prop: JsonSchema): SchemaBranch[] | undefined {
+  const options = optionsOf(prop);
+  if (!options || options.length < 2 || !options.every((option) => isRow(option.properties))) {
+    return undefined;
+  }
+  return taggedBranches(options) ?? keyedBranches(options);
+}
+
+/** The shape `value` is in, if it is in one. */
+export function chosenBranch(
+  branches: readonly SchemaBranch[],
+  value: unknown,
+): SchemaBranch | undefined {
+  if (!isRow(value)) return undefined;
+  return branches.find((branch) =>
+    branch.is === undefined ? Object.hasOwn(value, branch.key) : value[branch.key] === branch.is,
+  );
+}
+
+/** The part of `value` a shape's body edits. */
+export function branchValue(branch: SchemaBranch, value: unknown): unknown {
+  if (!isRow(value)) return undefined;
+  if (branch.is === undefined) return value[branch.key];
+  const { [branch.key]: _tag, ...rest } = value;
+  return rest;
+}
+
+/** The value in `branch` with `body` as its body. */
+export function inBranch(branch: SchemaBranch, body: unknown): Record<string, unknown> {
+  if (branch.is === undefined) return { [branch.key]: body };
+  return { ...(isRow(body) ? body : {}), [branch.key]: branch.is };
+}
+
+/** A shape's body as a field of its own, labelled as the shape. */
+export function branchField(branch: SchemaBranch): SchemaField {
+  return {
+    key: branch.key,
+    label: branch.label,
+    isRequired: true,
+    control:
+      branch.is === undefined ? schemaControl(branch.body) : { kind: 'group', schema: branch.body },
+  };
+}
+
+/** A value in `branch`, its body at its sample. */
+export function branchSample(branch: SchemaBranch): Record<string, unknown> {
+  return inBranch(branch, sampleValue(branch.body));
 }
 
 function numberAt(prop: JsonSchema, key: string): number | undefined {
@@ -115,9 +264,12 @@ function listControl(prop: JsonSchema): SchemaControl {
 }
 
 /** The input a field's schema asks for. */
-export function schemaControl(prop: JsonSchema): SchemaControl {
+export function schemaControl(field: JsonSchema): SchemaControl {
+  const prop = withoutNull(field).schema;
   const options = enumOf(prop);
   if (options) return { kind: 'choice', options, isMenu: options.length > MAX_SEGMENTS };
+  const branches = branchesOf(prop);
+  if (branches) return { kind: 'branches', branches, isMenu: branches.length > MAX_SEGMENTS };
   switch (kindOf(prop)) {
     case 'boolean':
       return { kind: 'switch' };
@@ -158,6 +310,7 @@ export function schemaFields(schema: JsonSchema): SchemaField[] {
           ? { description: prop.description }
           : {}),
         isRequired: required.has(key),
+        ...(withoutNull(prop).isNullable ? { isNullable: true as const } : {}),
         control: schemaControl(prop),
       },
     ];
@@ -173,9 +326,12 @@ function declaredSample(prop: JsonSchema): { value: unknown } | undefined {
   return undefined;
 }
 
-function sampleValue(prop: JsonSchema): unknown {
-  const declared = declaredSample(prop);
+function sampleValue(field: JsonSchema): unknown {
+  const declared = declaredSample(field);
   if (declared) return declared.value;
+  const prop = withoutNull(field).schema;
+  const branches = branchesOf(prop);
+  if (branches?.[0]) return branchSample(branches[0]);
   switch (kindOf(prop)) {
     case 'number':
     case 'integer':
@@ -187,20 +343,26 @@ function sampleValue(prop: JsonSchema): unknown {
     case 'object':
       return sampleFromSchema(prop);
     case 'string':
-    case 'unknown':
       return 'example';
+    case 'unknown':
+      // why: No sample fits a value of no known shape; the field waits for the person.
+      return undefined;
   }
 }
 
 /** Required fields, and optional ones the schema gives an example for; a plain value of the field's type when the schema declares no sample. */
 export function sampleFromSchema(schema: JsonSchema): Record<string, unknown> {
+  const branches = branchesOf(schema);
+  if (branches?.[0]) return branchSample(branches[0]);
   const props = isRow(schema.properties) ? schema.properties : {};
   const required = new Set(requiredOf(schema));
   const sample: Record<string, unknown> = {};
   for (const [key, prop] of Object.entries(props)) {
     if (!isRow(prop)) continue;
-    if (required.has(key)) sample[key] = sampleValue(prop);
-    else if (Array.isArray(prop.examples) && prop.examples.length) sample[key] = prop.examples[0];
+    if (required.has(key)) {
+      const value = sampleValue(prop);
+      if (value !== undefined) sample[key] = value;
+    } else if (Array.isArray(prop.examples) && prop.examples.length) sample[key] = prop.examples[0];
   }
   return sample;
 }
@@ -224,12 +386,29 @@ export function withField(
 
 /** The labels of required fields the request is still missing, nested ones by their path. */
 export function missingFields(schema: JsonSchema, value: unknown, prefix = ''): string[] {
+  const branches = branchesOf(schema);
+  if (branches) {
+    const branch = chosenBranch(branches, value);
+    if (!branch) return [];
+    // why: A keyed shape's one key is the field a top-level request lacks when it is empty.
+    const label = prefix || (branch.is === undefined ? branch.label : '');
+    return missingIn(branchField(branch), branchValue(branch, value), label);
+  }
   if (!isRow(value)) return [];
-  return schemaFields(schema).flatMap((field) => {
-    const entry = value[field.key];
-    const label = prefix ? `${prefix} › ${field.label}` : field.label;
-    if (entry === undefined || entry === null || entry === '')
-      return field.isRequired ? [label] : [];
-    return field.control.kind === 'group' ? missingFields(field.control.schema, entry, label) : [];
-  });
+  return schemaFields(schema).flatMap((field) =>
+    missingIn(field, value[field.key], prefix ? `${prefix} › ${field.label}` : field.label),
+  );
+}
+
+/** What `entry`, the value of `field`, still lacks: the field itself, or what its shape needs. */
+function missingIn(field: SchemaField, entry: unknown, label: string): string[] {
+  if (entry === null && field.isNullable) return [];
+  if (entry === undefined || entry === null || entry === '') return field.isRequired ? [label] : [];
+  const { control } = field;
+  if (control.kind === 'group') return missingFields(control.schema, entry, label);
+  if (control.kind === 'branches') {
+    const branch = chosenBranch(control.branches, entry);
+    return branch ? missingIn(branchField(branch), branchValue(branch, entry), label) : [label];
+  }
+  return [];
 }

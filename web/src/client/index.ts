@@ -133,8 +133,14 @@ export {
 } from './run-session.ts';
 export {
   blankRow,
+  branchField,
+  branchSample,
+  branchValue,
+  chosenBranch,
+  inBranch,
   type JsonSchema,
   missingFields,
+  type SchemaBranch,
   type SchemaControl,
   type SchemaField,
   sampleFromSchema,

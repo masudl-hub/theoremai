@@ -45,6 +45,7 @@ export const theorem: TurnWiring = {
     registerProfile(team.reader);
     registerProfile(team.line);
     registerProfile(team.scout);
+    registerProfile(team.errands);
   },
   prepare: (turn) => ({ ...turn, execution, background }),
   // why: The app decides who hears of a late result. Ana of north has quiet hours: no reply she

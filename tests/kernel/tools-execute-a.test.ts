@@ -861,6 +861,43 @@ Deno.test("the guard reads a tool's text parts where the model reads them, and e
   );
 });
 
+Deno.test("a post_tool mutate's parts are read at both boundaries", async () => {
+  const profile = guardedProfile({
+    credentials: { at: { tool_output_function: 'redact', tool_shown_function: 'redact' } },
+  });
+  const stages = stagesOf(
+    [
+      afterTool(() => ({
+        mutate: {
+          output: {
+            finding: 'ok',
+            parts: [
+              { type: 'text', text: `mutated ${TEST_OPENAI_KEY}` },
+              {
+                type: 'document',
+                mimeType: 'application/pdf',
+                uri: 'gs://bucket/m.pdf',
+                metadata: { caption: TEST_OPENAI_KEY },
+              },
+            ],
+          },
+        },
+      })),
+    ],
+    { profile },
+  );
+  const tool = makeTool({ output: z.unknown(), handler: () => ({ finding: 'ok' }) });
+  const { events, settlement } = await run(tool, { stages, profile, ctx: { profile } });
+  const [complete] = toolEventsOf(events, 'complete');
+  check(complete?.parts?.length, 2, 'the mutated parts are shown');
+  check(
+    JSON.stringify(settlement.modelResult?.parts).includes(TEST_OPENAI_KEY),
+    false,
+    'model parts',
+  );
+  check(JSON.stringify(complete?.parts).includes(TEST_OPENAI_KEY), false, 'shown parts');
+});
+
 Deno.test('a blocked text part withholds the result, and a blocked part is not shown', async () => {
   const keyed = (where: 'text' | 'caption') =>
     makeTool({

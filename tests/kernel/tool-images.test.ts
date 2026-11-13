@@ -20,7 +20,7 @@ const API = 'https://api.example.com/shots';
 function registerShotTool(
   name: string,
   shots: string[],
-  blockSecrets = false,
+  secretsAt: Partial<Record<'tool_output_http' | 'tool_shown_http', 'block' | 'redact'>> = {},
   imageLimits?: ToolImageLimits,
   entries: (shots: string[]) => ToolMediaEntry[] = (shots) => shots.map((url) => ({ url })),
 ): void {
@@ -54,13 +54,7 @@ function registerShotTool(
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 10 },
-        ...(blockSecrets
-          ? {
-              detect: {
-                credentials: { at: { tool_output_http: 'block' as const } },
-              },
-            }
-          : {}),
+        ...(Object.keys(secretsAt).length ? { detect: { credentials: { at: secretsAt } } } : {}),
       },
     }),
   );
@@ -150,13 +144,13 @@ Deno.test('with no image limits, every picture named is fetched', async () => {
 });
 
 Deno.test('imageLimits.count keeps the first pictures named', async () => {
-  registerShotTool('shot_many', SEVEN, false, { count: 4 });
+  registerShotTool('shot_many', SEVEN, {}, { count: 4 });
   const events = await run('shot_many', Object.fromEntries(SEVEN.map((url) => [url, png()])));
   assertEquals(toolEventsOf(events, 'complete')[0]?.parts?.length, 4);
 });
 
 Deno.test('a picture past imageLimits.bytes is left out', async () => {
-  registerShotTool('shot_small', SEVEN.slice(0, 3), false, { bytes: PNG.length - 1 });
+  registerShotTool('shot_small', SEVEN.slice(0, 3), {}, { bytes: PNG.length - 1 });
   const events = await run('shot_small', Object.fromEntries(SEVEN.map((url) => [url, png()])));
   assertEquals(toolEventsOf(events, 'complete')[0]?.parts ?? [], []);
   assertStringIncludes(
@@ -166,7 +160,7 @@ Deno.test('a picture past imageLimits.bytes is left out', async () => {
 });
 
 Deno.test('pictures past imageLimits.totalBytes are left out', async () => {
-  registerShotTool('shot_total', SEVEN.slice(0, 3), false, { totalBytes: 2 * PNG_BASE64.length });
+  registerShotTool('shot_total', SEVEN.slice(0, 3), {}, { totalBytes: 2 * PNG_BASE64.length });
   const events = await run('shot_total', Object.fromEntries(SEVEN.map((url) => [url, png()])));
   assertEquals(toolEventsOf(events, 'complete')[0]?.parts?.length, 2);
   assertStringIncludes(toolEventsOf(events, 'warning')[0]?.warning.message ?? '', 'byte total');
@@ -179,7 +173,7 @@ Deno.test('registration refuses image limits that are not whole numbers, or some
     [{ totalBytes: -1 }, 'imageLimits.totalBytes'],
     [{ timeoutMs: 0 }, 'timeoutMs'],
   ] as const) {
-    assertThrows(() => registerShotTool('shot_refused', [], false, limits), Error, field);
+    assertThrows(() => registerShotTool('shot_refused', [], {}, limits), Error, field);
   }
 });
 
@@ -195,7 +189,7 @@ Deno.test('an address that is not https is a warning, not a failed call', async 
 });
 
 Deno.test('a reference that breaks the part shape is a warning, not a failed call', async () => {
-  registerShotTool('shot_bad_ref', [], false, undefined, () => [
+  registerShotTool('shot_bad_ref', [], {}, undefined, () => [
     { type: 'document', mimeType: 'application/pdf', uri: '' },
   ]);
   const events = await run('shot_bad_ref', {});
@@ -207,8 +201,29 @@ Deno.test('a reference that breaks the part shape is a warning, not a failed cal
   assertEquals(toolEventsOf(events, 'error'), []);
 });
 
+Deno.test("a reference's metadata is read where the person sees it, and its address is left whole", async () => {
+  const signed = `https://files.example.com/card.pdf?token=${'eyJ'}hbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln`;
+  registerShotTool('shot_shown', [], { tool_shown_http: 'redact' }, undefined, () => [
+    {
+      type: 'document',
+      mimeType: 'application/pdf',
+      uri: signed,
+      metadata: { caption: `card ${TEST_OPENAI_KEY}`, link: signed },
+    },
+  ]);
+  const events = await run('shot_shown', {});
+  const [complete] = toolEventsOf(events, 'complete');
+  const [part] = complete?.parts ?? [];
+  const ref = part && 'uri' in part ? part : undefined;
+  assertEquals(ref?.uri, signed);
+  assertEquals(JSON.stringify(ref?.metadata).includes(TEST_OPENAI_KEY), false);
+  assertEquals(ref?.metadata?.link === signed, false);
+});
+
 Deno.test('a result the output guard blocks fetches no pictures', async () => {
-  registerShotTool('shot_blocked', ['https://cdn.example.com/a.png'], true);
+  registerShotTool('shot_blocked', ['https://cdn.example.com/a.png'], {
+    tool_output_http: 'block',
+  });
   secretFor.set('shot_blocked', TEST_OPENAI_KEY);
   let fetched = 0;
   const files = {
@@ -224,7 +239,7 @@ Deno.test('a result the output guard blocks fetches no pictures', async () => {
 });
 
 Deno.test('a picture the tool sends is marked sent, and the model reads it the same', async () => {
-  registerShotTool('shot_sent', ['https://cdn.example.com/a.png'], false, undefined, (shots) =>
+  registerShotTool('shot_sent', ['https://cdn.example.com/a.png'], {}, undefined, (shots) =>
     shots.map((url) => ({ url, sent: true as const })),
   );
   const events = await run('shot_sent', { 'https://cdn.example.com/a.png': png() });
@@ -236,7 +251,7 @@ Deno.test('a picture the tool sends is marked sent, and the model reads it the s
 
 Deno.test('a reference is shown, never fetched, and its address reaches no text the model reads', async () => {
   const uri = 'gs://bucket/private/report.pdf';
-  registerShotTool('shot_ref', ['https://cdn.example.com/a.png'], false, undefined, (shots) => [
+  registerShotTool('shot_ref', ['https://cdn.example.com/a.png'], {}, undefined, (shots) => [
     ...shots.map((url) => ({ url })),
     { type: 'document', mimeType: 'application/pdf', uri },
   ]);
@@ -261,7 +276,7 @@ Deno.test('a reference is shown, never fetched, and its address reaches no text 
 
 Deno.test('a tool that names only references writes no pictures note', async () => {
   const uri = 'gs://bucket/clip.mp4';
-  registerShotTool('shot_only_ref', [], false, undefined, () => [
+  registerShotTool('shot_only_ref', [], {}, undefined, () => [
     { type: 'video', mimeType: 'video/mp4', uri, metadata: { caption: 'Clip' } },
   ]);
   const events = await run('shot_only_ref', {});

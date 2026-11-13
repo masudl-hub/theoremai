@@ -859,9 +859,9 @@ looks, and what it does: a detector, a boundary, an action.
 | `repair` | A stopped reply and the reason, handed back to the model |
 | `live_user` | Text the person sends in a Live session |
 | `tool_arguments_<kind>` | What the model sends to a tool of that type |
-| `tool_output_<kind>` | What a tool of that type returns, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
+| `tool_output_<kind>` | What a tool of that type returns, its text `parts`, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
 | `tool_failure_<kind>` | The error message and `details` of a tool of that type that failed |
-| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output` and `activityPast`, the `error` event's message and `details`, and each `trace` |
+| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output`, `activityPast`, and each of its `parts` (a text part's `text`, a file's `metadata`), the `error` event's message and `details`, and each `trace` |
 | `reply` | The text the model says to the person |
 | `reply_structured` | The structured output the model returns |
 | `live_reply` | What the model says in a Live session |
@@ -1077,7 +1077,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
 | `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |
 | `tool_failure_<kind>` | In the message: the model reads labels `detect.output_blocked` in place of it. In the `details`: the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |
-| `tool_shown_<kind>` | The person is shown labels `detect.shown_blocked` in place of the output or error message; a `trace` is not sent. What the model reads is unchanged |
+| `tool_shown_<kind>` | The person is shown labels `detect.shown_blocked` in place of the output or error message; a `trace` is not sent; a part is left out of `parts`, and the other parts stay. What the model reads is unchanged |
 
 | `reply` | The reply stops before the match. It then goes the way `blockedReply` sets: the model is asked again, the person reads the refusal, or the turn ends withheld |
 | `reply_structured` | The structured output is not sent on; the reply goes the same way |
@@ -1340,13 +1340,15 @@ are replaced, without reporting it twice.
 **What the person is shown.** A call's `complete` and `error` events, and its
 `trace` events, reach the host apart from what the model reads
 back, and a host's server forwards them to the browser as they are. Each is read
-at `tool_shown_<kind>` (`guardShownValue`): a JSON value has each match replaced
+at `tool_shown_<kind>` (`guardToolValue`): a JSON value has each match replaced
 in the string it sits in, and a match in a key or across values blocks it.
 `readBack` is settled at `tool_output_<kind>` before and is never changed by
 `tool_shown_<kind>`, so a host tightening what the person sees never changes what
 the model read or what history replays. The settlement handed to the host's own
 code (`outputRaw`) is the handler's output, unread. `progress` and `draft` are
-still read at `tool_output_<kind>`, and a call's media `parts` are not read.
+still read at `tool_output_<kind>`. Each of the `complete` event's `parts` is read on its own:
+a text part's `text` and a file's `metadata`. A file's bytes, `uri`, and `mimeType` are not
+read. The text parts the model reads are read at `tool_output_<kind>` with the result.
 
 **Arguments.** Arguments are model-authored, so the risk is exfiltration — a
 credential lifted from context and posted outward as a parameter.

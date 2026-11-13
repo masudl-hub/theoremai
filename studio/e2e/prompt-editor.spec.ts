@@ -239,7 +239,11 @@ test('the editor says what its marks do on hover', async ({ page }) => {
   await says(page.getByRole('button', { name: 'Option', exact: true }), 'an option fits');
   await says(box.getByText('plan is paid').first(), 'Sent only on turns where plan is paid');
   const free = page.getByRole('group', { name: 'Option 1 values' });
-  await says(free.getByText('free'), 'The studio states this value');
+  await says(free.getByText('free'), 'Press to state this value');
+  await free.getByRole('button', { name: 'free', exact: true }).click();
+  await expect(free.locator('[data-color="blue"]')).toHaveText('free');
+  await page.mouse.move(800, 500);
+  await says(free.getByText('free'), 'Press to leave it unset');
   await says(free.getByText('paid'), 'Press to state this value');
   await box.getByText('Keep this.').hover();
   await expect(tip.filter({ hasText: 'a reply that repeats' })).toBeVisible();

@@ -71,12 +71,11 @@ test('a value token takes no room for its remove button, in any row', async ({ p
   await expect(values).not.toContainText('paid');
 });
 
-test('the first value is stated until the builder picks another', async ({ page }) => {
+test('an option the code states stays unset until the builder picks a value', async ({ page }) => {
   await withLines(page);
   await send(page, 'first');
   const values = page.getByRole('group', { name: 'Option 1 values' });
-  const marked = values.locator('[data-color="blue"]');
-  await expect(marked).toHaveText('free');
+  await expect(values.locator('[data-color="blue"]')).toHaveCount(0);
   await expect(page.getByText('Fake reply on full to "first"')).toBeVisible();
   expect(await systemOf(page)).not.toContain('Mention the garden.');
 });

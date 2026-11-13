@@ -1,12 +1,12 @@
 export {
   authorizeToolReplay,
-  coerceToolResultParts,
   executeRegisteredTool,
   leanToolResultData,
   projectForModel,
 } from './execute.ts';
 export { askUserTool, registerHarnessTools } from './harness.ts';
 export { formatToolFailureForModel, formatToolResult } from './model-text.ts';
+export { toolOutputPartSchema } from './output-parts.ts';
 export type { ToolRegistry } from './registry.ts';
 export { assertToolSettings, createToolRegistry } from './registry.ts';
 export type { CredentialQuery, McpProtocolVersion, McpRpcResponse } from './remote.ts';

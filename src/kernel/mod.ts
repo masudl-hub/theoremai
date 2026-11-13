@@ -338,7 +338,6 @@ export {
   askUserTool,
   assertToolSettings,
   authorizeToolReplay,
-  coerceToolResultParts,
   createToolRegistry,
   credentialPlacement,
   executeHttpTool,
@@ -355,6 +354,7 @@ export {
   projectForModel,
   registerHarnessTools,
   resolveToolAuth,
+  toolOutputPartSchema,
   withCredentialQuery,
 } from './tools/mod.ts';
 export type {
@@ -397,7 +397,6 @@ export {
   type ToolOutputPart,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
-  toolOutputPartSchema,
   turnDoneOf,
   turnEventSchema,
   turnHistoryMessageSchema,

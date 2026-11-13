@@ -75,7 +75,7 @@ Use the `media` hook when an HTTP tool returns the addresses of pictures, such a
 
 * `{ url }`: Theorem fetches the picture and the model reads it. The chat does not show it.
 * `{ url, sent: true }`: the model reads the picture, and the chat shows it.
-* `{ type, mimeType, uri }`: a reference. The chat shows it through your app's `resolveMedia`. The model never reads it, and its `uri` is never sent to a provider.
+* `{ type, mimeType, uri, metadata? }`: a reference. The chat shows it through your app's `resolveMedia`. The model never reads it, and its `uri` is never sent to a provider. `metadata` holds your own values for the file, such as a caption; `resolveMedia` gets them with the reference.
 
 ```ts
 // ... inside http tool definition

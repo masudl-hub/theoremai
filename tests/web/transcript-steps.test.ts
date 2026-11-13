@@ -19,7 +19,7 @@ Deno.test("a saved agent tool call keeps its agent's calls, nested as deep as th
   assertEquals(transcriptBlockSchema.parse(block), block);
 });
 
-Deno.test('tool media keeps sent and its reference live, and after a reload', () => {
+Deno.test('tool media keeps sent, its reference, and its metadata live, and after a reload', () => {
   const uri = 'gs://bucket/card.pdf';
   const tool = { name: 'make_card', callId: 'c1', arguments: {}, at: 1 };
   const complete = {
@@ -27,9 +27,15 @@ Deno.test('tool media keeps sent and its reference live, and after a reload', ()
     phase: 'complete',
     output: {},
     parts: [
-      { type: 'image', mimeType: 'image/png', data: 'U0VOVA==', sent: true },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        data: 'U0VOVA==',
+        sent: true,
+        metadata: { alt: 'a' },
+      },
       { type: 'image', mimeType: 'image/png', data: 'UkVBRA==' },
-      { type: 'document', mimeType: 'application/pdf', uri },
+      { type: 'document', mimeType: 'application/pdf', uri, metadata: { caption: 'Your card' } },
     ],
   };
   // Live: the events cross the wire and are read back through the turn event schema.
@@ -39,9 +45,22 @@ Deno.test('tool media keeps sent and its reference live, and after a reload', ()
   ].map((event) => turnEventSchema.parse(JSON.parse(JSON.stringify(event))));
   const blocks = foldTurnEvents(live).filter((block) => block.kind === 'media');
   const shown: Omit<MediaBlock, 'id' | 'kind'>[] = [
-    { mimeType: 'image/png', fromTool: true, data: 'U0VOVA==', sent: true },
+    {
+      mimeType: 'image/png',
+      fromTool: true,
+      data: 'U0VOVA==',
+      sent: true,
+      metadata: { alt: 'a' },
+    },
     { mimeType: 'image/png', fromTool: true, data: 'UkVBRA==' },
-    { mimeType: 'application/pdf', fromTool: true, uri, type: 'document', sent: true },
+    {
+      mimeType: 'application/pdf',
+      fromTool: true,
+      uri,
+      type: 'document',
+      sent: true,
+      metadata: { caption: 'Your card' },
+    },
   ];
   assertEquals(
     blocks.map(({ id: _id, kind: _kind, ...rest }) => rest),

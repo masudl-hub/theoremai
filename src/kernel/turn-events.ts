@@ -93,22 +93,36 @@ const interactionPart = z.union([
 true satisfies Equals<z.infer<typeof interactionPart>, InteractionPart>;
 export const interactionPartSchema: z.ZodType<InteractionPart> = interactionPart;
 
+/** Media bytes a tool returned: the model reads them, and `sent` also shows them to the person. */
+export interface ToolOutputMediaPart extends InteractionMediaPart {
+  sent?: true;
+  /** Your own values, carried with the file to every view and resolver; Theorem does not read them, and the model never sees them. */
+  metadata?: Record<string, unknown>;
+}
+
+/** A reference a tool returned: the person is shown it through the app's own resolver, and the model never reads it. */
+export interface ToolOutputRefPart extends InteractionMediaRefPart {
+  /** Your own values, carried with the file to every view and resolver; Theorem does not read them, and the model never sees them. */
+  metadata?: Record<string, unknown>;
+}
+
 /**
  * A part of what a tool returned. Text and media bytes are what the model reads; `sent` on media
  * also shows it to the person. A reference (`uri`) is shown to the person only, through the app's
  * own resolver: the model never reads it.
  */
-export type ToolOutputPart =
-  | InteractionTextPart
-  | (InteractionMediaPart & { sent?: true })
-  | InteractionMediaRefPart;
-const toolOutputPart = z.union([
-  interactionTextPart,
-  interactionMediaPart.extend({ sent: z.literal(true).optional() }),
-  interactionMediaRefPart,
-]);
+export type ToolOutputPart = InteractionTextPart | ToolOutputMediaPart | ToolOutputRefPart;
+const toolOutputMediaPart = interactionMediaPart.extend({
+  sent: z.literal(true).optional(),
+  metadata: jsonObject.optional(),
+});
+true satisfies Equals<z.infer<typeof toolOutputMediaPart>, ToolOutputMediaPart>;
+const toolOutputRefPart = interactionMediaRefPart.extend({ metadata: jsonObject.optional() });
+true satisfies Equals<z.infer<typeof toolOutputRefPart>, ToolOutputRefPart>;
+const toolOutputPart = z.union([interactionTextPart, toolOutputMediaPart, toolOutputRefPart]);
 true satisfies Equals<z.infer<typeof toolOutputPart>, ToolOutputPart>;
-export const toolOutputPartSchema: z.ZodType<ToolOutputPart> = toolOutputPart;
+/** Reads a tool output part Theorem recorded; a tool's own output is checked by the stricter `toolOutputPartSchema`. */
+export const toolOutputPartRecord: z.ZodType<ToolOutputPart> = toolOutputPart;
 
 /** One message of a conversation history the host replays into a turn. */
 /** Where a piece of signed reasoning came from. `protocol` decides where it may go back to. */

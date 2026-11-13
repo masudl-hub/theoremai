@@ -96,6 +96,7 @@ const transcriptBlock = z.discriminatedUnion('kind', [
     type: z.enum(MEDIA_INPUT_KIND_VALUES).optional(),
     fromTool: z.literal(true).optional(),
     sent: z.literal(true).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({
     ...blockId,

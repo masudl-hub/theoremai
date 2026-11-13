@@ -199,12 +199,22 @@ Deno.test('time formats: hours within a day, dates past it, bare dates read in U
 Deno.test('a direct run shows bytes as media and keeps references for the resolver', () => {
   const parts = [
     { type: 'image', mimeType: 'image/png', data: 'abc' },
-    { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/a.pdf' },
+    {
+      type: 'document',
+      mimeType: 'application/pdf',
+      uri: 'gs://bucket/a.pdf',
+      metadata: { caption: 'Your card' },
+    },
     { type: 'bogus', mimeType: 'x/y', uri: 'gs://bucket/b' },
   ];
   const media = returnedMedia(parts, 'image');
   assertEquals(media.images.length, 1);
   assertEquals(referencesIn(parts), [
-    { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/a.pdf' },
+    {
+      type: 'document',
+      mimeType: 'application/pdf',
+      uri: 'gs://bucket/a.pdf',
+      metadata: { caption: 'Your card' },
+    },
   ]);
 });

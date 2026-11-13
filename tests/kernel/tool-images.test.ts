@@ -194,6 +194,18 @@ Deno.test('an address that is not https is a warning, not a failed call', async 
   assertEquals(toolEventsOf(events, 'error'), []);
 });
 
+Deno.test('a reference that breaks the part shape is a warning, not a failed call', async () => {
+  registerShotTool('shot_bad_ref', [], false, undefined, () => [
+    { type: 'document', mimeType: 'application/pdf', uri: '' },
+  ]);
+  const events = await run('shot_bad_ref', {});
+  const [complete] = toolEventsOf(events, 'complete');
+  assertEquals(complete?.parts, undefined);
+  const [warning] = toolEventsOf(events, 'warning');
+  assertEquals(warning?.warning.code, 'images_unfetched');
+  assertEquals(toolEventsOf(events, 'error'), []);
+});
+
 Deno.test('a result the output guard blocks fetches no pictures', async () => {
   registerShotTool('shot_blocked', ['https://cdn.example.com/a.png'], true);
   secretFor.set('shot_blocked', TEST_OPENAI_KEY);
@@ -249,11 +261,13 @@ Deno.test('a reference is shown, never fetched, and its address reaches no text 
 Deno.test('a tool that names only references writes no pictures note', async () => {
   const uri = 'gs://bucket/clip.mp4';
   registerShotTool('shot_only_ref', [], false, undefined, () => [
-    { type: 'video', mimeType: 'video/mp4', uri },
+    { type: 'video', mimeType: 'video/mp4', uri, metadata: { caption: 'Clip' } },
   ]);
   const events = await run('shot_only_ref', {});
   const [complete] = toolEventsOf(events, 'complete');
-  assertEquals(complete?.parts, [{ type: 'video', mimeType: 'video/mp4', uri }]);
+  assertEquals(complete?.parts, [
+    { type: 'video', mimeType: 'video/mp4', uri, metadata: { caption: 'Clip' } },
+  ]);
   assertEquals((complete?.readBack ?? '').includes('Pictures shown'), false);
   assertEquals((complete?.readBack ?? '').includes(uri), false);
 });

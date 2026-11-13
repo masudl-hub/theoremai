@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
 import { historyMessageParts } from '../../src/kernel/interaction-parts.ts';
-import { coerceToolResultParts, projectForModel } from '../../src/kernel/tools/execute.ts';
+import { projectForModel } from '../../src/kernel/tools/execute.ts';
 import { formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import type { FunctionToolDef } from '../../src/kernel/tools/types.ts';
 import {
@@ -24,7 +24,6 @@ Deno.test('tool-result fidelity round-trip: project → adapters keep media part
       { type: 'text', text: '1. palm' },
       { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
       { type: 'text', text: '2. missing preview' },
-      { type: 'bogus', data: 'x' },
     ],
   });
 
@@ -64,38 +63,31 @@ Deno.test('tool-result fidelity round-trip: project → adapters keep media part
   ]);
 });
 
-Deno.test('coerceToolResultParts drops empty media and unknown shapes', () => {
-  assertEquals(
-    coerceToolResultParts([
-      { type: 'image', mimeType: 'image/png', data: '' },
-      { type: 'image', mimeType: 'image/png', data: 'abc' },
-    ]),
-    [{ type: 'image', mimeType: 'image/png', data: 'abc' }],
-  );
-  assertEquals(coerceToolResultParts([]), undefined);
-  assertEquals(coerceToolResultParts('nope'), undefined);
-});
-
-Deno.test('coerceToolResultParts skips entries that are not parts instead of failing on them', () => {
-  assertEquals(coerceToolResultParts([null, 5, 'x', { type: 3 }, { type: 'text', text: 'kept' }]), [
-    { type: 'text', text: 'kept' },
-  ]);
-});
-
-Deno.test('projectForModel: the model reads bytes without the sent mark, and no reference', () => {
+Deno.test('projectForModel: the model reads bytes without the sent mark or metadata, and no reference', () => {
   const uri = 'gs://bucket/card.pdf';
   const projected = projectForModel(visible, {
     finding: 'card',
     parts: [
-      { type: 'image', mimeType: 'image/png', data: 'abc', sent: true },
-      { type: 'document', mimeType: 'application/pdf', uri },
-      { type: 'image', mimeType: 'image/png', uri: '' },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        data: 'abc',
+        sent: true,
+        metadata: { alt: 'Card art' },
+      },
+      { type: 'document', mimeType: 'application/pdf', uri, metadata: { caption: 'Your card' } },
     ],
   });
   assertEquals(projected.parts, [{ type: 'image', mimeType: 'image/png', data: 'abc' }]);
   assertEquals(projected.media, [
-    { type: 'image', mimeType: 'image/png', data: 'abc', sent: true },
-    { type: 'document', mimeType: 'application/pdf', uri },
+    {
+      type: 'image',
+      mimeType: 'image/png',
+      data: 'abc',
+      sent: true,
+      metadata: { alt: 'Card art' },
+    },
+    { type: 'document', mimeType: 'application/pdf', uri, metadata: { caption: 'Your card' } },
   ]);
   assertEquals(formatToolResult(projected).includes(uri), false);
   const historyMsg = {
@@ -112,5 +104,7 @@ Deno.test('projectForModel: the model reads bytes without the sent mark, and no 
   for (const wire of [google, compat]) {
     assertEquals(wire.includes(uri), false);
     assertEquals(wire.includes('"sent"'), false);
+    assertEquals(wire.includes('Your card'), false);
+    assertEquals(wire.includes('Card art'), false);
   }
 });

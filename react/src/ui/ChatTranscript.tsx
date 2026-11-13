@@ -527,7 +527,12 @@ function MediaBlock({ block }: { block: MediaTranscriptBlock }) {
   if (block.uri !== undefined) {
     return (
       <ReferencedMedia
-        reference={{ type: block.type ?? 'document', mimeType: block.mimeType, uri: block.uri }}
+        reference={{
+          type: block.type ?? 'document',
+          mimeType: block.mimeType,
+          uri: block.uri,
+          ...(block.metadata ? { metadata: block.metadata } : {}),
+        }}
       />
     );
   }

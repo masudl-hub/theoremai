@@ -303,6 +303,7 @@ function appendToolParts(blocks: TranscriptBlock[], tool: ToolCallEvent, idPrefi
       ...('data' in part
         ? { data: part.data, ...(part.sent ? { sent: true as const } : {}) }
         : { uri: part.uri, type: part.type, sent: true as const }),
+      ...(part.metadata ? { metadata: part.metadata } : {}),
     });
   }
 }

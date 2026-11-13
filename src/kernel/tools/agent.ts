@@ -4,7 +4,7 @@ import type { ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
 import { mediaKindForMime } from '../registry/catalog.ts';
 import { optionValues } from '../registry/options.ts';
-import { keptReply, sourceSchema, toolOutputPartSchema } from '../turn-events.ts';
+import { keptReply, sourceSchema } from '../turn-events.ts';
 import type {
   Profile,
   ProfileId,
@@ -14,6 +14,7 @@ import type {
   TurnTokens,
 } from '../types.ts';
 import { findLast } from '../util/find-last.ts';
+import { toolOutputPartSchema } from './output-parts.ts';
 import { profileToolAllow } from './resolve.ts';
 import type { SteerQueue } from './steer.ts';
 import type {

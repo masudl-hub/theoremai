@@ -7,7 +7,11 @@
  * @module
  */
 
-import { MEDIA_INPUT_KIND_VALUES, type MediaInputKind } from '@theoremjs/agents';
+import {
+  MEDIA_INPUT_KIND_VALUES,
+  type MediaInputKind,
+  type ToolOutputRefPart,
+} from '@theoremjs/agents';
 import {
   columnStore,
   fieldLabel,
@@ -49,7 +53,13 @@ export type ResultLayout = {
 };
 
 /** Media a tool returned beside its value, as the complete event carries it: bytes, or a reference (`uri`). */
-export type ResultMedia = { type: string; mimeType?: string; data?: string; uri?: string };
+export type ResultMedia = {
+  type: string;
+  mimeType?: string;
+  data?: string;
+  uri?: string;
+  metadata?: Record<string, unknown>;
+};
 
 /** What a call returned to see or hear: its image parts and its audio parts. */
 export type ReturnedMedia = { images: ResultImage[]; audio: { src: string; mimeType?: string }[] };
@@ -327,12 +337,17 @@ export function returnedMedia(parts: readonly ResultMedia[], imageAlt: string): 
 }
 
 /** The references a call returned, which only the app's resolver turns into something to show. */
-export function referencesIn(
-  parts: readonly ResultMedia[],
-): { type: MediaInputKind; mimeType: string; uri: string }[] {
+export function referencesIn(parts: readonly ResultMedia[]): ToolOutputRefPart[] {
   return parts.flatMap((part) =>
     part.uri !== undefined && part.mimeType !== undefined && isMediaKind(part.type)
-      ? [{ type: part.type, mimeType: part.mimeType, uri: part.uri }]
+      ? [
+          {
+            type: part.type,
+            mimeType: part.mimeType,
+            uri: part.uri,
+            ...(part.metadata ? { metadata: part.metadata } : {}),
+          },
+        ]
       : [],
   );
 }

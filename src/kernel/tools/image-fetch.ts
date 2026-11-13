@@ -1,14 +1,14 @@
 import { fetchGuarded } from '../../guardrails/network.ts';
-import { MEDIA_INPUT_KIND_VALUES, type MediaInputKind } from '../schema.ts';
 import type {
   InteractionMediaPart,
-  InteractionMediaRefPart,
   ToolOutputPart,
+  ToolOutputRefPart,
   ToolWarning,
 } from '../turn-events.ts';
 import { bytesToBase64 } from '../util/base64.ts';
 import { isRecord } from '../util/record.ts';
 import { toolNetworkPolicy } from './events.ts';
+import { toolOutputRefPartSchema } from './output-parts.ts';
 import type { ToolContext, ToolImageLimits, ToolMediaEntry } from './types.ts';
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -107,7 +107,7 @@ export async function fetchToolMedia(
 ): Promise<{ media: ToolOutputPart[]; urls: string[]; warning?: ToolWarning }> {
   const reasons: string[] = [];
   const named = new Map<string, boolean>();
-  const refs: InteractionMediaRefPart[] = [];
+  const refs: ToolOutputRefPart[] = [];
   try {
     for (const entry of hook(output as never)) {
       const ref = mediaRef(entry);
@@ -161,23 +161,10 @@ function sentEntry(entry: unknown): boolean {
 }
 
 /** The entry as a reference, when it is one. */
-function mediaRef(entry: unknown): InteractionMediaRefPart | undefined {
-  if (!isRecord(entry) || 'url' in entry) return undefined;
-  const { type, mimeType, uri } = entry;
-  if (
-    typeof type !== 'string' ||
-    !MEDIA_KINDS.has(type) ||
-    typeof mimeType !== 'string' ||
-    !mimeType.trim() ||
-    typeof uri !== 'string' ||
-    !uri
-  ) {
-    return undefined;
-  }
-  return { type: type as MediaInputKind, mimeType, uri };
+function mediaRef(entry: unknown): ToolOutputRefPart | undefined {
+  const ref = toolOutputRefPartSchema.safeParse(entry);
+  return ref.success ? ref.data : undefined;
 }
-
-const MEDIA_KINDS: ReadonlySet<string> = new Set(MEDIA_INPUT_KIND_VALUES);
 
 function unfetched(reasons: string[]): ToolWarning {
   return {

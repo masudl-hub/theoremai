@@ -447,7 +447,7 @@ Deno.test('foldTurnEvents makes no media of the addresses in a tool output', () 
     ['tool', 'text'],
   );
 });
-Deno.test('foldTurnEvents keeps what a tool sent apart from what only the model read', () => {
+Deno.test('foldTurnEvents keeps what a tool sent apart from what only the model read, with its metadata', () => {
   resetBlockIds();
   const blocks = foldTurnEvents(
     callEvents(
@@ -459,8 +459,19 @@ Deno.test('foldTurnEvents keeps what a tool sent apart from what only the model 
         parts: [
           { type: 'text', text: 'two shots' },
           { type: 'image', mimeType: 'image/png', data: 'AAAA' },
-          { type: 'image', mimeType: 'image/png', data: 'BBBB', sent: true },
-          { type: 'video', mimeType: 'video/mp4', uri: 'files/clip-1' },
+          {
+            type: 'image',
+            mimeType: 'image/png',
+            data: 'BBBB',
+            sent: true,
+            metadata: { alt: 'b' },
+          },
+          {
+            type: 'video',
+            mimeType: 'video/mp4',
+            uri: 'files/clip-1',
+            metadata: { caption: 'Clip', durationMs: 4000 },
+          },
         ],
       },
     ),
@@ -476,6 +487,7 @@ Deno.test('foldTurnEvents keeps what a tool sent apart from what only the model 
         fromTool: true,
         data: 'BBBB',
         sent: true,
+        metadata: { alt: 'b' },
       },
       {
         id: 'turn-3',
@@ -485,6 +497,7 @@ Deno.test('foldTurnEvents keeps what a tool sent apart from what only the model 
         uri: 'files/clip-1',
         type: 'video',
         sent: true,
+        metadata: { caption: 'Clip', durationMs: 4000 },
       },
     ],
   );

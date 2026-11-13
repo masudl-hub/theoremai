@@ -7,7 +7,7 @@ import type { GateReference, TurnEventOf } from '../turn-events.ts';
 import {
   interactionPartSchema,
   TURN_EVENT_SCHEMAS,
-  toolOutputPartSchema,
+  toolOutputPartRecord,
   turnHistoryMessageSchema,
 } from '../turn-events.ts';
 import type { ModelToolResult, PageAnswer, ToolFailure } from './types.ts';
@@ -160,7 +160,7 @@ const modelResultSchema = z.strictObject({
   finding: z.string(),
   data: jsonValueSchema.optional(),
   parts: z.array(interactionPartSchema).optional(),
-  media: z.array(toolOutputPartSchema).optional(),
+  media: z.array(toolOutputPartRecord).optional(),
   hidden: z.literal(true).optional(),
   modelText: z.string().optional(),
   provenance: provenance.optional(),

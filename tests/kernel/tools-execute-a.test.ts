@@ -8,7 +8,6 @@ import { AWAITING_USER_INPUT_STATUS } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
 import {
-  coerceToolResultParts,
   executeFunction,
   executeRegisteredTool,
   leanToolResultData,
@@ -219,37 +218,67 @@ Deno.test('every tool type is traced and framed with its own origin', async () =
   }
 });
 
-Deno.test('coerceToolResultParts keeps well-formed parts and drops the rest', () => {
+Deno.test("a tool's parts are checked: a bad part fails the call as invalid_output, never dropped", async () => {
   const text = { type: 'text', text: 'one' };
   const image = { type: 'image', mimeType: 'image/png', data: 'abc' };
-  const cases: [string, unknown, unknown][] = [
-    ['not an array: number', 5, undefined],
-    ['not an array: object', { length: 0 }, undefined],
-    ['not an array: null', null, undefined],
-    ['empty array', [], undefined],
-    ['text and media kept in order', [text, image], [text, image]],
-    ['null entry skipped', [null, text], [text]],
-    ['primitive entry skipped', [5, 'x', text], [text]],
-    ['entry without a type skipped', [{ text: 'x' }, text], [text]],
-    ['non-string type skipped', [{ type: 5, text: 'x' }, text], [text]],
-    ['text part with a non-string text skipped', [{ type: 'text', text: 5 }, text], [text]],
-    ['unknown type with text skipped', [{ type: 'bogus', text: 'x' }, text], [text]],
-    ['media with a text field is not text', [{ ...image, text: 'x' }], [image]],
-    ['blank mime type skipped', [{ ...image, mimeType: '   ' }, image], [image]],
-    ['missing mime type skipped', [{ type: 'image', data: 'abc' }, image], [image]],
-    ['array data skipped', [{ ...image, data: ['abc'] }, image], [image]],
-    ['non-string data skipped', [{ ...image, data: 5 }, image], [image]],
-    ['empty data skipped', [{ ...image, data: '' }, image], [image]],
-    ['nothing usable is undefined, not empty', [{ type: 'bogus' }, null], undefined],
-    ['extra fields are not carried', [{ ...image, extra: 1 }], [image]],
+  const ref = { type: 'document', mimeType: 'application/pdf', uri: 'gs://bucket/card.pdf' };
+  const cases: [string, unknown, string][] = [
+    ['parts that are not a list', 5, 'parts'],
+    ['a null entry', [text, null], 'parts.1'],
+    ['an entry without a type', [{ text: 'x' }], 'parts.0'],
+    ['text that is not text', [{ type: 'text', text: 5 }], 'parts.0.text'],
+    ['an unknown kind', [{ type: 'bogus', data: 'x', mimeType: 'x/y' }], 'parts.0.type'],
+    ['a blank mime type', [{ ...image, mimeType: '   ' }], 'parts.0.mimeType'],
+    ['a missing mime type', [{ type: 'image', data: 'abc' }], 'parts.0.mimeType'],
+    ['empty bytes', [{ ...image, data: '' }], 'parts.0.data'],
+    ['an empty reference', [{ ...ref, uri: '' }], 'parts.0.uri'],
+    ['a field the part does not name', [{ ...image, caption: 'x' }], 'parts.0'],
+    ['a sent mark on a reference', [{ ...ref, sent: true }], 'parts.0'],
+    ['metadata that is not a record', [{ ...ref, metadata: 'x' }], 'parts.0.metadata'],
   ];
-  for (const [label, raw, expected] of cases) {
-    check(coerceToolResultParts(raw), expected, label);
+  for (const [label, parts, at] of cases) {
+    const tool = makeTool({ output: z.unknown(), handler: () => ({ finding: 'ok', parts }) });
+    const { events, settlement } = await run(tool);
+    check(settlement.failure?.code, 'invalid_output', `${label}: code`);
+    const details = settlement.failure?.details;
+    const lines = JSON.stringify(details);
+    const [field = '', ...below] = at.split('.');
+    check(
+      below.length === 0 || lines.includes(below.join('.')) || lines.includes(`[${below[0]}]`),
+      true,
+      `${label}: names ${at} in ${lines}`,
+    );
+    check(lines.includes(`"${field}"`), true, `${label}: under ${field}`);
+    check(toolEventsOf(events, 'complete'), [], `${label}: no completion`);
   }
-  for (const type of ['audio', 'video', 'document']) {
-    const part = { type, mimeType: 'x/y', data: 'd' };
-    check(coerceToolResultParts([part]), [part], `${type} part kept`);
-  }
+});
+
+Deno.test("a tool's well-formed parts pass whole, metadata included", async () => {
+  const parts = [
+    { type: 'text', text: 'one' },
+    {
+      type: 'audio',
+      mimeType: 'audio/mpeg',
+      data: 'abc',
+      sent: true,
+      metadata: { durationMs: 1200 },
+    },
+    {
+      type: 'document',
+      mimeType: 'application/pdf',
+      uri: 'gs://bucket/card.pdf',
+      metadata: { caption: 'Your card', nested: { kept: [1, 2] } },
+    },
+    ...['image', 'video', 'document'].map((type) => ({ type, mimeType: 'x/y', data: 'd' })),
+  ];
+  const tool = makeTool({ output: z.unknown(), handler: () => ({ finding: 'ok', parts }) });
+  const { events, settlement } = await run(tool);
+  check('failure' in settlement, false, 'no failure');
+  check(
+    toolEventsOf(events, 'complete').map((e) => e.parts),
+    [parts],
+    'complete event parts',
+  );
 });
 
 Deno.test('leanToolResultData drops parts from records and returns anything else untouched', () => {
@@ -422,7 +451,7 @@ Deno.test('a result is completed with its activity label, parts, and read-back',
     labels: { activityPast: 'Looked up {input.value} and found {output.finding}' },
     handler: () => ({
       finding: 'palm',
-      parts: [{ type: 'image', mimeType: 'image/jpeg', data: 'abc' }, { type: 'bogus' }],
+      parts: [{ type: 'image', mimeType: 'image/jpeg', data: 'abc' }],
     }),
   });
   const { events, settlement } = await run(tool, { input: { value: 7 } });
@@ -498,6 +527,20 @@ Deno.test('a post_tool mutate replaces the output without denying the call', asy
     stages: stagesOf([afterTool(() => ({ mutate: { output: { finding: 3 } } }))]),
   });
   check(invalid.settlement.failure?.code, 'invalid_output', 'invalid mutate failure');
+
+  const badParts = await run(makeTool({ output: z.unknown() }), {
+    stages: stagesOf([
+      afterTool(() => ({
+        mutate: { output: { finding: 'edited', parts: [{ type: 'image', uri: 'files/a' }] } },
+      })),
+    ]),
+  });
+  check(badParts.settlement.failure?.code, 'invalid_output', 'a mutate with a bad part fails');
+  check(
+    toolEventsOf(badParts.events, 'complete'),
+    [],
+    'a mutate with a bad part completes nothing',
+  );
   check(invalid.settlement.awaiting, undefined, 'invalid mutate awaiting');
   check('denied' in invalid.settlement, false, 'invalid mutate is not a deny');
 });

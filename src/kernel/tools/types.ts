@@ -23,6 +23,7 @@ import type {
   ToolFailure,
   ToolGate,
   ToolOutputPart,
+  ToolOutputRefPart,
   ToolPhaseEvent,
   ToolTraceStep,
   ToolWarning,
@@ -30,7 +31,6 @@ import type {
   WireFunctionTool,
 } from '../turn-events.ts';
 import type {
-  InteractionMediaRefPart,
   InteractionPart,
   ModelId,
   Profile,
@@ -300,7 +300,7 @@ export interface ToolOutputHooks<TOut = unknown> {
  * the model to look at, also shown to the person with `sent: true`. `{ type, mimeType, uri }` is a
  * reference the person is shown through the app's own resolver; the model never reads it.
  */
-export type ToolMediaEntry = { url: string; sent?: true } | InteractionMediaRefPart;
+export type ToolMediaEntry = { url: string; sent?: true } | ToolOutputRefPart;
 
 /** For a tool whose response the builder does not write; a function tool returns its media itself as `parts`. */
 export interface ToolMediaHooks<TOut = unknown> {

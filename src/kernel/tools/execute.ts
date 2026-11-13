@@ -27,9 +27,8 @@ import {
 } from '../engine/tool-trace.ts';
 import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
-import type { MediaInputKind } from '../schema.ts';
 import type { InjectUnit } from '../stages.ts';
-import { isAwaitingUserInput, type Source, type ToolOutputPart } from '../turn-events.ts';
+import { isAwaitingUserInput, type Source } from '../turn-events.ts';
 import type { Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
@@ -124,6 +123,7 @@ export {
   permissionGranted,
 } from './permission.ts';
 
+import { checkedToolOutputParts, toolOutputPartIssues } from './output-parts.ts';
 import { type SchemaIssue, schemaIssueDetails } from './schema-issues.ts';
 import { UncheckedOutput } from './unchecked-output.ts';
 
@@ -161,44 +161,6 @@ function isStreamHandler(handler: unknown): boolean {
     typeof handler === 'function' &&
     Object.prototype.toString.call(handler) === '[object AsyncGeneratorFunction]'
   );
-}
-
-const MEDIA_PART_TYPES = new Set(['image', 'audio', 'video', 'document']);
-
-/**
- * A function tool's `parts` as tool media: text, media bytes (`sent: true` also shows them to the
- * person) and references `{ type, mimeType, uri }` the person is shown and the model never reads.
- * Invalid entries are dropped.
- */
-export function coerceToolResultParts(raw: unknown): ToolOutputPart[] | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const parts: ToolOutputPart[] = [];
-  for (const item of raw) {
-    if (!isRecord(item) || typeof item.type !== 'string') continue;
-    if (item.type === 'text' && typeof item.text === 'string') {
-      parts.push({ type: 'text', text: item.text });
-      continue;
-    }
-    if (
-      !MEDIA_PART_TYPES.has(item.type) ||
-      typeof item.mimeType !== 'string' ||
-      !item.mimeType.trim()
-    ) {
-      continue;
-    }
-    const type = item.type as MediaInputKind;
-    if (typeof item.data === 'string' && item.data.length > 0) {
-      parts.push({
-        type,
-        mimeType: item.mimeType,
-        data: item.data,
-        ...(item.sent === true ? { sent: true as const } : {}),
-      });
-    } else if (typeof item.uri === 'string' && item.uri.length > 0) {
-      parts.push({ type, mimeType: item.mimeType, uri: item.uri });
-    }
-  }
-  return parts.length > 0 ? parts : undefined;
 }
 
 /** A tool's output without its `parts` key, which carries media the model receives separately; any other value is returned as it is. */
@@ -240,7 +202,7 @@ export function projectForModel(
   output: unknown,
   labels?: LabelOverrides,
 ): ModelToolResult {
-  const media = isRecord(output) ? coerceToolResultParts(output.parts) : undefined;
+  const media = checkedToolOutputParts(output);
   if (tool.exposeToModel === false) {
     // why: The model reads none of a hidden tool's output, its media included; what it sent, the person is shown.
     const sent = media?.filter((part) => part.type !== 'text' && ('uri' in part || part.sent));
@@ -768,6 +730,14 @@ type ParsedOutput =
   | { success: true; data: unknown }
   | { success: false; error: { issues: readonly SchemaIssue[] } };
 
+/** `value` checked by the tool's own output schema, then its `parts` by `toolOutputPartSchema`. */
+function checkOutput(tool: FunctionToolDef, value: unknown): ParsedOutput {
+  const checked = tool.output.safeParse(value);
+  if (!checked.success) return checked;
+  const issues = toolOutputPartIssues(checked.data);
+  return issues.length > 0 ? { success: false, error: { issues } } : checked;
+}
+
 function makeReproject(
   parse: (value: unknown) => ParsedOutput,
   project: (data: unknown) => ModelToolResult,
@@ -992,7 +962,7 @@ export async function* executeFunction(
       message: labelText('tool.handler_no_output', {}, ctx.profile.labels),
     });
   }
-  const checked = tool.output.safeParse(output);
+  const checked = checkOutput(tool, output);
   if (!checked.success) {
     return yield* fail({
       code: 'invalid_output',
@@ -1026,7 +996,7 @@ export async function* executeFunction(
       ? {}
       : {
           reproject: makeReproject(
-            (v) => tool.output.safeParse(v),
+            (v) => checkOutput(tool, v),
             (data) => projectForModel(tool, data, ctx.profile.labels),
             ctx.profile.labels,
           ),

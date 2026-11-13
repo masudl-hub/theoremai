@@ -299,6 +299,8 @@ export interface MediaBlock extends TranscriptBlockBase {
   fromTool?: true;
   /** The tool sent it to the person: a reference always is; media bytes when the tool said `sent: true`. */
   sent?: true;
+  /** The tool's own values for the file, as it gave them in the part's `metadata`. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface GroundingBlock extends TranscriptBlockBase {

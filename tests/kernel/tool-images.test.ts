@@ -203,6 +203,7 @@ Deno.test('a reference that breaks the part shape is a warning, not a failed cal
   assertEquals(complete?.parts, undefined);
   const [warning] = toolEventsOf(events, 'warning');
   assertEquals(warning?.warning.code, 'images_unfetched');
+  assertStringIncludes(warning?.warning.message ?? '', 'a reference that is not a part (uri:');
   assertEquals(toolEventsOf(events, 'error'), []);
 });
 

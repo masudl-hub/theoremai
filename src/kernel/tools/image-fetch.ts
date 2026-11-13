@@ -9,6 +9,7 @@ import { bytesToBase64 } from '../util/base64.ts';
 import { isRecord } from '../util/record.ts';
 import { toolNetworkPolicy } from './events.ts';
 import { toolOutputRefPartSchema } from './output-parts.ts';
+import { issuePath } from './schema-issues.ts';
 import type { ToolContext, ToolImageLimits, ToolMediaEntry } from './types.ts';
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -111,8 +112,12 @@ export async function fetchToolMedia(
   try {
     for (const entry of hook(output as never)) {
       const ref = mediaRef(entry);
+      if (ref && 'reason' in ref) {
+        reasons.push(ref.reason);
+        continue;
+      }
       if (ref) {
-        refs.push(ref);
+        refs.push(ref.ref);
         continue;
       }
       const address = httpsAddress(isRecord(entry) ? entry.url : entry);
@@ -160,10 +165,13 @@ function sentEntry(entry: unknown): boolean {
   return isRecord(entry) && entry.sent === true;
 }
 
-/** The entry as a reference, when it is one. */
-function mediaRef(entry: unknown): ToolOutputRefPart | undefined {
+/** The entry as a reference, or why it is not one; `undefined` for a picture entry (`url`). */
+function mediaRef(entry: unknown): { ref: ToolOutputRefPart } | { reason: string } | undefined {
+  if (!isRecord(entry) || 'url' in entry) return undefined;
   const ref = toolOutputRefPartSchema.safeParse(entry);
-  return ref.success ? ref.data : undefined;
+  if (ref.success) return { ref: ref.data };
+  const issues = ref.error.issues.map((issue) => `${issuePath(issue.path)}: ${issue.message}`);
+  return { reason: `a reference that is not a part (${issues.join(', ')})` }; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 function unfetched(reasons: string[]): ToolWarning {

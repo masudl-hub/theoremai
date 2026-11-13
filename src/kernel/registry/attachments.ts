@@ -107,12 +107,20 @@ function sanitizeCsvText(text: string): string {
   });
 }
 
-function sanitizeTextBytes(mime: string, bytes: Uint8Array, reader: BoundaryReader): Uint8Array {
-  let text = decodeText(bytes);
-  if (mime === 'text/csv') {
-    text = sanitizeCsvText(text);
-  }
-  return new TextEncoder().encode(reader.read(text));
+/** Whether a file of this type is text the detectors read once decoded. */
+function isTextFile(mimeType: string): boolean {
+  return TEXT_MIMES.has(mimeEssence(mimeType));
+}
+
+/** A text file's base64 bytes as the model reads them: decoded, and a CSV's formula cells escaped. */
+function textFileText(mimeType: string, data: string): string {
+  const text = decodeText(base64ToBytes(data));
+  return mimeEssence(mimeType) === 'text/csv' ? sanitizeCsvText(text) : text;
+}
+
+/** Text as a text file's base64 bytes. */
+function textFileData(text: string): string {
+  return bytesToBase64(new TextEncoder().encode(text));
 }
 
 /** `sizeBytes` is absent for provider references, which carry no bytes. */
@@ -267,11 +275,10 @@ function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T, reader: 
     return blob;
   }
   const { mimeType, data } = blob;
-  if (!TEXT_MIMES.has(mimeEssence(mimeType))) {
+  if (!isTextFile(mimeType)) {
     return blob;
   }
-  const bytes = sanitizeTextBytes(mimeType, base64ToBytes(data), reader);
-  return { ...blob, data: bytesToBase64(bytes) };
+  return { ...blob, data: textFileData(reader.read(textFileText(mimeType, data))) };
 }
 
 type TurnAttachments = Array<TurnBlob | TurnMediaRef>;
@@ -303,10 +310,13 @@ export {
   attachmentIssueText,
   attachmentsRefused,
   base64Bytes,
+  isTextFile,
   isTurnMediaRef,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,
   sanitizeCsvText,
   sanitizeTurnBlobs,
+  textFileData,
+  textFileText,
 };

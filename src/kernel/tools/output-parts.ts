@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
+import { isTextFile } from '../registry/attachments.ts';
 import { MEDIA_INPUT_KIND_VALUES } from '../schema.ts';
 import { type ToolOutputPart, toolOutputPartRecord } from '../turn-events.ts';
+import { base64ToBytes } from '../util/base64.ts';
 import type { Equals } from '../util/exact-type.ts';
 import { isRecord } from '../util/record.ts';
 import type { SchemaIssue } from './schema-issues.ts';
@@ -10,13 +12,28 @@ const mimeType = z.string().regex(/\S/);
 const metadata = z.record(z.string(), z.unknown()).optional();
 
 const textPart = z.strictObject({ type: z.literal('text'), text: z.string() });
-const mediaPart = z.strictObject({
-  type: z.enum(MEDIA_INPUT_KIND_VALUES),
-  mimeType,
-  data: z.string().min(1),
-  sent: z.literal(true).optional(),
-  metadata,
-});
+const mediaPart = z
+  .strictObject({
+    type: z.enum(MEDIA_INPUT_KIND_VALUES),
+    mimeType,
+    data: z.string().min(1),
+    sent: z.literal(true).optional(),
+    metadata,
+  })
+  .refine((part) => !isTextFile(part.mimeType) || isBase64(part.data), {
+    path: ['data'],
+    message: 'A text file must be base64, so it can be decoded and read', // labels-exempt: developer contract error
+  });
+/** Whether `data` decodes as base64. */
+function isBase64(data: string): boolean {
+  try {
+    base64ToBytes(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A reference part: the person is shown it through the app's own resolver. */
 export const toolOutputRefPartSchema = z.strictObject({
   type: z.enum(MEDIA_INPUT_KIND_VALUES),

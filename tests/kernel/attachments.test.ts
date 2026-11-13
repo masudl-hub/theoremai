@@ -415,6 +415,8 @@ Deno.test('text attachments are decoded, scrubbed of injections and secrets, and
 
   const csv = run([{ mimeType: 'text/csv', data: b64('a,=1+1\n') }]);
   check(decode(first(csv).data), "a,'=1+1\n", 'csv formula quoted');
+  const charset = run([{ mimeType: 'text/csv; charset=utf-8', data: b64('a,=1+1\n') }]);
+  check(decode(first(charset).data), "a,'=1+1\n", 'csv formula quoted with a charset named');
   const plain = run([{ mimeType: 'text/plain', data: b64('=1+1') }]);
   check(decode(first(plain).data), '=1+1', 'plain text keeps formulas');
   const md = run([{ mimeType: 'text/markdown', data: b64('# hi') }]);

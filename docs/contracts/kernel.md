@@ -828,10 +828,12 @@ one throws. A host that formats a result without `modelText` through
 replaced, except those of `email`, `phone`, and `bank_account`.
 Its `output` (and an `error`'s message) is what the person is shown, read at
 `tool_shown_<kind>` apart from `readBack`; neither read changes the other.
-The text parts the model reads are read at `tool_output_<kind>` with the result; a
-block there withholds the result as `output_blocked`. Each of the event's `parts` is read at
-`tool_shown_<kind>` on its own, every field but a file's bytes: its `text`, `uri`, `mimeType`,
-and `metadata`. A part a guard blocks there is left out of the event, and the other parts stay.
+The text parts and text files the model reads are read at `tool_output_<kind>` with the result; a
+block there withholds the result as `output_blocked`. A text file is a CSV, plain-text, or Markdown
+part: its bytes are decoded, and a CSV's formula cells escaped, as an attachment's are. Each of the
+event's `parts` is read at `tool_shown_<kind>` on its own: its `text`, `uri`, `mimeType`, and
+`metadata`, and a text file's decoded bytes. A text file in the event's `output` is read decoded
+the same way. Other bytes are not read. A part a guard blocks there is left out of the event, and the other parts stay.
 
 ### Kernel scope
 

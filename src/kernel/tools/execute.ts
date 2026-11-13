@@ -28,6 +28,7 @@ import {
 } from '../engine/tool-trace.ts';
 import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
+import { isTextFile, textFileData, textFileText } from '../registry/attachments.ts';
 import type { InjectUnit } from '../stages.ts';
 import {
   isAwaitingUserInput,
@@ -346,7 +347,7 @@ interface ResultGuard {
   handlerEvents: (drafts: boolean) => HandlerEventChecks | undefined;
   /** What the person is shown of a value the call settles with, apart from what the model reads. */
   shown: (value: unknown) => Generator<TurnEvent, unknown>;
-  /** The parts the person is shown, each read without its bytes; one a match blocks is left out. */
+  /** The parts the person is shown, each read with a text file's bytes decoded; one a match blocks is left out. */
   shownParts: (parts: readonly ToolOutputPart[]) => Generator<TurnEvent, ToolOutputPart[]>;
 }
 
@@ -518,7 +519,7 @@ async function* settleToolCall(args: {
       )
     : completeEvent(base, {
         input,
-        outputRaw: yield* guard.shown(outputRaw),
+        outputRaw: shownFiles(yield* guard.shown(withFileTexts(outputRaw)), outputRaw),
         modelResult,
         parts: yield* guard.shownParts(modelResult.media ?? []),
         labels: args.labels,
@@ -1920,8 +1921,8 @@ function* readTextParts(
   boundary: ToolBoundary | undefined,
 ): Generator<TurnEvent, ModelToolResult | undefined> {
   const media = result.media;
-  if (!media?.some((part) => part.type === 'text')) return result;
-  const texts = media.map((part) => (part.type === 'text' ? part.text : null));
+  const texts = media?.map(partText) ?? [];
+  if (!media || texts.every((text) => text === null)) return result;
   const read = guardToolValue(texts, guard.provenance, guard.policy, boundary, {
     callable: guard.callableTools,
   });
@@ -1936,14 +1937,23 @@ function* readTextParts(
     rest,
     media.map((part, index) => {
       const text = kept.data[index];
-      return part.type === 'text' && typeof text === 'string' ? { ...part, text } : part;
+      if (typeof text !== 'string') return part;
+      return part.type === 'text' ? { ...part, text } : { ...part, data: textFileData(text) };
     }),
   );
 }
 
+/** The text the detectors read in a part: a text part's words, or a text file's decoded bytes. */
+function partText(part: ToolOutputPart): string | null {
+  if (part.type === 'text') return part.text;
+  return 'data' in part && isTextFile(part.mimeType)
+    ? textFileText(part.mimeType, part.data)
+    : null;
+}
+
 const keptTexts = z.array(z.string().nullable());
 
-/** The parts the person is shown, each read without its bytes at `tool_shown_<kind>`; a blocked one is left out. */
+/** The parts the person is shown, each read at `tool_shown_<kind>` with a text file's bytes decoded; a blocked one is left out. */
 function* showParts(
   parts: readonly ToolOutputPart[],
   guard: GuardInputs,
@@ -1951,13 +1961,17 @@ function* showParts(
   const boundary = guard.kind && toolBoundary('tool_shown', guard.kind);
   const shown: ToolOutputPart[] = [];
   for (const part of parts) {
-    // why: bytes are not text the detectors read; every other field of the part is read as it is shown.
-    const { data, ...read } = 'data' in part ? part : { ...part, data: undefined };
+    // why: a text file's bytes are read decoded; other bytes are not text the detectors read. Every other field of the part is read as it is shown.
+    const { data, ...fields } = 'data' in part ? part : { ...part, data: undefined };
+    const text = data === undefined ? null : partText(part);
+    const read = text === null ? fields : { ...fields, data: text };
     const checked = guardToolValue(read, guard.provenance, guard.policy, boundary);
     if (checked.event) yield { type: 'guardrail', guardrail: checked.event };
     if (!('value' in checked)) continue;
     const kept = toolOutputPartRecord.safeParse(
-      data === undefined || !isRecord(checked.value) ? checked.value : { ...checked.value, data },
+      data === undefined || !isRecord(checked.value)
+        ? checked.value
+        : { ...checked.value, data: shownData(checked.value.data, text, data) },
     );
     if (!kept.success) {
       throw new TheoremError('internal', 'A guard changed the shape of a part it read'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -1965,6 +1979,47 @@ function* showParts(
     shown.push(kept.data);
   }
   return shown;
+}
+
+/** The output with each text file in its `parts` decoded, so the person's view of it is read as its parts are. */
+function withFileTexts(output: unknown): unknown {
+  if (!isRecord(output) || !Array.isArray(output.parts)) return output;
+  return {
+    ...output,
+    parts: output.parts.map((part) => {
+      const text = isFilePart(part) ? partText(part) : null;
+      return text === null ? part : { ...part, data: text };
+    }),
+  };
+}
+
+/** The read output with each text file's text encoded again, at the parts `output` held as files. */
+function shownFiles(read: unknown, output: unknown): unknown {
+  if (!isRecord(read) || !Array.isArray(read.parts) || !isRecord(output)) return read;
+  const given = Array.isArray(output.parts) ? output.parts : [];
+  return {
+    ...read,
+    parts: read.parts.map((part, index) => {
+      const file = given[index];
+      if (!isFilePart(file) || partText(file) === null || !isRecord(part)) return part;
+      return typeof part.data === 'string' ? { ...part, data: textFileData(part.data) } : part;
+    }),
+  };
+}
+
+/** Whether `value` is a part that carries bytes. */
+function isFilePart(value: unknown): value is ToolOutputPart & { data: string; mimeType: string } {
+  return (
+    isRecord(value) &&
+    value.type !== 'text' &&
+    typeof value.data === 'string' &&
+    typeof value.mimeType === 'string'
+  );
+}
+
+/** A shown part's bytes after its read: a text file's read text encoded again, any other part's bytes as they were. */
+function shownData(read: unknown, text: string | null, data: string): unknown {
+  return text === null ? data : typeof read === 'string' ? textFileData(read) : read;
 }
 
 /** What the person is shown of `value`, read at `tool_shown_<kind>`; a blocked one is the labels' words. */

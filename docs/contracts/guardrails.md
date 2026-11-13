@@ -859,9 +859,9 @@ looks, and what it does: a detector, a boundary, an action.
 | `repair` | A stopped reply and the reason, handed back to the model |
 | `live_user` | Text the person sends in a Live session |
 | `tool_arguments_<kind>` | What the model sends to a tool of that type |
-| `tool_output_<kind>` | What a tool of that type returns, its text `parts`, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
+| `tool_output_<kind>` | What a tool of that type returns, its text `parts` and text files, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
 | `tool_failure_<kind>` | The error message and `details` of a tool of that type that failed |
-| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output`, `activityPast`, and each of its `parts` (every field but a file's bytes), the `error` event's message and `details`, and each `trace` |
+| `tool_shown_<kind>` | What a call to a tool of that type shows the person on the turn's events: the `complete` event's `output`, `activityPast`, and each of its `parts` (every field; a file's bytes only when it is a text file, in `output` and in `parts` alike), the `error` event's message and `details`, and each `trace` |
 | `reply` | The text the model says to the person |
 | `reply_structured` | The structured output the model returns |
 | `live_reply` | What the model says in a Live session |
@@ -1347,7 +1347,7 @@ in the string it sits in, and a match in a key or across values blocks it.
 the model read or what history replays. The settlement handed to the host's own
 code (`outputRaw`) is the handler's output, unread. `progress` and `draft` are
 still read at `tool_output_<kind>`. Each of the `complete` event's `parts` is read on its own,
-every field but a file's bytes. The text parts the model reads are read at `tool_output_<kind>` with the result.
+every field but a file's bytes. A text file's bytes (CSV, plain text, or Markdown) are read too, decoded the same way as an attachment's. The text parts and text files the model reads are read at `tool_output_<kind>` with the result.
 
 **Arguments.** Arguments are model-authored, so the risk is exfiltration — a
 credential lifted from context and posted outward as a parameter.

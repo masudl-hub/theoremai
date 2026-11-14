@@ -161,6 +161,17 @@ Deno.test('after is refused on a tool whose input already has the field', () => 
   );
 });
 
+Deno.test('a registered tool that sets after registers again with the one field it has', () => {
+  const once = withCallOrder('again', z.object({ word: z.string() }));
+  const twice = withCallOrder('again', once);
+  assertEquals(Object.keys(jsonSchemaFromZod(twice).properties ?? {}), ['word', 'after']);
+  const kinds = withCallOrder(
+    'again_kinds',
+    z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]),
+  );
+  withCallOrder('again_kinds', kinds);
+});
+
 Deno.test('after is refused on an input that is not an object', () => {
   assertThrows(() => withCallOrder('text', z.string()), TheoremError, "Tool 'text' sets after");
 });

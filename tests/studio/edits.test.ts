@@ -222,3 +222,30 @@ const providerOf = (workspace: StudioWorkspace) => {
   if (!held) throw new Error('The provider did not open.');
   return JSON.parse(JSON.stringify(held));
 };
+
+Deno.test('a tool that sets after registers again when the builder edits it', async () => {
+  const project = defaultKernelScope.tools.get('log_watering');
+  if (project?.type !== 'function') throw new Error('The example changed.');
+  defaultKernelScope.tools.register({ ...project, after: true });
+  const { workspace } = await described();
+  const edited: StudioWorkspace = {
+    ...workspace,
+    toolSpecs: workspace.toolSpecs.map((tool) =>
+      tool.toolName === 'log_watering'
+        ? { ...tool, description: 'Notes a watering, in order.' }
+        : tool,
+    ),
+  };
+  const subjects = saveSubjects(edited, projectNames(workspace));
+  if (!subjects.ok) throw new Error(subjects.issues.join(' '));
+  await registerEdits(defaultKernelScope, subjects);
+  const tool = defaultKernelScope.tools.get('log_watering');
+  if (tool?.type !== 'function') throw new Error('The edit was not registered.');
+  assertEquals(tool.description, 'Notes a watering, in order.');
+  const properties = (tool.inputSchema as { properties?: Record<string, unknown> }).properties;
+  assertEquals(
+    Object.keys(properties ?? {}).filter((key) => key === 'after'),
+    ['after'],
+  );
+  defaultKernelScope.tools.register(project);
+});

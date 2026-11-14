@@ -10,22 +10,34 @@ function orderField() {
   return z.array(z.string()).optional().describe(labelText('tool.after_field'));
 }
 
-/** `input` with a field the kernel adds for the model. A tool's own field of that name is refused, never replaced. */
+/** The fields the kernel added for the model, so a registered tool registered again keeps the one it has. */
+const kernelFields = new WeakSet<z.ZodType>();
+
+/**
+ * `input` with a field the kernel adds for the model. A tool's own field of that name is refused,
+ * never replaced. A field the kernel added before stays, so a registered tool registers again.
+ */
 export function withModelField<TIn>(
   name: string,
   input: z.ZodType<TIn>,
   field: string,
   shape: () => z.ZodType,
 ): z.ZodType<TIn> {
+  const added = () => {
+    const made = shape();
+    kernelFields.add(made);
+    return made;
+  };
   const ordered = (schema: z.ZodType): z.ZodType => {
     if (schema instanceof z.ZodObject) {
+      if (field in schema.shape && kernelFields.has(schema.shape[field])) return schema;
       if (field in schema.shape) {
         throw new TheoremError(
           'config',
           `Tool '${name}' sets ${field}, and its input already has a field of that name`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
-      return schema.safeExtend({ [field]: shape() });
+      return schema.safeExtend({ [field]: added() });
     }
     if (schema instanceof z.ZodDiscriminatedUnion) {
       const options = (schema.options as z.ZodType[]).map(ordered);

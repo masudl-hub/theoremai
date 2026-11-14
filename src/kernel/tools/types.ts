@@ -929,7 +929,13 @@ export interface HostProfileToolsSpec {
 
 /** Every transport returns this; one settlement projects, guards, and runs `post_tool`. */
 export type ToolBodyOutcome =
-  | { kind: 'ok'; outputRaw: unknown; modelResult: ModelToolResult }
+  | {
+      kind: 'ok';
+      outputRaw: unknown;
+      modelResult: ModelToolResult;
+      /** The tool is not signed in, and `modelResult` is the kernel's own words saying so; `exposeToModel: false` does not hide them. */
+      unauthenticated?: true;
+    }
   | { kind: 'gated'; gate: ToolGate }
   | { kind: 'aborted'; aborted: true | { reason?: string } }
   | {

@@ -1909,3 +1909,234 @@ Deno.test('a hidden MCP tool keeps its result from the model and gives it to the
     globalThis.fetch = originalFetch;
   }
 });
+
+async function drainCall(call: Parameters<typeof executeRegisteredTool>[0]) {
+  const exec = executeRegisteredTool(call);
+  const events = [];
+  while (true) {
+    const next = await exec.next();
+    if (next.done) return { events, settlement: next.value };
+    events.push(next.value);
+  }
+}
+
+const noStages = (
+  handlers: NonNullable<Parameters<typeof executeRegisteredTool>[0]['stages']>['handlers'],
+) => ({
+  handlers,
+  profile: testProfile,
+  step: 1,
+  history: () => [],
+  injectAllowed: false,
+});
+
+function registerHiddenHttp(extra: Partial<Parameters<typeof registerTool>[0]> = {}) {
+  resetTools();
+  registerTool({
+    name: 'fetch_user_profile',
+    description: 'Fetch user profile by id',
+    type: 'http',
+    endpoint: 'https://api.example.com/users/{id}',
+    method: 'GET',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    exposeToModel: false,
+    input: z.object({ id: z.string() }),
+    output: z.object({ name: z.string() }),
+    mapping: { pathParams: ['id'] },
+    ...extra,
+  } as Parameters<typeof registerTool>[0]);
+}
+
+Deno.test('a hidden HTTP tool still tells the model its sign-in, its deny and its failure', async () => {
+  const completed = labelText('tool.completed_hidden');
+  registerHiddenHttp({
+    auth: {
+      slot: 'user_auth',
+      service: 'Example',
+      type: 'bearer',
+      onUnauthenticated: 'report_to_model',
+    },
+  });
+  const signIn = await drainCall({
+    tools: defaultKernelScope.tools,
+    profile: testProfile,
+    name: 'fetch_user_profile',
+    input: { id: 'usr_1' },
+    callId: 'call_hidden_auth',
+    ctx: {},
+  });
+  assertStringIncludes(signIn.settlement.modelResult?.finding ?? '', 'Authentication required');
+  assertEquals(signIn.settlement.modelResult?.hidden, undefined);
+
+  registerHiddenHttp({ preTool: () => ({ deny: { code: 'not_authorized', message: 'denied' } }) });
+  const denied = await drainCall({
+    tools: defaultKernelScope.tools,
+    profile: testProfile,
+    name: 'fetch_user_profile',
+    input: { id: 'usr_1' },
+    callId: 'call_hidden_deny',
+    ctx: {},
+    stages: noStages([]),
+  });
+  assertStringIncludes(denied.settlement.modelResult?.finding ?? '', 'not_authorized');
+
+  registerHiddenHttp();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response('down', { status: 500 }))) as typeof fetch;
+  try {
+    const failed = await drainCall({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'fetch_user_profile',
+      input: { id: 'usr_1' },
+      callId: 'call_hidden_500',
+      ctx: {},
+    });
+    assertEquals(Boolean(failed.settlement.failure), true);
+    assertEquals(failed.settlement.modelResult?.finding === completed, false);
+    assertEquals(toolEventsOf(failed.events, 'complete'), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("a hidden HTTP tool's post_tool gets nothing as the model reads it, and an edit stays hidden", async () => {
+  registerHiddenHttp();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(Response.json({ name: 'Alice' }))) as typeof fetch;
+  const seen: unknown[] = [];
+  try {
+    const { events, settlement } = await drainCall({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'fetch_user_profile',
+      input: { id: 'usr_1' },
+      callId: 'call_hidden_post',
+      ctx: {},
+      stages: noStages([
+        (ctx) => {
+          if (ctx.stage !== 'post_tool') return undefined;
+          seen.push(ctx.outputForModel);
+          return { mutate: { output: { name: 'Bob' } } };
+        },
+      ]),
+    });
+    assertEquals(seen, [undefined]);
+    assertEquals(settlement.outputRaw, { name: 'Bob' });
+    assertEquals(settlement.modelResult?.finding, labelText('tool.completed_hidden'));
+    assertEquals(settlement.modelResult?.hidden, true);
+    const [complete] = toolEventsOf(events, 'complete');
+    assertEquals(complete?.output, { name: 'Bob' });
+    assertEquals((complete?.readBack ?? '').includes('Bob'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('a hidden MCP tool shows the person its sent image and reference, and the model reads Completed.', async () => {
+  resetTools();
+  registerTool({
+    name: 'linear_issue',
+    description: 'Create linear issue via MCP',
+    type: 'mcp',
+    serverUrl: 'https://mcp.linear.app/sse',
+    mcpToolName: 'create_issue',
+    category: 'workflow',
+    access: 'read-write',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    exposeToModel: false,
+    input: z.object({ title: z.string() }),
+    output: z.unknown(),
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    const { id } = JSON.parse(String(init?.body)) as { id: unknown };
+    return Promise.resolve(
+      Response.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          content: [
+            { type: 'text', text: 'made LIN-7' },
+            {
+              type: 'image',
+              mimeType: 'image/png',
+              data: 'AAAA',
+              annotations: { audience: ['user'] },
+            },
+            { type: 'image', mimeType: 'image/png', data: 'BBBB' },
+            {
+              type: 'resource_link',
+              uri: 'gs://bucket/lin-7.pdf',
+              name: 'lin-7',
+              mimeType: 'application/pdf',
+            },
+          ],
+        },
+      }),
+    );
+  }) as typeof fetch;
+  try {
+    const { events, settlement } = await drainCall({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'linear_issue',
+      input: { title: 'Hidden' },
+      callId: 'call_mcp_hidden_media',
+      ctx: {},
+    });
+    const [complete] = toolEventsOf(events, 'complete');
+    assertEquals(complete?.hidden, true);
+    assertEquals(
+      complete?.readBack,
+      '<tool_data tool="linear_issue" origin="mcp">\nCompleted.\n</tool_data>',
+    );
+    assertEquals(JSON.stringify(complete?.parts).includes('BBBB'), false);
+    assertEquals(JSON.stringify(complete?.parts).includes('AAAA'), true);
+    assertEquals(JSON.stringify(complete?.parts).includes('gs://bucket/lin-7.pdf'), true);
+    assertEquals(settlement.modelResult?.parts, undefined);
+    assertEquals(settlement.modelResult?.finding, labelText('tool.completed_hidden'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('a hidden function tool that is not signed in still tells the model so', async () => {
+  resetTools();
+  registerTool({
+    name: 'fetch_user_profile',
+    description: 'Fetch user profile by id',
+    type: 'function',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    exposeToModel: false,
+    auth: {
+      slot: 'user_auth',
+      service: 'Example',
+      type: 'bearer',
+      onUnauthenticated: 'report_to_model',
+    },
+    input: z.object({ id: z.string() }),
+    output: z.object({ name: z.string() }),
+    handler: () => ({ name: 'never run' }),
+  });
+  const { settlement } = await drainCall({
+    tools: defaultKernelScope.tools,
+    profile: testProfile,
+    name: 'fetch_user_profile',
+    input: { id: 'usr_1' },
+    callId: 'call_hidden_fn_auth',
+    ctx: {},
+  });
+  assertStringIncludes(settlement.modelResult?.finding ?? '', 'Authentication required');
+  assertEquals(settlement.modelResult?.hidden, undefined);
+});

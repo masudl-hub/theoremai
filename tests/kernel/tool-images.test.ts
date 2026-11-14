@@ -320,5 +320,24 @@ Deno.test('a hidden HTTP tool shows what it sent and the model reads only Comple
     { type: 'image', mimeType: 'image/png', data: PNG_BASE64, sent: true },
     { type: 'document', mimeType: 'application/pdf', uri },
   ]);
+  assertEquals((complete?.output as { shots?: string[] } | undefined)?.shots?.length, 2);
   assertEquals(toolEventsOf(events, 'warning'), []);
+});
+
+Deno.test('a hidden HTTP tool is read where the person sees it, not where the model reads', async () => {
+  const sent = (shots: string[]) => shots.map((url) => ({ url, sent: true as const }));
+  registerShotTool('shot_hidden_out', [], { tool_output_http: 'block' }, undefined, sent, {
+    exposeToModel: false,
+  });
+  secretFor.set('shot_hidden_out', TEST_OPENAI_KEY);
+  const out = await run('shot_hidden_out', {});
+  assertEquals(toolEventsOf(out, 'error'), []);
+  assertEquals(toolEventsOf(out, 'complete')[0]?.hidden, true);
+
+  registerShotTool('shot_hidden_shown', [], { tool_shown_http: 'redact' }, undefined, sent, {
+    exposeToModel: false,
+  });
+  secretFor.set('shot_hidden_shown', TEST_OPENAI_KEY);
+  const shown = await run('shot_hidden_shown', {});
+  assertEquals(JSON.stringify(toolEventsOf(shown, 'complete')).includes(TEST_OPENAI_KEY), false);
 });

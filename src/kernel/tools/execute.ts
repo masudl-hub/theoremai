@@ -1226,8 +1226,9 @@ async function* settleBodyOutcome(args: {
       ...(outcome.denied ? { denied: true } : {}),
     });
   }
-  const seen = (result: ModelToolResult) =>
-    tool.exposeToModel === false ? hiddenResult(result.media, labels) : result;
+  // why: a sign-in message is the kernel's, not the tool's result, so a hidden tool still says it.
+  const hidden = tool.exposeToModel === false && !outcome.unauthenticated;
+  const seen = (result: ModelToolResult) => (hidden ? hiddenResult(result.media, labels) : result);
   const named = tool.type !== 'function' && tool.media;
   return yield* settleToolCall({
     base,
@@ -1242,12 +1243,7 @@ async function* settleBodyOutcome(args: {
     ...(named
       ? {
           media: (output: unknown) =>
-            fetchToolMedia(
-              tool.exposeToModel === false ? shownEntries(named) : named,
-              output,
-              ctx,
-              tool.imageLimits,
-            ),
+            fetchToolMedia(hidden ? shownEntries(named) : named, output, ctx, tool.imageLimits),
         }
       : {}),
     labels: tool.labels,

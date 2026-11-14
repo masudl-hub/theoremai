@@ -512,6 +512,7 @@ export function outcomeFromUnauth(
       kind: 'ok',
       modelResult: { finding: authRes.modelMessage },
       outputRaw: { unauthenticated: true, message: authRes.modelMessage },
+      unauthenticated: true,
     };
   }
   if (authRes.failureMessage === undefined) {
@@ -788,7 +789,7 @@ function withoutSecret(
   if (outcome.kind === 'ok') {
     const outputRaw = omitSecret(outcome.outputRaw, secret);
     return {
-      kind: 'ok',
+      ...outcome,
       outputRaw,
       modelResult: withMedia(
         modelResultFromOutput(outputRaw, outputSchema),

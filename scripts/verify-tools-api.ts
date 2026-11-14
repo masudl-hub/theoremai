@@ -62,6 +62,9 @@ function flashLiteFields(maxSteps: number) {
     models: {
       gemini35FlashLite: {
         ...HOST_BINDINGS.gemini35FlashLite,
+        // why: the fixture binding runs on the scripted protocol; a live case needs the real wire.
+        protocol: 'geminiInteractions',
+        provider: 'gemini',
         apiId: 'gemini-3.1-flash-lite',
         temperature: 0.1,
         maxOutputTokens: 2048,
@@ -363,11 +366,13 @@ function buildInvokeCases(): Case[] {
   });
 
   add('invoke/preTool auth throw', { profile: p, name: 'throwing_auth_tool', input: {} }, (r) => {
-    const errEv = r.events.find((e) => e.type === 'error');
-    const detail = errEv?.errorInternal ?? errEv?.error ?? r.error ?? '';
-    if (!detail.includes('auth network failure')) {
-      return 'expected preTool throw as error event';
+    const hook = r.events.find((e) => e.type === 'hook_failed');
+    if (hook?.type !== 'hook_failed' || hook.hook !== 'tools.preTool') {
+      return 'expected preTool throw as hook_failed';
     }
+    if (!hook.errorInternal?.includes('auth network failure')) return 'expected the throw kept';
+    if (failureOf(lastTool(r.events, 'throwing_auth_tool'))?.code !== 'hook_failed')
+      return 'expected the call to fail as hook_failed';
   });
 
   add('invoke/always_confirm gate', { profile: p, name: 'always_confirm_tool', input: {} }, (r) => {

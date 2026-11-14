@@ -119,6 +119,7 @@ import type {
   ToolFailure,
   ToolGate,
   ToolLabels,
+  ToolMediaEntry,
   ToolStreamEvent,
   TurnToolSnapshot,
 } from './types.ts';
@@ -210,15 +211,7 @@ export function projectForModel(
   labels?: LabelOverrides,
 ): ModelToolResult {
   const media = checkedToolOutputParts(output);
-  if (tool.exposeToModel === false) {
-    // why: The model reads none of a hidden tool's output, its media included; what it sent, the person is shown.
-    const sent = media?.filter((part) => part.type !== 'text' && ('uri' in part || part.sent));
-    return {
-      finding: labelText('tool.completed_hidden', {}, labels),
-      hidden: true,
-      ...(sent?.length ? { media: sent } : {}),
-    };
-  }
+  if (tool.exposeToModel === false) return hiddenResult(media, labels);
   const seen = outputForModel(tool.outputSchema, output);
   if (isAwaitingUserInput(output)) {
     return {
@@ -240,6 +233,32 @@ export function projectForModel(
       }
     : modelResultFromOutput(lean, undefined);
   return withMedia(result, media);
+}
+
+/** Whether the person is shown a part of a hidden tool's media: what it sent, and each reference. */
+const isShownPart = (part: ToolOutputPart) =>
+  part.type !== 'text' && ('uri' in part || part.sent === true);
+
+/**
+ * What the model is told of a hidden tool's call (`exposeToModel: false`), whatever its type: only
+ * `Completed.`. Of its media, the person is shown what it sent and its references.
+ * invariant: every tool type hides through here, so a hidden tool reads the same on every transport.
+ */
+function hiddenResult(
+  media: readonly ToolOutputPart[] | undefined,
+  labels?: LabelOverrides,
+): ModelToolResult {
+  const shown = media?.filter(isShownPart);
+  return {
+    finding: labelText('tool.completed_hidden', {}, labels),
+    hidden: true,
+    ...(shown?.length ? { media: shown } : {}),
+  };
+}
+
+/** A media hook for a hidden tool: only the entries the person is shown, so no picture is fetched for the model. */
+function shownEntries<T>(media: (output: T) => ToolMediaEntry[]): (output: T) => ToolMediaEntry[] {
+  return (output) => media(output).filter((entry) => !('url' in entry) || entry.sent === true);
 }
 
 /** How the call's `post_tool` stage gets the output as the model reads it; nothing when the model reads none. */
@@ -603,6 +622,10 @@ async function* withNamedMedia(
   const fetched = await named(outputRaw);
   if (fetched.warning) yield toolEvent(base, { phase: 'warning', warning: fetched.warning });
   if (fetched.media.length === 0) return result;
+  if (result.hidden) {
+    const shown = [...(result.media ?? []), ...fetched.media.filter(isShownPart)];
+    return { ...result, ...(shown.length ? { media: shown } : {}) };
+  }
   const withAll = withMedia(result, [...(result.media ?? []), ...fetched.media]);
   if (fetched.urls.length === 0) return withAll;
   const note = `\n[Pictures shown with this result: ${fetched.urls.join(' ')}]`; // labels-exempt: a marker the egress rule reads the addresses from, not prose (P2)
@@ -1146,7 +1169,7 @@ function authorizeSavedDisclosure(
     new TheoremError('blocked', labelText('detect.output_blocked', {}, args.profile.labels));
   const result = outcome.replay.modelResult;
   if (
-    tool.type === 'function' &&
+    tool.type !== 'builtin' &&
     tool.exposeToModel === false &&
     result?.finding !== labelText('tool.completed_hidden', {}, args.profile.labels)
   )
@@ -1203,6 +1226,9 @@ async function* settleBodyOutcome(args: {
       ...(outcome.denied ? { denied: true } : {}),
     });
   }
+  const seen = (result: ModelToolResult) =>
+    tool.exposeToModel === false ? hiddenResult(result.media, labels) : result;
+  const named = tool.type !== 'function' && tool.media;
   return yield* settleToolCall({
     base,
     toolName: name,
@@ -1210,13 +1236,18 @@ async function* settleBodyOutcome(args: {
     input: safeInput,
     stages,
     guard,
-    provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
+    provisional: { outputRaw: outcome.outputRaw, modelResult: seen(outcome.modelResult) },
     sources: tool.sources,
     ...forModelOf(tool),
-    ...(tool.type !== 'function' && tool.media
+    ...(named
       ? {
           media: (output: unknown) =>
-            fetchToolMedia(tool.media as never, output, ctx, tool.imageLimits),
+            fetchToolMedia(
+              tool.exposeToModel === false ? shownEntries(named) : named,
+              output,
+              ctx,
+              tool.imageLimits,
+            ),
         }
       : {}),
     labels: tool.labels,
@@ -1224,7 +1255,7 @@ async function* settleBodyOutcome(args: {
       (v) => parseToolOutput(tool.output, v),
       // why: A hook's edit replaces the value; the media the tool returned stays.
       (data) =>
-        withMedia(modelResultFromOutput(data, tool.outputSchema), outcome.modelResult.media),
+        seen(withMedia(modelResultFromOutput(data, tool.outputSchema), outcome.modelResult.media)),
       labels,
     ),
   });

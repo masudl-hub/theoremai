@@ -260,7 +260,7 @@ export interface ToolHostHooks<TIn = unknown> {
     | import('../stages.ts').StageResult
     | undefined
     | Promise<import('../stages.ts').StageResult | undefined>;
-  /** Whether the model can see and call the tool. */
+  /** false: the model can call the tool but reads only `Completed.` (the tool.completed_hidden label); the person still sees the media it sends. */
   exposeToModel?: boolean;
   /**
    * Gives the model an after field on this tool: the tools called in the same step that must settle
@@ -624,7 +624,7 @@ export interface AgentToolDef extends ToolBase {
    * argument. A turn with no background service runs the tool inline.
    */
   background?: ToolHostHooks<AgentToolInput>['background'];
-  /** Whether the model can see and call the tool. */
+  /** false: the model can call the tool but reads only `Completed.` (the tool.completed_hidden label); the person still sees the media it sends. */
   exposeToModel?: boolean;
 }
 

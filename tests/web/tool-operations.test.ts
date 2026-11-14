@@ -874,6 +874,36 @@ Deno.test('a hidden tool replays only the words that say it finished', async () 
     () => replay({ ...outcome, replay: { ...outcome.replay, modelResult: shown } }),
     TheoremError,
   );
+  const http = `${name}_http`;
+  registerTool({
+    type: 'http',
+    name: http,
+    description: 'Read a secret the model never sees, over HTTP',
+    endpoint: 'https://api.example.com/secret',
+    method: 'GET',
+    category: 'test',
+    access: 'read-only',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    exposeToModel: false,
+    input: z.object({}),
+    output: z.object({ text: z.string() }),
+  });
+  const remote = defineProfile({ id: http, type: 'host', tools: { allow: [http] } });
+  const replayRemote = (saved: typeof outcome) =>
+    authorizeToolReplay({
+      tools: defaultKernelScope.tools,
+      profile: remote,
+      name: http,
+      resume: undefined,
+      outcome: saved,
+    });
+  replayRemote(outcome);
+  assertThrows(
+    () => replayRemote({ ...outcome, replay: { ...outcome.replay, modelResult: shown } }),
+    TheoremError,
+  );
 });
 
 Deno.test('a replay is refused for a tool the registry lacks, and for one the profile does not allow', () => {

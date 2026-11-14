@@ -1850,3 +1850,62 @@ Deno.test('Declarative HTTP Tool asks a busy service again for a read, never for
     globalThis.fetch = originalFetch;
   }
 });
+
+Deno.test('a hidden MCP tool keeps its result from the model and gives it to the host', async () => {
+  resetTools();
+  registerTool({
+    name: 'linear_issue',
+    description: 'Create linear issue via MCP',
+    type: 'mcp',
+    serverUrl: 'https://mcp.linear.app/sse',
+    mcpToolName: 'create_issue',
+    category: 'workflow',
+    access: 'read-write',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    exposeToModel: false,
+    input: z.object({ title: z.string() }),
+    output: z.object({ issueId: z.string() }),
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    const { id } = JSON.parse(String(init?.body)) as { id: unknown };
+    return Promise.resolve(
+      Response.json({
+        jsonrpc: '2.0',
+        id,
+        result: { content: [{ type: 'text', text: JSON.stringify({ issueId: 'LIN-7' }) }] },
+      }),
+    );
+  }) as typeof fetch;
+  try {
+    const exec = executeRegisteredTool({
+      tools: defaultKernelScope.tools,
+      profile: testProfile,
+      name: 'linear_issue',
+      input: { title: 'Hidden' },
+      callId: 'call_mcp_hidden',
+      ctx: {},
+    });
+    const events = [];
+    let settlement: ToolExecuteSettlement | undefined;
+    while (true) {
+      const next = await exec.next();
+      if (next.done) {
+        settlement = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+    const [complete] = toolEventsOf(events, 'complete');
+    assertEquals(complete?.hidden, true);
+    assertEquals(
+      complete?.readBack,
+      '<tool_data tool="linear_issue" origin="mcp">\nCompleted.\n</tool_data>',
+    );
+    assertEquals((settlement?.outputRaw as { issueId?: string } | undefined)?.issueId, 'LIN-7');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

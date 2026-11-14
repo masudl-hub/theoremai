@@ -530,7 +530,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'registerTool.description': 'Tells the model what the tool does (custom tools only).',
   'registerTool.endpoint':
     'The URL the tool calls, with {name} placeholders for mapping.pathParams; the scheme and host must be written out.',
-  'registerTool.exposeToModel': 'Whether the model can see and call the tool.',
+  'registerTool.exposeToModel':
+    'false: the model can call the tool but reads only `Completed.` (the tool.completed_hidden label); the person still sees the media it sends.',
   'registerTool.fieldText':
     'What the calling model reads on a field of an agent tool input, such as text. A field the profile does not take is refused when the tool registers.',
   'registerTool.handler':
@@ -636,6 +637,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'runTurn.input.text': "The user's message.",
   'runTurn.input.voice':
     "Recorded speech sent with the turn; each must pass the profile's inputs.voice.",
+  'runTurn.lateResults':
+    'Your function that gives the background tool calls that settled after their turn, as you stored them. A text turn asks it when it opens, after each step whose calls settled, and once the model has answered. The model reads each result as a tool result, and the turn counts it as a remote read when the call was remote. A result lands once: one the conversation already holds is not read again. Each landing is a late_results event, so a history built from events holds it, and the event names the moment it landed. Once the model has answered, a landing runs another step, so the model answers what it read.',
   'runTurn.links': 'Earlier traces this run follows: a resume, a continue, or a retry.',
   'runTurn.metadata': 'Your own values, kept on the trace; Theorem does not read them.',
   'runTurn.model':
@@ -644,8 +647,6 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
   'runTurn.onEvent':
     "Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw goes to the caller as hook_failed, which this function does not read, and the turn goes on.",
-  'runTurn.lateResults':
-    'Your function that gives the background tool calls that settled after their turn, as you stored them. A text turn asks it when it opens, after each step whose calls settled, and once the model has answered. The model reads each result as a tool result, and the turn counts it as a remote read when the call was remote. A result lands once: one the conversation already holds is not read again. Each landing is a late_results event, so a history built from events holds it, and the event names the moment it landed. Once the model has answered, a landing runs another step, so the model answers what it read.',
   'runTurn.onStage':
     'Your function that sees each stage of a text turn or a live session, and can answer with what the stage allows. A throw at pre_tool fails that call. A throw at any other stage is reported as hook_failed, and the turn goes on without its answer.',
   'runTurn.options':

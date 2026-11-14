@@ -23,6 +23,7 @@ function registerShotTool(
   secretsAt: Partial<Record<'tool_output_http' | 'tool_shown_http', 'block' | 'redact'>> = {},
   imageLimits?: ToolImageLimits,
   entries: (shots: string[]) => ToolMediaEntry[] = (shots) => shots.map((url) => ({ url })),
+  extra: { exposeToModel?: boolean } = {},
 ): void {
   registerTool({
     type: 'http',
@@ -42,6 +43,7 @@ function registerShotTool(
     }),
     media: (output) => entries(output.shots),
     ...(imageLimits ? { imageLimits } : {}),
+    ...extra,
   });
   registerProfile(
     defineProfile({
@@ -282,4 +284,41 @@ Deno.test('a tool that names only references writes no pictures note', async () 
   ]);
   assertEquals((complete?.readBack ?? '').includes('Pictures shown'), false);
   assertEquals((complete?.readBack ?? '').includes(uri), false);
+});
+
+Deno.test('a hidden HTTP tool shows what it sent and the model reads only Completed.', async () => {
+  const uri = 'gs://bucket/private/report.pdf';
+  registerShotTool(
+    'shot_hidden',
+    ['https://cdn.example.com/a.png', 'https://cdn.example.com/b.png'],
+    {},
+    undefined,
+    ([a, b]) => [
+      { url: a ?? '', sent: true },
+      { url: b ?? '' },
+      { type: 'document', mimeType: 'application/pdf', uri },
+    ],
+    { exposeToModel: false },
+  );
+  let fetchedB = 0;
+  const files = {
+    'https://cdn.example.com/a.png': png(),
+    get 'https://cdn.example.com/b.png'() {
+      fetchedB++;
+      return png();
+    },
+  };
+  const events = await run('shot_hidden', files);
+  const [complete] = toolEventsOf(events, 'complete');
+  assertEquals(fetchedB, 0);
+  assertEquals(complete?.hidden, true);
+  assertEquals(
+    complete?.readBack,
+    '<tool_data tool="shot_hidden" origin="http">\nCompleted.\n</tool_data>',
+  );
+  assertEquals(complete?.parts, [
+    { type: 'image', mimeType: 'image/png', data: PNG_BASE64, sent: true },
+    { type: 'document', mimeType: 'application/pdf', uri },
+  ]);
+  assertEquals(toolEventsOf(events, 'warning'), []);
 });

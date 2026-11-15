@@ -10,7 +10,6 @@ import { labelText } from '../../../guardrails/labels.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import { hookCrashFailure, hookFailed } from '../../hook-failure.ts';
 import { nestedTurnModel, resolveRegisteredTurnModel } from '../../provider-dispatch.ts';
-import { assertTurnAttachments } from '../../registry/attachments.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import {
@@ -139,9 +138,7 @@ function createAgentCaller(args: {
       }
 
       const { speech, ...sent } = modelInput;
-      const turnInput = fields.input ?? sent;
       const events = yield* nestedEvents(
-        () => assertTurnAttachments(profile, turnInput.attachments, turnInput.voice),
         args.runNested({
           req: {
             ...(speech ? { speech } : {}),
@@ -149,7 +146,7 @@ function createAgentCaller(args: {
             profile: tool.profile,
             execution: req.execution,
             pageExecution: req.pageExecution,
-            input: turnInput,
+            input: fields.input ?? sent,
             ...(signal ? { signal } : {}),
             ...(req.onAgentCall ? { onAgentCall: req.onAgentCall } : {}),
           },
@@ -167,18 +164,16 @@ function createAgentCaller(args: {
 
 /** Relays an agent's turn and keeps its events; a turn refused before it starts ends in its error event. */
 async function* nestedEvents(
-  check: () => void,
   turn: AsyncGenerator<TurnEvent>,
 ): AsyncGenerator<TurnEvent, TurnEvent[]> {
   const events: TurnEvent[] = [];
   try {
-    check();
     for await (const event of turn) {
       events.push(event);
       yield event;
     }
   } catch (err) {
-    // why: A file the agent does not take refuses its turn before it starts, where a person's turn goes on without it: the caller's model reads why and can correct the call.
+    // why: A turn refused before it starts (a file the agent does not take) throws; the caller's model reads it like any other failed call.
     if (!(err instanceof TheoremError) || NESTED_THROWS.has(err.kind) || isAbortError(err)) {
       throw err;
     }

@@ -968,17 +968,12 @@ export interface RefusedMedia {
 }
 
 /**
- * The turn went on without files: first those the profile does not take (its `accept` lists and
- * byte limits), left out before any call, then those the provider refused. A refused file is
- * listed only when the same call, sent without it, was accepted: that is the proof it was at fault.
+ * The turn went on without files the provider refused. Set only when the same call, sent
+ * without them, was accepted: that is the proof the files were at fault.
  */
 export interface MediaRefused {
   dropped: RefusedMedia[];
-  /**
-   * Why, for the builder only: `forClient` strips the whole report. A line per file left out
-   * names its type and each check it failed (`image/gif: mime_not_allowed`); then the provider's
-   * own reason.
-   */
+  /** The provider's own reason, for the builder only: `forClient` strips the whole report. */
   said: string;
 }
 

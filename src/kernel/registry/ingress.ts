@@ -126,7 +126,7 @@ function assertMediaMime(mime: string): MediaInputKind {
   return kind;
 }
 
-/** Runs after `splitTurnAttachments`. A reference's uri passes untouched: the host owns the upload. */
+/** Runs after `assertTurnAttachments`. A reference's uri passes untouched: the host owns the upload. */
 function mediaParts(blobs: Array<TurnBlob | TurnMediaRef>): InteractionPart[] {
   return blobs.map((blob) => {
     const kind = assertMediaMime(blob.mimeType);
@@ -191,7 +191,7 @@ function pinnedReferenceParts(profile: Profile): InteractionPart[] {
     : [];
 }
 
-/** `sanitizeTurnRequest` has already left out the blobs the profile's limits and accept lists refuse. */
+/** `sanitizeTurnRequest` has already checked the blobs against the profile's limits and accept lists. */
 function extractMediaParts(profile: Profile, req: TurnRequest): InteractionPart[] {
   const files = req.input?.attachments ?? [];
   const clips = req.input?.voice ?? [];

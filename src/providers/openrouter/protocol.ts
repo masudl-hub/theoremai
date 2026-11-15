@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 import { type JsonObject, jsonObjectSchema } from '../../kernel/json.ts';
 import { extendProtocol, type Protocol, type ProtocolEvent } from '../../kernel/protocols/mod.ts';
 import type { Source, TurnHistoryMessage } from '../../kernel/types.ts';
 import { openAi } from '../open-ai/protocol.ts';
-import { httpError } from './openai/compat.ts';
+import { httpError, statedError } from './openai/compat.ts';
 import { collectReasoning } from './openai/reasoning-state.ts';
 
 /** What is cached: the whole request (`automatic`) or the system instruction only (`system`). */
@@ -109,12 +110,29 @@ const reasoning = z.strictObject({
  * the kind: "Filter by Image Support", "Filter by Input Audio Support", "Filter by Input Video
  * Support". Every file of that kind is refused, whatever its type.
  */
-const REFUSED_KIND = /^Filter by (?:Input )?(Image|Audio|Video) Support$/;
+const REFUSED_STEP = /^Filter by (?:Input )?(Image|Audio|Video) Support$/;
+
+/** probed 14/11/2026: an upstream that cannot decode a clip says so in a 200 stream's error row: "Upstream error from Nvidia: Unsupported audio format: send WAV, MP3, FLAC or Ogg (Vorbis/Opus) audio." */
+const REFUSED_FORMAT = /\bUnsupported (audio|image|video) format\b/i;
 
 function refusedKind(body: unknown): { refusedMedia: string[] } | undefined {
-  const step = asRecord(asRecord(asRecord(body)?.error)?.metadata)?.failed_routing_step;
-  const kind = typeof step === 'string' ? REFUSED_KIND.exec(step)?.[1] : undefined;
+  const error = asRecord(asRecord(body)?.error);
+  const step = asRecord(error?.metadata)?.failed_routing_step;
+  const kind =
+    (typeof step === 'string' ? REFUSED_STEP.exec(step)?.[1] : undefined) ??
+    (typeof error?.message === 'string' ? REFUSED_FORMAT.exec(error.message)?.[1] : undefined);
   return kind ? { refusedMedia: [`${kind.toLowerCase()}/*`] } : undefined;
+}
+
+/** invariant: an error row is typed as the base types it; this only names the kind of file it refused. */
+function refusedRow(row: JsonObject): TheoremError | undefined {
+  const error = asRecord(row.error);
+  if (!error) return undefined;
+  const kind = kindOfHttpStatus(typeof error.code === 'number' ? error.code : 502);
+  const refused = kind === 'unsupported' ? refusedKind(row) : undefined;
+  return refused
+    ? new TheoremError(kind, statedError(row) ?? JSON.stringify(error), refused)
+    : undefined;
 }
 
 function cacheControl(spec: CacheSpec): JsonObject {
@@ -259,8 +277,12 @@ export const openRouterOpenAi: Protocol<OpenRouterOptions> = extendProtocol(open
     const cited = new Set<string>();
     const reported = new Set<string>();
     let content = '';
+    let begun = false;
     return {
       row(row) {
+        const refused = begun ? undefined : refusedRow(row);
+        if (refused) throw refused;
+        begun = true;
         content += collectReasoning(row, details);
         const events: ProtocolEvent[] = [];
         const thought = thinking(row);

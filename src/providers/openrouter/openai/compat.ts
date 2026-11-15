@@ -80,6 +80,7 @@ function rejectMediaRef(
   }
 }
 
+/** probed 14/11/2026: Chat Completions takes only `wav` and `mp3` as `format`, and refuses `flac` or `ogg`; an upstream reads the clip's real format from its bytes, so flac and ogg sent as `mp3` are heard. */
 function wireAudioPart(part: InteractionMediaPart): Record<string, unknown> {
   let format = 'mp3';
   if (part.mimeType.includes('wav')) {

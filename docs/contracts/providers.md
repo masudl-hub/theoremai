@@ -423,7 +423,8 @@ It ignores an `assets` map, so the protocol puts each image where its reference 
 It reads references as TypeSafe does, in `state`, instructions, and criteria: a string that is one reference becomes the image part, and a longer string becomes an array of its text and images in order.
 Model ids carry the vendor, such as `typesafe/jev-1.14`.
 A model that cannot read an image somewhere, or cannot answer a `box`, refuses with OpenRouter's own error.
-A model that has no endpoint for images, audio or video answers 404, and the routing step it failed names the kind. The error's `refusedMedia` is then `image/*`, `audio/*` or `video/*` (probed 2026-11-14). A file that is not one of these is not filtered by routing, and an upstream refusal of it names no type.
+A model that has no endpoint for images, audio or video answers 404, and the routing step it failed names the kind. The error's `refusedMedia` is then `image/*`, `audio/*` or `video/*` (probed 2026-11-14). An upstream that cannot decode a clip says "Unsupported audio format" in the stream's first error row, and the error's `refusedMedia` is `audio/*`, so every audio file of the call goes. A file that is not an image, audio or video is not filtered by routing, and an upstream refusal of it names no type.
+An audio file goes as `input_audio` with `format` `wav` for a WAV type and `mp3` for any other. Chat Completions takes only those two names; the upstream reads the clip's real format from its bytes, so FLAC and Ogg are heard (probed 2026-11-14).
 
 Set chat caching in `options.cache`:
 

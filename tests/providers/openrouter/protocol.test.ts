@@ -345,3 +345,50 @@ Deno.test('a refusal that names no kind of file names none, and openAi never nam
   const image = ROUTING_404('Filter by Image Support', 'image input');
   assertEquals(openAi.error?.({ status: 404, body: image, headers })?.refusedMedia, undefined);
 });
+
+const UPSTREAM_AUDIO = {
+  error: {
+    message:
+      'Upstream error from Nvidia: Unsupported audio format: send WAV, MP3, FLAC or Ogg (Vorbis/Opus) audio.',
+    code: 400,
+    metadata: { error_type: 'invalid_request' },
+  },
+};
+
+type Failed = { errorKind?: string; refusedMedia?: string[] };
+
+async function failure(rows: JsonObject[]): Promise<unknown> {
+  try {
+    const events = await collect(callProtocol(setup(rows).call).complete(request));
+    return events.find((event) => event.type === 'error');
+  } catch (err) {
+    return err;
+  }
+}
+
+Deno.test('an upstream that cannot decode a clip refuses every audio file, before any reply', async () => {
+  const first = (await failure([UPSTREAM_AUDIO])) as Failed;
+  assertEquals(first.errorKind, 'unsupported');
+  assertEquals(first.refusedMedia, ['audio/*']);
+  const later = (await failure([
+    { id: 'r1', choices: [{ delta: { content: 'Hi' } }] },
+    UPSTREAM_AUDIO,
+  ])) as Failed;
+  assertEquals(later.errorKind, 'unavailable');
+  assertEquals(later.refusedMedia, undefined);
+  const other = (await failure([
+    { error: { message: 'Unsupported parameter: seed', code: 400 } },
+  ])) as Failed;
+  assertEquals(other.errorKind, 'unsupported');
+  assertEquals(other.refusedMedia, undefined);
+  const busy = (await failure([
+    { error: { message: 'Unsupported audio format', code: 503 } },
+  ])) as Failed;
+  assertEquals(busy.errorKind, 'busy');
+  assertEquals(busy.refusedMedia, undefined);
+  const headers = new Headers();
+  assertEquals(
+    openRouterOpenAi.error?.({ status: 400, body: UPSTREAM_AUDIO, headers })?.refusedMedia,
+    ['audio/*'],
+  );
+});

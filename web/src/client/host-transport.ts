@@ -17,7 +17,7 @@ import {
   TURN_EVENT_SCHEMAS,
   z,
 } from '@theoremjs/agents';
-import type { Equals } from '@theoremjs/agents/kernel';
+import { declaredInputSchema, type Equals } from '@theoremjs/agents/kernel';
 import type { PageDispatchResult } from './page-dispatch.ts';
 import type { TraceFeed } from './trace-feed.ts';
 import {
@@ -66,6 +66,8 @@ export type HostToolSource = {
   description: string;
   access: ToolAccess;
   permission: ToolPermission;
+  /** Whether the kernel added the model's `after` field to `inputSchema`. */
+  after?: boolean;
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
 };
@@ -92,7 +94,8 @@ export function hostInterface(
           kind: tool.type,
           access: tool.access,
           permission: tool.permission,
-          inputSchema: tool.inputSchema,
+          // why: A call from the page is one call in no step, so the model's `after` field has nothing to order.
+          inputSchema: declaredInputSchema(tool),
           outputSchema: tool.outputSchema,
         },
       ];

@@ -186,6 +186,48 @@ Deno.test('describe lists an agent tool the host allows, with the input its call
   );
   assert(iface.tools[0]?.inputSchema.properties !== undefined);
 });
+for (const [name, input] of [
+  ['host_handler_ordered', z.object({ id: z.string() })],
+  [
+    'host_handler_ordered_union',
+    z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('one'), id: z.string() }),
+      z.object({ kind: z.literal('all') }),
+    ]),
+  ],
+] as [string, z.ZodType<unknown>][]) {
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Run after other calls',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    after: true,
+    input,
+    output: z.object({}),
+    handler: () => ({}),
+  });
+}
+Deno.test("describe shows a tool that sets after with the input it declared, without the model's after", async () => {
+  const handler = createTheoremHostHandler({
+    profile: host('host-handler-describe-after', [
+      'host_handler_ordered',
+      'host_handler_ordered_union',
+    ]),
+  });
+  const [object, union] = (await transportFor(handler).describe()).tools;
+  assertEquals(Object.keys(object?.inputSchema.properties ?? {}), ['id']);
+  const options = (union?.inputSchema.oneOf ?? union?.inputSchema.anyOf) as
+    | { properties: Record<string, unknown> }[]
+    | undefined;
+  assertEquals(
+    options?.map((option) => Object.keys(option.properties)),
+    [['kind', 'id'], ['kind']],
+  );
+});
 Deno.test('a call streams the tool through to its output', async () => {
   const handler = createTheoremHostHandler({
     profile: host('host-handler-call', ['host_handler_lookup']),

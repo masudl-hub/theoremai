@@ -344,18 +344,16 @@ Multimodal ingress uses provider-neutral `InteractionPart` values;
 `document`). MIME → kind mapping lives in `MEDIA_INPUT_KINDS` (`schema.ts`)
 and is applied by `mediaKindForMime` (`catalog.ts`).
 
-`MEDIA_INPUT_KINDS` is the package's complete media-input vocabulary — every
-MIME any supported transport can take on a turn, and nothing else. It is the
-union of the documented provider input lists: Google Interactions / Live
-(images `png`, `jpeg`, `webp`, `heic`, `heif`; audio `wav`, `mp3`, `mpeg`,
-`aiff`, `aac`, `ogg`, `flac`, `m4a`, `l16`, `opus`, `alaw`, `mulaw`, `webm`;
-video `mp4`, `mpeg`, `mov`, `avi`, `x-flv`, `mpg`, `webm`, `wmv`, `3gpp`;
-documents `application/pdf`, `text/plain`, `text/html`, `text/css`,
-`text/markdown`/`text/md`, `text/csv`, `text/xml`, `text/rtf`,
-`text/javascript`/`application/x-javascript`,
-`text/x-python`/`application/x-python`, `application/json`), verified
-2026-09-12, plus
-provider alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). The
+`MEDIA_INPUT_KINDS` names the common MIME types and their kinds: the documented
+provider input lists (Google Interactions / Live, verified 2026-09-12) and their
+alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). It is not a
+limit. A type it does not name takes the kind of its top-level type: `image/*`
+is `image`, `audio/*` is `audio`, `video/*` is `video`, and any other type is
+`document`. So `image/svg+xml` is an image and a Word file is a document. Only a
+string that is not a MIME type has no kind, and a turn that sends one is refused
+with an `input` error. The profile's `accept` lists decide which types a turn
+takes; a provider that cannot read one refuses the call, and the turn goes on
+without that file ([Resume policy](#resume-policy)).
 The `openAi`, `openRouterOpenAi`, and `openRouterImages` protocols forward a part's MIME verbatim on every `MediaInputKind`,
 so their accepted set is open-ended and contributes no additional rows; what
 they cannot carry — a `uri` reference part — is refused at request time with

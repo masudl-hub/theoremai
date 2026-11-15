@@ -26,9 +26,26 @@ function mimeAllowed(accept: readonly string[], mime: string): boolean {
   });
 }
 
-/** The kind of media a MIME type is, or `undefined` when it is not accepted. */
+/** RFC 6838: a type and a subtype, each a run of the characters a MIME name may use. */
+const MIME_NAME = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
+
+const KIND_OF_TYPE: Readonly<Record<string, MediaInputKind>> = {
+  image: 'image',
+  audio: 'audio',
+  video: 'video',
+};
+
+/**
+ * The kind of media a MIME type is: its own row in `MEDIA_INPUT_KINDS`, else its top-level type
+ * (`image`, `audio`, `video`), else `document`. `undefined` only for a string that is not a MIME
+ * type. invariant: the profile's `accept` lists decide which types a turn takes, not this.
+ */
 function mediaKindForMime(mime: string): MediaInputKind | undefined {
-  return MEDIA_INPUT_KINDS[mimeEssence(mime)];
+  const essence = mimeEssence(mime);
+  const known = MEDIA_INPUT_KINDS[essence];
+  if (known) return known;
+  if (!MIME_NAME.test(essence)) return undefined;
+  return KIND_OF_TYPE[essence.split('/')[0] ?? ''] ?? 'document';
 }
 
 function profileInputs(profile: Profile): ProfileInputsSpec | undefined {
@@ -46,7 +63,7 @@ function profileAccept(profile: Profile, channel: MediaInputChannel): string[] |
 }
 
 /**
- * `undefined` when the profile accepts it nowhere or the kernel cannot classify it. Hosts route
+ * `undefined` when the profile accepts it nowhere or it is not a MIME type. Hosts route
  * files with this instead of their own MIME table: the profile's `accept` lists are the whole declaration.
  */
 function mediaChannelForMime(profile: Profile, mime: string): MediaInputChannel | undefined {

@@ -201,7 +201,7 @@ Deno.test('an exact MIME rule matches only that type; a subtype wildcard matches
   check(mimeAllowed([], 'image/png'), false, 'no rules');
 });
 
-Deno.test('a file is routed to the channel that accepts it, and nowhere when the kernel cannot classify it', () => {
+Deno.test('a file is routed to the channel that accepts it, and nowhere when it is not a MIME type', () => {
   const profile = (inputs: object) => ({ type: 'text', id: 'p', inputs }) as never;
   const both = profile({
     attachments: { accept: ['image/png'] },
@@ -211,7 +211,12 @@ Deno.test('a file is routed to the channel that accepts it, and nowhere when the
   check(mediaChannelForMime(both, 'audio/wav'), 'voice', 'voice');
   check(mediaChannelForMime(both, 'image/gif'), undefined, 'accepted nowhere');
   const wildcard = profile({ attachments: { accept: ['application/*'] } });
-  check(mediaChannelForMime(wildcard, 'application/x-foo'), undefined, 'unclassifiable');
+  check(
+    mediaChannelForMime(wildcard, 'application/x-foo'),
+    'attachments',
+    'not named by the kernel',
+  );
+  check(mediaChannelForMime(wildcard, 'application/'), undefined, 'not a MIME type');
   check(mediaChannelForMime(wildcard, 'application/pdf'), 'attachments', 'classifiable');
   check(mediaChannelForMime({ type: 'live', id: 'l' } as never, 'image/png'), undefined, 'live');
 });

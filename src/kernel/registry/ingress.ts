@@ -121,7 +121,7 @@ function resolveImageFormat(profile: Profile): ImageResponseFormat | null {
 function assertMediaMime(mime: string): MediaInputKind {
   const kind = mediaKindForMime(mime);
   if (!kind) {
-    throw new TheoremError('input', `MIME '${mime}' is not a supported media input type`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('input', `'${mime}' is not a MIME type`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return kind;
 }

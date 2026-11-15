@@ -2,7 +2,7 @@ import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { getProfile } from '../../src/kernel/default-scope.ts';
-import { mediaChannelForMime } from '../../src/kernel/registry/catalog.ts';
+import { mediaChannelForMime, mediaKindForMime } from '../../src/kernel/registry/catalog.ts';
 import { MEDIA_INPUT_KINDS } from '../../src/kernel/schema.ts';
 import type { InteractionPart, MediaInputKind } from '../../src/kernel/types.ts';
 import { wireMessageContent } from '../../src/providers/openrouter/openai/compat.ts';
@@ -88,6 +88,21 @@ Deno.test('mediaChannelForMime answers acceptance from the profile alone', () =>
   assertEquals(mediaChannelForMime(getProfile('speech'), 'image/png'), undefined);
 });
 
+Deno.test('every MIME type has a kind: its row, else its top-level type, else document', () => {
+  assertEquals(mediaKindForMime('image/svg+xml'), 'image');
+  assertEquals(mediaKindForMime('IMAGE/X-ICON; q=1'), 'image');
+  assertEquals(mediaKindForMime('audio/x-foo'), 'audio');
+  assertEquals(mediaKindForMime('video/x-matroska'), 'video');
+  assertEquals(
+    mediaKindForMime('application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+    'document',
+  );
+  assertEquals(mediaKindForMime('font/woff2'), 'document');
+  assertEquals(mediaKindForMime('text/plain'), 'document');
+  for (const bad of ['', 'image', 'image/', '/png', 'image/*', 'a b/c', 'image/png/x', 'é/x'])
+    assertEquals(mediaKindForMime(bad), undefined, bad);
+});
+
 Deno.test('mediaChannelForMime tolerates parameters and case like the kernel', () => {
   const chat = getProfile('chat');
   assertEquals(mediaChannelForMime(chat, 'IMAGE/PNG'), 'attachments');
@@ -113,4 +128,33 @@ Deno.test('openAi compat wires every media kind and refuses only reference parts
     TheoremError,
     'media references are not supported on openAi',
   );
+});
+
+Deno.test('fuzz: a kind follows the row, then the top-level type, and only a MIME name has one', () => {
+  const ALPHABET = ['a', 'z', '0', '9', '/', '/', '+', '-', '.', '*', ' ', ';', 'A', 'é', '!', '#'];
+  const TOPS = ['image', 'audio', 'video', 'text', 'application', 'font', 'x'];
+  let state = 7;
+  const next = () => {
+    state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+    return state / 4294967296;
+  };
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)] as T;
+  const seeds = Number(Deno.env.get('FUZZ_SEEDS') ?? 4000);
+  for (let seed = 0; seed < seeds; seed += 1) {
+    const tail = Array.from({ length: Math.floor(next() * 8) }, () => pick(ALPHABET)).join('');
+    const mime = next() < 0.6 ? `${pick(TOPS)}/${tail}` : tail;
+    const essence = (mime.split(';')[0] ?? '').trim().toLowerCase();
+    const [top, sub, ...more] = essence.split('/');
+    const named = /^[a-z0-9][a-z0-9!#$&^_.+-]*$/;
+    const valid = more.length === 0 && named.test(top ?? '') && named.test(sub ?? '');
+    const kind = mediaKindForMime(mime);
+    const want =
+      MEDIA_INPUT_KINDS[essence] ??
+      (valid
+        ? top === 'image' || top === 'audio' || top === 'video'
+          ? top
+          : 'document'
+        : undefined);
+    assertEquals({ mime, kind }, { mime, kind: want });
+  }
 });

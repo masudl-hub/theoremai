@@ -418,9 +418,9 @@ export type ToolType = (typeof TOOL_TYPES)[number];
 /** A tool type the host defines, which is every type but `builtin`. */
 export type CustomToolType = Exclude<ToolType, 'builtin'>;
 /**
- * The package's complete media-input vocabulary: `assertMediaMime` refuses any MIME not
- * here, so hosts keep no second table. Rows follow the widest provider's documented
- * lists (verified 2026-09-12), plus TypeScript, `application/xml` and `application/rtf`. Provider alias essences (`image/jpg`, `video/mov`, …) are rows;
+ * The MIME types the kernel names: the widest provider's documented lists (verified
+ * 2026-09-12) and their alias essences (`image/jpg`, `video/mov`, …). `mediaKindForMime`
+ * reads a type's kind here first; a type not here takes its kind from its top-level type.
  * `resolveInputParts` canonicalizes `image/jpg` to `image/jpeg` on the wire.
  */
 export const MEDIA_INPUT_KINDS: Record<string, MediaInputKind> = {
@@ -856,10 +856,14 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'inputs.attachments.accept': field(
     'string[]',
     ATTACHMENT_ACCEPT_MIMES,
-    "Types the kernel knows; a listed type it doesn't know is refused when a turn sends it.",
+    'Common types; any MIME type can be listed.',
   ),
   'inputs.voice': field('{ accept: string[] }'),
-  'inputs.voice.accept': field('string[]', VOICE_ACCEPT_MIMES, 'Audio types the kernel knows.'),
+  'inputs.voice.accept': field(
+    'string[]',
+    VOICE_ACCEPT_MIMES,
+    'Common audio types; any MIME type can be listed.',
+  ),
   'inputs.maxFiles': field('number'),
   'inputs.maxBytes': field('number'),
   'inputs.maxTurnBytes': field('number'),

@@ -40,7 +40,9 @@ function define(id: string, over: Loose = {}): void {
     tools: { allow: [] },
     inputs: {
       text: true,
-      attachments: { accept: ['image/png', 'image/jpg', 'application/x-foo'] },
+      attachments: {
+        accept: ['image/png', 'image/jpg', 'application/x-foo', 'image/svg+xml', 'not a type'],
+      },
       voice: { accept: ['audio/wav'] },
       ...LIMITS,
     },
@@ -113,8 +115,24 @@ Deno.test('image/jpg is sent as image/jpeg, a reference keeps its uri, and the M
       profile: 'chat',
       input: { attachments: [{ mimeType: 'application/x-foo', data: btoa('f') }] },
     }),
-    "MIME 'application/x-foo' is not a supported media input type",
-    'a type the profile accepts but the kernel cannot classify',
+    [{ type: 'document', mimeType: 'application/x-foo', data: btoa('f') }],
+    'a type the profile accepts that the kernel does not name is a document',
+  );
+  check(
+    parts({
+      profile: 'chat',
+      input: { attachments: [{ mimeType: 'Image/SVG+xml', data: btoa('s') }] },
+    }),
+    [{ type: 'image', mimeType: 'image/svg+xml', data: btoa('s') }],
+    'a type the kernel does not name takes the kind of its top-level type',
+  );
+  check(
+    parts({
+      profile: 'chat',
+      input: { attachments: [{ mimeType: 'not a type', data: btoa('n') }] },
+    }),
+    "'not a type' is not a MIME type",
+    'a string that is not a MIME type',
   );
 });
 Deno.test('a profile that takes no text refuses it, and speech needs text and takes neither system nor media', () => {
@@ -367,8 +385,8 @@ Deno.test("resolveInputParts refuses on its own what resolveTurn already screene
   check(resolve(voice, { text: 'say', attachments: [] }), 'returned', 'empty lists are no media');
   check(
     resolve(wide, { text: 'x', attachments: [{ mimeType: 'application/x-foo', data: 'YQ==' }] }),
-    "input: MIME 'application/x-foo' is not a supported media input type",
-    'an unsupported MIME',
+    'returned',
+    'a MIME type the kernel does not name',
   );
   check(
     resolve(chat, { text: 'x' }, { continueFrom: { stop: { kind: 'length' } } }),

@@ -1,4 +1,8 @@
-import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
+import {
+  kindOfHttpStatus,
+  TheoremError,
+  type TheoremErrorOptions,
+} from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 
 const HTTP_STATUS_MIN = 100;
@@ -80,13 +84,25 @@ const BLOCKED_CODES: ReadonlySet<string> = new Set([
  * codes (`malformed_function_call`, `no_image`, …) and any code Google adds later
  * are `bad_response`.
  */
-function namedCodeError(code: string, message: string): TheoremError {
+function namedCodeError(
+  code: string,
+  message: string,
+  options?: TheoremErrorOptions,
+): TheoremError {
   if (code === 'cancelled') return new TheoremError('cancelled', message);
   if (BLOCKED_CODES.has(code)) return new TheoremError('safety', message);
   const status = NAMED_CODE_STATUS[code];
   return status === undefined
     ? new TheoremError('bad_response', message)
-    : new TheoremError(kindOfHttpStatus(status), message);
+    : new TheoremError(kindOfHttpStatus(status), message, options);
+}
+
+/** probed 14/11/2026: a refused document names its type, and only the first refused one: "Unsupported mime_type 'text/plain' in document content." */
+const REFUSED_DOCUMENT = /Unsupported mime_type '([^']+)' in document content/;
+
+function refusedMedia(message: unknown): { refusedMedia: string[] } | undefined {
+  const type = typeof message === 'string' ? REFUSED_DOCUMENT.exec(message)?.[1] : undefined;
+  return type ? { refusedMedia: [type] } : undefined;
 }
 
 /**
@@ -107,10 +123,10 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
         : message;
   if (refusesKey(details)) return new TheoremError('auth', text);
   if (typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX) {
-    return new TheoremError(kindOfHttpStatus(code), text);
+    return new TheoremError(kindOfHttpStatus(code), text, refusedMedia(message));
   }
   return typeof code === 'string'
-    ? namedCodeError(code, text)
+    ? namedCodeError(code, text, refusedMedia(message))
     : new TheoremError('bad_response', text);
 }
 
@@ -128,14 +144,15 @@ export async function readNonOkError(response: Response): Promise<TheoremError> 
   );
 }
 
-/** A non-OK reply's error: the body's own when it names a refused key, else the status's with the body's message. */
+/** A non-OK reply's error: the body's own when it names a refused key, else the status's with the body's message and the types it refused. */
 export function statedOrStatusError(
   stated: TheoremError | null,
   status: number,
   fallback: string,
 ): TheoremError {
   if (stated?.kind === 'auth') return stated;
-  return new TheoremError(kindOfHttpStatus(status), stated?.message ?? fallback);
+  const refused = stated?.refusedMedia ? { refusedMedia: stated.refusedMedia } : undefined;
+  return new TheoremError(kindOfHttpStatus(status), stated?.message ?? fallback, refused);
 }
 
 function parseRecord(text: string): Record<string, unknown> | undefined {

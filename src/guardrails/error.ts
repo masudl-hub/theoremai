@@ -159,6 +159,9 @@ function toErrorEvent(err: unknown): ProducedError {
     errorKind: errorKind(err),
     ...(err instanceof TheoremError && err.copy ? { errorCopy: err.copy } : {}),
     errorInternal: describeError(err),
+    ...(err instanceof TheoremError && err.refusedMedia
+      ? { refusedMedia: [...err.refusedMedia] }
+      : {}),
   };
 }
 

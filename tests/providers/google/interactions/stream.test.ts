@@ -909,6 +909,15 @@ Deno.test('foldPayload turns an SSE error event into an error event', () => {
   assertEquals(eventAt(events, 0, 'error')?.errorInternal, COMBINED_ERROR);
 });
 
+Deno.test('an SSE error row that refuses a document names its type', () => {
+  const message = "Unsupported mime_type 'text/markdown' in document content.";
+  const events = foldPayload(
+    row('error', { error: { code: 'invalid_request', message }, event_id: 'evt_1' }),
+    newStreamFold(),
+  );
+  assertEquals(eventAt(events, 0, 'error')?.refusedMedia, ['text/markdown']);
+});
+
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, actual }, { label, actual: expected });
 }

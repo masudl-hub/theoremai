@@ -41,6 +41,7 @@ import type {
   TurnStop,
   TurnToolResult,
 } from '../../types.ts';
+import type { RefusedMediaTry } from './refused-media.ts';
 import type { ItemFailure } from './schema-validation.ts';
 import type { CallUsage } from './usage.ts';
 
@@ -73,8 +74,8 @@ interface StepExecutionState {
   stepCount: number;
   /** Model calls sent again this turn under the profile's resumption (`executeResumedStep`). */
   resumes: number;
-  /** A refused call was sent without its files this turn; a turn tries that once. */
-  triedWithoutMedia?: boolean;
+  /** The files this turn's refused calls went without: each type the provider named once, or every file once. */
+  mediaTry?: RefusedMediaTry;
   mediaRefused?: MediaRefused;
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];

@@ -53,6 +53,11 @@ function builderWording(event: TurnEvent): TurnEvent {
 
 /** Raw diagnostics ride on error events, an ended session's close, a tool call's failure, and a hook's crash. */
 function stripErrorInternal(event: TurnEvent): TurnEvent {
+  if (event.type === 'error' && event.refusedMedia !== undefined) {
+    // invariant: what the provider refused is the builder's to read, as `done.mediaRefused` is.
+    const { errorInternal: _internal, refusedMedia: _refused, ...rest } = event;
+    return rest;
+  }
   if (
     (event.type !== 'error' &&
       event.type !== 'session' &&

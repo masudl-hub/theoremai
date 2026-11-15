@@ -54,13 +54,7 @@ import type {
 import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
-import {
-  canDropMedia,
-  dropMedia,
-  type RefusedMediaTry,
-  refusedReport,
-  restoreMedia,
-} from './refused-media.ts';
+import { canDropMedia, dropMedia, refusedReport, restoreMedia } from './refused-media.ts';
 import {
   applyStageInjects,
   type LateResultsAt,
@@ -395,13 +389,15 @@ function mediaResumeOf(
   tally: CallTally,
 ): StepOutcome['resume'] {
   const { stop } = tally;
-  if (profile.type !== 'text' || state.triedWithoutMedia) return undefined;
+  if (profile.type !== 'text') return undefined;
   if (tally.replied || tally.calls.length > 0 || !stop || !isFailedStopKind(stop.kind)) {
     return undefined;
   }
   const failure = tally.failures[0];
   if (failure?.errorKind !== 'unsupported' || !resendsFailedCall(profile, stop)) return undefined;
-  return canDropMedia(state) ? { stop, failure, dropMedia: true } : undefined;
+  return canDropMedia(state, failure.refusedMedia, state.mediaTry)
+    ? { stop, failure, dropMedia: true }
+    : undefined;
 }
 
 /** Carries what the call's stream guards still hold into the turn's next call. */
@@ -536,7 +532,8 @@ async function* executeAutonomousStep(
  * lists, having given no reply and no tool call, is sent again in the same turn
  * after a pause, up to `maxContinues` times a turn (once when the profile sets
  * none). The turn's history, its step count, and what it has read stay as they were.
- * A call the provider refused while it carried files goes once more without them, and
+ * A call the provider refused while it carried files goes again without the files of each type
+ * the provider named, once per type; when it names none, once a turn without every file, and
  * those files are reported as refused only if that call is accepted.
  */
 async function* executeResumedStep(
@@ -545,25 +542,29 @@ async function* executeResumedStep(
   buffer: { holdLate: boolean; holdVisible: boolean },
 ): AsyncGenerator<TurnEvent, StepOutcome> {
   const limit = profileTurnResumption(args.profile)?.maxContinues ?? 1;
-  let tried: RefusedMediaTry | undefined;
+  let droppedHere = false;
   for (;;) {
     const mayResume = args.profile.type === 'text' && state.resumes < limit;
     const outcome = yield* executeAutonomousStep({ ...args, mayResume }, state, buffer);
     if (!outcome.resume) {
-      if (tried && state.lastStop && isFailedStopKind(state.lastStop.kind)) {
-        restoreMedia(state, tried);
-      } else if (tried) {
-        state.mediaRefused = refusedReport(tried);
-      }
+      if (droppedHere) settleMediaTry(state);
       return outcome;
     }
     if (outcome.resume.dropMedia) {
-      const said = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error ?? '';
-      state.triedWithoutMedia = true;
-      tried = dropMedia(state, said, args.profile.labels);
+      const failure = outcome.resume.failure;
+      const said = failure?.errorInternal ?? failure?.error ?? '';
+      const before = state.mediaTry?.dropped.length ?? 0;
+      droppedHere = true;
+      state.mediaTry = dropMedia(
+        state,
+        said,
+        args.profile.labels,
+        failure?.refusedMedia,
+        state.mediaTry,
+      );
       state.trace.root.event('theorem.step.media_refused', {
         step: state.stepCount,
-        files: tried.dropped.length,
+        files: state.mediaTry.dropped.length - before,
         error: said,
       });
       state.lastStop = undefined;
@@ -580,6 +581,20 @@ async function* executeResumedStep(
     state.lastStop = undefined;
     await waitDefault(AUTO_CONTINUE_DELAY_MS, args.signal);
   }
+}
+
+/**
+ * Reports what the turn went without. Files only guessed at come back when the call failed anyway,
+ * since nothing proved them at fault; a file whose type the provider named stays out, and is reported.
+ */
+function settleMediaTry(state: StepExecutionState): void {
+  const tried = state.mediaTry;
+  if (!tried) return;
+  if (tried.named.size === 0 && state.lastStop && isFailedStopKind(state.lastStop.kind)) {
+    restoreMedia(state, tried);
+    return;
+  }
+  state.mediaRefused = refusedReport(tried);
 }
 
 function toolResultMessage(call: ModelCall, result: ModelToolResult): TurnHistoryMessage {

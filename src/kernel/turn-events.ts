@@ -1148,6 +1148,8 @@ export type TurnEvent =
       errorCopy?: ErrorCopies;
       /** Raw diagnostic detail for traces/logs; never surface to end users (`forClient` strips it). */
       errorInternal?: string;
+      /** The file types the provider said it cannot read; the turn may send again without them. */
+      refusedMedia?: string[];
     };
 
 /** The `type` of a turn event. */
@@ -1362,6 +1364,7 @@ const TURN_EVENTS = {
     error: z.string().optional(),
     errorCopy: errorCopiesSchema.optional(),
     errorInternal: z.string().optional(),
+    refusedMedia: z.array(z.string()).optional(),
   }),
   done: doneEvent,
 };

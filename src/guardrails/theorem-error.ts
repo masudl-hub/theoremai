@@ -59,6 +59,8 @@ export type ErrorKind = (typeof ERROR_KINDS)[number];
 export interface TheoremErrorOptions extends ErrorOptions {
   /** User wording more specific than the kind's: one line, or one per problem found. */
   copy?: ErrorCopies;
+  /** The file types the provider said it cannot read, as it named them. */
+  refusedMedia?: readonly string[];
 }
 
 /**
@@ -69,11 +71,13 @@ export interface TheoremErrorOptions extends ErrorOptions {
 export class TheoremError extends Error {
   readonly kind: ErrorKind;
   readonly copy?: ErrorCopies;
+  readonly refusedMedia?: readonly string[];
 
   constructor(kind: ErrorKind, message: string, options?: TheoremErrorOptions) {
     super(message, options);
     this.name = 'TheoremError';
     this.kind = kind;
     if (options?.copy) this.copy = options.copy;
+    if (options?.refusedMedia?.length) this.refusedMedia = options.refusedMedia;
   }
 }

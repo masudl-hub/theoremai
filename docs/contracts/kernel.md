@@ -1971,16 +1971,23 @@ the provider's reason. When no re-send is left, the turn ends with that `error`
 and stop as before.
 
 A call the provider refuses (`unsupported`) while it carries files is the one refusal
-sent again, once a turn, on a profile whose `autoContinue` lists `provider_error`. A
-single file the provider cannot read refuses every call that replays it, so the call
-goes without this turn's files, or without the conversation's when this turn has none.
-A note takes each file's place: the labels `turn.media_refused_image`,
-`turn.media_refused_video`, and `turn.media_refused_file`. If that call is accepted, the
-files were at fault: the turn goes on, and `done.mediaRefused` names them
-(`dropped: [{ mimeType, from: 'input' | 'history' | 'tool' }]`) with the provider's
-reason in `said`, for the builder only: `forClient` strips it. If it is refused too, the
-files go back, the turn ends with the failure as before, and `done` names nothing. The
-turn's trace records `theorem.step.media_refused`. This re-send does not count against
+sent again, on a profile whose `autoContinue` lists `provider_error`. A single file the
+provider cannot read refuses every call that replays it. When the protocol names the
+type it refused (the `error` event's `refusedMedia`), the call goes without every file
+of that type, in this turn and in the conversation, and keeps every other file. The
+call is sent again once for each type named, so a provider that names one type per
+refusal costs one more call per type. When the protocol names no type, the call goes
+without this turn's files, or without the conversation's when this turn has none, once
+a turn. A note takes each file's place: the labels `turn.media_refused_image`,
+`turn.media_refused_video`, and `turn.media_refused_file`, or `turn.media_refused_tool`
+for a file a tool returned. If the call is accepted, the turn goes on, and
+`done.mediaRefused` names the files
+(`dropped: [{ mimeType, from: 'input' | 'history' | 'tool' }]`) with each of the
+provider's reasons in `said`, one per line, for the builder only: `forClient` strips
+it. If it fails again, a file of a named type stays out, since the provider said it
+could not read it, and `done` still names it. A file dropped with no type named goes
+back, and `done` names nothing. The turn then ends with the failure as before. The
+turn's trace records `theorem.step.media_refused`. These re-sends do not count against
 `maxContinues`.
 
 A call that gave part of its reply, and a reply cut at `length`, are not sent again

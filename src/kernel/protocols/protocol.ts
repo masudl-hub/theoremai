@@ -214,7 +214,10 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
    * `id` when the reply names itself in `X-Generation-Id`.
    */
   framing?(response: Response, stream: boolean): AsyncIterable<JsonObject>;
-  /** Types a failed answer. Absent: the kind follows the HTTP status. */
+  /**
+   * Types a failed answer. Absent: the kind follows the HTTP status. A refusal that names the file
+   * types the provider cannot read sets them as `refusedMedia`, so the turn goes on without only those.
+   */
   error?(failure: UpstreamFailure): TheoremError;
   /** What the named embedding model takes. Absent: the kernel holds requests to the profile alone. */
   embeddingLimits?(apiId: string): EmbeddingModelLimits;

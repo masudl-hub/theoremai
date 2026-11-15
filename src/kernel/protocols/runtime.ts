@@ -622,6 +622,7 @@ function failureEvent(error: unknown): ProtocolEvent {
     // invariant: `error` is the person's wording, added from the profile's labels; the upstream text is internal.
     errorInternal: describeError(error),
     ...(error.copy ? { errorCopy: error.copy } : {}),
+    ...(error.refusedMedia ? { refusedMedia: [...error.refusedMedia] } : {}),
   } as ProtocolEvent;
 }
 

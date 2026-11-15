@@ -111,6 +111,23 @@ Deno.test('a visitor never reads what the provider said', () => {
   assertEquals(forClient(done, { reader: 'builder' }), done);
 });
 
+Deno.test('a visitor never reads the types the provider refused', () => {
+  const error: TurnEvent = {
+    type: 'error',
+    errorKind: 'unsupported',
+    error: 'That file could not be opened.',
+    errorInternal: "Unsupported mime_type 'text/plain' in document content.",
+    refusedMedia: ['text/plain'],
+  };
+  assertEquals(forClient(error), {
+    type: 'error',
+    errorKind: 'unsupported',
+    error: 'That file could not be opened.',
+  });
+  const builder = forClient(error, { reader: 'builder' });
+  assertEquals(builder.type === 'error' ? builder.refusedMedia : undefined, ['text/plain']);
+});
+
 Deno.test("this turn's file goes first, and the conversation's stay", async () => {
   registerProfile(mediaProfile('refused_keeps_history', true));
   const history: TurnHistoryMessage[] = [{ role: 'user', parts: [{ type: 'image', ...PHOTO }] }];
@@ -165,4 +182,140 @@ Deno.test('a profile that sends nothing again leaves a refusal as it is', async 
   );
   assertEquals(requests.length, 1);
   assertEquals(finalStop(events)?.kind, 'provider_error');
+});
+
+const PLAIN = { mimeType: 'text/plain', data: btoa('plain words') };
+const NOTES = { mimeType: 'text/markdown', data: btoa('# notes') };
+const SHEET = { mimeType: 'text/csv', data: btoa('a,b\n1,2') };
+
+function refusing(type: string): ModelEvent[] {
+  return [
+    {
+      type: 'error',
+      errorKind: 'unsupported',
+      errorInternal: `Unsupported mime_type '${type}' in document content.`,
+      refusedMedia: [type],
+    },
+  ];
+}
+
+function documentProfile(id: string) {
+  return defineProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
+    id,
+    models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+    maxSteps: 4,
+    tools: { allow: [] },
+    turnBehaviour: { resumption: { autoContinue: ['provider_error' as const] } },
+    inputs: {
+      text: true,
+      attachments: { accept: ['text/plain', 'text/markdown', 'text/csv'] },
+      maxFiles: 4,
+      maxBytes: 1_000,
+      maxTurnBytes: 4_000,
+    },
+    guardrails: { quota: { perDay: 100 } },
+  });
+}
+
+Deno.test('a type the provider names comes out alone; the other files stay', async () => {
+  registerProfile(documentProfile('refused_named'));
+  const { events, requests } = await runScript(
+    'refused_named',
+    { text: 'read these', attachments: [PLAIN, SHEET] },
+    [refusing('text/plain'), ANSWER],
+  );
+  assertEquals(requests.length, 2);
+  assertEquals(mediaOf(requests[1]?.history), ['text/csv']);
+  assertEquals(finalStop(events)?.kind, 'completed');
+  assertEquals(errorsOf(events), []);
+  const done = doneOf(events);
+  assertEquals(done?.type === 'done' ? done.mediaRefused?.dropped : undefined, [
+    { mimeType: 'text/plain', from: 'input' },
+  ]);
+});
+
+Deno.test('a named type comes out of the replayed messages too, in any case', async () => {
+  registerProfile(documentProfile('refused_named_history'));
+  const history: TurnHistoryMessage[] = [
+    { role: 'user', parts: [{ type: 'document', mimeType: 'Text/Plain', data: PLAIN.data }] },
+  ];
+  const { events, requests } = await runScript(
+    'refused_named_history',
+    { text: 'and this', attachments: [PLAIN, SHEET], history },
+    [refusing('text/plain'), ANSWER],
+  );
+  assertEquals(mediaOf(requests[1]?.history), ['text/csv']);
+  const done = doneOf(events);
+  assertEquals(done?.type === 'done' ? done.mediaRefused?.dropped : undefined, [
+    { mimeType: 'Text/Plain', from: 'history' },
+    { mimeType: 'text/plain', from: 'input' },
+  ]);
+});
+
+Deno.test('each type the provider names is one more send, and done names them all', async () => {
+  registerProfile(documentProfile('refused_two_types'));
+  const { events, requests } = await runScript(
+    'refused_two_types',
+    { text: 'read these', attachments: [PLAIN, NOTES, SHEET] },
+    [refusing('text/plain'), refusing('text/markdown'), ANSWER],
+  );
+  assertEquals(requests.length, 3);
+  assertEquals(mediaOf(requests[1]?.history), ['text/markdown', 'text/csv']);
+  assertEquals(mediaOf(requests[2]?.history), ['text/csv']);
+  assertEquals(finalStop(events)?.kind, 'completed');
+  assertEquals(errorsOf(events), []);
+  const done = doneOf(events);
+  assertEquals(done?.type === 'done' ? done.mediaRefused : undefined, {
+    dropped: [
+      { mimeType: 'text/plain', from: 'input' },
+      { mimeType: 'text/markdown', from: 'input' },
+    ],
+    said: [
+      "Unsupported mime_type 'text/plain' in document content.",
+      "Unsupported mime_type 'text/markdown' in document content.",
+    ].join('\n'),
+  });
+});
+
+Deno.test('a named type no message holds is not sent again', async () => {
+  registerProfile(documentProfile('refused_named_absent'));
+  const { events, requests } = await runScript(
+    'refused_named_absent',
+    { text: 'read this', attachments: [SHEET] },
+    [refusing('text/plain'), ANSWER],
+  );
+  assertEquals(requests.length, 1);
+  assertEquals(finalStop(events)?.kind, 'provider_error');
+});
+
+Deno.test('the same type named twice is not sent a third time', async () => {
+  registerProfile(documentProfile('refused_named_again'));
+  const { events, requests } = await runScript(
+    'refused_named_again',
+    { text: 'read these', attachments: [PLAIN, SHEET] },
+    [refusing('text/plain'), refusing('text/plain'), ANSWER],
+  );
+  assertEquals(requests.length, 2);
+  assertEquals(finalStop(events)?.kind, 'provider_error');
+  assertEquals(errorsOf(events).length, 1);
+});
+
+Deno.test('a failure after a named drop keeps that file out, and done still names it', async () => {
+  registerProfile(documentProfile('refused_named_then_down'));
+  const DOWN: ModelEvent[] = [
+    { type: 'error', errorKind: 'unsupported', errorInternal: 'HTTP 400: something else' },
+  ];
+  const { events, requests } = await runScript(
+    'refused_named_then_down',
+    { text: 'read these', attachments: [PLAIN, SHEET] },
+    [refusing('text/plain'), DOWN],
+  );
+  assertEquals(requests.length, 2);
+  assertEquals(finalStop(events)?.kind, 'provider_error');
+  const done = doneOf(events);
+  assertEquals(done?.type === 'done' ? done.mediaRefused?.dropped : undefined, [
+    { mimeType: 'text/plain', from: 'input' },
+  ]);
 });

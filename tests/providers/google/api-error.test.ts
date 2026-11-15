@@ -171,3 +171,27 @@ Deno.test('a provider fault that is not overload is unavailable', () => {
     assertEquals(publicError(err), labelDefault('error.unavailable'));
   }
 });
+
+// recorded 2026-11-14: the Interactions reply to a text/plain document part
+const REFUSED_PLAIN =
+  "Unsupported mime_type 'text/plain' in document content. Only application/pdf, text/csv, and supported Office/OpenDocument MIME types are supported.";
+
+Deno.test('a refused document names its type, by code or by status', async () => {
+  for (const code of ['invalid_request', 400]) {
+    const err = readGeminiApiError({ error: { code, message: REFUSED_PLAIN } });
+    assertEquals(err?.kind, 'unsupported');
+    assertEquals(err?.refusedMedia, ['text/plain']);
+  }
+  const body = JSON.stringify({ error: { code: 'invalid_request', message: REFUSED_PLAIN } });
+  const status = await readNonOkError(new Response(body, { status: 400 }));
+  assertEquals(status.kind, 'unsupported');
+  assertEquals(status.refusedMedia, ['text/plain']);
+});
+
+Deno.test('an error that names no document type names none', async () => {
+  const other = readGeminiApiError({ error: { code: 'invalid_request', message: 'bad field' } });
+  assertEquals(other?.refusedMedia, undefined);
+  const status = await readNonOkError(new Response('not json', { status: 400 }));
+  assertEquals(status.refusedMedia, undefined);
+  assertEquals(statedOrStatusError(null, 400, 'x').refusedMedia, undefined);
+});

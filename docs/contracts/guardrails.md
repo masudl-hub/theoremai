@@ -698,8 +698,10 @@ turn's files: every reason, each naming its file). Tool-step wording may use
 not `error.network`, which names the model provider.
 
 Producers emit `toErrorEvent(err)` — a `ProducedError`, `{ type: 'error',
-errorKind, errorCopy?, errorInternal }` with the raw detail always set and no
-user wording. The runner and session add it where the
+errorKind, errorCopy?, errorInternal, refusedMedia? }` with the raw detail always set and no
+user wording. `refusedMedia` lists the file types the provider said it cannot read
+(`TheoremError(kind, message, { refusedMedia })`), so the turn can send the call again
+without them ([kernel.md](kernel.md)). The runner and session add it where the
 event reaches the host (`withPublicLabels(event, profile.labels)`), the one
 place that knows the profile. A host that catches a throw words it with
 `publicError(err, profile.labels)`.

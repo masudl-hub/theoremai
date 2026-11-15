@@ -40,7 +40,7 @@ import { assertBackgroundCoordinator, type ToolBackgroundSupport } from '../../t
 import { applyT1Policy, cloneTurnToolSnapshot, promoteTurnTools } from '../../tools/resolve.ts';
 import type { SteerQueue } from '../../tools/steer.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
-import { keptReply, turnDoneOf } from '../../turn-events.ts';
+import { keptReply, type MediaRefused, turnDoneOf } from '../../turn-events.ts';
 import type {
   CompactHistoryRequest,
   CompactionResult,
@@ -85,6 +85,7 @@ import {
 import { sumEventTokens, sumTurnTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import { createAgentCaller, NESTED_THROWS, turnError } from './nested.ts';
+import { leftOutNotes, leftOutReport, turnMediaRefused } from './refused-media.ts';
 import {
   applyTurnStage,
   type LateResultsAt,
@@ -424,6 +425,7 @@ async function* emitTurn(args: {
   steers: SteerQueue | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
+  leftOut: MediaRefused | undefined;
 }): AsyncGenerator<TurnEvent> {
   const { safe, profile, generation, system, provider } = args;
 
@@ -438,6 +440,7 @@ async function* emitTurn(args: {
     ...(args.steers ? { steers: args.steers } : {}),
   });
   args.outState.state = state;
+  if (args.leftOut) state.leftOut = args.leftOut;
   const opening: Pick<LateResultsAt, 'stage' | 'step'> = { stage: 'pre_turn', step: 0 };
   const late = yield* unreadLateResultsAt(state, profile, {
     ...opening,
@@ -481,11 +484,12 @@ async function* emitTurn(args: {
   yield* runAttemptsWithValidation(safe, profile, generation, system, provider, state);
 
   const tokens = sumTurnTokens(state.allEmittedEvents);
+  const mediaRefused = turnMediaRefused(state.leftOut, state.mediaRefused);
   const done = turnDoneOf(
     {
       stop: state.lastStop ?? { kind: 'completed' },
       steps: state.stepCount,
-      ...(state.mediaRefused ? { mediaRefused: state.mediaRefused } : {}),
+      ...(mediaRefused ? { mediaRefused } : {}),
       ...(state.providerState &&
       !cutConversation(state) &&
       !(
@@ -523,6 +527,7 @@ async function* streamTurnEvents(
     background: ctx.background,
     steers: ctx.steers,
     outState: ctx,
+    leftOut: ctx.leftOut,
   })) {
     const crashes: TurnEventOf<'hook_failed'>[] = [];
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec, crashes);
@@ -583,6 +588,7 @@ type TraceCtx = {
   system?: BoundSystem;
   generation?: ResolvedGeneration;
   safe?: TurnRequest;
+  leftOut?: MediaRefused;
   observability?: ResolvedObservabilityPolicy;
   state?: StepExecutionState;
   agents?: AgentCaller;
@@ -787,6 +793,8 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   }
   if (sanitized.refusal) throw sanitized.refusal;
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
+  gen.input.push(...leftOutNotes(sanitized.leftOut, profile.labels));
+  ctx.leftOut = leftOutReport(sanitized.leftOut);
   const t1Policy = await applyT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
   if (t1Policy) {
     yield deliver(ctx, hookFailed('tools.t1Policy', t1Policy.crashed, { span: ctx.root }));

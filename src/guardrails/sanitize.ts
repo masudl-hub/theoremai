@@ -1,4 +1,8 @@
-import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
+import {
+  attachmentsRefused,
+  type LeftOutFile,
+  sanitizeTurnBlobs,
+} from '../kernel/registry/attachments.ts';
 import { CONTEXT_SENDERS, type ContextSender } from '../kernel/schema.ts';
 import { mapSystemPrompt } from '../kernel/system-parts.ts';
 import type {
@@ -150,6 +154,8 @@ interface SanitizedTurnRequest {
   events: TurnEvent[];
   /** Set when a match blocks: the request does not reach the model, and the turn ends on this. */
   refusal?: TheoremError;
+  /** The files the profile does not take, left out of `request`; the turn goes on without them. */
+  leftOut: LeftOutFile[];
 }
 
 /**
@@ -172,10 +178,10 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
   const told = sanitizeContext(input.context, () => boundaryReader('context', detect));
   const repair = sanitizeRepair(input.repair, at.repair);
   const history = input.history ? sanitizeHistory(input.history, at.history) : undefined;
-  const { attachments, voice } =
+  const { attachments, voice, leftOut } =
     input.attachments?.length || input.voice?.length
       ? sanitizeTurnBlobs(profile, input.attachments, input.voice, at)
-      : input;
+      : { ...input, leftOut: [] };
 
   const events: TurnEvent[] = [];
   let refusal: TheoremError | undefined;
@@ -207,13 +213,18 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
     },
     events,
     ...(refusal ? { refusal } : {}),
+    leftOut,
   };
 }
 
-/** The turn request with its input cleaned under the profile's guardrails. Throws when a match blocks it. */
+/**
+ * The turn request with its input cleaned under the profile's guardrails. Throws when a match
+ * blocks it, and when the profile does not take one of its files: nothing here goes on without it.
+ */
 function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
-  const { request, refusal } = sanitizeTurnRequestWithEvents(req, profile);
+  const { request, refusal, leftOut } = sanitizeTurnRequestWithEvents(req, profile);
   if (refusal) throw refusal;
+  if (leftOut.length > 0) throw attachmentsRefused(leftOut.flatMap((file) => file.issues));
   return request;
 }
 

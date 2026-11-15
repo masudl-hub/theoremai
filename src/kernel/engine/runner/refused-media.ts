@@ -1,4 +1,5 @@
 import { labelText } from '../../../guardrails/labels.ts';
+import type { LeftOutFile } from '../../registry/attachments.ts';
 import type { MediaRefused, RefusedMedia } from '../../turn-events.ts';
 import type { InteractionPart, Profile, TurnHistoryMessage } from '../../types.ts';
 import type { StepExecutionState } from './state.ts';
@@ -114,4 +115,38 @@ export function restoreMedia(state: StepExecutionState, tried: RefusedMediaTry):
 /** What the host reads on `done`. */
 export function refusedReport(tried: RefusedMediaTry): MediaRefused {
   return { dropped: tried.dropped, said: tried.said };
+}
+
+/** The note the model reads in place of each file the profile does not take. */
+export function leftOutNotes(
+  leftOut: readonly LeftOutFile[],
+  labels: Profile['labels'],
+): InteractionPart[] {
+  return leftOut.map((file) => ({
+    type: 'text',
+    text: labelText(noteKey(file.mimeType.toLowerCase(), false), {}, labels),
+  }));
+}
+
+/** The files the profile does not take, as `done.mediaRefused` reports them; `said` names each check that failed. */
+export function leftOutReport(leftOut: readonly LeftOutFile[]): MediaRefused | undefined {
+  if (leftOut.length === 0) return undefined;
+  return {
+    dropped: leftOut.map((file) => ({ mimeType: file.mimeType, from: 'input' })),
+    said: leftOut
+      .map((file) => `${file.mimeType}: ${file.issues.map((issue) => issue.code).join(', ')}`)
+      .join('\n'),
+  };
+}
+
+/** The turn's report: the files left out at ingress, then the ones the provider refused. */
+export function turnMediaRefused(
+  leftOut: MediaRefused | undefined,
+  refused: MediaRefused | undefined,
+): MediaRefused | undefined {
+  if (!leftOut || !refused) return leftOut ?? refused;
+  return {
+    dropped: [...leftOut.dropped, ...refused.dropped],
+    said: `${leftOut.said}\n${refused.said}`,
+  };
 }

@@ -319,3 +319,127 @@ Deno.test('a failure after a named drop keeps that file out, and done still name
     { mimeType: 'text/plain', from: 'input' },
   ]);
 });
+
+function strictProfile(id: string, inputs: Record<string, unknown>) {
+  return defineProfile({
+    type: 'text',
+    identity: { handle: 'test', system: 'test' },
+    id,
+    models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
+    maxSteps: 4,
+    tools: { allow: [] },
+    inputs: { maxFiles: 3, maxBytes: 6, maxTurnBytes: 12, ...inputs },
+    labels: {
+      'turn.media_refused_image': '[Unopened photo.]',
+      'turn.media_refused_video': '[Unopened video.]',
+      'turn.media_refused_file': '[Unopened file.]',
+    },
+    guardrails: { quota: { perDay: 100 } },
+  });
+}
+
+/** A message of only text comes to the model as its `content`. */
+function notesOf(request: ModelRequest | undefined): string[] {
+  const message = request?.history?.at(-1);
+  const texts = message?.parts
+    ? message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    : typeof message?.content === 'string'
+      ? message.content.split('\n\n')
+      : [];
+  return texts.filter((text) => text.startsWith('[Unopened'));
+}
+
+Deno.test('a file the profile does not take is left out before the call, and the turn goes on', async () => {
+  registerProfile(
+    strictProfile('left_out', { text: true, attachments: { accept: ['image/png'] } }),
+  );
+  const svg = { mimeType: 'image/svg+xml', data: 'AAAA' };
+  const big = { mimeType: 'image/png', data: 'AAAAAAAAAAAA' };
+  const ref = { mimeType: 'application/pdf', uri: 'files/1' };
+  const { events, requests } = await runScript(
+    'left_out',
+    { text: 'look', attachments: [PHOTO, svg, big, ref], voice: [PHOTO] },
+    [ANSWER],
+  );
+  assertEquals(requests.length, 1);
+  assertEquals(mediaOf(requests[0]?.history), ['image/png']);
+  assertEquals(notesOf(requests[0]), [
+    '[Unopened photo.]',
+    '[Unopened photo.]',
+    '[Unopened file.]',
+    '[Unopened photo.]',
+  ]);
+  assertEquals(finalStop(events)?.kind, 'completed');
+  assertEquals(errorsOf(events), []);
+  const done = doneOf(events);
+  assertEquals(done?.type === 'done' ? done.mediaRefused : undefined, {
+    dropped: [
+      { mimeType: 'image/svg+xml', from: 'input' },
+      { mimeType: 'image/png', from: 'input' },
+      { mimeType: 'application/pdf', from: 'input' },
+      { mimeType: 'image/png', from: 'input' },
+    ],
+    said: [
+      'image/svg+xml: mime_not_allowed',
+      'image/png: file_too_large',
+      'application/pdf: mime_not_allowed',
+      'image/png: voice_not_accepted',
+    ].join('\n'),
+  });
+});
+
+Deno.test('a turn whose only file is left out still runs, with or without text', async () => {
+  registerProfile(
+    strictProfile('left_alone', { text: true, attachments: { accept: ['image/png'] } }),
+  );
+  registerProfile(
+    strictProfile('left_mute', { text: false, attachments: { accept: ['image/png'] } }),
+  );
+  for (const [profile, input] of [
+    ['left_alone', { attachments: [{ mimeType: 'video/mp4', data: 'AAAA' }] }],
+    ['left_alone', { voice: [{ mimeType: 'audio/wav', data: 'AAAA' }] }],
+    ['left_alone', { attachments: [{ mimeType: 'not a type', data: 'AAAA' }] }],
+    ['left_mute', { attachments: [{ mimeType: 'image/gif', uri: 'files/2' }] }],
+  ] as Array<[string, TurnInput]>) {
+    const { events, requests } = await runScript(profile, input, [ANSWER]);
+    assertEquals(requests.length, 1);
+    assertEquals(mediaOf(requests[0]?.history), []);
+    assertEquals(notesOf(requests[0]).length, 1);
+    assertEquals(finalStop(events)?.kind, 'completed');
+  }
+});
+
+Deno.test('what names no one file still refuses the turn, counted over the files kept', async () => {
+  registerProfile(
+    strictProfile('left_count', { text: true, attachments: { accept: ['image/png'] } }),
+  );
+  const gif = { mimeType: 'image/gif', data: 'AAAA' };
+  const kept = await runScript('left_count', { attachments: [PHOTO, PHOTO, PHOTO, gif] }, [ANSWER]);
+  assertEquals(mediaOf(kept.requests[0]?.history), ['image/png', 'image/png', 'image/png']);
+  assertEquals(finalStop(kept.events)?.kind, 'completed');
+  let thrown = '';
+  try {
+    await runScript('left_count', { attachments: [PHOTO, PHOTO, PHOTO, PHOTO] }, [ANSWER]);
+  } catch (err) {
+    thrown = (err as Error).message;
+  }
+  assertEquals(thrown, 'attachments refused: too_many_files');
+});
+
+Deno.test('a file left out and a file the provider refused are both reported, in that order', async () => {
+  registerProfile(mediaProfile('left_and_refused', true));
+  const { events } = await runScript(
+    'left_and_refused',
+    { text: 'what', attachments: [VIDEO, { mimeType: 'image/gif', data: 'AAAA' }] },
+    [REFUSED, ANSWER],
+  );
+  assertEquals(finalStop(events)?.kind, 'completed');
+  const done = doneOf(events);
+  assertEquals(done?.type === 'done' ? done.mediaRefused : undefined, {
+    dropped: [
+      { mimeType: 'image/gif', from: 'input' },
+      { mimeType: 'video/mp4', from: 'input' },
+    ],
+    said: 'image/gif: mime_not_allowed\nHTTP 400: no video here',
+  });
+});

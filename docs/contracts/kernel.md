@@ -350,10 +350,10 @@ alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). It is not a
 limit. A type it does not name takes the kind of its top-level type: `image/*`
 is `image`, `audio/*` is `audio`, `video/*` is `video`, and any other type is
 `document`. So `image/svg+xml` is an image and a Word file is a document. Only a
-string that is not a MIME type has no kind, and a turn that sends one is refused
-with an `input` error. The profile's `accept` lists decide which types a turn
-takes; a provider that cannot read one refuses the call, and the turn goes on
-without that file ([Resume policy](#resume-policy)).
+string that is not a MIME type has no kind, and no `accept` list takes it. The
+profile's `accept` lists decide which types a turn takes; a turn goes on without
+a file they do not take, and without one a provider cannot read
+([Resume policy](#resume-policy)).
 The `openAi`, `openRouterOpenAi`, and `openRouterImages` protocols forward a part's MIME verbatim on every `MediaInputKind`,
 so their accepted set is open-ended and contributes no additional rows; what
 they cannot carry — a `uri` reference part — is refused at request time with
@@ -370,11 +370,20 @@ One check decides whether a turn's files are accepted: `attachmentIssues(rules,
 files, clips)` (`attachments.ts`). It returns every reason at once — channel not
 accepted, MIME not accepted, too many files, a file over its byte cap, the turn
 over its total — each file's issue carrying the file's `name` when the host sent
-one. The turn is all-or-nothing: `assertTurnAttachments` (run by input
-sanitization and by `resolveInputParts`) throws one `input` `TheoremError` whose
+one. A turn goes on without a file the profile does not take:
+`splitTurnAttachments` (run by input sanitization) runs the check on each file
+alone and leaves out every file it finds a reason for, a string that is not a
+MIME type included. A note takes each file's place, as for a file the provider
+refuses ([Resume policy](#resume-policy)), and `done.mediaRefused` names the file
+with `from: 'input'` and a line in `said` such as `image/gif: mime_not_allowed`.
+Then it runs the check on the files kept. What names no one file (too many files,
+the turn over its total) refuses the turn with one `input` `TheoremError` whose
 `copy` is a list, one label line per issue (`attachmentIssueCopy`), so the
 user reads every reason and the builder reads the codes in `errorInternal`
-(`attachmentsRefused` builds that error). `attachmentIssueText(issue, labels)`
+(`attachmentsRefused` builds that error). `assertTurnAttachments` throws that error
+on every issue, with no file left out: a host runs it to refuse a send, and an
+agent tool call runs it, so the caller's model reads why and can correct the call.
+`sanitizeTurnRequest` throws it too. `attachmentIssueText(issue, labels)`
 words one issue for a client that reports issues itself (the composer). An image
 profile has no voice channel, and `defineProfile` refuses an attachment `accept`
 entry outside images, video, and PDF (`IMAGE_ATTACHMENT_ACCEPT_MIMES`); every

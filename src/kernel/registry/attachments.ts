@@ -16,7 +16,7 @@ import type {
 } from '../types.ts';
 import { base64ToBytes, bytesToBase64 } from '../util/base64.ts';
 import { mimeEssence } from '../util/mime.ts';
-import { mimeAllowed, profileAccept } from './catalog.ts';
+import { mediaKindForMime, mimeAllowed, profileAccept } from './catalog.ts';
 
 const B64_PAD = 2;
 const B64_WORD = 4;
@@ -336,7 +336,7 @@ function mimeIssues(
   channel: 'attachment' | 'voice',
 ): AttachmentValidationIssue[] {
   return files
-    .filter((file) => !mimeAllowed(accept, file.mimeType))
+    .filter((file) => !mediaKindForMime(file.mimeType) || !mimeAllowed(accept, file.mimeType))
     .map((file) =>
       named({ code: 'mime_not_allowed', params: { mimeType: file.mimeType, channel } }, file.name),
     );
@@ -362,7 +362,10 @@ function limitIssues(files: AttachmentFacts[], limits: MediaLimits): AttachmentV
   return issues;
 }
 
-/** The one attachment check: the kernel throws on it at ingress and the headless interface runs it before a send. */
+/**
+ * The one attachment check. The headless interface runs it before a send; at ingress the kernel
+ * runs it on each file, leaves out the files it names, and throws only on what names no file.
+ */
 function attachmentIssues(
   rules: AttachmentRules,
   files: AttachmentFacts[],
@@ -436,24 +439,75 @@ function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
   return facts;
 }
 
-/** Provider references are checked for MIME and count; byte limits apply to inline blobs only. */
+/** Throws on every issue the check finds: a host's own check before a send. */
 function assertTurnAttachments(
   profile: Profile,
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
 ): void {
   if (!hasTurnBlobs(attachments, voice)) return;
-  const limits = requireMediaLimits(profile);
   const issues = attachmentIssues(
     {
       attachments: profileAccept(profile, 'attachments'),
       voice: profileAccept(profile, 'voice'),
-      limits,
+      limits: requireMediaLimits(profile),
     },
     (attachments ?? []).map(factsOf),
     (voice ?? []).map(factsOf),
   );
   if (issues.length > 0) throw attachmentsRefused(issues);
+}
+
+/** A file the turn goes without, and what the check found wrong with it. */
+interface LeftOutFile {
+  mimeType: string;
+  channel: 'attachment' | 'voice';
+  issues: AttachmentValidationIssue[];
+}
+
+interface TurnFiles {
+  attachments?: Array<TurnBlob | TurnMediaRef>;
+  voice?: TurnBlob[];
+  leftOut: LeftOutFile[];
+}
+
+/**
+ * invariant: a file the profile does not take is left out and the turn goes on; what names no file
+ * (too many files, too many bytes in all) refuses the turn, since no one file is at fault.
+ * Provider references are checked for MIME and count; byte limits apply to inline blobs only.
+ */
+function splitTurnAttachments(
+  profile: Profile,
+  attachments: Array<TurnBlob | TurnMediaRef> | undefined,
+  voice: TurnBlob[] | undefined,
+): TurnFiles {
+  if (!hasTurnBlobs(attachments, voice)) return { attachments, voice, leftOut: [] };
+  const rules: AttachmentRules = {
+    attachments: profileAccept(profile, 'attachments'),
+    voice: profileAccept(profile, 'voice'),
+    limits: requireMediaLimits(profile),
+  };
+  const leftOut: LeftOutFile[] = [];
+  const keep = <T extends TurnBlob | TurnMediaRef>(
+    items: T[] | undefined,
+    channel: LeftOutFile['channel'],
+  ): T[] | undefined =>
+    items?.filter((item) => {
+      const one = [factsOf(item)];
+      const issues =
+        channel === 'voice' ? attachmentIssues(rules, [], one) : attachmentIssues(rules, one, []);
+      if (issues.length === 0) return true;
+      leftOut.push({ mimeType: item.mimeType, channel, issues });
+      return false;
+    });
+  const kept = { attachments: keep(attachments, 'attachment'), voice: keep(voice, 'voice') };
+  const issues = attachmentIssues(
+    rules,
+    (kept.attachments ?? []).map(factsOf),
+    (kept.voice ?? []).map(factsOf),
+  );
+  if (issues.length > 0) throw attachmentsRefused(issues);
+  return { ...kept, leftOut };
 }
 
 function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T, reader: BoundaryReader): T {
@@ -486,16 +540,20 @@ function sanitizeTurnBlobs(
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
   at: { attachment: BoundaryReader; voice: BoundaryReader },
-): { attachments?: Array<TurnBlob | TurnMediaRef>; voice?: TurnBlob[] } {
-  assertTurnAttachments(profile, attachments, voice);
+): TurnFiles {
+  const kept = splitTurnAttachments(profile, attachments, voice);
   return {
-    attachments: attachments?.length
-      ? attachments.map((blob) => sanitizeAttachment(blob, at.attachment))
-      : attachments,
-    voice: voice?.length ? voice.map((blob) => sanitizeAttachment(blob, at.voice)) : voice,
+    attachments: kept.attachments?.length
+      ? kept.attachments.map((blob) => sanitizeAttachment(blob, at.attachment))
+      : kept.attachments,
+    voice: kept.voice?.length
+      ? kept.voice.map((blob) => sanitizeAttachment(blob, at.voice))
+      : kept.voice,
+    leftOut: kept.leftOut,
   };
 }
 
+export type { LeftOutFile, TurnFiles };
 export {
   assertTurnAttachments,
   attachmentIssueCopy,
@@ -513,5 +571,6 @@ export {
   rewriteTextFile,
   sanitizeCsvText,
   sanitizeTurnBlobs,
+  splitTurnAttachments,
   textFileText,
 };

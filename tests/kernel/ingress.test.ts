@@ -131,8 +131,8 @@ Deno.test('image/jpg is sent as image/jpeg, a reference keeps its uri, and the M
       profile: 'chat',
       input: { attachments: [{ mimeType: 'not a type', data: btoa('n') }] },
     }),
-    "'not a type' is not a MIME type",
-    'a string that is not a MIME type',
+    'attachments refused: mime_not_allowed',
+    'a string that is not a MIME type is a type no profile takes',
   );
 });
 Deno.test('a profile that takes no text refuses it, and speech needs text and takes neither system nor media', () => {

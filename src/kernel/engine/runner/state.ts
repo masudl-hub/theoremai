@@ -77,6 +77,8 @@ interface StepExecutionState {
   /** The files this turn's refused calls went without: each type the provider named once, or every file once. */
   mediaTry?: RefusedMediaTry;
   mediaRefused?: MediaRefused;
+  /** The files the profile does not take, left out before the turn began. */
+  leftOut?: MediaRefused;
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];
   /**

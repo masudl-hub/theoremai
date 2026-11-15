@@ -405,7 +405,7 @@ Deno.test('text attachments are decoded, scrubbed of injections and secrets, and
   const first = (result: ReturnType<typeof run>) => (result.attachments ?? [])[0] as TurnBlob;
 
   const none = run(undefined, undefined);
-  check(none, { attachments: undefined, voice: undefined }, 'no blobs');
+  check(none, { attachments: undefined, voice: undefined, leftOut: [] }, 'no blobs');
   const emptyAttachments: never[] = [];
   check(
     run(emptyAttachments, undefined).attachments === emptyAttachments,
@@ -435,10 +435,12 @@ Deno.test('text attachments are decoded, scrubbed of injections and secrets, and
   const ref = { mimeType: 'text/plain', uri: 'files/1' };
   check(run([ref]).attachments?.[0], ref, 'a reference is untouched');
   const html = { mimeType: 'text/html', data: b64('=1+1') };
+  const left = run([png, html]);
+  check(left.attachments, [png], 'html is not accepted here, and the image stays');
   check(
-    thrown(() => run([html])),
-    { kind: 'input', message: 'attachments refused: mime_not_allowed' },
-    'html is not accepted here',
+    left.leftOut.map((file) => [file.mimeType, file.issues.map((issue) => issue.code)]),
+    [['text/html', ['mime_not_allowed']]],
+    'html is left out and named',
   );
 
   const secret = run([{ mimeType: 'text/plain', data: b64('my ssn 000-11-2222 here') }]);

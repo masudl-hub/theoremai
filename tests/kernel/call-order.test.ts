@@ -2,6 +2,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { invokeTool, registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -114,6 +115,23 @@ Deno.test('after a tool with no other call in the step fails the call', async ()
   );
   assertEquals(failed, ['wait_unknown']);
   assertEquals(probe.log, [[probe.second, {}]]);
+});
+
+Deno.test('a call id in after fails the call and tells the model after takes tool names', async () => {
+  const probe = orderedProbe('after_call_id');
+  const events = await probe.run(['c2']);
+  const failed = events.flatMap((event) =>
+    event.type === 'tool' && event.tool.phase === 'error' ? [event.tool.failure] : [],
+  );
+  assertEquals(
+    failed.map(({ code, message }) => ({ code, message })),
+    [
+      {
+        code: 'wait_unknown',
+        message: labelText('tool.after_unknown', { tool: probe.first, calls: 'c2' }),
+      },
+    ],
+  );
 });
 
 Deno.test('after outside a step waits on nothing, and a resumed call drops it', async () => {

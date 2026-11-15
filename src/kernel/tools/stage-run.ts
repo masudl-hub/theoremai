@@ -201,6 +201,7 @@ export async function* runPreToolPipeline(args: {
     tool.name,
     [...(pre.waitFor ?? []), ...after],
     ctx.profile.labels,
+    names,
   );
   if (waitFailure) return { ok: false, kind: 'failed', failure: waitFailure };
   return { ok: true, input: reparsed ? reparsed.data : pre.input };
@@ -290,17 +291,25 @@ async function waitForStepCalls(
   toolName: string,
   waitFor: readonly string[],
   labels: LabelOverrides | undefined,
+  afterNames: readonly string[],
 ): Promise<ToolFailure | undefined> {
   if (waitFor.length === 0) return undefined;
   const outcome = stages?.wait
     ? await stages.wait(callId, waitFor)
     : { ok: false as const, reason: 'unknown' as const, callIds: [...waitFor] };
   if (outcome.ok) return undefined;
+  // why: An after name with no call in the step stays a name, so the model reads that after takes tool names.
+  const afterOnly =
+    outcome.reason === 'unknown' && outcome.callIds.every((id) => afterNames.includes(id));
   return {
     code: outcome.reason === 'unknown' ? 'wait_unknown' : 'wait_cycle',
     kind: 'request',
     message: labelText(
-      outcome.reason === 'unknown' ? 'tool.wait_unknown' : 'tool.wait_cycle',
+      afterOnly
+        ? 'tool.after_unknown'
+        : outcome.reason === 'unknown'
+          ? 'tool.wait_unknown'
+          : 'tool.wait_cycle',
       { tool: toolName, calls: outcome.callIds.join(', ') },
       labels,
     ),

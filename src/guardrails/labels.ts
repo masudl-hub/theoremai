@@ -204,6 +204,7 @@ export const LABEL_KEYS = [
   'tool.output_invalid',
   'tool.not_loaded_t2',
   'tool.wait_unknown',
+  'tool.after_unknown',
   'tool.wait_cycle',
   'tool.after_field',
   'tool.background_field',
@@ -627,6 +628,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'tool.output_invalid': 'Tool output validation failed',
   'tool.not_loaded_t2': "Tool '{tool}' is not loaded — call {loader} to load it first",
   'tool.wait_unknown': "Tool '{tool}' waits for calls that are not in this step: {calls}",
+  'tool.after_unknown':
+    "Tool '{tool}' waits for tools you did not call in this step: {calls}. after takes the names of other tools you call in this same step, not call ids.",
   'tool.wait_cycle': "Tool '{tool}' waits for calls that cannot finish before it: {calls}",
   'tool.background_field':
     'Set to true to get a reply now and let this call finish after the turn. Leave out to wait for its result.',
@@ -634,7 +637,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     '{tool} has started and is still running. You do not have its result, so do not state or guess one, and do not call {tool} again. Tell the person it is under way and that the result comes later.',
   'tool.late_result': 'The {tool} call you started earlier has finished. This is what it returned:',
   'tool.after_field':
-    'Tools you are calling in this same step that must finish before this call starts. Leave out to set no order.',
+    'Names of other tools you call in this same step, as search_web, that must finish before this call starts. Tool names only, not call ids. Leave out to set no order.',
   'tool.not_visible': "Tool '{tool}' is not visible this turn",
   'tool.builtin_not_enabled': "Builtin '{tool}' is not enabled this turn",
   'tool.provider_native':
@@ -972,6 +975,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'Told to the model when it calls a T2 tool the T2 loader has not loaded yet. Takes {tool} and {loader}, the loader tool.',
   'tool.wait_unknown':
     "Told to the model when a call's pre_tool waitFor names calls that are not in its step. Takes {tool} and {calls}.",
+  'tool.after_unknown':
+    "Told to the model when a call's after field names tools with no other call in its step, as a call id sent in place of a tool name. Takes {tool} and {calls}.",
   'tool.wait_cycle':
     "Told to the model when a call's pre_tool waitFor names calls that cannot settle before it, because they wait for it or run after it. Takes {tool} and {calls}.",
   'tool.background_field':
@@ -1079,6 +1084,7 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'tool.page_no_answer': TOOL,
   'tool.not_loaded_t2': ['tool', 'loader'],
   'tool.wait_unknown': ['tool', 'calls'],
+  'tool.after_unknown': ['tool', 'calls'],
   'tool.wait_cycle': ['tool', 'calls'],
   'tool.not_visible': TOOL,
   'tool.builtin_not_enabled': TOOL,

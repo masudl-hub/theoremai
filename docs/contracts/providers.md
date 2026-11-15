@@ -423,6 +423,7 @@ It ignores an `assets` map, so the protocol puts each image where its reference 
 It reads references as TypeSafe does, in `state`, instructions, and criteria: a string that is one reference becomes the image part, and a longer string becomes an array of its text and images in order.
 Model ids carry the vendor, such as `typesafe/jev-1.14`.
 A model that cannot read an image somewhere, or cannot answer a `box`, refuses with OpenRouter's own error.
+A model that has no endpoint for images, audio or video answers 404, and the routing step it failed names the kind. The error's `refusedMedia` is then `image/*`, `audio/*` or `video/*` (probed 2026-11-14). A file that is not one of these is not filtered by routing, and an upstream refusal of it names no type.
 
 Set chat caching in `options.cache`:
 
@@ -472,6 +473,7 @@ Signed reasoning goes out as thought signatures. Google refuses a call from the 
 Google refuses a call replayed after an earlier call's result (probed 2026-09-25), so a step's words and calls go back as one assistant message, then their results.
 Code execution and URL context results count toward `toolUse`.
 A failed answer keeps Gemini's own error only when it says the key was refused. Otherwise the HTTP status decides its kind, so a 503 or 529 is `busy`.
+A refused document or image names its type, for example `Unsupported mime_type 'text/plain' in document content`, and that type becomes the error's `refusedMedia`. Gemini names only the first type it refused. A refused audio or video part names none (probed 2026-11-14).
 
 ## Local non-text models
 

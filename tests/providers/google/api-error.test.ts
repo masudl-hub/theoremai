@@ -195,3 +195,14 @@ Deno.test('an error that names no document type names none', async () => {
   assertEquals(status.refusedMedia, undefined);
   assertEquals(statedOrStatusError(null, 400, 'x').refusedMedia, undefined);
 });
+
+Deno.test('a refused image names its type too', () => {
+  const message =
+    "Unsupported mime_type 'image/x-icon' in image content. Only image/* MIME types are supported.";
+  const err = readGeminiApiError({ error: { code: 400, message } });
+  assertEquals(err?.refusedMedia, ['image/x-icon']);
+  const audio = readGeminiApiError({
+    error: { code: 400, message: 'Request contains an invalid argument.' },
+  });
+  assertEquals(audio?.refusedMedia, undefined);
+});

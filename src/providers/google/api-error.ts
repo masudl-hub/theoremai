@@ -97,11 +97,11 @@ function namedCodeError(
     : new TheoremError(kindOfHttpStatus(status), message, options);
 }
 
-/** probed 14/11/2026: a refused document names its type, and only the first refused one: "Unsupported mime_type 'text/plain' in document content." */
-const REFUSED_DOCUMENT = /Unsupported mime_type '([^']+)' in document content/;
+/** probed 14/11/2026: a refused document or image names its type, and only the first refused one: "Unsupported mime_type 'text/plain' in document content.", "… 'image/x-icon' in image content.". A refused audio or video part names none. */
+const REFUSED_TYPE = /Unsupported mime_type '([^']+)' in \w+ content/;
 
 function refusedMedia(message: unknown): { refusedMedia: string[] } | undefined {
-  const type = typeof message === 'string' ? REFUSED_DOCUMENT.exec(message)?.[1] : undefined;
+  const type = typeof message === 'string' ? REFUSED_TYPE.exec(message)?.[1] : undefined;
   return type ? { refusedMedia: [type] } : undefined;
 }
 

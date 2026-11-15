@@ -4,6 +4,7 @@ import { type JsonObject, jsonObjectSchema } from '../../kernel/json.ts';
 import { extendProtocol, type Protocol, type ProtocolEvent } from '../../kernel/protocols/mod.ts';
 import type { Source, TurnHistoryMessage } from '../../kernel/types.ts';
 import { openAi } from '../open-ai/protocol.ts';
+import { httpError } from './openai/compat.ts';
 import { collectReasoning } from './openai/reasoning-state.ts';
 
 /** What is cached: the whole request (`automatic`) or the system instruction only (`system`). */
@@ -101,6 +102,20 @@ const reasoning = z.strictObject({
   details: z.array(jsonObjectSchema),
   content: z.string().optional(),
 });
+
+/**
+ * probed 14/11/2026: with `require_parameters`, a model that cannot read a kind of file answers
+ * 404 "No endpoints found that support image input", its `metadata.failed_routing_step` naming
+ * the kind: "Filter by Image Support", "Filter by Input Audio Support", "Filter by Input Video
+ * Support". Every file of that kind is refused, whatever its type.
+ */
+const REFUSED_KIND = /^Filter by (?:Input )?(Image|Audio|Video) Support$/;
+
+function refusedKind(body: unknown): { refusedMedia: string[] } | undefined {
+  const step = asRecord(asRecord(asRecord(body)?.error)?.metadata)?.failed_routing_step;
+  const kind = typeof step === 'string' ? REFUSED_KIND.exec(step)?.[1] : undefined;
+  return kind ? { refusedMedia: [`${kind.toLowerCase()}/*`] } : undefined;
+}
 
 function cacheControl(spec: CacheSpec): JsonObject {
   return spec.ttl ? { type: 'ephemeral', ttl: spec.ttl } : { type: 'ephemeral' };
@@ -210,6 +225,7 @@ export const openRouterOpenAi: Protocol<OpenRouterOptions> = extendProtocol(open
     "Chat Completions with OpenRouter's caching, routing, web search, citations and reasoning.", // labels-exempt: builder field description, read by the studio and docs
   options: z.strictObject({ cache: cache.optional(), provider: routing.optional() }),
   reasoning,
+  error: (failure) => httpError(failure, 'Chat Completions', refusedKind(failure.body)),
   body(body, at) {
     // why: its fields are Chat Completions ones; a speech request goes as openAi sends it.
     if (at.profileType !== 'text') return { body };

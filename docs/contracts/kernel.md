@@ -1974,7 +1974,8 @@ A call the provider refuses (`unsupported`) while it carries files is the one re
 sent again, on a profile whose `autoContinue` lists `provider_error`. A single file the
 provider cannot read refuses every call that replays it. When the protocol names the
 type it refused (the `error` event's `refusedMedia`), the call goes without every file
-of that type, in this turn and in the conversation, and keeps every other file. The
+of that type, in this turn and in the conversation, and keeps every other file. A
+named `image/*`, `audio/*` or `video/*` is every file of that kind. The
 call is sent again once for each type named, so a provider that names one type per
 refusal costs one more call per type. When the protocol names no type, the call goes
 without this turn's files, or without the conversation's when this turn has none, once

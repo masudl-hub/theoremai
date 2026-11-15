@@ -25,8 +25,11 @@ function typeKey(mimeType: string): string {
   return (mimeType.split(';')[0] ?? '').trim().toLowerCase();
 }
 
+/** invariant: a named `image/*` is every image, as a MIME wildcard is. */
 function isNamed(part: InteractionPart, named: ReadonlySet<string>): boolean {
-  return isMedia(part) && 'mimeType' in part && named.has(typeKey(part.mimeType));
+  if (!isMedia(part) || !('mimeType' in part)) return false;
+  const type = typeKey(part.mimeType);
+  return named.has(type) || named.has(`${type.split('/')[0] ?? ''}/*`);
 }
 
 function noteKey(mimeType: string, fromTool: boolean) {

@@ -23,6 +23,7 @@ const TYPES = [
   'image/png',
   'video/mp4',
 ];
+const NAMES = [...TYPES, 'image/*', 'video/*', 'audio/*', 'text/*'];
 const ROLES = ['user', 'assistant', 'tool'] as const;
 
 function random(seed: number): () => number {
@@ -46,6 +47,16 @@ function stateOf(history: TurnHistoryMessage[], turnStart: number): StepExecutio
 
 function key(type: string): string {
   return (type.split(';')[0] ?? '').trim().toLowerCase();
+}
+
+function matches(mimeType: string, name: string): boolean {
+  const type = key(mimeType);
+  const named = key(name);
+  return named.endsWith('/*') ? type.startsWith(named.slice(0, -1)) : type === named;
+}
+
+function anyNamed(mimeType: string, named: ReadonlySet<string>): boolean {
+  return [...named].some((name) => matches(mimeType, name));
 }
 
 function file(mimeType: string, data = 'AAAA'): InteractionPart {
@@ -82,6 +93,24 @@ Deno.test('a file a tool returned gets the tool note, replayed or not, and only 
   assertEquals(canDropMedia(state, undefined, tried), false);
 });
 
+Deno.test('a named kind takes every file of that kind, and a type of it named later finds none', () => {
+  const history: TurnHistoryMessage[] = [
+    { role: 'user', parts: [file('image/png'), file('Image/SVG+xml'), file('application/pdf')] },
+    { role: 'tool', parts: [file('image/x-icon'), file('imagery/x')] },
+  ];
+  const state = stateOf(history, 0);
+  const tried = dropMedia(state, 'said', undefined, ['image/*'], undefined);
+  assertEquals(
+    tried.dropped.map((d) => d.mimeType),
+    ['image/png', 'Image/SVG+xml', 'image/x-icon'],
+  );
+  assertEquals(history[0]?.parts?.[2], file('application/pdf'));
+  assertEquals(history[1]?.parts?.[1], file('imagery/x'));
+  assertEquals(canDropMedia(state, ['image/png'], tried), false);
+  assertEquals(canDropMedia(state, ['image/*'], tried), false);
+  assertEquals(canDropMedia(state, ['application/pdf'], tried), true);
+});
+
 Deno.test('fuzz: named drops take out every file of each named type and nothing else', () => {
   for (let seed = 1; seed <= SEEDS; seed += 1) {
     const next = random(seed);
@@ -105,10 +134,10 @@ Deno.test('fuzz: named drops take out every file of each named type and nothing 
     const named = new Set<string>();
     const rounds = 1 + Math.floor(next() * 4);
     for (let round = 0; round < rounds; round += 1) {
-      const type = pick(TYPES);
+      const type = pick(NAMES);
       const fresh = !named.has(key(type));
       const held = history.some((m) =>
-        m.parts?.some((part) => part.type !== 'text' && key(part.mimeType) === key(type)),
+        m.parts?.some((part) => part.type !== 'text' && matches(part.mimeType, type)),
       );
       check(canDropMedia(state, [type], tried), fresh && held, `seed ${seed} can`);
       if (!fresh || !held) continue;
@@ -123,7 +152,7 @@ Deno.test('fuzz: named drops take out every file of each named type and nothing 
       check(message.parts?.length, original?.parts?.length, `seed ${seed} length`);
       for (const [p, part] of (message.parts ?? []).entries()) {
         const was = original?.parts?.[p];
-        if (was && was.type !== 'text' && named.has(key(was.mimeType))) {
+        if (was && was.type !== 'text' && anyNamed(was.mimeType, named)) {
           check(part.type, 'text', `seed ${seed} gone`);
         } else {
           check(part, was, `seed ${seed} kept`);
@@ -131,7 +160,7 @@ Deno.test('fuzz: named drops take out every file of each named type and nothing 
       }
     }
     const gone = before.flatMap((m) =>
-      (m.parts ?? []).filter((part) => part.type !== 'text' && named.has(key(part.mimeType))),
+      (m.parts ?? []).filter((part) => part.type !== 'text' && anyNamed(part.mimeType, named)),
     );
     check(tried?.dropped.length ?? 0, gone.length, `seed ${seed} report`);
   }

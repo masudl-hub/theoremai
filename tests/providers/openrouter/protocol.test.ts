@@ -299,3 +299,49 @@ Deno.test('a quota refusal backs off on the primary key before the fallback slot
   assertEquals(taped, ['main', 'main', 'main', 'spare']);
   assertEquals(waits, [1000, 2000]);
 });
+
+const ROUTING_404 = (step: string, kind: string) => ({
+  error: {
+    message: `No endpoints found that support ${kind}`,
+    code: 404,
+    metadata: { routing_funnel: [], failed_routing_step: step },
+  },
+});
+
+Deno.test('a model with no endpoint for a kind of file refuses every file of that kind', () => {
+  const cases = [
+    ['Filter by Image Support', 'image input', 'image/*'],
+    ['Filter by Input Audio Support', 'input audio', 'audio/*'],
+    ['Filter by Input Video Support', 'input video', 'video/*'],
+  ] as const;
+  for (const [step, kind, refused] of cases) {
+    const err = openRouterOpenAi.error?.({
+      status: 404,
+      body: ROUTING_404(step, kind),
+      headers: new Headers(),
+    });
+    assertEquals(err?.kind, 'unsupported');
+    assertEquals(err?.refusedMedia, [refused]);
+    assertEquals(err?.message.includes(`No endpoints found that support ${kind}`), true);
+  }
+});
+
+Deno.test('a refusal that names no kind of file names none, and openAi never names one', () => {
+  const headers = new Headers();
+  const other = ROUTING_404('Filter by Tool Support', 'tool use');
+  assertEquals(
+    openRouterOpenAi.error?.({ status: 404, body: other, headers })?.refusedMedia,
+    undefined,
+  );
+  const raw = { error: { message: 'Provider returned error', code: 400, metadata: { raw: 'x' } } };
+  assertEquals(
+    openRouterOpenAi.error?.({ status: 400, body: raw, headers })?.refusedMedia,
+    undefined,
+  );
+  assertEquals(
+    openRouterOpenAi.error?.({ status: 404, body: 'not json', headers })?.refusedMedia,
+    undefined,
+  );
+  const image = ROUTING_404('Filter by Image Support', 'image input');
+  assertEquals(openAi.error?.({ status: 404, body: image, headers })?.refusedMedia, undefined);
+});

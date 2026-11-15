@@ -2,6 +2,7 @@ import {
   kindOfHttpStatus,
   type ProducedError,
   TheoremError,
+  type TheoremErrorOptions,
   toErrorEvent,
 } from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
@@ -41,10 +42,18 @@ function statedError(body: unknown): string | undefined {
 }
 
 /** A refused Chat Completions call, its kind from the status and its stated reason in the message. */
-function httpError(failure: { status: number; body: unknown }, label: string): TheoremError {
+function httpError(
+  failure: { status: number; body: unknown },
+  label: string,
+  options?: TheoremErrorOptions,
+): TheoremError {
   const detail = statedError(failure.body);
   const head = `${label} HTTP ${String(failure.status)}`;
-  return new TheoremError(kindOfHttpStatus(failure.status), detail ? `${head}: ${detail}` : head);
+  return new TheoremError(
+    kindOfHttpStatus(failure.status),
+    detail ? `${head}: ${detail}` : head,
+    options,
+  );
 }
 
 async function httpErrorEvent(res: Response, label: string): Promise<ProducedError> {

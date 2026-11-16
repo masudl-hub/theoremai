@@ -1631,12 +1631,12 @@ async function* settleTaint(args: {
   const checks = [
     {
       stage: 'taint' as const,
-      code: 'tainted_turn',
+      refused: { kind: 'blocked', code: 'tainted_turn' } as const,
       run: () => checkTaintGate(ctx.turn?.taint, tool.access, policy, labels),
     },
     {
       stage: 'destination' as const,
-      code: 'remote_destination',
+      refused: { kind: 'blocked', code: 'remote_destination' } as const,
       run: () => checkDestinationGate(ctx.turn?.destinations, input, policy, labels),
     },
   ];
@@ -1650,11 +1650,7 @@ async function* settleTaint(args: {
       yield { type: 'guardrail', guardrail: event };
     }
     if (verdict.action === 'block') {
-      const failure: ToolFailure = {
-        code: check.code,
-        kind: 'blocked',
-        message: verdict.rejection,
-      };
+      const failure: ToolFailure = { ...check.refused, message: verdict.rejection };
       yield failureEvent(base, failure);
       return { ...earlyFailure(failure), denied: true };
     }

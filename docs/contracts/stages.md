@@ -94,8 +94,8 @@ interface StageContext {
   stepCalls?: readonly { callId: string; tool: string; input: unknown }[];
   /** pre_tool: the user approved this call where it stopped, at its permission or a confirmation. A sign-in is not an approval. */
   approved?: true;
-  /** pre_tool: what the turn had read from outside the host when the step began, the record guardrails.taint checks. Unset when it has read nothing. */
-  taint?: Readonly<TurnTaint>;
+  /** pre_tool: what the turn had read from outside the host when the step began, the record guardrails.taint checks. A copy: changing it changes no check. Unset when it has read nothing. */
+  taint?: { readonly sources: readonly Readonly<Provenance>[]; readonly suspicious: readonly Readonly<GuardrailHit>[] };
   /** True when pre_tool settled without running the body (deny or gate). */
   callNotStarted?: boolean;
   outputRaw?: unknown;

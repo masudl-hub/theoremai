@@ -243,7 +243,7 @@ async function* runPreToolStages(args: {
     tool: toolName,
     input,
     ...(approved ? { approved: true as const } : {}),
-    ...(taint && taint.sources.length > 0 ? { taint } : {}),
+    ...(taint && taint.sources.length > 0 ? { taint: structuredClone(taint) } : {}),
     ...(stages.stepCalls ? { stepCalls: stages.stepCalls } : {}),
   });
 

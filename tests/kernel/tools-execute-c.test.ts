@@ -1646,3 +1646,27 @@ Deno.test('pre_tool reads the turn taint, and its deny wins after the taint ask 
   });
   check([clean.settlement.failure, seen.at(-1)], [undefined, undefined], 'unset when clean');
 });
+
+Deno.test('a pre_tool stage that changes ctx.taint changes no later check', async () => {
+  const turn = {
+    step: 1,
+    taint: { sources: [{ origin: 'mcp' as const, tool: 'inbox', depth: 1 }], suspicious: [] },
+  };
+  const profile = profileOf(['writes'], { taint: { afterRemoteRead: { write: 'block' } } });
+  const scope = scopeOf(fnTool('writes', { access: 'read-write' }));
+  const stages = stagesOf(profile, (ctx) => {
+    if (ctx.stage === 'pre_tool' && ctx.taint) (ctx.taint.sources as unknown[]).length = 0;
+    return undefined;
+  });
+  const reads = fnTool('reads', { access: 'read-only' });
+  await run({
+    scope: scopeOf(reads),
+    profile: profileOf(['reads'], {}),
+    name: 'reads',
+    ctx: { turn },
+    stages,
+  });
+  check(turn.taint.sources.length, 1, 'the turn keeps its record');
+  const next = await run({ scope, profile, name: 'writes', ctx: { turn }, stages });
+  check(next.settlement.failure?.code, 'tainted_turn', 'the next write is still refused');
+});

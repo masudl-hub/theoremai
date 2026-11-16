@@ -1,4 +1,6 @@
+import { kindOfHttpStatus } from '../../guardrails/error.ts';
 import { fetchGuarded } from '../../guardrails/network.ts';
+import { TheoremError } from '../../guardrails/theorem-error.ts';
 import { isRecord } from '../util/record.ts';
 import {
   computeCodeChallenge,
@@ -14,11 +16,13 @@ import type {
   ExchangePkceCodeResult,
   OAuth2Credential,
   OAuthEndpoints,
+  OAuthRevocation,
   OAuthTokens,
   OAuthTransportOptions,
   PkceFlowResult,
   ProtectedResourceMetadata,
   RefreshOAuthTokenOptions,
+  RevokeOAuthTokenOptions,
 } from './types.ts';
 
 const HTTP_NOT_FOUND = 404;
@@ -205,11 +209,16 @@ function parseAuthServerMetadata(
     data.registration_endpoint === undefined
       ? undefined
       : httpsUrl(data.registration_endpoint, 'registration_endpoint');
+  const revocationEndpoint =
+    data.revocation_endpoint === undefined
+      ? undefined
+      : httpsUrl(data.revocation_endpoint, 'revocation_endpoint');
   return {
     issuer,
     authorization_endpoint: authorizationEndpoint.href,
     token_endpoint: tokenEndpoint.href,
     registration_endpoint: registrationEndpoint?.href,
+    revocation_endpoint: revocationEndpoint?.href,
     scopes_supported: stringList(data, 'scopes_supported'),
     response_types_supported: stringList(data, 'response_types_supported'),
     grant_types_supported: stringList(data, 'grant_types_supported'),
@@ -378,18 +387,69 @@ export function validateIssuer(
 const ERROR_DESCRIPTION = /^[\x20\x21\x23-\x5B\x5D-\x7E]*$/;
 
 /** RFC 6749 §5.2 shape only; any other body is not repeated into the error. */
-async function tokenErrorText(response: Response): Promise<string> {
+async function tokenErrorBody(
+  response: Response,
+): Promise<{ error?: string; errorDescription?: string }> {
   let data: unknown;
   try {
     data = await response.json();
   } catch {
-    return '';
+    return {};
   }
-  if (!isRecord(data)) return '';
+  if (!isRecord(data)) return {};
   const { error, error_description: description } = data;
-  if (typeof error !== 'string' || !ERROR_DESCRIPTION.test(error)) return '';
+  if (typeof error !== 'string' || !ERROR_DESCRIPTION.test(error)) return {};
   const told = typeof description === 'string' && ERROR_DESCRIPTION.test(description);
-  return told ? `: ${error} (${description})` : `: ${error}`;
+  return told ? { error, errorDescription: description } : { error };
+}
+
+/** RFC 6749 §5.2: the grant or the client was refused, so only a new sign-in or new client credentials help. */
+const REFUSED_GRANT = new Set(['invalid_grant', 'invalid_client']);
+
+/**
+ * A token, refresh, or revocation endpoint answered with an error. `kind` is `auth` when the
+ * grant or client was refused (`invalid_grant`, `invalid_client`, HTTP 401), so the user signs
+ * in again; otherwise it follows the HTTP status, so a 5xx is `unavailable` or `busy` and a
+ * 429 is `rate_limit`. A request that never got an answer throws the network's own
+ * `TheoremError` instead.
+ */
+export class OAuthTokenError extends TheoremError {
+  /** The endpoint's HTTP status. */
+  readonly status: number;
+  /** The RFC 6749 §5.2 `error` code, when the body carried a well-formed one. */
+  readonly error?: string;
+  /** The RFC 6749 §5.2 `error_description`, when it is printable ASCII. */
+  readonly errorDescription?: string;
+
+  constructor(
+    message: string,
+    refusal: { status: number; error?: string; errorDescription?: string },
+  ) {
+    const refused = refusal.error !== undefined && REFUSED_GRANT.has(refusal.error);
+    super(refused ? 'auth' : kindOfHttpStatus(refusal.status), message);
+    this.name = 'OAuthTokenError';
+    this.status = refusal.status;
+    if (refusal.error !== undefined) this.error = refusal.error;
+    if (refusal.errorDescription !== undefined) this.errorDescription = refusal.errorDescription;
+  }
+}
+
+async function tokenEndpointError(
+  response: Response,
+  failed: string,
+  endpoint: string,
+): Promise<OAuthTokenError> {
+  const body = await tokenErrorBody(response);
+  const said =
+    body.error === undefined
+      ? ''
+      : body.errorDescription === undefined
+        ? `: ${body.error}`
+        : `: ${body.error} (${body.errorDescription})`;
+  return new OAuthTokenError(`${failed} at ${endpoint} (HTTP ${response.status})${said}`, {
+    status: response.status,
+    ...body,
+  });
 }
 
 function parseTokenResponse(data: unknown, tokenEndpoint: string): OAuthTokens {
@@ -486,9 +546,7 @@ async function requestToken(
   );
   if (!response.ok) {
     const failed = previous ? 'Token refresh failed' : 'Token exchange failed'; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    throw new Error(
-      `${failed} at ${grant.tokenEndpoint} (HTTP ${response.status})${await tokenErrorText(response)}`,
-    );
+    throw await tokenEndpointError(response, failed, grant.tokenEndpoint);
   }
   const tokens = parseTokenResponse(await response.json(), grant.tokenEndpoint);
   assertGrantWithin(tokens.scope, requested, grant.tokenEndpoint);
@@ -544,7 +602,10 @@ export async function exchangeOAuthPkce(
   );
 }
 
-/** Exchanges a refresh token for new tokens at the token endpoint; both the endpoint and the resource must be https URLs. */
+/**
+ * Exchanges a refresh token for new tokens at the token endpoint; both the endpoint and the
+ * resource must be https URLs. A refusal throws `OAuthTokenError`.
+ */
 export function refreshOAuthToken(
   options: RefreshOAuthTokenOptions,
 ): Promise<ExchangePkceCodeResult> {
@@ -567,6 +628,72 @@ export function refreshOAuthToken(
     scopeTokens(options.scope),
     { refreshToken: options.refreshToken, scope: options.scope },
   );
+}
+
+/** RFC 7009 §2.2 and §2.2.1: how one revocation request was answered. */
+type RevocationAnswer = OAuthRevocation | 'unsupported_token_type';
+
+/**
+ * RFC 7009 §2.2.1 lets a server name an error; some answer an unknown or expired token with
+ * `invalid_token` (RFC 6750) or `invalid_grant` (RFC 6749) instead of the 200 §2.2 asks for.
+ */
+const ALREADY_INVALID = new Set(['invalid_token', 'invalid_grant']);
+
+async function revokeOne(
+  endpoint: string,
+  token: string,
+  hint: 'refresh_token' | 'access_token',
+  options: RevokeOAuthTokenOptions,
+): Promise<RevocationAnswer> {
+  const body = new URLSearchParams({
+    token,
+    token_type_hint: hint,
+    client_id: options.credential.clientId,
+    ...(options.clientSecret === undefined ? {} : { client_secret: options.clientSecret }),
+  });
+  const response = await oauthFetch(
+    endpoint,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: body.toString(),
+    },
+    options,
+  );
+  if (response.ok) {
+    await response.body?.cancel();
+    return 'revoked';
+  }
+  const failure = await tokenEndpointError(response, 'Token revocation failed', endpoint); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (failure.error === 'unsupported_token_type') return 'unsupported_token_type';
+  if (failure.error !== undefined && ALREADY_INVALID.has(failure.error)) return 'already_invalid';
+  throw failure;
+}
+
+/**
+ * RFC 7009: asks the authorization server to forget a sign-in. The refresh token is revoked
+ * first, since §2.1 has that end the grant's access tokens too; the access token is revoked
+ * when there is no refresh token or the server does not revoke refresh tokens. The endpoint is
+ * `revocationEndpoint` when given, else the issuer's `revocation_endpoint` metadata.
+ *
+ * @returns `revoked` on HTTP 200, which per §2.2 also answers a token the server already
+ * dropped; `already_invalid` when the server says so with `invalid_token` or `invalid_grant`;
+ * `unsupported` when the issuer names no revocation endpoint or revokes neither token type.
+ * Any other refusal throws `OAuthTokenError`.
+ */
+export async function revokeOAuthToken(options: RevokeOAuthTokenOptions): Promise<OAuthRevocation> {
+  const { credential } = options;
+  const endpoint =
+    options.revocationEndpoint === undefined
+      ? (await discoverAuthServerMetadata(credential.issuer, options)).revocation_endpoint
+      : httpsUrl(options.revocationEndpoint, 'revocation_endpoint').href;
+  if (endpoint === undefined) return 'unsupported';
+  if (credential.refreshToken) {
+    const answer = await revokeOne(endpoint, credential.refreshToken, 'refresh_token', options);
+    if (answer !== 'unsupported_token_type') return answer;
+  }
+  const answer = await revokeOne(endpoint, credential.accessToken, 'access_token', options);
+  return answer === 'unsupported_token_type' ? 'unsupported' : answer;
 }
 
 /** RFC 8707: the same origin, and the resource's path or below it. */

@@ -4,7 +4,9 @@ import {
   discoverAuthServerMetadata,
   discoverResourceMetadata,
   exchangeOAuthPkce,
+  OAuthTokenError,
   refreshOAuthToken,
+  revokeOAuthToken,
   tokenAudienceCovers,
 } from '../../src/kernel/auth/oauth.ts';
 import { authScopeRefusedSchema } from '../../src/kernel/auth/scope-refusal.ts';
@@ -969,5 +971,230 @@ Deno.test('a typed credential is built by the server, by auth type', async () =>
     credentialForSignInGate({ slot: 'main', authType: 'api_key' }, 'k'),
     { slot: 'main', credential: { type: 'api_key', key: 'k' } },
     'a sign-in gate',
+  );
+});
+
+async function refreshFailure(answer: () => Response): Promise<OAuthTokenError> {
+  const { fetchFn } = routes({ [TOKEN_ENDPOINT]: answer });
+  try {
+    await refreshOAuthToken({
+      issuer: ISSUER,
+      resource: RESOURCE,
+      tokenEndpoint: TOKEN_ENDPOINT,
+      clientId: 'c',
+      refreshToken: 'r',
+      fetchFn,
+    });
+  } catch (err) {
+    if (err instanceof OAuthTokenError) return err;
+    throw err;
+  }
+  throw new Error('the refresh resolved');
+}
+
+Deno.test('a refused refresh says by kind whether to sign in again or try later', async () => {
+  const typed = async (answer: () => Response) => {
+    const err = await refreshFailure(answer);
+    return { kind: err.kind, status: err.status, error: err.error, said: err.errorDescription };
+  };
+  check(
+    await typed(() => json({ error: 'invalid_grant', error_description: 'revoked' }, 400)),
+    { kind: 'auth', status: 400, error: 'invalid_grant', said: 'revoked' },
+    'dead refresh token',
+  );
+  check(
+    await typed(() => json({ error: 'invalid_client' }, 400)),
+    { kind: 'auth', status: 400, error: 'invalid_client', said: undefined },
+    'refused client',
+  );
+  check(
+    await typed(() => new Response('', { status: 401 })),
+    { kind: 'auth', status: 401, error: undefined, said: undefined },
+    '401 without a body',
+  );
+  check(
+    await typed(() => json({}, 500)),
+    { kind: 'unavailable', status: 500, error: undefined, said: undefined },
+    'server error',
+  );
+  check(
+    await typed(() => json({ error: 'temporarily_unavailable' }, 503)),
+    { kind: 'busy', status: 503, error: 'temporarily_unavailable', said: undefined },
+    'overloaded',
+  );
+  check(
+    await typed(() => json({}, 429)),
+    { kind: 'rate_limit', status: 429, error: undefined, said: undefined },
+    'rate limited',
+  );
+  check(
+    await typed(() => json({ error: 'invalid_scope' }, 400)),
+    { kind: 'unsupported', status: 400, error: 'invalid_scope', said: undefined },
+    'a request the server will not take',
+  );
+  const err = await refreshFailure(() => json({ error: 'invalid_grant' }, 400));
+  check(
+    [err.name, err.message],
+    ['OAuthTokenError', `Token refresh failed at ${TOKEN_ENDPOINT} (HTTP 400): invalid_grant`],
+    'name and message',
+  );
+});
+
+Deno.test('a refused exchange is typed the same way', async () => {
+  const { run } = await exchangeWith(() => json({ error: 'invalid_grant' }, 400));
+  try {
+    await run();
+    throw new Error('the exchange resolved');
+  } catch (err) {
+    check(
+      err instanceof OAuthTokenError ? [err.kind, err.error] : String(err),
+      ['auth', 'invalid_grant'],
+      'exchange',
+    );
+  }
+});
+
+const REVOKE = 'https://auth.example.com/oauth/revoke';
+const SIGNED_IN = { issuer: ISSUER, clientId: 'client', accessToken: 'at', refreshToken: 'rt' };
+
+function formOf(init?: RequestInit): Record<string, string> {
+  return Object.fromEntries(new URLSearchParams(String(init?.body)));
+}
+
+/** Answers each revocation in turn and records what was posted. */
+function revocations(...answers: (() => Response)[]) {
+  const posted: Record<string, string>[] = [];
+  const fetchFn: typeof fetch = (input, init) => {
+    if (String(input) !== REVOKE) return Promise.resolve(new Response('', { status: 404 }));
+    posted.push(formOf(init));
+    const answer = answers.shift();
+    return Promise.resolve(answer ? answer() : new Response('', { status: 500 }));
+  };
+  return { fetchFn, posted };
+}
+
+Deno.test('a revocation posts the refresh token first, as a form with the client', async () => {
+  const { fetchFn, posted } = revocations(() => new Response('', { status: 200 }));
+  const outcome = await revokeOAuthToken({
+    credential: SIGNED_IN,
+    revocationEndpoint: REVOKE,
+    clientSecret: 'shh',
+    fetchFn,
+  });
+  check(outcome, 'revoked', 'outcome');
+  check(
+    posted,
+    [{ token: 'rt', token_type_hint: 'refresh_token', client_id: 'client', client_secret: 'shh' }],
+    'one request',
+  );
+});
+
+Deno.test('a sign-in without a refresh token revokes its access token', async () => {
+  const { fetchFn, posted } = revocations(() => new Response('', { status: 200 }));
+  const { refreshToken: _, ...accessOnly } = SIGNED_IN;
+  check(
+    await revokeOAuthToken({ credential: accessOnly, revocationEndpoint: REVOKE, fetchFn }),
+    'revoked',
+    'outcome',
+  );
+  check(posted, [{ token: 'at', token_type_hint: 'access_token', client_id: 'client' }], 'sent');
+});
+
+Deno.test('a server that does not revoke refresh tokens gets the access token instead', async () => {
+  const unsupported = () => json({ error: 'unsupported_token_type' }, 400);
+  const once = revocations(unsupported, () => new Response('', { status: 200 }));
+  check(
+    await revokeOAuthToken({
+      credential: SIGNED_IN,
+      revocationEndpoint: REVOKE,
+      fetchFn: once.fetchFn,
+    }),
+    'revoked',
+    'access token revoked',
+  );
+  check(
+    once.posted.map((form) => form.token_type_hint),
+    ['refresh_token', 'access_token'],
+    'order',
+  );
+  const neither = revocations(unsupported, unsupported);
+  check(
+    await revokeOAuthToken({
+      credential: SIGNED_IN,
+      revocationEndpoint: REVOKE,
+      fetchFn: neither.fetchFn,
+    }),
+    'unsupported',
+    'neither type',
+  );
+});
+
+Deno.test('a token the server already dropped is already invalid when it says so', async () => {
+  for (const error of ['invalid_token', 'invalid_grant']) {
+    const { fetchFn, posted } = revocations(() => json({ error }, 400));
+    check(
+      await revokeOAuthToken({ credential: SIGNED_IN, revocationEndpoint: REVOKE, fetchFn }),
+      'already_invalid',
+      error,
+    );
+    check(posted.length, 1, `${error} asks once`);
+  }
+});
+
+Deno.test('any other revocation refusal throws a typed error', async () => {
+  const { fetchFn } = revocations(() => json({ error: 'temporarily_unavailable' }, 503));
+  try {
+    await revokeOAuthToken({ credential: SIGNED_IN, revocationEndpoint: REVOKE, fetchFn });
+    throw new Error('the revocation resolved');
+  } catch (err) {
+    check(
+      err instanceof OAuthTokenError ? [err.kind, err.status, err.error, err.message] : String(err),
+      [
+        'busy',
+        503,
+        'temporarily_unavailable',
+        `Token revocation failed at ${REVOKE} (HTTP 503): temporarily_unavailable`,
+      ],
+      'typed',
+    );
+  }
+});
+
+Deno.test('the revocation endpoint comes from the issuer metadata, or there is none', async () => {
+  const withEndpoint = routes({
+    [AS_URL]: () => json({ ...AS_METADATA, revocation_endpoint: REVOKE }),
+    [REVOKE]: () => new Response('', { status: 200 }),
+  });
+  check(
+    await revokeOAuthToken({ credential: SIGNED_IN, fetchFn: withEndpoint.fetchFn }),
+    'revoked',
+    'discovered',
+  );
+  check(
+    withEndpoint.seen.map((seen) => seen.url),
+    [AS_URL, REVOKE],
+    'asked',
+  );
+  const without = routes({ [AS_URL]: () => json(AS_METADATA) });
+  check(
+    await revokeOAuthToken({ credential: SIGNED_IN, fetchFn: without.fetchFn }),
+    'unsupported',
+    'none named',
+  );
+  check(without.seen.length, 1, 'nothing posted');
+  const plain = routes({
+    [AS_URL]: () => json({ ...AS_METADATA, revocation_endpoint: 'http://auth.example.com/r' }),
+  });
+  check(
+    await rejection(() => revokeOAuthToken({ credential: SIGNED_IN, fetchFn: plain.fetchFn })),
+    'OAuth revocation_endpoint "http://auth.example.com/r" must be an https URL without a fragment',
+    'http metadata',
+  );
+  check(
+    await rejection(() =>
+      revokeOAuthToken({ credential: SIGNED_IN, revocationEndpoint: 'http://auth.example.com/r' }),
+    ),
+    'OAuth revocation_endpoint "http://auth.example.com/r" must be an https URL without a fragment',
+    'http given',
   );
 });

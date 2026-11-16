@@ -17,6 +17,8 @@ export interface AuthorizationServerMetadata {
   authorization_endpoint: string;
   token_endpoint: string;
   registration_endpoint?: string;
+  /** RFC 7009 §4 (via RFC 8414 §2). */
+  revocation_endpoint?: string;
   scopes_supported?: string[];
   response_types_supported?: string[];
   grant_types_supported?: string[];
@@ -164,3 +166,16 @@ export interface RefreshOAuthTokenOptions extends OAuthTransportOptions {
   /** A confidential client's secret, sent in the token request body (RFC 6749 §2.3.1); never stored. */
   clientSecret?: string;
 }
+
+/** Options for revoking a sign-in at its authorization server (RFC 7009). */
+export interface RevokeOAuthTokenOptions extends OAuthTransportOptions {
+  /** Its refresh token is revoked first, else its access token; its `issuer` finds the endpoint. */
+  credential: Pick<OAuth2Credential, 'issuer' | 'clientId' | 'accessToken' | 'refreshToken'>;
+  /** Skips discovery; an https URL. */
+  revocationEndpoint?: string;
+  /** A confidential client's secret, sent in the request body (RFC 6749 §2.3.1); never stored. */
+  clientSecret?: string;
+}
+
+/** What the authorization server did with a revoked sign-in. */
+export type OAuthRevocation = 'revoked' | 'already_invalid' | 'unsupported';

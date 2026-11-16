@@ -12,7 +12,7 @@ import { TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
 import { isLateResult } from './tool-fence.ts';
 import { isRemoteOrigin } from './tool-result.ts';
-import type { Provenance, ResolvedGuardrailPolicy, Verdict } from './types.ts';
+import type { Provenance, ResolvedGuardrailPolicy, TaintVerdict } from './types.ts';
 
 /** What the turn has read so far, by who wrote it. Keys are `kind:value`, lowercased. */
 interface TurnDestinations {
@@ -248,13 +248,6 @@ function addFencedDestinations(turn: TurnDestinations, text: string, provenance:
   );
 }
 
-/** A call's verdict, and what an approval card says when the profile asks the user first. */
-interface DestinationVerdict {
-  verdict: Verdict;
-  /** Set when the profile holds the call for the user's answer. */
-  confirm?: string;
-}
-
 /**
  * Reported whether or not the profile acts on it, so a host sees how often the
  * rule would hold a call before it turns that on.
@@ -264,7 +257,7 @@ function checkDestinationGate(
   args: unknown,
   policy: ResolvedGuardrailPolicy,
   labels?: LabelOverrides,
-): DestinationVerdict {
+): TaintVerdict {
   if (!turn || turn.remote.size === 0) return { verdict: { action: 'allow' } };
   const found = [...destinationKeys(args)].filter(
     (key) => turn.remote.has(key) && !turn.given.has(key),
@@ -298,7 +291,7 @@ function checkDestinationGate(
   };
 }
 
-export type { DestinationVerdict, TurnDestinations };
+export type { TurnDestinations };
 export {
   addFencedDestinations,
   addGivenDestinations,

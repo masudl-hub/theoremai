@@ -1552,11 +1552,21 @@ function isUrlDetector(detector: Detector): detector is UrlDetector {
 }
 
 function compileTaint(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['taint'] {
-  const { taintAfterRemoteRead: afterRemoteRead, taintRemoteDestination: remoteDestination } =
-    guardrails;
-  if (!afterRemoteRead && !remoteDestination) return undefined;
+  const {
+    taintWrite: write,
+    taintDestructive: destructive,
+    taintRemoteDestination: remoteDestination,
+  } = guardrails;
+  if (!write && !destructive && !remoteDestination) return undefined;
   return {
-    ...(afterRemoteRead ? { afterRemoteRead } : {}),
+    ...(write || destructive
+      ? {
+          afterRemoteRead: {
+            ...(write ? { write } : {}),
+            ...(destructive ? { destructive } : {}),
+          },
+        }
+      : {}),
     ...(remoteDestination ? { remoteDestination } : {}),
   };
 }

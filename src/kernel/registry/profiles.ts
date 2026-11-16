@@ -14,6 +14,8 @@ import {
   type DecisionGuardrailsSpec,
   type HostGuardrailsSpec,
   type ProfileGuardrailsSpec,
+  TAINT_GATES,
+  type TaintGuardrailSpec,
 } from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
@@ -726,6 +728,7 @@ function assertGuardrails(profileId: string, guardrails: ProfileGuardrailsSpec |
     throw fail(`guardrails.${unknown} is not a setting; it takes ${GUARDRAIL_KEYS.join(', ')}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   assertBlockedReply(guardrails?.blockedReply, fail);
+  assertTaint(guardrails?.taint, fail);
 }
 
 const GUARDRAIL_KEYS: readonly string[] = [
@@ -736,6 +739,55 @@ const GUARDRAIL_KEYS: readonly string[] = [
   'taint',
 ] satisfies (keyof ProfileGuardrailsSpec)[];
 const BLOCKED_REPLY_KEYS: readonly string[] = ['onBlock', 'maxRetries'];
+const TAINT_KEYS: readonly string[] = ['afterRemoteRead', 'remoteDestination'];
+const TAINT_ACCESS_KEYS: readonly string[] = ['write', 'destructive'];
+
+function assertTaint(
+  taint: TaintGuardrailSpec | undefined,
+  fail: (message: string) => TheoremError,
+): void {
+  if (taint === undefined) return;
+  const gates = TAINT_GATES.join(', ');
+  const unknown = Object.keys(taint).find((key) => !TAINT_KEYS.includes(key));
+  if (unknown !== undefined) {
+    // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw fail(`guardrails.taint.${unknown} is not a setting; it takes ${TAINT_KEYS.join(', ')}`);
+  }
+  const { afterRemoteRead, remoteDestination } = taint;
+  if (remoteDestination !== undefined && !TAINT_GATES.includes(remoteDestination)) {
+    throw fail(`guardrails.taint.remoteDestination must be one of ${gates}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  if (afterRemoteRead === undefined) return;
+  if (typeof afterRemoteRead !== 'object' || afterRemoteRead === null) {
+    // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw fail('guardrails.taint.afterRemoteRead must be an object with write and destructive');
+  }
+  const extra = Object.keys(afterRemoteRead).find((key) => !TAINT_ACCESS_KEYS.includes(key));
+  if (extra !== undefined) {
+    throw fail(
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `guardrails.taint.afterRemoteRead.${extra} is not a setting; it takes write and destructive`,
+    );
+  }
+  for (const key of ['write', 'destructive'] as const) {
+    const value = afterRemoteRead[key];
+    if (value !== undefined && !TAINT_GATES.includes(value)) {
+      throw fail(`guardrails.taint.afterRemoteRead.${key} must be one of ${gates}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+  }
+  const { write, destructive } = afterRemoteRead;
+  // why: A destructive call is also a write, so a weaker destructive gate would let the riskier call through.
+  if (
+    write !== undefined &&
+    destructive !== undefined &&
+    TAINT_GATES.indexOf(destructive) < TAINT_GATES.indexOf(write)
+  ) {
+    throw fail(
+      // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `guardrails.taint.afterRemoteRead.destructive is ${destructive}, weaker than write (${write}); a destructive call also writes`,
+    );
+  }
+}
 
 function assertBlockedReply(
   blockedReply: BlockedReplySpec | undefined,

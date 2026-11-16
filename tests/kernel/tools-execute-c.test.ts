@@ -499,7 +499,7 @@ Deno.test('a traced call ends its span with the outcome of how it settled', asyn
     fnTool('bad', { input: z.object({ q: z.string() }) }),
     fnTool('crash', { access: 'read-write' }),
   );
-  const profileTaint = profileOf(['crash'], { taint: { afterRemoteRead: 'write' } });
+  const profileTaint = profileOf(['crash'], { taint: { afterRemoteRead: { write: 'block' } } });
   const tainted = {
     step: 1,
     taint: { sources: [{ origin: 'http' as const, tool: 'fetch', depth: 1 }], suspicious: [] },
@@ -1122,7 +1122,9 @@ Deno.test('a call to a destination only a remote result named is reported, held 
 });
 Deno.test('a profile that blocks writes after a remote read refuses the call, unrun', async () => {
   let ran = 0;
-  const blocking = profileOf(['writes', 'reads'], { taint: { afterRemoteRead: 'write' } });
+  const blocking = profileOf(['writes', 'reads'], {
+    taint: { afterRemoteRead: { write: 'block' } },
+  });
   const scope = scopeOf(
     fnTool('writes', {
       access: 'read-write',
@@ -1541,4 +1543,106 @@ Deno.test('an agent tool called with no agent runner fails as unsupported before
     ['unknown_tool'],
     'one failure event',
   );
+});
+Deno.test('a profile that asks before writes after a remote read holds the call once, and an approval runs it', async () => {
+  let ran = 0;
+  const writes = (permission: string) =>
+    fnTool('writes', {
+      access: 'destructive',
+      permission,
+      handler: () => {
+        ran++;
+        return { finding: 'ok' };
+      },
+    });
+  const turn = {
+    step: 1,
+    taint: { sources: [{ origin: 'http' as const, tool: 'fetch', depth: 1 }], suspicious: [] },
+    destinations: {
+      given: new Set<string>(),
+      remote: new Map([['host:evil.net', 'fetch']]),
+    },
+  };
+  const input = { q: 'https://evil.net/collect' };
+  const asking = profileOf(['writes'], {
+    taint: { afterRemoteRead: { write: 'confirm' }, remoteDestination: 'confirm' },
+  });
+  // why: A tool the session already allowed still asks: the ask is about this turn, not the tool.
+  const allowed = await run({
+    scope: scopeOf(writes('session_consent')),
+    profile: asking,
+    name: 'writes',
+    input,
+    ctx: { turn, sessionPermissions: ['writes'] },
+  });
+  check(
+    allowed.settlement.gated,
+    {
+      kind: 'confirmation',
+      tool: 'writes',
+      summary:
+        'The agent read content from outside (fetch) before this call. Approve it only if you asked for it: a request to act may have come from that content. This would send to evil.net. That came from content the agent read (fetch), not from you.',
+      access: 'destructive',
+    },
+    'one card says both',
+  );
+  check([allowed.settlement.callNotStarted, ran], [true, 0], 'held, unrun');
+  // why: always_confirm, the taint ask and the destination ask are answered by one approval.
+  const approved = await run({
+    scope: scopeOf(writes('always_confirm')),
+    profile: asking,
+    name: 'writes',
+    input,
+    ctx: { turn, resume: { granted: true, gateKind: 'confirmation' } },
+  });
+  check([approved.settlement.gated, ran], [undefined, 1], 'one approval runs it');
+  const blocking = profileOf(['writes'], {
+    taint: { afterRemoteRead: { write: 'confirm', destructive: 'block' } },
+  });
+  const refused = await run({
+    scope: scopeOf(writes('auto')),
+    profile: blocking,
+    name: 'writes',
+    ctx: { turn, resume: { granted: true, gateKind: 'confirmation' } },
+  });
+  check(
+    [refused.settlement.failure?.code, refused.settlement.denied, ran],
+    ['tainted_turn', true, 1],
+    'an approval does not lift a refusal',
+  );
+});
+Deno.test('pre_tool reads the turn taint, and its deny wins after the taint ask is approved', async () => {
+  const turn = {
+    step: 1,
+    taint: { sources: [{ origin: 'mcp' as const, tool: 'inbox', depth: 1 }], suspicious: [] },
+  };
+  const profile = profileOf(['writes'], { taint: { afterRemoteRead: { write: 'confirm' } } });
+  const scope = scopeOf(fnTool('writes', { access: 'read-write' }));
+  const seen: unknown[] = [];
+  const stages = stagesOf(profile, (ctx) => {
+    if (ctx.stage !== 'pre_tool') return undefined;
+    seen.push(ctx.taint?.sources.map((s) => s.tool));
+    return ctx.taint ? { deny: { code: 'mine', message: 'not after mail' } } : undefined;
+  });
+  const held = await run({ scope, profile, name: 'writes', ctx: { turn }, stages });
+  check([held.settlement.gated?.kind, seen], ['confirmation', []], 'the profile asks first');
+  const resumed = await run({
+    scope,
+    profile,
+    name: 'writes',
+    ctx: { turn, resume: { granted: true, gateKind: 'confirmation' } },
+    stages,
+  });
+  check([resumed.settlement.failure?.code, seen], ['mine', [['inbox']]], 'the hook refuses');
+  const clean = await run({
+    scope,
+    profile,
+    name: 'writes',
+    ctx: { turn: { step: 1 } },
+    stages: stagesOf(profile, (ctx) => {
+      if (ctx.stage === 'pre_tool') seen.push(ctx.taint);
+      return undefined;
+    }),
+  });
+  check([clean.settlement.failure, seen.at(-1)], [undefined, undefined], 'unset when clean');
 });

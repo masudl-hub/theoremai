@@ -36,7 +36,7 @@ export {
 } from './canary.ts';
 export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
-export type { DestinationVerdict, TurnDestinations } from './destinations.ts';
+export type { TurnDestinations } from './destinations.ts';
 export {
   addGivenDestinations,
   addHistoryDestinations,
@@ -211,7 +211,6 @@ export type {
   DecisionDisclosureEnforcer,
   DecisionDisclosureVerdict,
   DecisionGuardrailsSpec,
-  DestinationGate,
   GuardrailAction,
   GuardrailContext,
   GuardrailEvent,
@@ -226,8 +225,10 @@ export type {
   ResolvedBlockedReply,
   ResolvedGuardrailPolicy,
   Severity,
+  TaintAccessGates,
   TaintGate,
   TaintGuardrailSpec,
+  TaintVerdict,
   ToolOrigin,
   TrustLevel,
   TurnTaint,
@@ -236,7 +237,6 @@ export type {
 export {
   ADVISORY_LEVELS,
   BLOCKED_REPLY_ON_BLOCK,
-  DESTINATION_GATES,
   GUARDRAIL_STAGES,
   SEVERITIES,
   TAINT_GATES,

@@ -257,7 +257,11 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     'Turns each client IP may run on this profile per UTC day, one at a time; counts live in the process, and a loopback caller is not counted.',
   'guardrails.taint': 'Tool limits after a remote read.',
   'guardrails.taint.afterRemoteRead':
-    "Which tool calls are refused, by each tool's access, once the turn has read a remote tool's result.",
+    "What happens to a tool call that changes something, by the tool's access, once the turn has read a remote tool's result. Read-only calls always run.",
+  'guardrails.taint.afterRemoteRead.destructive':
+    'Tools whose access is `destructive`. It may not be weaker than `write`.',
+  'guardrails.taint.afterRemoteRead.write':
+    'Tools whose access is `read-write`, and `destructive` ones when `destructive` is not set.',
   'guardrails.taint.remoteDestination':
     "What happens to a tool call, read-only ones too, that sends to an email address, a link's host or a bank account number (IBAN) that only the running text of a remote tool's result named. One the user, the system prompt, or a local tool gave passes, and so does one that is a whole field of the result.",
   identity: "The agent's display name and the system instruction it is given.",
@@ -492,7 +496,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'registerStructured.jsonSchema':
     'The JSON Schema a structured reply must follow, sent to the model as its response format.',
   'registerTool.access':
-    "What the tool can change, which taint.afterRemoteRead refuses calls by after a turn reads a remote tool's result.",
+    "What the tool can change, which taint.afterRemoteRead holds or refuses calls by after a turn reads a remote tool's result.",
   'registerTool.after':
     'Gives the model an after field on this tool: the tools called in the same step that must settle before this call starts. The kernel removes the field before the tool, the stages or a gate read the input. A name with no other call in the step fails the call wait_unknown.',
   'registerTool.answeredBy':
@@ -758,7 +762,6 @@ export const OPTION_DOCS: Readonly<
     | 'CONTEXT_SENDERS'
     | 'CONTINUE_STOP_KINDS'
     | 'DECISION_QUESTION_TYPES'
-    | 'DESTINATION_GATES'
     | 'ERROR_KINDS'
     | 'LIVE_ACTIVITY_HANDLINGS'
     | 'LIVE_END_SENSITIVITIES'
@@ -819,11 +822,6 @@ export const OPTION_DOCS: Readonly<
     score: 'A level on an ordered scale, with a confidence.',
     noul: 'One number, which may weigh named criteria.',
     box: 'Where something is in an image: its top, bottom, left and right edges, with a confidence.',
-  },
-  DESTINATION_GATES: {
-    off: 'The call runs; it is only logged.',
-    confirm: 'The call waits for the user to approve it; an approval runs it.',
-    block: 'The call is refused, and the model is told why.',
   },
   ERROR_KINDS: {
     config: 'The profile, tool, or schema is set up wrong.',
@@ -894,9 +892,9 @@ export const OPTION_DOCS: Readonly<
     oauth2: 'An OAuth sign-in; the host supplies the token.',
   },
   TAINT_GATES: {
-    off: 'None; risky calls are only logged.',
-    destructive: 'Destructive calls.',
-    write: 'Read-write and destructive calls.',
+    off: 'The call runs; it is only logged.',
+    confirm: 'The call waits for the user to approve it; an approval runs it.',
+    block: 'The call is refused, and the model is told why.',
   },
   THINKING_LEVELS: {
     none: 'No thinking, where the provider has that level.',

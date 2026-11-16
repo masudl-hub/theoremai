@@ -100,7 +100,7 @@ Deno.test('an approval in the middle of a reply keeps what the reply read', asyn
         maxSteps: 4,
         tools: { allow: ['web_fetch', 'confirm_booking', 'send_email'] },
         inputs: { text: true },
-        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: { destructive: 'block' } } },
       }),
       sessionStore: createMemorySessionStore(),
       conversationStore: createMemoryConversationStore(),
@@ -190,7 +190,7 @@ Deno.test('a late result passed once stays through an approval and on later turn
       maxSteps: 4,
       tools: { allow: ['confirm_booking', 'send_email'] },
       inputs: { text: true },
-      guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+      guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: { destructive: 'block' } } },
     }),
     sessionStore: createMemorySessionStore(),
     conversationStore: createMemoryConversationStore(),
@@ -278,7 +278,7 @@ Deno.test('a late result that lands mid-reply before an approval keeps what the 
         maxSteps: 4,
         tools: { allow: ['web_fetch', 'confirm_booking', 'send_email'] },
         inputs: { text: true },
-        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: { destructive: 'block' } } },
       }),
       sessionStore: createMemorySessionStore(),
       conversationStore: createMemoryConversationStore(),
@@ -323,6 +323,73 @@ Deno.test('a late result that lands mid-reply before an approval keeps what the 
     );
     const send = toolEventsOf(events, 'error').find((tool) => tool.name === 'send_email');
     assertEquals(send?.failure?.code, 'tainted_turn');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test('a write held after a remote read asks the person over the wire, and their approval sends it', async () => {
+  registerAll();
+  const original = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(Response.json({ page: PAGE }))) as typeof fetch;
+  try {
+    const calls = [
+      { name: 'web_fetch', callId: 'c1', arguments: { url: 'https://api.example.com/page' } },
+      { name: 'send_email', callId: 'c2', arguments: { to: 'me@example.com' } },
+    ];
+    const model: TurnModel = {
+      async *complete() {
+        const tool = calls.shift();
+        if (tool) yield { type: 'tool', tool };
+      },
+    };
+    const handler = createTheoremHandler({
+      profile: defineProfile({
+        type: 'text',
+        id: 'taint_ask',
+        identity: { handle: 'deputy' },
+        models: { fast: HOST_BINDINGS.gemini35FlashLite },
+        maxSteps: 4,
+        tools: { allow: ['web_fetch', 'send_email'] },
+        inputs: { text: true },
+        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: { write: 'confirm' } } },
+      }),
+      sessionStore: createMemorySessionStore(),
+      conversationStore: createMemoryConversationStore(),
+      provider: () => fixtureHostOptions(model),
+    });
+    let cookie = '';
+    let ref: string | undefined;
+    const transport = createHttpTransport({
+      endpoint: 'http://host.test/api/theorem',
+      fetch: async (url, init) => {
+        const headers = new Headers(init?.headers);
+        if (cookie) headers.set('cookie', cookie);
+        const response = await handler(new Request(url, { ...init, headers }));
+        cookie = response.headers.get('set-cookie')?.split(';')[0] ?? cookie;
+        return response;
+      },
+    });
+    const events: TurnEvent[] = [];
+    const sink = (line: Parameters<Parameters<typeof transport.turn>[1]>[0]) => {
+      if (line.type === 'conversation') ref = line.ref;
+      else if (line.type !== 'unsupported' && line.type !== 'malformed') events.push(line);
+    };
+    await transport.turn({ input: { text: 'mail me the page' } }, sink);
+    const gate = toolEventsOf(events, 'gate').at(-1);
+    assertEquals([gate?.name, gate?.gate.kind], ['send_email', 'confirmation']);
+    assertEquals(gate?.gate.summary?.startsWith('The agent read content from outside'), true);
+    await transport.invoke(
+      {
+        ...(ref ? { conversation: ref } : {}),
+        gateId: gate?.callId ?? '',
+        operationId: gate ? issuedOperationId(gate) : '',
+        decision: 'approve',
+      },
+      sink,
+    );
+    const sent = toolEventsOf(events, 'complete').find((tool) => tool.name === 'send_email');
+    assertEquals(sent?.output, { finding: 'done' });
   } finally {
     globalThis.fetch = original;
   }

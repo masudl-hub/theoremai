@@ -18,7 +18,6 @@ import { LABEL_NOTES, type LabelKey } from '../guardrails/labels.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplyOnBlock,
-  DESTINATION_GATES,
   TAINT_GATES,
 } from '../guardrails/types.ts';
 import { FIELD_DOCS, OPTION_DOCS } from './field-docs.ts';
@@ -990,15 +989,21 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'guardrails.network.allowedHosts': field('string[]'),
   'guardrails.network.allowedSchemes': field('string[]'),
   'guardrails.taint': field('TaintGuardrailSpec'),
-  'guardrails.taint.afterRemoteRead': field(
+  'guardrails.taint.afterRemoteRead': field('TaintAccessGates'),
+  'guardrails.taint.afterRemoteRead.write': field(
+    unionType(TAINT_GATES),
+    TAINT_GATES,
+    OPTION_DOCS.TAINT_GATES,
+  ),
+  'guardrails.taint.afterRemoteRead.destructive': field(
     unionType(TAINT_GATES),
     TAINT_GATES,
     OPTION_DOCS.TAINT_GATES,
   ),
   'guardrails.taint.remoteDestination': field(
-    unionType(DESTINATION_GATES),
-    DESTINATION_GATES,
-    OPTION_DOCS.DESTINATION_GATES,
+    unionType(TAINT_GATES),
+    TAINT_GATES,
+    OPTION_DOCS.TAINT_GATES,
   ),
   'guardrails.disclosure': field('{ enforce: DecisionDisclosureEnforcer }'),
   'guardrails.disclosure.enforce': field(

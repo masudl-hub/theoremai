@@ -141,7 +141,7 @@ const METADATA_URL = 'http://169.254.169.254/latest/meta-data/iam';
 const ATTACKER = 'attacker@evil.test';
 const TOOL_MODES = {
   taint_off: {},
-  taint_on: { taint: { afterRemoteRead: 'destructive' as const } },
+  taint_on: { taint: { afterRemoteRead: { destructive: 'block' as const } } },
   network_default: {},
   network_private_allowed: { network: { allowPrivateNetworks: true } },
 };

@@ -116,7 +116,7 @@ async function runEvents(
         quota: { perDay: 50 },
         taint:
           gate === 'afterRemoteRead'
-            ? { afterRemoteRead: 'destructive' }
+            ? { afterRemoteRead: { destructive: 'block' as const } }
             : { remoteDestination: 'block' },
       },
     }),
@@ -499,7 +499,7 @@ Deno.test('a pause keeps its marks when compaction rewrites the reply', async ()
           },
         },
       },
-      guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+      guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: { destructive: 'block' } } },
     }),
   );
   const send = sendsOnce();

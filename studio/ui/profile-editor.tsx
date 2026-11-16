@@ -3721,22 +3721,73 @@ const ON_BLOCK_SEGMENTS: Segment<BlockedReplyOnBlock>[] = [
   { value: 'refuse', label: 'Refuse', icon: IconHandStop },
 ];
 
-type TaintGate = Exclude<GuardrailsDraft['taintAfterRemoteRead'], ''>;
+type TaintGate = Exclude<GuardrailsDraft['taintWrite'], ''>;
 
-/** Each threshold wears the icon of the tool access it starts refusing; none is the guard off. */
+/** In the kernel's order, weakest first. */
 const TAINT_SEGMENTS: Segment<TaintGate>[] = [
-  { value: 'off', label: 'None', icon: IconShieldOff },
-  { value: 'destructive', label: 'Destructive', icon: IconFlame },
-  { value: 'write', label: 'Writes', icon: IconPencil },
-];
-
-type DestinationGate = Exclude<GuardrailsDraft['taintRemoteDestination'], ''>;
-
-const DESTINATION_SEGMENTS: Segment<DestinationGate>[] = [
   { value: 'off', label: 'Log', icon: IconFlag },
   { value: 'confirm', label: 'Ask', icon: IconUserCheck },
   { value: 'block', label: 'Refuse', icon: IconBan },
 ];
+
+const taintRank = (gate: TaintGate) => TAINT_SEGMENTS.findIndex((s) => s.value === gate);
+
+/** A destructive call also writes, so the picks weaker than writes are closed. */
+function destructiveSegments(write: TaintGate): Segment<TaintGate>[] {
+  return TAINT_SEGMENTS.map((segment) =>
+    taintRank(segment.value) < taintRank(write)
+      ? {
+          ...segment,
+          isDisabled: true,
+          disabledMessage: 'A destructive call also writes, so it is held at least as writes are.',
+        }
+      : segment,
+  );
+}
+
+/** The After a remote read rows: each access, then destinations only remote content named. */
+function TaintSection({ guardrails, set }: GuardrailsSectionProps) {
+  const on = useContext(RunsOn);
+  const write = guardrails.taintWrite || 'off';
+  const destructive = guardrails.taintDestructive || write;
+  return (
+    <InspectorSection
+      title="After a remote read"
+      path="guardrails.taint"
+      note={studioTaintNote(on)}
+    >
+      <SegmentedRow
+        label="Writes"
+        path="guardrails.taint.afterRemoteRead.write"
+        value={write}
+        segments={TAINT_SEGMENTS}
+        onChange={(gate) => {
+          // why: A destructive pick no stricter than the new writes would be refused, or say nothing.
+          const keeps = taintRank(destructive) > taintRank(gate) && guardrails.taintDestructive;
+          set({ taintWrite: gate === 'off' ? '' : gate, taintDestructive: keeps || '' });
+        }}
+      />
+      <SegmentedRow
+        label="Destructive"
+        path="guardrails.taint.afterRemoteRead.destructive"
+        value={destructive}
+        segments={destructiveSegments(write)}
+        onChange={(gate) => {
+          set({ taintDestructive: gate === write ? '' : gate });
+        }}
+      />
+      <SegmentedRow
+        label="New address"
+        path="guardrails.taint.remoteDestination"
+        value={guardrails.taintRemoteDestination || 'off'}
+        segments={TAINT_SEGMENTS}
+        onChange={(gate) => {
+          set({ taintRemoteDestination: gate === 'off' ? '' : gate });
+        }}
+      />
+    </InspectorSection>
+  );
+}
 
 type UrlDetector = keyof GuardrailsDraft['allow'];
 type UrlAllowDraft = GuardrailsDraft['allow'][UrlDetector];
@@ -4980,7 +5031,6 @@ function GuardrailTestButton() {
 function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { guardrails } = draft;
   const set = patch(setDraft, 'guardrails');
-  const on = useContext(RunsOn);
   const boundaries = draft.identity.profileType === 'host' ? TOOL_BOUNDARIES : BOUNDARIES;
   const { open, show, frame } = usePageSwap<OpenDetector>();
   const page = openDetectorPage(open, { guardrails, set }, boundaries, plantsCanary(draft), () => {
@@ -5000,32 +5050,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
         />
       )}
       <NetworkSection guardrails={guardrails} set={set} />
-      {draftAllows(draft, 'guardrails.taint') && (
-        <InspectorSection
-          title="After a remote read"
-          path="guardrails.taint"
-          note={studioTaintNote(on)}
-        >
-          <SegmentedRow
-            label="Refuse calls"
-            path="guardrails.taint.afterRemoteRead"
-            value={guardrails.taintAfterRemoteRead || 'off'}
-            segments={TAINT_SEGMENTS}
-            onChange={(gate) => {
-              set({ taintAfterRemoteRead: gate === 'off' ? '' : gate });
-            }}
-          />
-          <SegmentedRow
-            label="New address"
-            path="guardrails.taint.remoteDestination"
-            value={guardrails.taintRemoteDestination || 'off'}
-            segments={DESTINATION_SEGMENTS}
-            onChange={(gate) => {
-              set({ taintRemoteDestination: gate === 'off' ? '' : gate });
-            }}
-          />
-        </InspectorSection>
-      )}
+      {draftAllows(draft, 'guardrails.taint') && <TaintSection guardrails={guardrails} set={set} />}
       <QuotaSection guardrails={guardrails} set={set} />
     </>,
   );

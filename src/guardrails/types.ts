@@ -144,20 +144,8 @@ export const ADVISORY_LEVELS = ['none', 'elevated', 'high'] as const;
 /** One of {@linkcode ADVISORY_LEVELS}. */
 export type AdvisoryLevel = (typeof ADVISORY_LEVELS)[number];
 
-/** Which tool access levels refuse to run once a turn has read untrusted content. */
+/** What happens to a tool call a taint guardrail catches on a turn that read untrusted content. */
 export const TAINT_GATES = [
-  /** None; risky calls are only logged. */
-  'off',
-  /** Destructive calls. */
-  'destructive',
-  /** Read-write and destructive calls. */
-  'write',
-] as const;
-/** One of {@linkcode TAINT_GATES}. */
-export type TaintGate = (typeof TAINT_GATES)[number];
-
-/** What happens to a tool call that sends to a destination only remote content named. */
-export const DESTINATION_GATES = [
   /** The call runs; it is only logged. */
   'off',
   /** The call waits for the user to approve it; an approval runs it. */
@@ -165,11 +153,26 @@ export const DESTINATION_GATES = [
   /** The call is refused, and the model is told why. */
   'block',
 ] as const;
-/** One of {@linkcode DESTINATION_GATES}. */
-export type DestinationGate = (typeof DESTINATION_GATES)[number];
+/** One of {@linkcode TAINT_GATES}. */
+export type TaintGate = (typeof TAINT_GATES)[number];
+
+/** What happens to each kind of tool that changes something, once the turn has read a remote tool's result. */
+export interface TaintAccessGates {
+  /** Tools whose access is `read-write`, and `destructive` ones when `destructive` is not set. */
+  write?: TaintGate;
+  /** Tools whose access is `destructive`. It may not be weaker than `write`. */
+  destructive?: TaintGate;
+}
+
+/** A taint check's verdict, and what the approval card says when the profile asks the user first. */
+export interface TaintVerdict {
+  verdict: Verdict;
+  /** Set when the profile holds the call for the user's answer. */
+  confirm?: string;
+}
 
 /**
- * Enforcement is opt-in: every remote read is reported, but refusing tool calls
+ * Enforcement is opt-in: every remote read is reported, but holding or refusing tool calls
  * changes what working agents may do, so the host declares which access levels
  * to gate rather than having the kernel guess.
  *
@@ -182,21 +185,20 @@ export type DestinationGate = (typeof DESTINATION_GATES)[number];
  */
 export interface TaintGuardrailSpec {
   /**
-   * Which tool calls are refused, by each tool's access, once the turn has read a remote tool's
-   * result.
+   * What happens to a tool call that changes something, by the tool's access, once the turn has
+   * read a remote tool's result. Read-only calls always run.
    *
-   * @remarks Stated as a capability threshold rather than a list of tool `access` values so the
-   * guardrail vocabulary stays independent of the tool registry; the kernel maps a tool's declared
-   * access onto it.
+   * @remarks Keyed by access rather than by tool name so the guardrail vocabulary stays independent
+   * of the tool registry; the kernel maps a tool's declared access onto it.
    */
-  afterRemoteRead?: TaintGate;
+  afterRemoteRead?: TaintAccessGates;
   /**
    * What happens to a tool call, read-only ones too, that sends to an email address, a link's host
    * or a bank account number (IBAN) that only the running text of a remote tool's result named. One
    * the user, the system prompt, or a local tool gave passes, and so does one that is a whole field
    * of the result.
    */
-  remoteDestination?: DestinationGate;
+  remoteDestination?: TaintGate;
 }
 
 /** Facts a check may read. Deliberately excludes the full profile. */

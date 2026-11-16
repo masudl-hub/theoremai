@@ -8,7 +8,7 @@ import {
   turnDestinations,
 } from '../../src/guardrails/destinations.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
-import type { DestinationGate, Provenance } from '../../src/guardrails/types.ts';
+import type { Provenance, TaintGate } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
 const remote: Provenance = { origin: 'http', tool: 'web_fetch', depth: 1 };
@@ -22,7 +22,7 @@ function turnThatRead(data: unknown, said = 'summarise my inbox'): TurnDestinati
   return turn;
 }
 
-function check(turn: TurnDestinations | undefined, args: unknown, action?: DestinationGate) {
+function check(turn: TurnDestinations | undefined, args: unknown, action?: TaintGate) {
   const policy = resolveGuardrailPolicy(action ? { taint: { remoteDestination: action } } : {});
   return checkDestinationGate(turn, args, policy);
 }

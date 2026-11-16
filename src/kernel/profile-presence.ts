@@ -118,7 +118,8 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'guardrails.network.allowedSchemes': {
     unset: 'https, plus http when allowPrivateNetworks is on',
   },
-  'guardrails.taint.afterRemoteRead': { unset: 'off', value: 'off' },
+  'guardrails.taint.afterRemoteRead.write': { unset: 'off', value: 'off' },
+  'guardrails.taint.afterRemoteRead.destructive': { unset: 'Same as write' },
   'guardrails.taint.remoteDestination': { unset: 'off', value: 'off' },
   'guardrails.disclosure': { unset: 'No check' },
   'observability.writeTo': { unset: 'No traces, unless runTurn is given a sink' },

@@ -3,6 +3,7 @@ import { throwIfAborted } from '../guardrails/error.ts';
 import { guardrailTurnEvent } from '../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../guardrails/policy.ts';
 import { requestRefused, sanitizeHistory } from '../guardrails/sanitize.ts';
+import type { TurnTaint } from '../guardrails/types.ts';
 import type { SpanHandle } from '../observability/trace-span.ts';
 import { guardrailAttributes } from './engine/turn-trace.ts';
 import { hookFailed } from './hook-failure.ts';
@@ -74,6 +75,11 @@ export type StageCallBag = {
    * confirmation. A sign-in is not an approval.
    */
   approved?: true;
+  /**
+   * `pre_tool`: what the turn had read from outside the host when the step began, the same
+   * record `guardrails.taint` checks. Unset when it has read nothing.
+   */
+  taint?: Readonly<TurnTaint>;
   callNotStarted?: boolean;
   outputRaw?: unknown;
   /**

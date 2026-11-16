@@ -178,7 +178,7 @@ export const harborLentKeys: LentKeys = {
   // Enforce security boundaries
   holds: {
     publicHostsOnly: true, // Prevents SSRF to internal private networks
-    afterRemoteRead: 'write', // Refuses writes after a turn reads a remote result
+    afterRemoteRead: { write: 'block' }, // Refuses writes after a turn reads a remote result
   },
 };
 ```
@@ -186,7 +186,7 @@ export const harborLentKeys: LentKeys = {
 ### Enforced Protections
 * **Model Allowlisting**: If a visitor attempts to configure an unpermitted model (such as an expensive reasoning model), Studio surfaces an inline validation badge and blocks execution.
 * **Network Sandboxing**: Setting `holds.publicHostsOnly: true` forces all outbound network calls through Theorem's private IP detector, preventing SSRF attacks against internal services.
-* **Remote-Read Gate**: `holds.afterRemoteRead` sets the calls a turn refuses once it has read a remote result: `'off'`, `'destructive'`, or `'write'`. A profile that refuses more keeps its own setting.
+* **Remote-Read Gate**: `holds.afterRemoteRead` sets what a turn does with calls that change something once it has read a remote result, the same `{ write, destructive }` shape as the profile setting. For each access, a profile that is stricter keeps its own setting.
 * **Payload Caps**: Decision profile questions, state byte sizes, and image attachments are capped to prevent memory exhaustion.
 
 ---

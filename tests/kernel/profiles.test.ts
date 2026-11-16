@@ -145,6 +145,31 @@ Deno.test('defineProfile refuses a guardrails key it does not know, and checks a
     'guardrails.egress is not a setting; it takes quota, detect, blockedReply, network, taint',
   );
   assertThrows(
+    profile({ taint: { afterRemoteRead: 'write' } }),
+    TheoremError,
+    'guardrails.taint.afterRemoteRead must be an object with write and destructive',
+  );
+  assertThrows(
+    profile({ taint: { afterRemoteRead: { reads: 'block' } } }),
+    TheoremError,
+    'guardrails.taint.afterRemoteRead.reads is not a setting',
+  );
+  assertThrows(
+    profile({ taint: { afterRemoteRead: { write: 'ask' } } }),
+    TheoremError,
+    'guardrails.taint.afterRemoteRead.write must be one of off, confirm, block',
+  );
+  assertThrows(
+    profile({ taint: { afterRemoteRead: { write: 'block', destructive: 'confirm' } } }),
+    TheoremError,
+    'guardrails.taint.afterRemoteRead.destructive is confirm, weaker than write (block)',
+  );
+  assertThrows(
+    profile({ taint: { remoteDestination: 'destructive' } }),
+    TheoremError,
+    'guardrails.taint.remoteDestination must be one of off, confirm, block',
+  );
+  assertThrows(
     profile({ detect: { ungiven_images: { allow: { imageHosts: [] } } } }),
     TheoremError,
     'guardrails.detect.ungiven_images.allow.imageHosts is not a setting of allow',
@@ -546,7 +571,7 @@ Deno.test('host profile rejects guardrails that only a model turn can run', () =
   const cases: Array<[string, Record<string, unknown>]> = [
     ['quota', { quota: { perDay: 10 } }],
     ['blockedReply', { blockedReply: { onBlock: 'refuse' } }],
-    ['taint', { taint: { afterRemoteRead: 'write' } }],
+    ['taint', { taint: { afterRemoteRead: { write: 'block' } } }],
   ];
   for (const [field, guardrails] of cases) {
     assertThrows(

@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { throwIfAborted } from '../../guardrails/error.ts';
 import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
+import type { TurnTaint } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
 import { hookCrashFailure, hookFailed } from '../hook-failure.ts';
 import { jsonObjectSchema } from '../json.ts';
@@ -168,6 +169,7 @@ export async function* runPreToolPipeline(args: {
     details: gateDetails(tool, input),
     confirmed,
     approved,
+    taint: ctx.turn?.taint,
   });
   if (!pre.ok) {
     if (pre.kind !== 'gated') return pre;
@@ -218,12 +220,14 @@ async function* runPreToolStages(args: {
   confirmed: boolean;
   /** The user approved this call where it stopped: the handlers read it as `approved`. */
   approved: boolean;
+  taint: TurnTaint | undefined;
 }): AsyncGenerator<
   TurnEvent,
   | Exclude<PreBodyOutcome, { ok: true }>
   | { ok: true; input: unknown; mutated: boolean; waitFor?: string[] }
 > {
-  const { stages, toolName, callId, input, toolPreTool, details, confirmed, approved } = args;
+  const { stages, toolName, callId, input, toolPreTool, details, confirmed, approved, taint } =
+    args;
   const applied = yield* runStage({
     stage: 'pre_tool',
     step: stages.step,
@@ -239,6 +243,7 @@ async function* runPreToolStages(args: {
     tool: toolName,
     input,
     ...(approved ? { approved: true as const } : {}),
+    ...(taint && taint.sources.length > 0 ? { taint } : {}),
     ...(stages.stepCalls ? { stepCalls: stages.stepCalls } : {}),
   });
 

@@ -20,7 +20,9 @@ import type {
   GuardrailHit,
   Provenance,
   ResolvedGuardrailPolicy,
+  TaintAccessGates,
   TaintGate,
+  TaintVerdict,
   ToolOrigin,
   TurnTaint,
   Verdict,
@@ -348,37 +350,28 @@ function isSuspicious(taint: TurnTaint | undefined): boolean {
   return (taint?.suspicious.length ?? 0) > 0;
 }
 
-/** Capability rank, so a single threshold can express "this and anything worse". */
-const CAPABILITY_RANK: Record<string, number> = {
-  'read-only': 0,
-  'read-write': 1,
-  destructive: 2,
-};
-
-const GATE_RANK: Record<TaintGate, number> = {
-  off: Number.POSITIVE_INFINITY,
-  destructive: 2,
-  write: 1,
-};
+/** Which `afterRemoteRead` setting holds a tool of this access; read-only tools have none. */
+function accessGate(access: string, gates: TaintAccessGates | undefined): TaintGate | undefined {
+  if (access === 'read-write') return gates?.write ?? 'off';
+  if (access === 'destructive') return gates?.destructive ?? gates?.write ?? 'off';
+  return undefined;
+}
 
 /**
  * A `flag` says the call is happening on a tainted turn and is worth recording; a
- * `block` says the profile asked for it to be refused. Reporting happens whether
- * or not enforcement is configured, so the risk is visible before a host opts in.
+ * `block` says the profile asked for it to be refused, and `confirm` that it asked the user
+ * first. Reporting happens whether or not enforcement is configured, so the risk is visible
+ * before a host opts in.
  */
 function checkTaintGate(
   taint: TurnTaint | undefined,
   access: string,
   policy: ResolvedGuardrailPolicy,
   labels?: LabelOverrides,
-): Verdict {
-  if (!isTainted(taint)) {
-    return { action: 'allow' };
-  }
-  const rank = CAPABILITY_RANK[access] ?? 0;
-  if (rank === 0) {
-    return { action: 'allow' };
-  }
+): TaintVerdict {
+  if (!isTainted(taint)) return { verdict: { action: 'allow' } };
+  const gate = accessGate(access, policy.taint?.afterRemoteRead);
+  if (gate === undefined) return { verdict: { action: 'allow' } };
   const suspicious = isSuspicious(taint);
   const hits = [
     {
@@ -387,20 +380,20 @@ function checkTaintGate(
     },
   ];
   // why: Gated on origin alone. Whether the content looked directive changes the rule
-  // reported, never whether the call is refused.
-  if (rank < GATE_RANK[policy.taint?.afterRemoteRead ?? 'off']) {
-    return { action: 'flag', hits };
+  // reported and the reason given, never whether the call is held.
+  const said = {
+    access,
+    sources: taint?.sources.map((s) => s.tool).join(', ') ?? '',
+    reason: labelText(suspicious ? 'taint.reason_steered' : 'taint.reason_tainted', {}, labels),
+  };
+  if (gate === 'block') {
+    return {
+      verdict: { action: 'block', hits, rejection: labelText('taint.blocked', said, labels) },
+    };
   }
-  const read = taint?.sources.map((s) => s.tool).join(', ') ?? '';
-  const reason = labelText(
-    suspicious ? 'taint.reason_steered' : 'taint.reason_tainted',
-    {},
-    labels,
-  );
   return {
-    action: 'block',
-    hits,
-    rejection: labelText('taint.blocked', { access, sources: read, reason }, labels),
+    verdict: { action: 'flag', hits },
+    ...(gate === 'confirm' ? { confirm: labelText('taint.confirm', said, labels) } : {}),
   };
 }
 

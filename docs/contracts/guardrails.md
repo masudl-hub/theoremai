@@ -824,8 +824,8 @@ else and simply resolves to no detection.
 Assembled text is **not** trusted: a host-built prompt interpolates retrieval
 output and user data, so it is permeable and takes full detection.
 
-The vocabularies (`TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`, and the
-internal `GUARDRAIL_ACTIONS` behind `GuardrailAction`) live in
+The vocabularies (`TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES`,
+`TAINT_GATES`, and the internal `GUARDRAIL_ACTIONS` behind `GuardrailAction`) live in
 `src/guardrails/types.ts`. The shapes that cross the wire — `GuardrailHit`,
 `Provenance`, `GuardrailEvent`, `ErrorCopy` — are zod schemas in
 `src/guardrails/event-schemas.ts` built from those vocabularies; `types.ts`
@@ -1500,12 +1500,23 @@ in practice.
 
 ```ts
 guardrails: {
-  taint: { afterRemoteRead: 'destructive' },
+  taint: { afterRemoteRead: { write: 'confirm', destructive: 'block' } },
 }
 ```
 
-The catalog entry `guardrails.taint.afterRemoteRead` lists the values. Read it
-with `fieldMeta`. At `destructive`, a `read-write` call runs and is reported.
+`write` sets what happens to a `read-write` call, and `destructive` to a
+`destructive` call. Each takes `off`, `confirm` or `block`, the values the catalog
+entry `guardrails.taint.afterRemoteRead.write` lists; read it with `fieldMeta`.
+`off` runs the call and reports it. `confirm` holds it for the user: the approval
+card says `taint.confirm`, and one approval also answers the tool's own
+`always_confirm` and a `remoteDestination` ask on the same call. `block` refuses it,
+and an approval does not lift a refusal. `destructive` left out is the same as
+`write`. `defineProfile` refuses a `destructive` weaker than `write`, since a
+destructive call also writes.
+
+A `pre_tool` stage reads the same record as `ctx.taint`, so a host can write its
+own rule, such as asking only for one tool. It is unset when the turn has read
+nothing remote.
 
 **The gate is deliberately structural.** It keys on whether the
 turn fetched remotely — a fact the kernel knows exactly. A host enabling it can
@@ -1520,15 +1531,16 @@ as broken. A deterministic matcher will never be as good a judge of everyday
 content as the model consuming it, so the matcher's job is to *inform* that
 judgement, not overrule it.
 
-`read-only` calls are never gated. A refusal names the tools whose output tainted
+`read-only` calls are never gated. The ask comes before the tool's own permission,
+so a tool the session already allowed still asks on a tainted turn. A refusal names the tools whose output tainted
 the turn, so the model can explain the refusal rather than retrying blindly, and it
 surfaces to the host as a `tainted_turn` tool failure alongside the guardrail event.
 
-**Enforcement is opt-in and tracking is not.** Refusing tool calls changes what a
-working agent is allowed to do, so the kernel does not guess a threshold — but the
+**Enforcement is opt-in and tracking is not.** Holding or refusing tool calls changes what a
+working agent is allowed to do, so the kernel does not guess a setting — but the
 risk is reported from the first turn, so a host can see how often the gate *would*
-fire before turning it on. The threshold is stated as a capability level rather
-than a list of tool `access` values, which keeps the guardrail vocabulary
+fire before turning it on. The setting is keyed by access rather than by tool
+name, which keeps the guardrail vocabulary
 independent of the tool registry; the kernel maps a tool's declared access onto it.
 
 ### Destinations — sending where the content says
@@ -1856,7 +1868,7 @@ From `src/guardrails/mod.ts`:
 | Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `detects`, `resolveAllow`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `detectRule`, `EGRESS_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
-| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `checkDestinationGate`, `turnDestinations`, `addGivenDestinations`, `addHistoryDestinations`, `addRequestDestinations`, `addResultDestinations`, `TurnDestinations`, `DestinationVerdict`, `DESTINATION_GATES`, `DestinationGate`, `directives`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
+| Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `checkDestinationGate`, `turnDestinations`, `addGivenDestinations`, `addHistoryDestinations`, `addRequestDestinations`, `addResultDestinations`, `TurnDestinations`, `directives`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintAccessGates`, `TaintVerdict`, `TaintGuardrailSpec`, `GuardrailEvent` |
 | Serialization | `textForScan`, `scanTextOf`, `ScanText` |
 | Sanitize | `sanitizeProjectId`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest` |
 | Events | `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |

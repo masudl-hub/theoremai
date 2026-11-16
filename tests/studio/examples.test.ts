@@ -183,7 +183,7 @@ Deno.test('the research scout carries the cookbook list', () => {
     choices: [{ value: 'anyone' }, { value: 'reviewer' }, { value: 'student' }],
   });
   assertEquals(Object.keys(profile.guardrails?.detect ?? {}).includes('research.retraction'), true);
-  assertEquals(profile.guardrails?.taint?.afterRemoteRead, 'write');
+  assertEquals(profile.guardrails?.taint?.afterRemoteRead, { write: 'block' });
   const readReadme = tool('read_readme');
   assert(readReadme && readReadme.type !== 'agent');
   assertEquals(Object.keys(readReadme.stageQuestions ?? {}), ['passage']);

@@ -814,6 +814,7 @@ function guardrailsOf(spec: unknown): GuardrailsDraft {
   const blocked = record(spec.blockedReply);
   const network = record(spec.network);
   const taint = record(spec.taint);
+  const afterRemoteRead = record(taint?.afterRemoteRead);
   return {
     ...blank,
     ...read,
@@ -825,7 +826,8 @@ function guardrailsOf(spec: unknown): GuardrailsDraft {
     allowPrivateNetworks: network?.allowPrivateNetworks === true,
     allowedHosts: strings(network?.allowedHosts),
     allowedSchemes: strings(network?.allowedSchemes),
-    taintAfterRemoteRead: text(taint?.afterRemoteRead) as GuardrailsDraft['taintAfterRemoteRead'],
+    taintWrite: text(afterRemoteRead?.write) as GuardrailsDraft['taintWrite'],
+    taintDestructive: text(afterRemoteRead?.destructive) as GuardrailsDraft['taintDestructive'],
     taintRemoteDestination: text(
       taint?.remoteDestination,
     ) as GuardrailsDraft['taintRemoteDestination'],

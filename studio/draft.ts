@@ -15,7 +15,6 @@ import {
   BOUNDARIES,
   type Boundary,
   DETECTORS,
-  type DestinationGate,
   type DetectAction,
   type Detector,
   detects,
@@ -321,9 +320,11 @@ export interface GuardrailsDraft {
   /** Empty omits it: https, plus http with private networks. */
   allowedSchemes: string[];
   /** `''` omits it (kernel default: off). */
-  taintAfterRemoteRead: TaintGate | '';
+  taintWrite: TaintGate | '';
+  /** `''` omits it (kernel default: the same as `taintWrite`). */
+  taintDestructive: TaintGate | '';
   /** `''` omits it (kernel default: off). */
-  taintRemoteDestination: DestinationGate | '';
+  taintRemoteDestination: TaintGate | '';
 }
 
 export interface ObservabilityDraft {
@@ -612,7 +613,8 @@ function defaultGuardrails(): GuardrailsDraft {
     allowPrivateNetworks: false,
     allowedHosts: [],
     allowedSchemes: [],
-    taintAfterRemoteRead: '',
+    taintWrite: '',
+    taintDestructive: '',
     taintRemoteDestination: '',
   };
 }

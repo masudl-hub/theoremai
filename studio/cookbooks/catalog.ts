@@ -736,7 +736,7 @@ export function createResearchScoutDraft(): StudioDraft {
       detect: flagAllDetect(blank.guardrails.detect),
       allowedHosts: RESEARCH_ALLOWED_HOSTS.split(',').map((host) => host.trim()),
       // why: export_report writes, so a page the scout read can't steer what it saves.
-      taintAfterRemoteRead: 'write',
+      taintWrite: 'block',
       own: [researchRetractionDetector()],
     },
   };
@@ -1082,7 +1082,7 @@ export const COOKBOOKS: Readonly<Record<CookbookId, CookbookEntry>> = {
       'One agent of each type around it: `research.compactor` (text), `research.podcast` (speech), `research.illustrator` (image), `research.embedder` (embedding), `research.scout.live` (live), `research.console` (host), and `research.judge` (decision).',
       'A reply shaped by what the turn states: `focus` picks `research.models` or `research.reply` through `outputs.structured.by`.',
       'Call order the model chooses: a tool with `after` runs once the tools it names in the same step have settled.',
-      'A write tool (`export_report`) that `taintAfterRemoteRead` refuses once a page has been read, and a tool the page answers (`check_device`).',
+      'A write tool (`export_report`) that `guardrails.taint.afterRemoteRead.write` refuses once a page has been read, and a tool the page answers (`check_device`).',
       'One custom detector, `research.retraction`, and a prompt line for each `reader` through a `when` line.',
       'Staging page-read tools at `post_tool` via `stageAgentKey`: `read_pages`, `read_model_card`, `read_dataset_card`, `read_readme`, and `read_library_docs` are filtered by the page-reader before the scout sees them.',
       'Parallel tool calls (`tools.parallel: true`) across HTTP tools (arXiv, GitHub, Hub cards) and MCP tools (Exa `search_web` / `read_pages`, Context7 library docs, DeepWiki `ask_repo_docs`).',

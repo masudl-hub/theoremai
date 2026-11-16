@@ -98,7 +98,7 @@ export interface ToolBase {
   /** A label for grouping tools; nothing reads it yet. */
   category: string;
   /**
-   * What the tool can change, which taint.afterRemoteRead refuses calls by after a turn reads a
+   * What the tool can change, which taint.afterRemoteRead holds or refuses calls by after a turn reads a
    * remote tool's result.
    */
   access: ToolAccess;

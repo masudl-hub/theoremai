@@ -91,22 +91,24 @@ The kernel records the provenance of all tool results:
 
 ### Gating Tools After Remote Reads (`afterRemoteRead`)
 
-The `afterRemoteRead` policy halts tool execution when a tainted agent attempts actions above a declared access threshold:
+The `afterRemoteRead` policy sets what happens to a call that changes something once the turn has read remote content, by the tool's access:
 
 ```ts
 // ... inside defineProfile guardrails
 guardrails: {
   taint: {
-    afterRemoteRead: 'destructive', // 'off' | 'destructive' | 'write'
+    afterRemoteRead: { write: 'confirm', destructive: 'block' }, // each 'off' | 'confirm' | 'block'
   },
 },
 ```
 
-| Policy | Behavior After Reading Remote Content |
+| Value | Behavior After Reading Remote Content |
 | :--- | :--- |
-| **`'off'`** (Default) | Remote reads are logged in traces; no tool calls are blocked. |
-| **`'destructive'`** | Refuses calls to tools with `access: 'destructive'` (e.g., deleting records, executing payments). |
-| **`'write'`** | Refuses calls to tools with `access: 'read-write'` or `'destructive'`, restricting the agent to read-only tools for the remainder of the turn. |
+| **`'off'`** (Default) | The call runs; the remote read is logged in traces. |
+| **`'confirm'`** | The call waits for the user to approve it; an approval runs it. |
+| **`'block'`** | The call is refused, and the model is told why. |
+
+`write` covers tools with `access: 'read-write'`, and `destructive` covers tools with `access: 'destructive'`. Left out, `destructive` is the same as `write`. It may not be weaker than `write`. Read-only tools always run. A `pre_tool` stage reads the turn's record as `ctx.taint`, to write a rule of its own.
 
 Because `afterRemoteRead` evaluates declared tool access levels rather than pattern heuristics, it stops attacks even if the injection entirely bypasses content detectors.
 

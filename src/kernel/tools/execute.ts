@@ -1589,24 +1589,7 @@ async function* runRegisteredTool(
     return { ...earlyFailure(failure), denied: true };
   }
 
-  const taintStart = performance.now();
-  const taintVerdict = checkTaintGate(ctx.turn?.taint, tool.access, policy, profile.labels);
-  const taintEvent = toolCallEvent(taintVerdict, provenance);
-  recordToolCheck(stages?.span, 'taint', performance.now() - taintStart, taintEvent);
-  if (taintEvent) {
-    yield { type: 'guardrail', guardrail: taintEvent };
-  }
-  if (taintVerdict.action === 'block') {
-    const failure: ToolFailure = {
-      code: 'tainted_turn',
-      kind: 'blocked',
-      message: taintVerdict.rejection,
-    };
-    yield failureEvent(base, failure);
-    return { ...earlyFailure(failure), denied: true };
-  }
-
-  const stopped = yield* settleRemoteDestination({
+  const stopped = yield* settleTaint({
     tool,
     input: inspected.args,
     ctx: fullCtx,
@@ -1630,9 +1613,12 @@ async function* runRegisteredTool(
   );
 }
 
-/** The call's settlement when a destination in its arguments stops it: refused, or held for the user's answer. */
-async function* settleRemoteDestination(args: {
-  tool: Parameters<typeof gateDetails>[0] & { name: string };
+/**
+ * The call's settlement when a taint check stops it: refused, or held for the user's answer.
+ * Both checks run first, so a call either rule holds asks the user once.
+ */
+async function* settleTaint(args: {
+  tool: Parameters<typeof gateDetails>[0] & { name: string; access: string };
   input: unknown;
   ctx: ToolContext;
   base: ToolCallBase;
@@ -1640,34 +1626,45 @@ async function* settleRemoteDestination(args: {
   policy: ResolvedGuardrailPolicy;
   span: ToolStageSupport['span'];
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement | undefined> {
-  const { tool, input, ctx, base } = args;
+  const { tool, input, ctx, base, policy } = args;
   const { labels } = ctx.profile;
-  const start = performance.now();
-  const { verdict, confirm } = checkDestinationGate(
-    ctx.turn?.destinations,
-    input,
-    args.policy,
-    labels,
-  );
-  const event = toolCallEvent(verdict, args.provenance);
-  recordToolCheck(args.span, 'destination', performance.now() - start, event);
-  if (event) {
-    yield { type: 'guardrail', guardrail: event };
-  }
-  if (verdict.action === 'block') {
-    const failure: ToolFailure = {
+  const checks = [
+    {
+      stage: 'taint' as const,
+      code: 'tainted_turn',
+      run: () => checkTaintGate(ctx.turn?.taint, tool.access, policy, labels),
+    },
+    {
+      stage: 'destination' as const,
       code: 'remote_destination',
-      kind: 'blocked',
-      message: verdict.rejection,
-    };
-    yield failureEvent(base, failure);
-    return { ...earlyFailure(failure), denied: true };
+      run: () => checkDestinationGate(ctx.turn?.destinations, input, policy, labels),
+    },
+  ];
+  const asks: string[] = [];
+  for (const check of checks) {
+    const start = performance.now();
+    const { verdict, confirm } = check.run();
+    const event = toolCallEvent(verdict, args.provenance);
+    recordToolCheck(args.span, check.stage, performance.now() - start, event);
+    if (event) {
+      yield { type: 'guardrail', guardrail: event };
+    }
+    if (verdict.action === 'block') {
+      const failure: ToolFailure = {
+        code: check.code,
+        kind: 'blocked',
+        message: verdict.rejection,
+      };
+      yield failureEvent(base, failure);
+      return { ...earlyFailure(failure), denied: true };
+    }
+    if (confirm) asks.push(confirm);
   }
-  if (!confirm || isGateResumeGranted(ctx.resume)) return undefined;
+  if (asks.length === 0 || isGateResumeGranted(ctx.resume)) return undefined;
   const gate: ToolGate = {
     kind: 'confirmation',
     tool: tool.name,
-    summary: confirm,
+    summary: asks.join(' '),
     ...gateDetails(tool, input),
   };
   yield* emitGateSettlement({

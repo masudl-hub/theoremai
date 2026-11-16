@@ -75,7 +75,7 @@ export const TEST_KEYS: LentKeys = {
   questionViolation: () => null,
   stateViolation: () => null,
   liveInputTokens: 65_536,
-  holds: { publicHostsOnly: true, afterRemoteRead: 'destructive' },
+  holds: { publicHostsOnly: true, afterRemoteRead: { destructive: 'block' } },
 };
 
 /** A run on `TEST_KEYS`. */

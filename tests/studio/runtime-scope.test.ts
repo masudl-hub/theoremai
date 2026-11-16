@@ -25,7 +25,7 @@ import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function afterRemoteRead(guardrails: object | undefined): unknown {
   return guardrails && 'taint' in guardrails
-    ? (guardrails.taint as { afterRemoteRead?: string } | undefined)?.afterRemoteRead
+    ? (guardrails.taint as { afterRemoteRead?: unknown } | undefined)?.afterRemoteRead
     : undefined;
 }
 
@@ -50,7 +50,7 @@ async function runOn(runtime: StudioRuntime, compiled = compiledExample()) {
 
 Deno.test("on the builder's own keys a profile runs with the guardrails it was given", async () => {
   const compiled = compiledExample((draft) => {
-    draft.guardrails.taintAfterRemoteRead = '';
+    draft.guardrails.taintWrite = '';
   });
   const own = await runOn(ON_OWN_KEYS, compiled);
   assertEquals(own.guardrails, defineProfile(compiled.profile).guardrails);
@@ -80,24 +80,46 @@ Deno.test("the Network note says what the studio's runtime does with the rules",
   assertEquals(online.note, undefined);
 });
 
-Deno.test('lent keys refuse what they hold after a remote read, and a stricter profile keeps its own', async () => {
+Deno.test('lent keys hold what they hold after a remote read, access by access, and a stricter profile keeps its own', async () => {
   const unset = compiledExample((draft) => {
-    draft.guardrails.taintAfterRemoteRead = '';
+    draft.guardrails.taintWrite = '';
   });
-  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS, unset)).guardrails), 'destructive');
+  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS, unset)).guardrails), {
+    destructive: 'block',
+  });
   assertEquals(
     studioTaintNote(ON_TEST_KEYS),
     "This page's keys refuse destructive calls after a remote read. Stricter settings hold.",
   );
 
   const stricter = compiledExample((draft) => {
-    draft.guardrails.taintAfterRemoteRead = 'write';
+    draft.guardrails.taintWrite = 'block';
   });
-  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS, stricter)).guardrails), 'write');
+  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS, stricter)).guardrails), {
+    write: 'block',
+  });
+
+  // why: Each access keeps the stricter side: the profile's ask on writes, the keys' refusal on destructive calls.
+  const asks = compiledExample((draft) => {
+    draft.guardrails.taintWrite = 'confirm';
+  });
+  assertEquals(afterRemoteRead((await runOn(ON_TEST_KEYS, asks)).guardrails), {
+    write: 'confirm',
+    destructive: 'block',
+  });
+
+  const asking = {
+    mode: 'demo',
+    keys: { ...TEST_KEYS, holds: { ...TEST_KEYS.holds, afterRemoteRead: { write: 'confirm' } } },
+  } as const;
+  assertEquals(
+    studioTaintNote(asking),
+    "This page's keys ask before writes after a remote read. Stricter settings hold.",
+  );
 
   const open = {
     mode: 'demo',
-    keys: { ...TEST_KEYS, holds: { ...TEST_KEYS.holds, afterRemoteRead: 'off' } },
+    keys: { ...TEST_KEYS, holds: { ...TEST_KEYS.holds, afterRemoteRead: {} } },
   } as const;
   assertEquals(afterRemoteRead((await runOn(open, unset)).guardrails), undefined);
   assertEquals(studioTaintNote(open), undefined);

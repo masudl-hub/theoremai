@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { TaintGate } from '@theoremjs/agents/guardrails';
+import type { TaintAccessGates } from '@theoremjs/agents/guardrails';
 import type { DecisionQuestion } from '@theoremjs/agents/kernel';
 import type { ModelBindingDraft, StudioProfileType } from './draft.ts';
 import type { ModelRoute } from './providers.ts';
@@ -60,8 +60,11 @@ export interface LentDecisionLimits {
 export interface LentHolds {
   /** Runs reach public hosts only: a profile's network rules give way to the kernel's default. */
   publicHostsOnly: boolean;
-  /** The calls a turn refuses once it has read a remote result. A profile that refuses more keeps its own. */
-  afterRemoteRead: TaintGate;
+  /**
+   * What a turn does with calls that change something once it has read a remote result. Each
+   * access keeps the profile's own setting where that is stricter.
+   */
+  afterRemoteRead: TaintAccessGates;
 }
 
 /** A page's lent keys, and what runs on them. */
@@ -144,8 +147,14 @@ export function studioNetworkNote(runtime: NetworkRuntime): string | undefined {
 
 /** What lent keys refuse after a remote read; nothing when the profile's own setting runs. */
 export function studioTaintNote(on: StudioRunsOn): string | undefined {
-  const gate = on.mode === 'demo' ? on.keys.holds.afterRemoteRead : 'off';
-  if (gate === 'off') return undefined;
-  const refused = gate === 'write' ? 'writes' : 'destructive calls';
-  return `This page's keys refuse ${refused} after a remote read. Stricter settings hold.`;
+  if (on.mode !== 'demo') return undefined;
+  const { write = 'off', destructive = write } = on.keys.holds.afterRemoteRead;
+  const said = [
+    write !== 'off' && `${GATE_VERBS[write]} writes`,
+    destructive !== write && `${GATE_VERBS[destructive]} destructive calls`,
+  ].filter(Boolean);
+  if (said.length === 0) return undefined;
+  return `This page's keys ${said.join(' and ')} after a remote read. Stricter settings hold.`;
 }
+
+const GATE_VERBS = { off: 'log', confirm: 'ask before', block: 'refuse' } as const;

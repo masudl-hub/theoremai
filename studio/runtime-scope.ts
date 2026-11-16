@@ -21,6 +21,7 @@ import {
   type DetectSpec,
   listsPatterns,
   TAINT_GATES,
+  type TaintAccessGates,
   type TaintGate,
 } from '@theoremjs/agents/guardrails';
 import type {
@@ -198,21 +199,31 @@ export function agentCallHook(scope: KernelScope, runtime: StudioRuntime): Agent
 }
 
 /** The stricter of two gates. */
-function stricterGate(a: TaintGate | undefined, b: TaintGate): TaintGate {
-  return TAINT_GATES.indexOf(a ?? 'off') > TAINT_GATES.indexOf(b) ? (a as TaintGate) : b;
+function stricterGate(a: TaintGate, b: TaintGate): TaintGate {
+  return TAINT_GATES.indexOf(a) > TAINT_GATES.indexOf(b) ? a : b;
 }
 
-/** `guardrails` held to what lent keys refuse after a remote read. */
-function withHeldTaint<G extends { taint?: { afterRemoteRead?: TaintGate } }>(
+/** What a setting does to writes and to destructive calls. */
+function accessGates(gates: TaintAccessGates | undefined): [TaintGate, TaintGate] {
+  const write = gates?.write ?? 'off';
+  return [write, gates?.destructive ?? write];
+}
+
+/** `guardrails` held to what lent keys do after a remote read, access by access. */
+function withHeldTaint<G extends { taint?: { afterRemoteRead?: TaintAccessGates } }>(
   guardrails: G,
   runtime: StudioRuntime,
 ): G {
-  if (runtime.mode !== 'demo' || runtime.keys.holds.afterRemoteRead === 'off') return guardrails;
-  const afterRemoteRead = stricterGate(
-    guardrails.taint?.afterRemoteRead,
-    runtime.keys.holds.afterRemoteRead,
-  );
-  if (afterRemoteRead === guardrails.taint?.afterRemoteRead) return guardrails;
+  if (runtime.mode !== 'demo') return guardrails;
+  const [ownWrite, ownDestructive] = accessGates(guardrails.taint?.afterRemoteRead);
+  const [heldWrite, heldDestructive] = accessGates(runtime.keys.holds.afterRemoteRead);
+  const write = stricterGate(ownWrite, heldWrite);
+  const destructive = stricterGate(ownDestructive, heldDestructive);
+  if (write === ownWrite && destructive === ownDestructive) return guardrails;
+  const afterRemoteRead = {
+    ...(write !== 'off' ? { write } : {}),
+    ...(destructive !== write ? { destructive } : {}),
+  };
   return { ...guardrails, taint: { ...guardrails.taint, afterRemoteRead } };
 }
 

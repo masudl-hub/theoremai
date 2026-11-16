@@ -5,7 +5,7 @@ import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { checkTaintGate, isTainted, recordTaint } from '../../src/guardrails/tool-result.ts';
 import type {
   Provenance,
-  TaintGate,
+  TaintAccessGates,
   TaintGuardrailSpec,
   TurnTaint,
 } from '../../src/guardrails/types.ts';
@@ -43,20 +43,20 @@ Deno.test('a delegated agent result taints like any other remote read', () => {
   const delegated: Provenance = { origin: 'delegated', tool: 'sub_agent', depth: 2 };
   assertEquals(isTainted(recordTaint(undefined, delegated)), true);
 });
-function gate(taint: TurnTaint | undefined, access: string, afterRemoteRead?: TaintGate) {
+function gate(taint: TurnTaint | undefined, access: string, afterRemoteRead?: TaintAccessGates) {
   const policy = resolveGuardrailPolicy(
     afterRemoteRead ? { taint: { afterRemoteRead } } : undefined,
   );
-  return checkTaintGate(taint, access, policy);
+  return checkTaintGate(taint, access, policy).verdict;
 }
 const tainted: TurnTaint = { sources: [remote], suspicious: [] };
 Deno.test('a clean turn allows every access level', () => {
   for (const access of ['read-only', 'read-write', 'destructive']) {
-    assertEquals(gate(undefined, access, 'write').action, 'allow');
+    assertEquals(gate(undefined, access, { write: 'block' }).action, 'allow');
   }
 });
 Deno.test('reads are always allowed, even on a tainted turn', () => {
-  assertEquals(gate(tainted, 'read-only', 'write').action, 'allow');
+  assertEquals(gate(tainted, 'read-only', { write: 'block' }).action, 'allow');
 });
 Deno.test('taint is reported even when enforcement is off', () => {
   const verdict = gate(tainted, 'destructive');
@@ -64,16 +64,31 @@ Deno.test('taint is reported even when enforcement is off', () => {
   if (verdict.action !== 'flag') return;
   assertEquals(verdict.hits[0]?.rule, 'tool_call.tainted-turn');
 });
-Deno.test("gate 'destructive' refuses destructive calls but flags writes", () => {
-  assertEquals(gate(tainted, 'destructive', 'destructive').action, 'block');
-  assertEquals(gate(tainted, 'read-write', 'destructive').action, 'flag');
+Deno.test('destructive: block refuses destructive calls but flags writes', () => {
+  assertEquals(gate(tainted, 'destructive', { destructive: 'block' }).action, 'block');
+  assertEquals(gate(tainted, 'read-write', { destructive: 'block' }).action, 'flag');
 });
-Deno.test("gate 'write' refuses both write and destructive calls", () => {
-  assertEquals(gate(tainted, 'read-write', 'write').action, 'block');
-  assertEquals(gate(tainted, 'destructive', 'write').action, 'block');
+Deno.test('write: block refuses both write and destructive calls', () => {
+  assertEquals(gate(tainted, 'read-write', { write: 'block' }).action, 'block');
+  assertEquals(gate(tainted, 'destructive', { write: 'block' }).action, 'block');
+});
+Deno.test('confirm flags the call and says what the approval card asks', () => {
+  const policy = resolveGuardrailPolicy({ taint: { afterRemoteRead: { write: 'confirm' } } });
+  for (const access of ['read-write', 'destructive']) {
+    const { verdict, confirm } = checkTaintGate(tainted, access, policy);
+    assertEquals(verdict.action, 'flag');
+    assertEquals(confirm?.includes('web_fetch'), true);
+  }
+  assertEquals(checkTaintGate(tainted, 'read-only', policy).confirm, undefined);
+  assertEquals(checkTaintGate(undefined, 'destructive', policy).confirm, undefined);
+});
+Deno.test('destructive can be stricter than write', () => {
+  const gates = { write: 'confirm', destructive: 'block' } as const;
+  assertEquals(gate(tainted, 'read-write', gates).action, 'flag');
+  assertEquals(gate(tainted, 'destructive', gates).action, 'block');
 });
 Deno.test('a refusal names what the turn read, so the model can explain itself', () => {
-  const verdict = gate(tainted, 'destructive', 'destructive');
+  const verdict = gate(tainted, 'destructive', { destructive: 'block' });
   assertEquals(verdict.action, 'block');
   if (verdict.action !== 'block') return;
   assertEquals(verdict.rejection.includes('web_fetch'), true);
@@ -144,7 +159,7 @@ function readThenWrite(): TurnModel {
 }
 async function runGated(
   id: string,
-  afterRemoteRead?: TaintGate,
+  afterRemoteRead?: TaintAccessGates,
   text = 'summarise',
 ): Promise<TurnEvent[]> {
   registerProfile(
@@ -173,7 +188,7 @@ Deno.test('a write after a remote read is refused when the profile gates it', as
   resetTools();
   const restore = registerReadThenWrite();
   try {
-    const events = await runGated('deputy_gated', 'destructive');
+    const events = await runGated('deputy_gated', { destructive: 'block' });
     const failure = failureOf(lastTool(events, 'send_email'));
     assertEquals(failure?.code, 'tainted_turn');
     assertEquals(failure?.kind, 'blocked');
@@ -240,26 +255,26 @@ const steered: TurnTaint = {
  */
 Deno.test('a steered turn is not refused when no structural gate is set', () => {
   const policy = resolveGuardrailPolicy(undefined);
-  assertEquals(checkTaintGate(steered, 'destructive', policy).action, 'flag');
+  assertEquals(checkTaintGate(steered, 'destructive', policy).verdict.action, 'flag');
 });
 Deno.test('a steered turn is refused only on the same structural terms as any other', () => {
   const off = resolveGuardrailPolicy(undefined);
-  const gated = resolveGuardrailPolicy({ taint: { afterRemoteRead: 'destructive' } });
+  const gated = resolveGuardrailPolicy({ taint: { afterRemoteRead: { destructive: 'block' } } });
   // Suspicion changes nothing about whether the call proceeds...
-  assertEquals(checkTaintGate(steered, 'destructive', off).action, 'flag');
-  assertEquals(checkTaintGate(tainted, 'destructive', off).action, 'flag');
+  assertEquals(checkTaintGate(steered, 'destructive', off).verdict.action, 'flag');
+  assertEquals(checkTaintGate(tainted, 'destructive', off).verdict.action, 'flag');
   // ...and the structural gate treats both alike.
-  assertEquals(checkTaintGate(steered, 'destructive', gated).action, 'block');
-  assertEquals(checkTaintGate(tainted, 'destructive', gated).action, 'block');
+  assertEquals(checkTaintGate(steered, 'destructive', gated).verdict.action, 'block');
+  assertEquals(checkTaintGate(tainted, 'destructive', gated).verdict.action, 'block');
 });
 Deno.test('suspicion is still reported, so the risk stays visible', () => {
-  const verdict = checkTaintGate(steered, 'destructive', resolveGuardrailPolicy(undefined));
+  const { verdict } = checkTaintGate(steered, 'destructive', resolveGuardrailPolicy(undefined));
   assertEquals(verdict.action, 'flag');
   if (verdict.action !== 'flag') return;
   assertEquals(verdict.hits[0]?.rule, 'tool_call.steered-turn');
 });
 Deno.test('an ordinary tainted turn reports the plain rule', () => {
-  const verdict = checkTaintGate(tainted, 'destructive', resolveGuardrailPolicy(undefined));
+  const { verdict } = checkTaintGate(tainted, 'destructive', resolveGuardrailPolicy(undefined));
   assertEquals(verdict.action, 'flag');
   if (verdict.action !== 'flag') return;
   assertEquals(verdict.hits[0]?.rule, 'tool_call.tainted-turn');
@@ -342,10 +357,10 @@ async function liveReadThenSend(
   }
 }
 Deno.test('a Live write after a remote read is refused in that cycle and allowed in the next', async () => {
-  assertEquals(await liveReadThenSend('deputy_live', { afterRemoteRead: 'destructive' }), [
-    'tainted_turn',
-    undefined,
-  ]);
+  assertEquals(
+    await liveReadThenSend('deputy_live', { afterRemoteRead: { destructive: 'block' } }),
+    ['tainted_turn', undefined],
+  );
 });
 Deno.test('a Live call to an address the page named is refused in that cycle and allowed in the next', async () => {
   assertEquals(
@@ -367,7 +382,7 @@ Deno.test('a write chosen beside a remote read runs; one chosen after it is refu
         tools: { allow: ['web_fetch', 'send_email'] },
         inputs: { text: true },
         outputs: {},
-        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+        guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: { destructive: 'block' } } },
       }),
     );
     let step = 0;

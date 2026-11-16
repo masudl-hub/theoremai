@@ -133,13 +133,15 @@ Deno.test('a when line with a blank line in it reads back exactly as written', (
 
 Deno.test('both taint settings in the file come back into the draft', () => {
   const draft = createExampleDraft();
-  draft.guardrails.taintAfterRemoteRead = 'write';
+  draft.guardrails.taintWrite = 'confirm';
+  draft.guardrails.taintDestructive = 'block';
   draft.guardrails.taintRemoteDestination = 'block';
   const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   const read = readStudioSource(studioSource(compiled), createExampleDraft());
   assert(read.ok);
-  assertEquals(read.draft.guardrails.taintAfterRemoteRead, 'write');
+  assertEquals(read.draft.guardrails.taintWrite, 'confirm');
+  assertEquals(read.draft.guardrails.taintDestructive, 'block');
   assertEquals(read.draft.guardrails.taintRemoteDestination, 'block');
 });
 

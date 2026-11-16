@@ -222,7 +222,7 @@ Deno.test('a pause never changes what the gates decide', async () => {
             quota: { perDay: 100000 },
             taint:
               gate === 'afterRemoteRead'
-                ? { afterRemoteRead: 'destructive' }
+                ? { afterRemoteRead: { destructive: 'block' as const } }
                 : { remoteDestination: 'block' },
           },
         }),

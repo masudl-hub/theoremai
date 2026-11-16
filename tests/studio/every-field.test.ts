@@ -309,7 +309,10 @@ const PROFILES = [
         allowedHosts: ['example.com'],
         allowedSchemes: ['https'],
       },
-      taint: { afterRemoteRead: 'write', remoteDestination: 'confirm' },
+      taint: {
+        afterRemoteRead: { write: 'confirm', destructive: 'block' },
+        remoteDestination: 'confirm',
+      },
     },
     labels: { 'repair.default_guidance': 'Return the notes as JSON.' },
     observability,

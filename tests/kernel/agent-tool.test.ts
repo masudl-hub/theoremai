@@ -434,6 +434,30 @@ Deno.test('an agent tool is checked when it is registered', () => {
   );
 });
 
+Deno.test('an agent whose tool picks its sign-in per call can stop on a gate', () => {
+  const scope = createKernelScope();
+  scope.tools.register({
+    type: 'function',
+    name: 'read_account',
+    description: 'Reads one of several accounts.',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({ account: z.string() }),
+    output: z.object({}),
+    auth: ({ account }) => ({ slot: account, type: 'bearer', service: account }),
+    handler: () => ({}),
+  });
+  scope.profiles.register(textProfile(RESEARCHER, RESEARCHER_SYSTEM, ['read_account']));
+  assertThrows(
+    () => scope.tools.register(agentTool()),
+    TheoremError,
+    "its tool 'read_account' can stop on a gate",
+  );
+});
+
 Deno.test('an agent with no tools of its own is trusted; one with tools taints', () => {
   assertEquals(agentToolOrigin(textProfile('bare', 'x', [])), 'local');
   assertEquals(agentToolOrigin(textProfile('tooled', 'x', ['lookup'])), 'delegated');

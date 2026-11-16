@@ -192,6 +192,30 @@ registerTool({
 });
 ```
 
+### Pick the Sign-in from the Call
+
+A tool can act on one of several accounts that the input names. Give `auth` a function of the input. It returns the sign-in for that call, or `undefined` when the call needs none:
+
+```ts
+registerTool({
+  type: 'function',
+  name: 'read_inbox',
+  // ... access, loadTier, output
+  input: z.object({ account: z.enum(['work', 'home']) }),
+  auth: ({ account }) => ({
+    slot: `mail_${account}`,
+    type: 'oauth2',
+    service: account === 'work' ? 'Work mail' : 'Home mail',
+  }),
+  handler: async (input, ctx) => {
+    const response = await ctx.signedInFetch('https://mail.example.com/v1/inbox');
+    return { messages: await response.json() };
+  },
+});
+```
+
+The call then signs in as a tool with that `auth` does: an empty slot gates the turn with that slot and service, and the call resumes when the person signs in. If the function throws, the call fails and the turn goes on.
+
 ---
 
 ## Related Guides

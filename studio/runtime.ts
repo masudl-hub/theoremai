@@ -26,6 +26,7 @@ import {
   memoryCredentialSource,
   type RegisteredTool,
   type RunDecisionOptions,
+  toolAuthForCall,
 } from '@theoremjs/agents/kernel';
 import {
   type ConversationView,
@@ -337,9 +338,12 @@ export async function* streamStudioTurn(
 /** The model's input to the paused call, as the browser replays it. */
 const modelArguments = z.record(z.string(), z.unknown());
 
-/** The gate a tool waits on: its permission tier, and the slot a sign-in gate fills. */
-function heldGate(tool: RegisteredTool): Pick<HeldGatedCall, 'permission' | 'auth'> {
-  const auth = 'auth' in tool ? tool.auth : undefined;
+/** The gate a call waits on: its permission tier, and the slot its sign-in gate fills. */
+function heldGate(
+  tool: RegisteredTool,
+  input: unknown,
+): Pick<HeldGatedCall, 'permission' | 'auth'> {
+  const auth = toolAuthForCall(tool, input);
   return {
     permission: tool.permission,
     ...(auth
@@ -374,7 +378,7 @@ function answerReplayed(
       name: tool.name,
       arguments: checkRequest(modelArguments, replay.input, 'replayed call input'),
       gateKind: replay.gateKind,
-      ...heldGate(tool),
+      ...heldGate(tool, replay.input),
     },
     replay.sessionPermissions ?? [],
   );

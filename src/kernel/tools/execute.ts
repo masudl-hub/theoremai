@@ -76,7 +76,7 @@ import {
   isGateResumeGranted,
   isResumeContinuation,
 } from './permission.ts';
-import type { ToolRegistry } from './registry.ts';
+import { type ToolRegistry, toolAuthForCall } from './registry.ts';
 import {
   type CredentialQuery,
   executeHttpTool,
@@ -811,8 +811,9 @@ async function* resolveFunctionSignIn(
   ctx: ToolContext,
   base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, FunctionSignIn> {
-  if (!tool.auth) return {};
-  const resolved = yield* resolveToolAuth(tool.name, tool.auth, ctx, base);
+  const auth = fixedAuth(tool);
+  if (!auth) return {};
+  const resolved = yield* resolveToolAuth(tool.name, auth, ctx, base);
   const outcome = outcomeFromUnauth(resolved);
   if (outcome) return { outcome };
   return {
@@ -976,7 +977,7 @@ export async function* executeFunction(
     if (signedIn.prepared && err instanceof CredentialRefusedError) {
       checks.record();
       const refused = yield* refusedCredentialOutcome(
-        tool,
+        { name: tool.name, auth: fixedAuth(tool) },
         err.refusal,
         signedIn.secret !== undefined,
         ctx,
@@ -1292,7 +1293,33 @@ function turnReadBack({ modelResult }: ToolExecuteSettlement): ToolCallEnd['resu
 /** The service a sign-in gate's answer names, from the tool's own auth config. */
 function signInService(tool: RegisteredTool, resume: ToolContext['resume']) {
   if (!resume?.signIn || tool.type === 'builtin' || tool.type === 'agent') return undefined;
-  return tool.auth?.service;
+  return fixedAuth(tool)?.service;
+}
+
+/** A tool's sign-in for this call; `pinCallAuth` has already picked one the input chooses. */
+function fixedAuth(tool: Extract<RegisteredTool, { auth?: unknown }>) {
+  if (typeof tool.auth !== 'function') return tool.auth;
+  throw new TheoremError(
+    'config',
+    `Tool "${tool.name}" reached its sign-in before the call picked one`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
+/**
+ * The tool with the sign-in its `auth` function picks from this call's input, so the gate, the
+ * resume and the notes all read one fixed sign-in. Input the schema refuses picks none; the call
+ * then fails on its input before anything signs in.
+ */
+function pinCallAuth(
+  tool: RegisteredTool,
+  input: unknown,
+): { tool: RegisteredTool } | { failure: ToolFailure } {
+  if (tool.type !== 'function' || typeof tool.auth !== 'function') return { tool };
+  try {
+    return { tool: { ...tool, auth: toolAuthForCall(tool, input) } };
+  } catch (err) {
+    return { failure: functionHandlerFailure(err) };
+  }
 }
 
 /**
@@ -1497,8 +1524,9 @@ async function* executeTracedTool(
 
 async function* runRegisteredTool(
   args: RegisteredToolCall,
-  tool: RegisteredTool | undefined,
+  registered: RegisteredTool | undefined,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  let tool = registered;
   const { profile, name, callId, ctx, snapshot, stages } = args;
   const { input } = splitBackground(tool?.type === 'builtin' ? undefined : tool, args.input);
   const safeInput = plainToolInput(input);
@@ -1545,6 +1573,12 @@ async function* runRegisteredTool(
     yield failureEvent(base, eligibility);
     return earlyFailure(eligibility);
   }
+  const pinned = pinCallAuth(tool, safeInput);
+  if ('failure' in pinned) {
+    yield failureEvent(base, pinned.failure);
+    return earlyFailure(pinned.failure);
+  }
+  tool = pinned.tool;
 
   if (isGateResumeDenied(ctx.resume)) {
     return yield* settleToolFailure(

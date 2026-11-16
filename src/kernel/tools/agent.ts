@@ -191,9 +191,10 @@ function profileTakesText(profile: Profile): boolean {
 function toolCanGate(tool: RegisteredTool): boolean {
   if (tool.type === 'builtin') return false;
   if (tool.permission !== 'auto') return true;
-  return (
-    'auth' in tool && tool.auth !== undefined && (tool.auth.onUnauthenticated ?? 'gate') === 'gate'
-  );
+  if (!('auth' in tool) || tool.auth === undefined) return false;
+  // why: Which sign-in, and so whether it gates, is only known once a call picks it.
+  if (typeof tool.auth === 'function') return true;
+  return (tool.auth.onUnauthenticated ?? 'gate') === 'gate';
 }
 
 /** Why `profile` can't be run by an agent tool, or `undefined` when it can. */

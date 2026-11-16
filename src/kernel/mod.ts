@@ -377,12 +377,14 @@ export {
   toolOperationOutcomeSchema,
   toolOperationReplySchema,
 } from './tools/operation.ts';
+export { toolAuthForCall } from './tools/registry.ts';
 export { jsonSchemaFromZod } from './tools/schema.ts';
 export { CredentialRefusedError } from './tools/signed-in-fetch.ts';
 export type {
   ModelToolResult,
   PageAnswer,
   ToolAuthConfig,
+  ToolAuthFor,
   ToolContext,
   ToolLabels,
   ToolMediaEntry,

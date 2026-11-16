@@ -84,6 +84,22 @@ function schemasFromZod<TIn, TOut>(def: {
   return { inputSchema: structuredClone(inputSchema), outputSchema: structuredClone(outputSchema) };
 }
 
+/**
+ * The sign-in a tool uses for one call: its `auth`, or what its `auth` function picks from the
+ * call's input, checked as a registered one is. Input the schema refuses picks none. Throws what
+ * the function throws, or a `config` error for a pick that fails the checks.
+ */
+export function toolAuthForCall(tool: RegisteredTool, input: unknown): ToolAuthConfig | undefined {
+  if (!('auth' in tool)) return undefined;
+  if (typeof tool.auth !== 'function') return tool.auth;
+  const parsed = tool.input.safeParse(input);
+  if (!parsed.success) return undefined;
+  const auth = tool.auth(parsed.data);
+  assertAuthService(tool.name, auth);
+  assertQueryParam(tool.name, auth);
+  return auth;
+}
+
 /** The person is told which service they sign in to; the tool's builder names it, never the model or the server. */
 function assertAuthService(name: string, auth: ToolAuthConfig | undefined): void {
   if (auth && (typeof auth.service !== 'string' || !auth.service.trim())) {
@@ -164,7 +180,8 @@ function assertReadLimits(
 function assertToolSettings(
   def: Pick<HttpToolDef, 'name'> &
     Partial<
-      Pick<HttpToolDef, 'endpoint' | 'auth' | 'mapping' | 'limit' | 'timeoutMs'> &
+      Pick<HttpToolDef, 'endpoint' | 'mapping' | 'limit' | 'timeoutMs'> &
+        Pick<FunctionToolDef, 'auth'> &
         Pick<HttpToolDef, 'maxResponseBytes' | 'imageLimits'> &
         Pick<McpToolDef, 'session'> &
         Pick<FunctionToolDef, 'answeredBy'>
@@ -178,14 +195,16 @@ function assertToolSettings(
     });
   }
   if (def.type === 'builtin' || def.type === 'agent') return;
-  assertAuthService(def.name, def.auth);
+  // why: A sign-in a function picks per call is checked on each call, by `toolAuthForCall`.
+  const auth = typeof def.auth === 'function' ? undefined : def.auth;
+  assertAuthService(def.name, auth);
   if (def.type === 'http') {
     if (def.endpoint?.trim()) assertFixedEndpointOrigin(def.endpoint);
-    assertQueryParam(def.name, def.auth, def.mapping?.queryParams);
+    assertQueryParam(def.name, auth, def.mapping?.queryParams);
     assertLimit(def.name, def.limit);
     assertTimeout(def.name, def.timeoutMs);
   } else {
-    assertQueryParam(def.name, def.auth);
+    assertQueryParam(def.name, auth);
   }
   if (def.type === 'http' || def.type === 'mcp') assertReadLimits(def);
   if (def.type === 'mcp') {

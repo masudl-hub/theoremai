@@ -368,10 +368,15 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown>
    *
    * @remarks The service the handler acts on for the person. The kernel resolves the slot before
    * the handler runs (gating, refreshing, or telling the model as the policy says) and hands the
-   * handler `ctx.signedInFetch`; the handler never sees the credential.
+   * handler `ctx.signedInFetch`; the handler never sees the credential. A function of the call's
+   * input picks the sign-in per call, for a tool that acts on whichever service the input names;
+   * `undefined` from it means the call needs none.
    */
-  auth?: ToolAuthConfig;
+  auth?: ToolAuthConfig | ToolAuthFor<TIn>;
 }
+
+/** Picks a function tool's sign-in from the call's input; `undefined` when the call needs none. */
+export type ToolAuthFor<TIn> = (input: TIn) => ToolAuthConfig | undefined;
 
 /** How a tool that acts for the person signs in to the service; http, mcp, and function tools share it. */
 export interface ToolAuthConfig {

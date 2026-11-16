@@ -199,3 +199,121 @@ Deno.test('a function tool that signs in must name its service', () => {
     'names no service',
   );
 });
+
+const ACCOUNTS: Record<string, string> = { work: 'Work Sheets', home: 'Home Sheets' };
+/** A function tool whose input names the account, and so the sign-in, each call acts on. */
+function registerAccountTool(pick?: (account: string) => ToolAuthConfig | undefined) {
+  resetTools();
+  const seen: { calls: number } = { calls: 0 };
+  registerTool({
+    name: 'read_sheet',
+    description: 'Read a spreadsheet in one of the person’s accounts',
+    type: 'function',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({ account: z.string() }),
+    output: z.object({ body: z.string() }),
+    auth: ({ account }) =>
+      pick
+        ? pick(account)
+        : { slot: `sheets_${account}`, type: 'bearer', service: ACCOUNTS[account] ?? account },
+    handler: async (_input, ctx) => {
+      seen.calls++;
+      if (!ctx.signedInFetch) return { body: 'no sign-in' };
+      const response = await ctx.signedInFetch('https://sheets.example.com/v4/s/1');
+      return { body: await response.text() };
+    },
+  });
+  return seen;
+}
+async function runAccount(
+  account: string,
+  credentials: Readonly<Record<string, ToolCredential>>,
+  resume?: ToolContext['resume'],
+) {
+  const events = [];
+  for await (const ev of executeRegisteredTool({
+    tools: defaultKernelScope.tools,
+    profile,
+    name: 'read_sheet',
+    input: { account },
+    callId: 'call_sheet',
+    ctx: {
+      credentials: memoryCredentialSource(credentials),
+      resolveHost: RESOLVE,
+      ...(resume ? { resume } : {}),
+    },
+  })) {
+    events.push(ev);
+  }
+  return events;
+}
+Deno.test('the call’s input picks the sign-in: the gate names that slot and service', async () => {
+  const seen = registerAccountTool();
+  const events = await runAccount('home', { sheets_work: { type: 'bearer', token: TOKEN } });
+  const [gate] = toolEventsOf(events, 'gate');
+  const challenge = gate?.gate.kind === 'auth' ? gate.gate.authChallenge : undefined;
+  assertEquals([challenge?.slot, challenge?.service], ['sheets_home', 'Home Sheets']);
+  assertEquals(seen.calls, 0);
+});
+Deno.test('a call whose picked slot is signed in runs with that credential only', async () => {
+  registerAccountTool();
+  const { fetchFn, sent } = answering(200, 'rows');
+  const events = await withFetch(fetchFn, () =>
+    runAccount('work', {
+      sheets_work: { type: 'bearer', token: TOKEN },
+      sheets_home: { type: 'bearer', token: 'home-token' },
+    }),
+  );
+  assertEquals(
+    sent.map((s) => s.authorization),
+    [`Bearer ${TOKEN}`],
+  );
+  assertEquals(toolEventsOf(events, 'complete').length, 1);
+});
+Deno.test('a resumed sign-in reads the service the call picked', async () => {
+  registerAccountTool();
+  const { fetchFn } = answering(200, 'rows');
+  const done = await withFetch(fetchFn, () =>
+    runAccount(
+      'home',
+      { sheets_home: { type: 'bearer', token: TOKEN } },
+      { granted: true, signIn: true },
+    ),
+  );
+  const note = labelText('sign_in.done', { service: 'Home Sheets' });
+  assertEquals(JSON.stringify(toolEventsOf(done, 'complete')).includes(note), true);
+  const declined = await runAccount('home', {}, { granted: false, signIn: true });
+  assertEquals(
+    toolEventsOf(declined, 'error')[0]?.failure?.message,
+    labelText('sign_in.declined', { service: 'Home Sheets' }),
+  );
+});
+Deno.test('a call whose input picks no sign-in runs without one', async () => {
+  const seen = registerAccountTool(() => undefined);
+  const events = await runAccount('public', {});
+  assertEquals(toolEventsOf(events, 'gate').length, 0);
+  assertEquals(toolEventsOf(events, 'complete').length, 1);
+  assertEquals(seen.calls, 1);
+});
+Deno.test('a pick that throws or names no service fails the call, not the turn', async () => {
+  for (const [pick, message] of [
+    [
+      () => {
+        throw new Error('unknown account');
+      },
+      'unknown account',
+    ],
+    [() => ({ slot: 'x', type: 'bearer', service: '' }) as const, 'names no service'],
+  ] as const) {
+    const seen = registerAccountTool(pick);
+    const events = await runAccount('work', {});
+    const [failed] = toolEventsOf(events, 'error');
+    assertEquals(failed?.failure?.code, 'handler_error');
+    assertEquals(failed?.failure?.message.includes(message), true);
+    assertEquals(seen.calls, 0);
+  }
+});

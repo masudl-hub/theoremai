@@ -1109,7 +1109,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = withFieldDocs({
     unset: 'The model can fill every channel the profile takes',
   },
   'registerTool.auth': {
-    ...field('ToolAuthConfig'),
+    ...field('ToolAuthConfig | ToolAuthFor'),
     unset: 'No credential',
   },
   'registerTool.auth.type': field(

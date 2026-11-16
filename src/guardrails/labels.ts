@@ -637,7 +637,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     '{tool} has started and is still running. You do not have its result, so do not state or guess one, and do not call {tool} again. Tell the person it is under way and that the result comes later.',
   'tool.late_result': 'The {tool} call you started earlier has finished. This is what it returned:',
   'tool.after_field':
-    'Names of other tools you call in this same step, as search_web, that must finish before this call starts. Tool names only, not call ids. Leave out to set no order.',
+    'Names of other tools you call in this same step, as search_web, that must finish before this call starts; tool names, not call ids. Leave out to set no order.',
   'tool.not_visible': "Tool '{tool}' is not visible this turn",
   'tool.builtin_not_enabled': "Builtin '{tool}' is not enabled this turn",
   'tool.provider_native':

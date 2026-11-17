@@ -1,26 +1,19 @@
 import { errorKind } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
-import type { ErrorKind } from '../../guardrails/theorem-error.ts';
+import { type ErrorKind, TheoremError } from '../../guardrails/theorem-error.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
 import { retryTransient } from '../../providers/shared/retry.ts';
-import type { ToolCredentialSource } from '../auth/credential-source.ts';
-import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
+import { isSealedSource, type SealedCredentialSource } from '../auth/credential-source.ts';
+import { tokenAudienceCovers } from '../auth/oauth.ts';
 import type { AuthScopeRefused } from '../auth/scope-refusal.ts';
-import type {
-  ApiKeyCredential,
-  BearerCredential,
-  OAuth2Credential,
-  OAuthTransportOptions,
-  ToolCredential,
-} from '../auth/types.ts';
-import { mapStrings } from '../engine/tree.ts';
 import { isTextFile, modelTextFile } from '../registry/attachments.ts';
 import { mediaKindForMime } from '../registry/catalog.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
 import type { InteractionPart, ToolOutputPart, ToolWarning } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
+import { credentialId, credentialSender, readyCredential } from './credential-send.ts';
 import {
   dispatchToolBody,
   guardToolTarget,
@@ -62,41 +55,29 @@ import type {
   ToolGate,
 } from './types.ts';
 
-export type AuthResolveResult = {
-  headers: Record<string, string>;
-  /** An API key the URL carries in place of a header: the tool's `auth.queryParam` and the key. */
-  query?: CredentialQuery;
-  /** The response is stripped of this before anyone reads it. */
-  secret?: string;
-  /** RFC 8707 resource an OAuth token was issued for; it goes nowhere else. */
+/** A call's credential, ready to go: a sender for its origin's hops, never the credential itself. */
+export type SignedInSend = {
+  /** Sends one hop with the credential placed, never following a redirect; the call's own origin only, after its checks. */
+  send: typeof fetch;
+  /** A stable name for the credential (a digest of it), so MCP sessions are kept per credential. */
+  credentialId: string;
+  /** Where the credential may go: an OAuth token's resource (RFC 8707), or a sealed slot's. */
   audience?: string;
-  unauthenticated?: boolean;
-  modelMessage?: string;
-  /** Why the call fails, under `onUnauthenticated: 'fail'`. */
-  failureMessage?: string;
-  gate?: ToolGate;
 };
 
-/** A credential that goes in a query parameter of the URL a call is sent to. */
-export type CredentialQuery = { name: string; value: string };
+/** Why a call is not signed in, settled per the tool's `onUnauthenticated`. */
+export type UnauthenticatedResult = { auth: 'unauthenticated' } & (
+  | { gate: ToolGate }
+  | { modelMessage: string }
+  /** Why the call fails, under `onUnauthenticated: 'fail'`. */
+  | { failureMessage: string }
+);
 
-/** `url` with the credential set in its query parameter; `url` itself is left as it was. */
-export function withCredentialQuery(url: URL, query: CredentialQuery | undefined): URL {
-  if (!query) return url;
-  const signed = new URL(url);
-  signed.searchParams.set(query.name, query.value);
-  return signed;
-}
-
-function authHeaderPair(
-  authConfig: Pick<ToolAuthConfig, 'headerName' | 'headerPrefix'>,
-  value: string,
-  defaults: { headerName: string; headerPrefix: string },
-): Record<string, string> {
-  const headerName = authConfig.headerName ?? defaults.headerName;
-  const headerPrefix = authConfig.headerPrefix ?? defaults.headerPrefix;
-  return { [headerName]: `${headerPrefix}${value}` };
-}
+/** How a call's sign-in resolved: the tool signs in to nothing, it is signed in, or it is not. */
+export type AuthResolveResult =
+  | { auth: 'none' }
+  | { auth: 'signed_in'; signedIn: SignedInSend }
+  | UnauthenticatedResult;
 
 function buildAuthGate(
   toolName: string,
@@ -125,185 +106,132 @@ function unauthenticatedResult(
   message: string,
   policy: AuthUnauthenticatedPolicy,
   extras?: { issuer?: string; resource?: string },
-): AuthResolveResult & { gate?: ToolGate } {
+): UnauthenticatedResult {
   if (policy === 'gate') {
     // why: The caller emits the gate through emitGateSettlement, so `pre_tool` runs first.
-    const gate = buildAuthGate(toolName, authConfig, message, extras);
-    return { headers: {}, unauthenticated: true, gate };
+    return { auth: 'unauthenticated', gate: buildAuthGate(toolName, authConfig, message, extras) };
   }
-  if (policy === 'fail') return { headers: {}, unauthenticated: true, failureMessage: message };
-  return { headers: {}, unauthenticated: true, modelMessage: message };
+  if (policy === 'fail') return { auth: 'unauthenticated', failureMessage: message };
+  return { auth: 'unauthenticated', modelMessage: message };
 }
 
-/**
- * Where a token or API key goes on a tool's requests: the query parameter the tool names, or a
- * header, `Authorization: Bearer …` for a token and `Authorization: …` for a key unless the tool
- * or the key names another.
- */
-export function credentialPlacement(
-  authConfig: Pick<ToolAuthConfig, 'headerName' | 'headerPrefix' | 'queryParam'>,
-  credential: BearerCredential | ApiKeyCredential,
-): { headers: Record<string, string>; query?: CredentialQuery } {
-  const value = credential.type === 'bearer' ? credential.token : credential.key;
-  if (authConfig.queryParam !== undefined) {
-    return { headers: {}, query: { name: authConfig.queryParam, value } };
-  }
-  if (credential.type === 'bearer') {
-    return {
-      headers: authHeaderPair(authConfig, value, {
-        headerName: 'Authorization',
-        headerPrefix: 'Bearer ',
-      }),
-    };
-  }
-  const headerName = credential.headerName ?? authConfig.headerName ?? 'Authorization';
-  const headerPrefix = credential.headerPrefix ?? authConfig.headerPrefix ?? '';
-  return { headers: { [headerName]: `${headerPrefix}${value}` } };
-}
-
-function resolveStaticCredential(
-  credential: ToolCredential,
-  authConfig: ToolAuthConfig,
-): AuthResolveResult | undefined {
-  if (credential.type !== 'bearer' && credential.type !== 'api_key') return undefined;
-  const secret = credential.type === 'bearer' ? credential.token : credential.key;
-  return { ...credentialPlacement(authConfig, credential), secret };
-}
-
-/**
- * Refreshes in flight, by grant. Calls that find the same expired token share
- * one refresh: with rotating refresh tokens a second request would present a
- * spent token, which a server may treat as theft and revoke the whole grant.
- */
-const refreshesInFlight = new Map<string, Promise<OAuth2Credential>>();
-
-function refreshOnce(
-  credential: OAuth2Credential,
-  refreshToken: string,
-  transport: OAuthTransportOptions,
-  clientSecret: string | undefined,
-): Promise<OAuth2Credential> {
-  const grant = `${credential.tokenEndpoint}\n${refreshToken}`;
-  const inFlight = refreshesInFlight.get(grant);
-  if (inFlight) return inFlight;
-  const refresh = refreshOAuthToken({
-    refreshToken,
-    tokenEndpoint: credential.tokenEndpoint,
-    clientId: credential.clientId,
-    resource: credential.resource,
-    scope: credential.scope,
-    issuer: credential.issuer,
-    ...(clientSecret === undefined ? {} : { clientSecret }),
-    ...transport,
-  }).then((result) => result.credential);
-  refreshesInFlight.set(grant, refresh);
-  const settle = () => refreshesInFlight.delete(grant);
-  refresh.then(settle, settle);
-  return refresh;
-}
-
-async function* resolveOAuth2Credential(
+/** Why a stored credential cannot go, told as the tool's `onUnauthenticated` says. */
+function* unusableResult(
   toolName: string,
   authConfig: ToolAuthConfig,
-  credential: OAuth2Credential,
-  source: ToolCredentialSource,
-  ctx: ToolContext,
+  unusable: { reason: 'no_resource' | 'expired' | 'refresh_failed'; detail?: string },
+  bound: { issuer?: string; resource?: string },
   base: ToolCallBase,
-  policy: AuthUnauthenticatedPolicy,
-): AsyncGenerator<TurnEvent, AuthResolveResult> {
+): Generator<TurnEvent, UnauthenticatedResult> {
   const slot = authConfig.slot;
-  const bound = { issuer: credential.issuer, resource: credential.resource };
-  // invariant: A token goes only to the resource it was issued for; one that names none
-  // has nowhere it may go, so the user signs in again.
-  if (typeof credential.resource !== 'string' || credential.resource.length === 0) {
+  const policy = authConfig.onUnauthenticated ?? 'gate';
+  if (unusable.reason === 'no_resource') {
     const message = `OAuth credential for '${toolName}' (slot: '${slot}') does not name the resource it was issued for.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy, bound);
   }
-  let active = credential;
-  const isExpired =
-    credential.expiresAt !== undefined && credential.expiresAt <= Date.now() + 30000;
-
-  if (isExpired && credential.refreshToken) {
-    try {
-      active = await refreshOnce(
-        credential,
-        credential.refreshToken,
-        { network: toolNetworkPolicy(ctx), resolveHost: ctx.resolveHost },
-        await source.clientSecret?.(credential.clientId),
-      );
-    } catch (err) {
-      // invariant: The server's own words are untrusted text: they go to the host as
-      // `errorInternal`, never to the model or the client.
-      yield {
-        ...toolEvent(base, {
-          phase: 'progress',
-          data: { kind: 'auth_token_refresh_failed', slot },
-        }),
-        errorInternal: messageOf(err),
-      };
-      const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}').`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      return unauthenticatedResult(toolName, authConfig, message, policy, bound);
-    }
-    // why: The host persists the refreshed credential before the call goes on; the
-    // event only names the slot, so no token rides the stream.
-    await source.set(slot, active);
-    yield toolEvent(base, {
-      phase: 'progress',
-      data: { kind: 'auth_token_refreshed', slot },
-    });
-  } else if (isExpired) {
+  if (unusable.reason === 'expired') {
     const message = `OAuth token expired for '${toolName}' (slot: '${slot}') and no refresh token is available.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return unauthenticatedResult(toolName, authConfig, message, policy, bound);
   }
+  // invariant: The server's own words are untrusted text: they go to the host as
+  // `errorInternal`, never to the model or the client.
+  yield {
+    ...toolEvent(base, { phase: 'progress', data: { kind: 'auth_token_refresh_failed', slot } }),
+    ...(unusable.detail === undefined ? {} : { errorInternal: unusable.detail }),
+  };
+  const message = `Failed to refresh OAuth token for '${toolName}' (slot: '${slot}').`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  return unauthenticatedResult(toolName, authConfig, message, policy, bound);
+}
 
-  return {
-    headers: authHeaderPair(authConfig, active.accessToken, {
-      headerName: 'Authorization',
-      headerPrefix: 'Bearer ',
-    }),
-    secret: active.accessToken,
-    audience: credential.resource,
+/** A sealed source's send as a fetch: the request goes across as plain data, its body as text. */
+function sealedSender(source: SealedCredentialSource, slot: string): typeof fetch {
+  return (input, init) => {
+    const body = init?.body ?? undefined;
+    if (input instanceof Request || (body !== undefined && typeof body !== 'string')) {
+      throw new TheoremError('internal', 'A sealed request is a URL with a text body'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    return source.send(slot, String(input), {
+      method: init?.method ?? 'GET',
+      headers: Object.fromEntries(new Headers(init?.headers)),
+      ...(body === undefined ? {} : { body }),
+      ...(init?.signal ? { signal: init.signal } : {}),
+    });
   };
 }
 
-/** Finds the auth headers for a call from the host's credential for the tool's slot, refreshing an OAuth token when needed; with no usable credential it returns a gate or a message for the model, per the tool's `onUnauthenticated`. */
+/** Only the slot is named, so no token rides the stream. */
+function refreshedEvent(base: ToolCallBase, slot: string): TurnEvent {
+  return toolEvent(base, { phase: 'progress', data: { kind: 'auth_token_refreshed', slot } });
+}
+
+/**
+ * Readies the call's credential from the host's source for the tool's slot, refreshing an OAuth
+ * token when needed, and answers with a sender that carries it; with no usable credential it
+ * answers with a gate or a message for the model, per the tool's `onUnauthenticated`. A sealed
+ * source readies and sends on its own side, so the credential never reaches the run.
+ */
 export async function* resolveToolAuth(
   toolName: string,
   authConfig: ToolAuthConfig | undefined,
   ctx: ToolContext,
   base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, AuthResolveResult> {
-  if (!authConfig) {
-    return { headers: {} };
-  }
-
+  if (!authConfig) return { auth: 'none' };
+  const slot = authConfig.slot;
   const source = ctx.credentials;
-  const credential = source ? await source.get(authConfig.slot) : undefined;
-  const policy = authConfig.onUnauthenticated ?? 'gate';
-
-  if (!source || !credential) {
-    const message = `Authentication required for '${toolName}' (auth slot: '${authConfig.slot}').`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    return unauthenticatedResult(toolName, authConfig, message, policy);
-  }
-
-  const staticResolved = resolveStaticCredential(credential, authConfig);
-  if (staticResolved) {
-    return staticResolved;
-  }
-
-  if (credential.type === 'oauth2') {
-    return yield* resolveOAuth2Credential(
+  const missing = () => {
+    const message = `Authentication required for '${toolName}' (auth slot: '${slot}').`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return unauthenticatedResult(
       toolName,
       authConfig,
-      credential,
-      source,
-      ctx,
-      base,
-      policy,
+      message,
+      authConfig.onUnauthenticated ?? 'gate',
     );
+  };
+  if (!source) return missing();
+
+  if (isSealedSource(source)) {
+    const sealed = await source.prepare(slot);
+    if (sealed.state === 'absent') return missing();
+    const bound = {
+      ...(sealed.issuer === undefined ? {} : { issuer: sealed.issuer }),
+      ...(sealed.resource === undefined ? {} : { resource: sealed.resource }),
+    };
+    if (sealed.state === 'unusable') {
+      return yield* unusableResult(toolName, authConfig, sealed, bound, base);
+    }
+    if (sealed.refreshed) yield refreshedEvent(base, slot);
+    return {
+      auth: 'signed_in',
+      signedIn: {
+        send: sealedSender(source, slot),
+        credentialId: sealed.id,
+        audience: sealed.resource,
+      },
+    };
   }
 
-  return { headers: {} };
+  const stored = await source.get(slot);
+  if (!stored) return missing();
+  const bound =
+    stored.type === 'oauth2' ? { issuer: stored.issuer, resource: stored.resource } : {};
+  const ready = await readyCredential(slot, stored, source, {
+    network: toolNetworkPolicy(ctx),
+    resolveHost: ctx.resolveHost,
+  });
+  if (ready.state === 'unusable') {
+    return yield* unusableResult(toolName, authConfig, ready, bound, base);
+  }
+  if (ready.refreshed) yield refreshedEvent(base, slot);
+  const { credential } = ready;
+  return {
+    auth: 'signed_in',
+    signedIn: {
+      send: credentialSender(credential, authConfig, ctx.fetch),
+      credentialId: await credentialId(credential),
+      ...(credential.type === 'oauth2' ? { audience: credential.resource } : {}),
+    },
+  };
 }
 
 export type HttpToolMapping = NonNullable<HttpToolDef['mapping']>;
@@ -496,27 +424,15 @@ function remoteParseAndPermit(
 }
 
 /** `sent`: the service refused a request the call already sent, so the call has started. */
-export function outcomeFromUnauth(
-  authRes: {
-    unauthenticated?: boolean;
-    gate?: import('./types.ts').ToolGate;
-    modelMessage?: string;
-    failureMessage?: string;
-  },
-  sent = false,
-): ToolBodyOutcome | undefined {
-  if (!authRes.unauthenticated) return undefined;
-  if (authRes.gate) return { kind: 'gated', gate: authRes.gate };
-  if (authRes.modelMessage) {
+export function outcomeFromUnauth(authRes: UnauthenticatedResult, sent = false): ToolBodyOutcome {
+  if ('gate' in authRes) return { kind: 'gated', gate: authRes.gate };
+  if ('modelMessage' in authRes) {
     return {
       kind: 'ok',
       modelResult: { finding: authRes.modelMessage },
       outputRaw: { unauthenticated: true, message: authRes.modelMessage },
       unauthenticated: true,
     };
-  }
-  if (authRes.failureMessage === undefined) {
-    throw new Error('An unauthenticated call carries a gate, a model message or a failure'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return failureOutcome(
     { code: 'not_authorized', kind: 'auth', message: authRes.failureMessage },
@@ -607,19 +523,10 @@ async function* remoteAuthAndPreBody(args: {
   stages?: ToolStageSupport;
 }): AsyncGenerator<
   TurnEvent,
-  | {
-      ok: true;
-      input: unknown;
-      authHeaders: Record<string, string>;
-      query?: CredentialQuery;
-      secret?: string;
-      audience?: string;
-    }
-  | ToolBodyOutcome
+  { ok: true; input: unknown; signedIn?: SignedInSend } | ToolBodyOutcome
 > {
   const authRes = yield* resolveToolAuth(args.tool.name, args.tool.auth, args.ctx, args.base);
-  const unauth = outcomeFromUnauth(authRes);
-  if (unauth) return unauth;
+  if (authRes.auth === 'unauthenticated') return outcomeFromUnauth(authRes);
 
   const preBody = yield* runRemotePreBodyStages({
     tool: args.tool,
@@ -632,10 +539,7 @@ async function* remoteAuthAndPreBody(args: {
   return {
     ok: true,
     input: preBody.input,
-    authHeaders: authRes.headers ?? {},
-    ...(authRes.query ? { query: authRes.query } : {}),
-    ...(authRes.secret ? { secret: authRes.secret } : {}),
-    ...(authRes.audience ? { audience: authRes.audience } : {}),
+    ...(authRes.auth === 'signed_in' ? { signedIn: authRes.signedIn } : {}),
   };
 }
 
@@ -661,8 +565,6 @@ function* thrownOutcome(
     false,
   );
 }
-
-const OMIT_CREDENTIAL = '[omitted - credential]';
 
 /** The most of an error or unparseable body quoted back in a failure message. */
 const MAX_QUOTED_BODY_CHARS = 2000;
@@ -715,34 +617,26 @@ export async function readCappedText(
 }
 
 /**
- * A body read as `readCappedText` reads it, shown as drafts while it arrives. The credential never
- * shows: the last `secret.length - 1` characters wait for the next piece, so one split across
- * pieces is whole when it is replaced. Drafts that ran before the body ran past its cap stay sent.
+ * A body read as `readCappedText` reads it, shown as drafts while it arrives. A credential the
+ * service echoed is already replaced: its sender reads it out of the body as the body arrives.
+ * Drafts that ran before the body ran past its cap stay sent.
  */
 async function* readCappedTextShowing(
   response: Response,
   shown: HandlerEvents,
-  secret: string | undefined,
   maxBytes: number | undefined,
 ): AsyncGenerator<TurnEvent, string | undefined> {
   const pieces = cappedPieces(response, maxBytes);
-  const hold = secret ? secret.length - 1 : 0;
   let text = '';
-  let pending = '';
   for (;;) {
     const next = await pieces.next();
     if (next.done) {
       if (!next.value) return undefined;
-      if (pending) yield* shown.show({ kind: 'draft', text: pending });
       yield* shown.end();
       return text;
     }
     text += next.value;
-    pending = secret ? omitSecretText(pending + next.value, secret) : pending + next.value;
-    const cut = pending.length - hold;
-    if (cut <= 0) continue;
-    yield* shown.show({ kind: 'draft', text: pending.slice(0, cut) });
-    pending = pending.slice(cut);
+    yield* shown.show({ kind: 'draft', text: next.value });
   }
 }
 
@@ -760,77 +654,29 @@ function tooLargeFailure(host: string, maxBytes: number | undefined): ToolFailur
   };
 }
 
-/** The text with the credential replaced. */
-export function omitSecretText(text: string, secret: string): string {
-  return text.replaceAll(secret, OMIT_CREDENTIAL);
-}
-
-/** Every string in `value` with the credential replaced. */
-export function omitSecret(value: unknown, secret: string): unknown {
-  return mapStrings(value, (text) => omitSecretText(text, secret));
-}
-
-/** A failure's message and details with the credential replaced. */
-export function failureWithoutSecret(failure: ToolFailure, secret: string): ToolFailure {
-  return {
-    ...failure,
-    message: omitSecretText(failure.message, secret),
-    ...(failure.details === undefined ? {} : { details: omitSecret(failure.details, secret) }),
-  };
-}
-
-/** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace, or client. */
-function withoutSecret(
-  outcome: ToolBodyOutcome,
-  secret: string | undefined,
-  outputSchema: JsonSchema,
-): ToolBodyOutcome {
-  if (!secret) return outcome;
-  if (outcome.kind === 'ok') {
-    const outputRaw = omitSecret(outcome.outputRaw, secret);
-    return {
-      ...outcome,
-      outputRaw,
-      modelResult: withMedia(
-        modelResultFromOutput(outputRaw, outputSchema),
-        outcome.modelResult.media,
-      ),
-    };
-  }
-  if (outcome.kind === 'failed') {
-    return { ...outcome, failure: failureWithoutSecret(outcome.failure, secret) };
-  }
-  return outcome;
-}
-
-/** Why an OAuth token issued for `audience` may not go to `url` (RFC 8707), or `undefined` when it may. */
+/** Why a credential bound to `audience` may not go to `url` (RFC 8707), or `undefined` when it may. */
 export function audienceMismatch(audience: string | undefined, url: URL): string | undefined {
   if (!audience || tokenAudienceCovers(audience, url)) return undefined;
-  return `The OAuth token for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  return `The credential for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 /**
- * An OAuth token goes only to the resource it was issued for (RFC 8707); any other target gets no
- * request. `send` gets the URL with any key the tool puts in the query, after the target's checks.
+ * A credential goes only to where it is bound (an OAuth token's resource, RFC 8707, or a sealed
+ * slot's); any other target gets no request. `send` gets the URL after the target's checks.
  */
 async function* sendWithCredential(
-  prepared: { audience?: string; secret?: string; query?: CredentialQuery },
-  outputSchema: JsonSchema,
+  signedIn: SignedInSend | undefined,
   url: URL,
   send: (url: URL) => AsyncGenerator<TurnEvent, ToolBodyOutcome>,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
-  const mismatch = audienceMismatch(prepared.audience, url);
+  const mismatch = audienceMismatch(signedIn?.audience, url);
   if (mismatch) {
     return failureOutcome(
       { code: 'credential_audience_mismatch', kind: 'config', message: mismatch },
       true,
     );
   }
-  return withoutSecret(
-    yield* send(withCredentialQuery(url, prepared.query)),
-    prepared.secret,
-    outputSchema,
-  );
+  return yield* send(url);
 }
 
 /**
@@ -874,13 +720,20 @@ export async function* executeHttpTool(
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
   const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared, tool.outputSchema, guarded.url, (url) =>
-    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span, shown, handOff),
+  return yield* sendWithCredential(prepared.signedIn, guarded.url, (url) =>
+    sendHttpRequest(
+      tool,
+      url,
+      target.body,
+      prepared.signedIn,
+      ctx,
+      base,
+      stages?.span,
+      shown,
+      handOff,
+    ),
   );
 }
-
-/** What a call sends its credential with: the headers, and the secret, set whenever one went. */
-type SentCredential = { authHeaders: Record<string, string>; secret?: string };
 
 /** A body that is text, read so far: what a successful call's drafts show. */
 function isDraftable(response: Response): boolean {
@@ -893,11 +746,10 @@ function isDraftable(response: Response): boolean {
 async function* readHttpBody(
   response: Response,
   shown: HandlerEvents | undefined,
-  secret: string | undefined,
   maxBytes: number | undefined,
 ): AsyncGenerator<TurnEvent, string | undefined> {
   if (!shown || !isDraftable(response)) return await readCappedText(response, maxBytes);
-  return yield* readCappedTextShowing(response, shown, secret, maxBytes);
+  return yield* readCappedTextShowing(response, shown, maxBytes);
 }
 
 /** The headers an HTTP tool's request is sent with, before its own and its credential's. */
@@ -913,11 +765,16 @@ export const MCP_REQUEST_HEADERS: Readonly<Record<string, string>> = {
   Accept: 'application/json, text/event-stream',
 };
 
+/** A read changes nothing, so a busy or briefly down service is asked again, as a model call is; a write is never sent twice. */
+function readRetried(tool: HttpToolDef, send: typeof fetch): typeof fetch {
+  return tool.access === 'read-only' ? retryTransient(send) : send;
+}
+
 async function* sendHttpRequest(
   tool: HttpToolDef,
   targetUrl: URL,
   body: string | undefined,
-  { authHeaders, secret }: SentCredential,
+  signedIn: SignedInSend | undefined,
   ctx: ToolContext,
   base: ToolCallBase,
   span: SpanHandle | undefined,
@@ -943,10 +800,9 @@ async function* sendHttpRequest(
         {
           policy: toolNetworkPolicy(ctx),
           followRedirects: true,
-          // why: a read changes nothing, so a busy or briefly down service is asked again, as a
-          // model call is; a write is never sent twice.
-          fetchFn: tool.access === 'read-only' ? retryTransient(ctx.fetch ?? fetch) : ctx.fetch,
-          originBoundHeaders: { ...tool.headers, ...authHeaders },
+          fetchFn: readRetried(tool, ctx.fetch ?? fetch),
+          ...(signedIn ? { originFetchFn: readRetried(tool, signedIn.send) } : {}),
+          originBoundHeaders: { ...tool.headers },
           resolveHost: ctx.resolveHost,
           onCheck: checks.onCheck,
           beforeSend: async () => {
@@ -956,7 +812,7 @@ async function* sendHttpRequest(
       ),
     );
 
-    const text = yield* readHttpBody(response, shown, secret, tool.maxResponseBytes);
+    const text = yield* readHttpBody(response, shown, tool.maxResponseBytes);
     if (text === undefined) {
       return failureOutcome(tooLargeFailure(targetUrl.hostname, tool.maxResponseBytes), false);
     }
@@ -965,7 +821,7 @@ async function* sendHttpRequest(
       const refused = yield* refusedCredentialOutcome(
         tool,
         credentialRefusal(response),
-        secret !== undefined,
+        signedIn !== undefined,
         ctx,
         base,
       );
@@ -1146,8 +1002,10 @@ export type McpTransport = {
   url: string;
   /** Sent on every hop. */
   headers: Record<string, string>;
-  /** Host headers and credentials: sent to the configured origin only. */
+  /** Host headers: sent to the configured origin only. */
   originBoundHeaders: Record<string, string>;
+  /** Sends the configured origin's hops with the call's credential; set when the call carries one. */
+  originFetch?: typeof fetch;
   policy?: NetworkGuardrailSpec;
   resolveHost?: ResolveHost;
   fetch?: typeof fetch;
@@ -1189,6 +1047,7 @@ async function fetchMcpProtocolAttempt(
       originBoundHeaders: transport.originBoundHeaders,
       resolveHost: transport.resolveHost,
       fetchFn: transport.fetch,
+      ...(transport.originFetch ? { originFetchFn: transport.originFetch } : {}),
       onCheck: transport.onCheck,
       ...(transport.beforeSend ? { beforeSend: transport.beforeSend } : {}),
     },
@@ -1326,6 +1185,7 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
         originBoundHeaders: { ...transport.originBoundHeaders, ...originBound },
         resolveHost: transport.resolveHost,
         fetchFn: transport.fetch,
+        ...(transport.originFetch ? { originFetchFn: transport.originFetch } : {}),
         onCheck: transport.onCheck,
       },
     );
@@ -1627,8 +1487,18 @@ export async function* executeMcpTool(
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
   const handOff = yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared, tool.outputSchema, guarded.url, (url) =>
-    sendMcpRequest(tool, url, prepared.input, prepared, ctx, base, stages?.span, sessions, handOff),
+  return yield* sendWithCredential(prepared.signedIn, guarded.url, (url) =>
+    sendMcpRequest(
+      tool,
+      url,
+      prepared.input,
+      prepared.signedIn,
+      ctx,
+      base,
+      stages?.span,
+      sessions,
+      handOff,
+    ),
   );
 }
 
@@ -1636,7 +1506,7 @@ async function* sendMcpRequest(
   tool: McpToolDef,
   url: URL,
   input: unknown,
-  { authHeaders, secret }: SentCredential,
+  signedIn: SignedInSend | undefined,
   ctx: ToolContext,
   base: ToolCallBase,
   span: SpanHandle | undefined,
@@ -1648,7 +1518,8 @@ async function* sendMcpRequest(
     const transport: McpTransport = {
       url: url.href,
       headers: { ...MCP_REQUEST_HEADERS },
-      originBoundHeaders: { ...tool.headers, ...authHeaders },
+      originBoundHeaders: { ...tool.headers },
+      ...(signedIn ? { originFetch: signedIn.send } : {}),
       policy: toolNetworkPolicy(ctx),
       resolveHost: ctx.resolveHost,
       fetch: ctx.fetch,
@@ -1659,7 +1530,7 @@ async function* sendMcpRequest(
         await handOff.claim();
       },
     };
-    const key = await mcpSessionKey(url.href, transport.originBoundHeaders);
+    const key = await mcpSessionKey(url.href, transport.originBoundHeaders, signedIn?.credentialId);
     const use: McpSessionUse = { tool: tool.name, ...tool.session };
     const call = mcpToolCall(base.callId, tool.mcpToolName, input);
     const cached = sessions.get(key, use);
@@ -1672,7 +1543,7 @@ async function* sendMcpRequest(
     const refused = yield* refusedCredentialOutcome(
       tool,
       negotiated.refusal,
-      secret !== undefined,
+      signedIn !== undefined,
       ctx,
       base,
     );

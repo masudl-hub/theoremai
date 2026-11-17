@@ -725,7 +725,7 @@ import type {
   ProfileGuardrailsSpec,
 } from '../guardrails/types.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
-import type { ToolCredentialSource } from './auth/credential-source.ts';
+import type { CredentialSource } from './auth/credential-source.ts';
 import type { MediaTurnBehaviourSpec, ProfileTurnBehaviourSpec, TurnContinueFrom } from './stop.ts';
 
 /** The model fields every model-running profile shares. */
@@ -1400,7 +1400,7 @@ export interface AgentRunRequest extends RunControls, ModelChoice {
    * @remarks Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs
    * one.
    */
-  credentials?: ToolCredentialSource;
+  credentials?: CredentialSource;
   /**
    * Resolves the host name of a remote tool before each request; a name that resolves to a private
    * address is refused.
@@ -1761,7 +1761,7 @@ export type LiveExecuteToolArgs = {
    * (`credentialFromTypedSecret`) in the source the call runs with.
    */
   secret?: string;
-  credentials?: ToolCredentialSource;
+  credentials?: CredentialSource;
   host?: unknown;
   /** The page's answer, for a call to a tool with `answeredBy: 'page'`. */
   page?: PageAnswer;

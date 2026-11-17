@@ -537,7 +537,7 @@ executeTool(args: {
   decision?: GateDecision; // 'approve' | 'deny' | 'abandon'
   input?: unknown; // the user's edit; only with 'approve' on a gated call
   secret?: string; // the key typed at a sign-in gate; only with 'approve' on that gate
-  credentials?: ToolCredentialSource; // a typed `secret` is set here, or in the session's source
+  credentials?: CredentialSource; // a typed `secret` is set here, or in the session's source
   host?: unknown; // overrides/fills session host for this call if provided
 }): Promise<{
   outputRaw?: unknown;
@@ -561,7 +561,9 @@ never supplies the tool name or the model's input.
   `approve`. `input` re-runs the call's `preTool` on the edit and the
   `running` event carries `edited: { from, to }`, `from` being the model's
   input. `secret` becomes the credential for the gate's slot
-  (typed by the gate's auth type) and stays for the rest of the session. An
+  (typed by the gate's auth type) and stays for the rest of the session. Under a
+  sealed `credentials` source, `secret` is a `request` error: the key has
+  nowhere in the run to go. An
   approved `session_consent` gate stays approved for the session.
 - A gate waits `gateTtlMs` (a `runSession` option; same default, validator and
   refusal as `createTheoremHandler`). Answering an expired gate settles the call

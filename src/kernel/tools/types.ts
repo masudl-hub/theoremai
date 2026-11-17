@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import type { TurnDestinations } from '../../guardrails/destinations.ts';
 import type { ResolveHost } from '../../guardrails/network.ts';
 import type { GuardrailHit, Provenance, TurnTaint } from '../../guardrails/types.ts';
-import type { ToolCredentialSource } from '../auth/credential-source.ts';
+import type { CredentialSource } from '../auth/credential-source.ts';
 import type { OAuthEndpoints } from '../auth/types.ts';
 import type {
   AuthUnauthenticatedPolicy,
@@ -187,7 +187,7 @@ export interface ToolContext {
     visible?: readonly ToolId[];
   };
   resume?: InvokeToolResume;
-  credentials?: ToolCredentialSource;
+  credentials?: CredentialSource;
   resolveHost?: ResolveHost;
   /** Sends this call's requests once their checks pass; the run's `fetch`. Default: the global `fetch`. */
   fetch?: typeof fetch;
@@ -813,7 +813,7 @@ export interface InvokeToolRequest extends RunControls {
   snapshot?: TurnToolSnapshot;
   resume?: InvokeToolResume;
   sessionPermissions?: string[];
-  credentials?: ToolCredentialSource;
+  credentials?: CredentialSource;
   resolveHost?: ResolveHost;
   /** Sends the call's requests once their checks pass. Default: the global `fetch`. */
   fetch?: typeof fetch;

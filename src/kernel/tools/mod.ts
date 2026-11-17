@@ -1,3 +1,13 @@
+export type {
+  CredentialQuery,
+  SealedCredentialHostOptions,
+  SealedSlot,
+} from './credential-send.ts';
+export {
+  credentialPlacement,
+  sealedCredentialHost,
+  withCredentialQuery,
+} from './credential-send.ts';
 export {
   authorizeToolReplay,
   executeRegisteredTool,
@@ -11,10 +21,9 @@ export type { ProbeToolOptions, ToolProbe, ToolProbeAnswer, ToolProbeTarget } fr
 export { probeTool } from './probe.ts';
 export type { ToolRegistry } from './registry.ts';
 export { assertToolSettings, createToolRegistry } from './registry.ts';
-export type { CredentialQuery, McpProtocolVersion, McpRpcResponse } from './remote.ts';
+export type { McpProtocolVersion, McpRpcResponse } from './remote.ts';
 export {
   buildHttpToolTarget,
-  credentialPlacement,
   executeHttpTool,
   executeMcpTool,
   isUnsupportedMcpProtocolError,
@@ -22,7 +31,6 @@ export {
   mcpRequestMeta,
   parseMcpRpcResponse,
   resolveToolAuth,
-  withCredentialQuery,
 } from './remote.ts';
 export { cloneTurnToolSnapshot, prepareTurnToolSnapshot } from './resolve.ts';
 export type * from './types.ts';

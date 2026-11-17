@@ -78,15 +78,20 @@ export function isMcpSessionId(value: string | null): value is string {
 }
 
 /**
- * One session per server and credential. The URL is hashed with the headers, since a key can sit
- * in either; the credential is never kept.
+ * One session per server, host headers and credential. The credential is named by its id (a digest
+ * from its sender), never by its value; a call that carries none has no id.
  */
-export async function mcpSessionKey(url: string, headers: Record<string, string>): Promise<string> {
+export async function mcpSessionKey(
+  url: string,
+  headers: Record<string, string>,
+  credentialId: string | undefined,
+): Promise<string> {
   const canonical = JSON.stringify([
     url,
     Object.entries(headers)
       .map(([name, value]): [string, string] => [name.toLowerCase(), value])
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    credentialId ?? null,
   ]);
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');

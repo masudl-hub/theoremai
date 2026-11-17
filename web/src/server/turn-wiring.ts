@@ -14,7 +14,12 @@ import type {
   TurnRequest,
   TurnWiring,
 } from '@theoremjs/agents';
-import type { ToolBackgroundService, ToolCredentialSource } from '@theoremjs/agents/kernel';
+import {
+  type CredentialSource,
+  isSealedSource,
+  type ToolBackgroundService,
+  type ToolCredentialSource,
+} from '@theoremjs/agents/kernel';
 import { layeredToolCoordinator } from './tool-operations.ts';
 
 /** The fields a handler sets on every turn, which `prepare` cannot replace. */
@@ -64,7 +69,7 @@ export async function preparedTurn(
     ...(execution ? { execution } : {}),
     ...(background ? { background } : {}),
     ...(lateResults ? { lateResults } : {}),
-    credentials: credentialsInOrder(app.credentials, handler.credentials),
+    credentials: turnCredentials(app.credentials, handler.credentials),
     ...(onStage ? { onStage } : {}),
   };
 }
@@ -116,6 +121,17 @@ export function stagesInOrder(
 ): StageHandler | undefined {
   if (!app || !own) return app ?? own;
   return async (ctx) => (await app(ctx)) ?? (await own(ctx));
+}
+
+/**
+ * A sealed application source stands alone: its keys never reach this process, so the session
+ * holds none beside it. Any other source goes before the session's.
+ */
+function turnCredentials(
+  app: CredentialSource | undefined,
+  session: ToolCredentialSource,
+): CredentialSource {
+  return app && isSealedSource(app) ? app : credentialsInOrder(app, session);
 }
 
 /**

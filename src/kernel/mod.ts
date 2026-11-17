@@ -333,6 +333,8 @@ export type {
   McpProtocolVersion,
   McpRpcResponse,
   ProbeToolOptions,
+  SealedCredentialHostOptions,
+  SealedSlot,
   ToolProbe,
   ToolProbeAnswer,
   ToolProbeTarget,
@@ -359,6 +361,7 @@ export {
   projectForModel,
   registerHarnessTools,
   resolveToolAuth,
+  sealedCredentialHost,
   toolOutputPartSchema,
   withCredentialQuery,
 } from './tools/mod.ts';

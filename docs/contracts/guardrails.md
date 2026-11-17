@@ -1689,7 +1689,10 @@ For a redirect, `fetchGuarded` reads the next target from the HTTP Location head
 It follows redirects manually, with a limit of 20 hops and Fetch-standard method changes.
 Each target passes the same URL check before the next request. Tool auth and
 configured headers go to the configured origin only and are never re-sent once a
-redirect leaves it. OAuth discovery and token requests do not follow redirects.
+redirect leaves it. `originFetchFn`, when given, sends each hop while the target
+is still on the first origin; once a redirect leaves it, `fetchFn` sends every
+later hop. Tools pass their credential sender here, so the credential goes only
+where the call was cleared to go. OAuth discovery and token requests do not follow redirects.
 A hop whose request or body read fails throws `TheoremError` with kind
 `network`, and the error the fetch threw is its `cause`. A `dnsOverHttpsResolver`
 query that fails reads the same way.

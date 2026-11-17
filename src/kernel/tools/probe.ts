@@ -8,11 +8,11 @@
 import { errorKind } from '../../guardrails/error.ts';
 import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
+import type { ToolCredential } from '../auth/types.ts';
+import { credentialSender } from './credential-send.ts';
 import { createMcpSessionCache } from './mcp-sessions.ts';
 import {
   buildHttpToolTarget,
-  type CredentialQuery,
-  credentialPlacement,
   credentialRefusal,
   httpRequestHeaders,
   MCP_REQUEST_HEADERS,
@@ -20,9 +20,7 @@ import {
   type McpTransport,
   negotiateInSession,
   negotiateMcpRpc,
-  omitSecretText,
   readCappedText,
-  withCredentialQuery,
 } from './remote.ts';
 import type { HttpToolDef, ToolAuthConfig } from './types.ts';
 
@@ -114,16 +112,18 @@ export type ToolProbe =
       reason: 'blocked' | 'invalid_url' | 'invalid_mapping' | 'timeout' | 'network';
     };
 
-type Placed = { headers: Record<string, string>; query?: CredentialQuery; secret?: string };
+/** The probe's credential sender, set when a credential was given: it places it and reads it out of the answer. */
+type Carried = { send?: typeof fetch };
 
-function placeCredential(auth: ProbeToolOptions['auth'], credential: string | undefined): Placed {
-  if (!credential) return { headers: {} };
-  const config = auth ?? { type: 'bearer' as const };
-  const sent =
-    config.type === 'api_key'
-      ? ({ type: 'api_key', key: credential } as const)
-      : ({ type: 'bearer', token: credential } as const);
-  return { ...credentialPlacement(config, sent), secret: credential };
+function carryCredential(options: ProbeToolOptions): Carried {
+  const { credential } = options;
+  if (!credential) return {};
+  const auth = options.auth ?? { type: 'bearer' };
+  const sent: ToolCredential =
+    auth.type === 'api_key'
+      ? { type: 'api_key', key: credential }
+      : { type: 'bearer', token: credential };
+  return { send: credentialSender(sent, auth, options.fetch) };
 }
 
 function unanswered(err: unknown): ToolProbe {
@@ -142,13 +142,9 @@ function probeSignal(options: ProbeToolOptions): AbortSignal | undefined {
   return timedOut ?? options.signal;
 }
 
-function hidden(text: string, secret: string | undefined): string {
-  return secret ? omitSecretText(text, secret) : text;
-}
-
 async function probeHttp(
   target: Extract<ToolProbeTarget, { type: 'http' }>,
-  placed: Placed,
+  carried: Carried,
   options: ProbeToolOptions,
 ): Promise<ToolProbe> {
   const method = target.method ?? 'GET';
@@ -156,7 +152,7 @@ async function probeHttp(
   let body: string | undefined;
   try {
     const built = buildHttpToolTarget(target.endpoint, method, target.input ?? {}, target.mapping);
-    url = withCredentialQuery(new URL(built.url), placed.query).href;
+    url = built.url;
     body = built.body;
   } catch {
     return { verdict: 'unanswered', reason: 'invalid_mapping' };
@@ -172,9 +168,10 @@ async function probeHttp(
     {
       policy: options.network,
       followRedirects: true,
-      originBoundHeaders: { ...target.headers, ...placed.headers },
+      originBoundHeaders: { ...target.headers },
       resolveHost: options.resolveHost,
       fetchFn: options.fetch,
+      ...(carried.send ? { originFetchFn: carried.send } : {}),
     },
   );
   const text = await readCappedText(response, options.maxResponseBytes);
@@ -183,10 +180,10 @@ async function probeHttp(
     status: response.status,
     statusText: response.statusText,
     contentType: response.headers.get('content-type') ?? '',
-    body: hidden(text, placed.secret),
+    body: text,
   };
   if (response.ok) return { verdict: 'accepted', answer };
-  if (placed.secret !== undefined && credentialRefusal(response)) {
+  if (carried.send && credentialRefusal(response)) {
     return { verdict: 'refused', answer };
   }
   return { verdict: 'inconclusive', reason: 'status', answer };
@@ -197,12 +194,12 @@ function mcpAnswer(status: number, body: string): ToolProbeAnswer {
 }
 
 /** An MCP server's answer, read as a probe: a tool list, a refusal, or why it is neither. */
-function readMcp(negotiated: McpNegotiated, placed: Placed): ToolProbe {
+function readMcp(negotiated: McpNegotiated, carried: Carried): ToolProbe {
   const answer = negotiated.answer
-    ? mcpAnswer(negotiated.answer.status, hidden(negotiated.answer.body, placed.secret))
+    ? mcpAnswer(negotiated.answer.status, negotiated.answer.body)
     : undefined;
   const withAnswer = answer ? { answer } : {};
-  if (negotiated.refusal && placed.secret !== undefined && answer) {
+  if (negotiated.refusal && carried.send && answer) {
     return { verdict: 'refused', answer };
   }
   const { failure, rpc } = negotiated;
@@ -220,20 +217,18 @@ function readMcp(negotiated: McpNegotiated, placed: Placed): ToolProbe {
     return {
       verdict: 'inconclusive',
       reason: 'mcp_error',
-      ...(error
-        ? { error: { code: error.code, message: hidden(error.message, placed.secret) } }
-        : {}),
+      ...(error ? { error: { code: error.code, message: error.message } } : {}),
     };
   }
   if (rpc.error) {
     return {
       verdict: 'inconclusive',
       reason: 'mcp_error',
-      error: { code: rpc.error.code, message: hidden(rpc.error.message, placed.secret) },
+      error: { code: rpc.error.code, message: rpc.error.message },
     };
   }
   const listed = rpc.result?.tools;
-  const body = hidden(JSON.stringify(rpc.result ?? rpc), placed.secret);
+  const body = JSON.stringify(rpc.result ?? rpc);
   if (rpc.jsonrpc !== '2.0' || !Array.isArray(listed)) {
     return { verdict: 'inconclusive', reason: 'not_mcp', answer: mcpAnswer(200, body) };
   }
@@ -249,15 +244,16 @@ function readMcp(negotiated: McpNegotiated, placed: Placed): ToolProbe {
 
 async function probeMcp(
   target: Extract<ToolProbeTarget, { type: 'mcp' }>,
-  placed: Placed,
+  carried: Carried,
   options: ProbeToolOptions,
 ): Promise<ToolProbe> {
   const serverUrl = URL.parse(target.serverUrl);
   if (!serverUrl) return { verdict: 'unanswered', reason: 'invalid_url' };
   const transport: McpTransport = {
-    url: withCredentialQuery(serverUrl, placed.query).href,
+    url: serverUrl.href,
     headers: { ...MCP_REQUEST_HEADERS },
-    originBoundHeaders: { ...target.headers, ...placed.headers },
+    originBoundHeaders: { ...target.headers },
+    ...(carried.send ? { originFetch: carried.send } : {}),
     policy: options.network,
     resolveHost: options.resolveHost,
     fetch: options.fetch,
@@ -275,7 +271,7 @@ async function probeMcp(
         use: { tool: 'probe' },
       })
     : first;
-  return readMcp(negotiated, placed);
+  return readMcp(negotiated, carried);
 }
 
 /**
@@ -296,11 +292,11 @@ async function probeMcp(
  * ```
  */
 export async function probeTool(options: ProbeToolOptions): Promise<ToolProbe> {
-  const placed = placeCredential(options.auth, options.credential);
+  const carried = carryCredential(options);
   try {
     return options.target.type === 'http'
-      ? await probeHttp(options.target, placed, options)
-      : await probeMcp(options.target, placed, options);
+      ? await probeHttp(options.target, carried, options)
+      : await probeMcp(options.target, carried, options);
   } catch (err) {
     if (options.signal?.aborted) throw err;
     return unanswered(err);

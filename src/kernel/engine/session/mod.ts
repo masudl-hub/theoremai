@@ -45,7 +45,11 @@ import { resolveObservabilityPolicy } from '../../../observability/resolve-polic
 import type { TraceSink } from '../../../observability/trace-sink.ts';
 import { liveToolReadBack } from '../../../providers/live.ts';
 import type { LiveConnection, LiveGoAway, LiveQueueItem } from '../../../providers/types.ts';
-import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
+import {
+  type CredentialSource,
+  isSealedSource,
+  memoryCredentialSource,
+} from '../../auth/credential-source.ts';
 import { historyHash } from '../../checkpoint.ts';
 import { stepReplyMessages } from '../../interaction-parts.ts';
 import type { ProviderHostOptions } from '../../protocols/runtime.ts';
@@ -605,7 +609,7 @@ function buildLiveSession(args: {
   signal?: AbortSignal;
   onStage?: StageHandler;
   host?: unknown;
-  credentials?: ToolCredentialSource;
+  credentials?: CredentialSource;
   resolveHost?: ResolveHost;
   fetch?: typeof fetch;
   sessionPermissions?: string[];
@@ -1577,10 +1581,16 @@ function buildLiveSession(args: {
         sessionPermissions ?? [],
       );
       if (answered.typed) {
-        await (credentials ?? sessionCredentials).set(
-          answered.typed.slot,
-          answered.typed.credential,
-        );
+        const source = credentials ?? sessionCredentials;
+        // invariant: a sealed source keeps every key where the run cannot read it, so a key
+        // typed into the run has nowhere to go; the person enters it where the keys are kept.
+        if (isSealedSource(source)) {
+          throw new TheoremError(
+            'request',
+            `call ${callId} runs with a sealed credential source, which takes no typed secret`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          );
+        }
+        await source.set(answered.typed.slot, answered.typed.credential);
       }
       sessionPermissions = answered.sessionPermissions;
       return await runHeld(callId, held, answered.input, answered.resume, {

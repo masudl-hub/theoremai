@@ -22,7 +22,7 @@ import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
 import type { ToolBackgroundHandle } from '../../src/kernel/tools/background.ts';
 import { createMemoryToolExecution } from '../../src/kernel/tools/memory-execution.ts';
-import { prepareTurnToolSnapshot } from '../../src/kernel/tools/mod.ts';
+import { prepareTurnToolSnapshot, sealedCredentialHost } from '../../src/kernel/tools/mod.ts';
 import type { InvokeToolResume } from '../../src/kernel/tools/types.ts';
 import type { ProfileSystem, SessionRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
@@ -1682,6 +1682,33 @@ Deno.test('runSession puts a key typed at a sign-in gate in the source the call 
   } finally {
     globalThis.fetch = original;
   }
+});
+Deno.test('runSession refuses a key typed at a sign-in gate when the call runs with a sealed source', async () => {
+  clearProfiles();
+  resetTools();
+  registerTrackerTool();
+  const h = await openToolSession(['live_tracker'], {
+    resolveHost: () => Promise.resolve(['93.184.216.34']),
+  });
+  const sealed = sealedCredentialHost({
+    source: memoryCredentialSource(),
+    slots: { tracker: { resource: 'https://api.tracker.example/' } },
+  });
+  await h.modelCalls({ id: 'c-sealed', name: 'live_tracker' });
+  const gated = await h.session.executeTool({ callId: h.id('c-sealed'), credentials: sealed });
+  assertEquals(gated.gated?.kind, 'auth');
+  await assertRejects(
+    () =>
+      h.session.executeTool({
+        callId: h.id('c-sealed'),
+        decision: 'approve',
+        secret: 'typed-key-789',
+        credentials: sealed,
+      }),
+    TheoremError,
+    'takes no typed secret',
+  );
+  await h.close();
 });
 Deno.test('runSession with signInGate answer tells the model the sign-in is pending and releases the call', async () => {
   clearProfiles();

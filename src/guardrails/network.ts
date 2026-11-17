@@ -266,6 +266,12 @@ export interface GuardedFetchOptions {
    */
   resolveHost?: ResolveHost;
   fetchFn?: typeof fetch;
+  /**
+   * Sends the hops on the first request's origin in place of `fetchFn`, as `originBoundHeaders`
+   * go: a call's credential sender, which places the credential itself. Once a redirect leaves
+   * that origin, `fetchFn` sends every later hop.
+   */
+  originFetchFn?: typeof fetch;
   /** Told how long each hop's checks took: its address, and its lookup when `resolveHost` is set. */
   onCheck?: (ms: number) => void;
   /** Awaited once, after the first hop's checks pass and before anything is sent; what it throws passes unchanged. */
@@ -347,7 +353,8 @@ export async function fetchGuarded(
         sent.set(name, value);
       }
     }
-    const response = await sendOrNetworkError(fetchFn, target.href, {
+    const send = onOrigin ? (options.originFetchFn ?? fetchFn) : fetchFn;
+    const response = await sendOrNetworkError(send, target.href, {
       ...init,
       method,
       headers: sent,

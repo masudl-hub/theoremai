@@ -102,7 +102,8 @@ The `onUnauthenticated` policy dictates what happens when a credential slot is e
 The host supplies credentials per turn or per session using a `ToolCredentialSource`. The kernel reads slots on demand when a tool runs:
 
 ```ts
-import { runTurn, type ToolCredentialSource, type ToolCredential } from '@theoremjs/agents';
+import { runTurn } from '@theoremjs/agents';
+import type { ToolCredential, ToolCredentialSource } from '@theoremjs/agents/kernel';
 
 const userCredentials: ToolCredentialSource = {
   get: async (slot: string): Promise<ToolCredential | undefined> => {
@@ -127,6 +128,27 @@ const events = runTurn({
 ```
 
 For test environments and local development, initialize an in-memory store using `memoryCredentialSource({ slot: credential })`.
+
+### Keep keys out of the run (sealed source)
+
+A run that reads a `ToolCredentialSource` holds each key while a tool runs. To keep keys out of the run's process, run the keys in a second process (for example its own Worker) and give the run a sealed source. The run never reads a key: it asks the sealed side to make a slot ready, then sends each request through it. The sealed side places the key, sends the request, and replaces the key wherever the service echoes it.
+
+On the side that holds the keys:
+
+```ts
+import { sealedCredentialHost } from '@theoremjs/agents';
+
+const keys = sealedCredentialHost({
+  source: userCredentials, // the ToolCredentialSource above
+  slots: {
+    // Each slot names the only place its key may go.
+    weather: { resource: 'https://api.weather.example/', queryParam: 'appid' },
+    tracker: { resource: 'https://api.tracker.example/' },
+  },
+});
+```
+
+On the run's side, pass a source with `sealed: true` whose `prepare` and `send` forward to `keys.prepare` and `keys.send` (over a service binding or an RPC of your own) as `credentials`. A request outside a slot's `resource` is refused before the key is read. An expiring OAuth token is refreshed and saved on the sealed side. Gates and refusals work as with a source the run reads. A key typed at a sign-in gate is refused under a sealed source: collect it on a page that sends it to the side that holds the keys.
 
 ---
 

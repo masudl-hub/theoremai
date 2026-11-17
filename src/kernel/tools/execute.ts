@@ -78,16 +78,14 @@ import {
 } from './permission.ts';
 import { type ToolRegistry, toolAuthForCall } from './registry.ts';
 import {
-  type CredentialQuery,
   executeHttpTool,
   executeMcpTool,
-  failureWithoutSecret,
   modelResultFromOutput,
-  omitSecret,
   outcomeFromUnauth,
   parseToolOutput,
   refusedCredentialOutcome,
   resolveToolAuth,
+  type SignedInSend,
   withMedia,
 } from './remote.ts';
 import {
@@ -798,9 +796,8 @@ function makeReproject(
 }
 
 type FunctionSignIn = {
-  /** Set when the tool signs in and its credential resolved. */
-  prepared?: { authHeaders: Record<string, string>; query?: CredentialQuery; audience?: string };
-  secret?: string;
+  /** Set when the tool signs in and its credential is ready to go. */
+  signedIn?: SignedInSend;
   /** Set when the call settles here: a gate, the model told it is not signed in, or a failure. */
   outcome?: ToolBodyOutcome;
 };
@@ -814,16 +811,8 @@ async function* resolveFunctionSignIn(
   const auth = fixedAuth(tool);
   if (!auth) return {};
   const resolved = yield* resolveToolAuth(tool.name, auth, ctx, base);
-  const outcome = outcomeFromUnauth(resolved);
-  if (outcome) return { outcome };
-  return {
-    prepared: {
-      authHeaders: resolved.headers,
-      ...(resolved.query ? { query: resolved.query } : {}),
-      ...(resolved.audience ? { audience: resolved.audience } : {}),
-    },
-    ...(resolved.secret ? { secret: resolved.secret } : {}),
-  };
+  if (resolved.auth === 'unauthenticated') return { outcome: outcomeFromUnauth(resolved) };
+  return resolved.auth === 'signed_in' ? { signedIn: resolved.signedIn } : {};
 }
 
 function functionHandlerFailure(error: unknown): ToolFailure {
@@ -950,19 +939,12 @@ export async function* executeFunction(
   throwIfAborted(ctx.signal);
   const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
   ctx = yield* receivePageAnswer(tool, ctx, handOff, base);
-  const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>
-    settleToolFailure(
-      guard,
-      base,
-      secret ? failureWithoutSecret(failure, secret) : failure,
-      stages,
-      { toolName: tool.name, callId, input },
-    );
+    settleToolFailure(guard, base, failure, stages, { toolName: tool.name, callId, input });
 
   const checks = requestChecks(stages?.span);
-  const handlerCtx: ToolContext = signedIn.prepared
-    ? { ...ctx, signedInFetch: signedInFetch(signedIn.prepared, ctx, checks) }
+  const handlerCtx: ToolContext = signedIn.signedIn
+    ? { ...ctx, signedInFetch: signedInFetch(signedIn.signedIn, ctx, checks) }
     : ctx;
   let output: unknown;
   await handOff.claim();
@@ -974,25 +956,24 @@ export async function* executeFunction(
     if (err instanceof ToolFailed) return yield* fail(err.failure);
     // why: Anything but a settled failure is the host's to fix, as a compactor's is.
     if (agent) throw err;
-    if (signedIn.prepared && err instanceof CredentialRefusedError) {
+    if (signedIn.signedIn && err instanceof CredentialRefusedError) {
       checks.record();
       const refused = yield* refusedCredentialOutcome(
         { name: tool.name, auth: fixedAuth(tool) },
         err.refusal,
-        signedIn.secret !== undefined,
+        true,
         ctx,
         base,
       );
       if (refused) return yield* settleOutcome(refused);
     }
-    if (signedIn.prepared && errorKind(err) === 'blocked') {
+    if (signedIn.signedIn && errorKind(err) === 'blocked') {
       const blocked = networkBlockedEvent();
       checks.record(blocked);
       return yield* fail(yield* networkBlocked(err, blocked));
     }
     return yield* fail(functionHandlerFailure(err));
   }
-  if (secret) output = omitSecret(output, secret);
   if (output === undefined) {
     return yield* fail({
       code: 'invalid_output',

@@ -98,7 +98,7 @@ export const REQUEST_FIELDS: Record<RequestPath, FieldMeta> = withFieldDocs<Requ
     type: 'string[]',
   },
   'runTurn.credentials': {
-    type: 'ToolCredentialSource',
+    type: 'CredentialSource',
   },
   'runTurn.host': {
     type: 'unknown',

@@ -11,11 +11,10 @@ import type { RequestChecks } from './events.ts';
 import { toolNetworkPolicy } from './events.ts';
 import {
   audienceMismatch,
-  type CredentialQuery,
   type CredentialRefusal,
   credentialRefusal,
   refusalAsksForSignIn,
-  withCredentialQuery,
+  type SignedInSend,
 } from './remote.ts';
 import type { SignedInFetch, ToolContext } from './types.ts';
 
@@ -31,16 +30,16 @@ export class CredentialRefusedError extends Error {
 }
 
 export function signedInFetch(
-  prepared: { authHeaders: Record<string, string>; query?: CredentialQuery; audience?: string },
+  signedIn: SignedInSend,
   ctx: ToolContext,
   checks: RequestChecks,
 ): SignedInFetch {
   return async (url, request = {}) => {
     const target = new URL(url);
-    const mismatch = audienceMismatch(prepared.audience, target);
+    const mismatch = audienceMismatch(signedIn.audience, target);
     if (mismatch) throw new TheoremError('config', mismatch);
     const response = await fetchGuarded(
-      withCredentialQuery(target, prepared.query).href,
+      target.href,
       {
         method: request.method ?? 'GET',
         headers: request.headers,
@@ -50,9 +49,9 @@ export function signedInFetch(
       {
         policy: toolNetworkPolicy(ctx),
         followRedirects: true,
-        originBoundHeaders: prepared.authHeaders,
         resolveHost: ctx.resolveHost,
         fetchFn: ctx.fetch,
+        originFetchFn: signedIn.send,
         onCheck: checks.onCheck,
       },
     );

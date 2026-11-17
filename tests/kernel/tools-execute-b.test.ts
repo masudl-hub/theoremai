@@ -409,23 +409,27 @@ Deno.test('the handler requests with the credential, never holds it, and an echo
   check(bare(settlement), { outputRaw: { body: 'you sent [omitted - credential]' } }, 'settlement');
   check(JSON.stringify(settlement.modelResult).includes(TOKEN), false, 'model never reads it');
 });
-Deno.test('a handler failure never carries the credential either', async () => {
+Deno.test('a handler failure never carries the credential either: it never reads it', async () => {
   registerFn('xb_sheet_leak', {
     auth: { slot: 'sheets', service: 'Sheets', type: 'bearer' },
-    handler: () => {
-      throw new Error(`rejected ${TOKEN}`);
+    handler: async (_input, ctx) => {
+      const response = await ctx.signedInFetch?.(SHEET_URL);
+      throw new Error(`rejected ${(await response?.text()) ?? 'no fetch'}`);
     },
   });
-  const { settlement } = await drain('xb_sheet_leak', {
-    ctx: { credentials: credentials(BEARER) },
-  });
+  const { fetchFn } = answering(500, `bad token ${TOKEN}`);
+  const { settlement } = await withFetch(fetchFn, () =>
+    drain('xb_sheet_leak', {
+      ctx: { credentials: credentials(BEARER), resolveHost: RESOLVE },
+    }),
+  );
   check(
     shapeFailure(settlement),
     {
       failure: {
         code: 'handler_error',
         kind: 'failed',
-        message: 'rejected [omitted - credential]',
+        message: 'rejected bad token [omitted - credential]',
       },
     },
     'failure',

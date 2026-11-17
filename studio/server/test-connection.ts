@@ -99,33 +99,32 @@ const UNANSWERED: Record<
   },
 };
 
+type Inconclusive = Extract<ToolProbe, { verdict: 'inconclusive' }>;
+
 /** Why an answer is neither a yes nor a refusal, in the test's own words; `status` shows the answer itself. */
-function inconclusiveReason(probe: Extract<ToolProbe, { verdict: 'inconclusive' }>): {
-  code: string;
-  error?: string;
-} {
-  switch (probe.reason) {
-    case 'status':
-      return { code: 'http_status' };
-    case 'too_large':
-      return { code: 'too_large', error: 'The answer is larger than the test reads.' };
-    case 'not_json':
-      return { code: 'invalid_json', error: "The MCP server's answer isn't JSON-RPC." };
-    case 'not_mcp':
-      return {
-        code: 'not_mcp',
-        error: "Answered, but not as an MCP server: tools/list didn't return a tool list.",
-      };
-    case 'mcp_error':
-      return probe.error
-        ? { code: `mcp_error_${String(probe.error.code)}`, error: probe.error.message }
-        : { code: 'mcp_protocol_error', error: 'MCP protocol negotiation failed' };
-    case 'mcp_session':
-      return {
-        code: 'mcp_session',
-        error: "The MCP server asked for a session and didn't open one.",
-      };
-  }
+const INCONCLUSIVE: Record<
+  Exclude<Inconclusive['reason'], 'mcp_error'>,
+  { code: string; error?: string }
+> = {
+  status: { code: 'http_status' },
+  too_large: { code: 'too_large', error: 'The answer is larger than the test reads.' },
+  not_json: { code: 'invalid_json', error: "The MCP server's answer isn't JSON-RPC." },
+  not_mcp: {
+    code: 'not_mcp',
+    error: "Answered, but not as an MCP server: tools/list didn't return a tool list.",
+  },
+  mcp_session: {
+    code: 'mcp_session',
+    error: "The MCP server asked for a session and didn't open one.",
+  },
+};
+
+/** An inconclusive answer's code and words; an MCP error carries the server's own. */
+function inconclusiveReason(probe: Inconclusive): { code: string; error?: string } {
+  if (probe.reason !== 'mcp_error') return INCONCLUSIVE[probe.reason];
+  return probe.error
+    ? { code: `mcp_error_${String(probe.error.code)}`, error: probe.error.message }
+    : { code: 'mcp_protocol_error', error: 'MCP protocol negotiation failed' };
 }
 
 /** The probe, as the test's screen reads it. */

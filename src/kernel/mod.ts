@@ -378,6 +378,12 @@ export {
   toolOperationReplySchema,
 } from './tools/operation.ts';
 export { toolAuthForCall } from './tools/registry.ts';
+export type {
+  RunToolStepRequest,
+  SettledToolCall,
+  ToolCallResult,
+  ToolStepCallResult,
+} from './tools/run.ts';
 export { jsonSchemaFromZod } from './tools/schema.ts';
 export { CredentialRefusedError } from './tools/signed-in-fetch.ts';
 export type {
@@ -388,6 +394,7 @@ export type {
   ToolContext,
   ToolLabels,
   ToolMediaEntry,
+  ToolStreamEvent,
 } from './tools/types.ts';
 export {
   awaitingUserInputSchema,

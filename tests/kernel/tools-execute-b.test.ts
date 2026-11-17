@@ -435,6 +435,28 @@ Deno.test('a handler failure never carries the credential either: it never reads
     'failure',
   );
 });
+Deno.test('a handler failure that names a credential the run holds is cleared of it', async () => {
+  registerFn('xb_sheet_names', {
+    auth: { slot: 'sheets', service: 'Sheets', type: 'bearer' },
+    handler: () => {
+      throw new Error(`rejected ${TOKEN}`);
+    },
+  });
+  const { settlement } = await drain('xb_sheet_names', {
+    ctx: { credentials: credentials(BEARER) },
+  });
+  check(
+    shapeFailure(settlement),
+    {
+      failure: {
+        code: 'handler_error',
+        kind: 'failed',
+        message: 'rejected [omitted - credential]',
+      },
+    },
+    'failure',
+  );
+});
 Deno.test('an OAuth token is sent only to the resource it was issued for', async () => {
   const oauth = (resource: string) => ({
     sheets: {

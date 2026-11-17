@@ -497,6 +497,7 @@ const HOOK_NAMES = [
   'onAgentCall',
   'tools.preTool',
   'tools.t1Policy',
+  'credentials',
   'outputs.validation',
   'compaction.trigger',
 ] as const;

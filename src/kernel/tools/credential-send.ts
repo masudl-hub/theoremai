@@ -100,42 +100,77 @@ function placedSecret(
 
 const OMIT_CREDENTIAL = '[omitted - credential]';
 
-/** The text with the credential replaced. */
-function omitSecretText(text: string, secret: string): string {
-  return text.replaceAll(secret, OMIT_CREDENTIAL);
+/**
+ * Every form a service may echo a secret in, longest first: as sent, escaped in a JSON string
+ * (`/` as it is and as `\/`), and URL-encoded (as a component, with lowercase hex, and as a form).
+ */
+function secretForms(secret: string): string[] {
+  const json = JSON.stringify(secret).slice(1, -1);
+  const component = encodeURIComponent(secret);
+  const forms = new Set([
+    secret,
+    json,
+    json.replaceAll('/', '\\/'),
+    component,
+    component.replace(/%[0-9A-F]{2}/g, (hex) => hex.toLowerCase()),
+    new URLSearchParams([['', secret]]).toString().slice(1),
+  ]);
+  forms.delete('');
+  return [...forms].sort((a, b) => b.length - a.length);
 }
 
-/** Whether `bytes` holds `secret` at `at`. */
-function secretAt(bytes: Uint8Array, at: number, secret: Uint8Array): boolean {
-  for (let i = 0; i < secret.length; i++) {
-    if (bytes[at + i] !== secret[i]) return false;
-  }
-  return true;
+function escapedForPattern(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Replaces the secret, in every form {@link secretForms} names, wherever a text holds it. */
+function secretOmitter(secret: string): (text: string) => string {
+  const forms = secretForms(secret);
+  if (forms.length === 0) return (text) => text;
+  const pattern = new RegExp(forms.map(escapedForPattern).join('|'), 'g');
+  return (text) => text.replace(pattern, OMIT_CREDENTIAL);
+}
+
+/** The form of the secret `bytes` holds at `at`, longest first, or `undefined`. */
+function formAt(
+  bytes: Uint8Array,
+  at: number,
+  forms: readonly Uint8Array[],
+): Uint8Array | undefined {
+  return forms.find((form) => {
+    if (at + form.length > bytes.length) return false;
+    for (let i = 0; i < form.length; i++) {
+      if (bytes[at + i] !== form[i]) return false;
+    }
+    return true;
+  });
 }
 
 /**
- * A body with the credential replaced as it arrives. The last `secret.length - 1` bytes wait for
- * the next piece, so a credential split across pieces is whole when it is replaced. Bytes, not
- * text, so a body that is not text arrives as it was sent.
+ * A body with the secret, in every form {@link secretForms} names, replaced as it arrives. The
+ * last `longest form - 1` bytes wait for the next piece, so a secret split across pieces is whole
+ * when it is replaced. Bytes, not text, so a body that is not text arrives as it was sent.
  */
 function bodyWithoutSecret(
   body: ReadableStream<Uint8Array>,
   secret: string,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
-  const sought = encoder.encode(secret);
+  const forms = secretForms(secret).map((form) => encoder.encode(form));
+  const held = Math.max(0, ...forms.map((form) => form.length - 1));
   const omitted = encoder.encode(OMIT_CREDENTIAL);
   let pending = new Uint8Array(0);
-  /** Replaces every whole credential in `pending`; sends all of it but the tail a credential may start in. */
+  /** Replaces every whole secret in `pending`; sends all of it but the tail a secret may start in. */
   const release = (controller: TransformStreamDefaultController<Uint8Array>, final: boolean) => {
-    const stop = final ? pending.length : pending.length - (sought.length - 1);
+    const stop = final ? pending.length : pending.length - held;
     let sent = 0;
     let at = 0;
     while (at < stop) {
-      if (at + sought.length <= pending.length && secretAt(pending, at, sought)) {
+      const form = formAt(pending, at, forms);
+      if (form) {
         if (at > sent) controller.enqueue(pending.slice(sent, at));
         controller.enqueue(omitted.slice());
-        at += sought.length;
+        at += form.length;
         sent = at;
       } else {
         at++;
@@ -165,8 +200,10 @@ const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 
 /** An answer with the credential replaced in every header (a redirect's `Location` too) and in its body. */
 function answerWithoutSecret(response: Response, secret: string): Response {
+  const omit = secretOmitter(secret);
   const headers = new Headers();
-  for (const [name, value] of response.headers) headers.set(name, omitSecretText(value, secret));
+  // why: `append`, so each `Set-Cookie` the service sent is kept.
+  for (const [name, value] of response.headers) headers.append(name, omit(value));
   // why: a replaced credential changes the body's length.
   headers.delete('content-length');
   const body =
@@ -188,7 +225,7 @@ function errorWithoutSecret(err: unknown, secret: string): unknown {
   if (isAbortError(err) || isTimeoutError(err)) return err;
   const named = networkError(err);
   const kind = named instanceof TheoremError ? named.kind : 'network';
-  return new TheoremError(kind, omitSecretText(describeError(named), secret));
+  return new TheoremError(kind, secretOmitter(secret)(describeError(named)));
 }
 
 /** The URL a fetch was asked for; a sender takes a URL, never a `Request`, whose body it could not read again. */
@@ -222,6 +259,14 @@ export function credentialSender(
     }
     return answerWithoutSecret(response, placed.secret);
   };
+}
+
+/**
+ * Replaces `credential`'s secret wherever a text holds it, in each form a service may echo it in.
+ * For a credential the run holds, whose code (a function tool's handler) could repeat it.
+ */
+export function credentialOmitter(credential: ToolCredential): (text: string) => string {
+  return secretOmitter(placedSecret(credential, {}).secret);
 }
 
 /** One stable name for a credential: a digest of its secret, which never leaves the sender's side. */
@@ -298,20 +343,18 @@ export async function readyCredential(
     credential.expiresAt !== undefined && credential.expiresAt <= Date.now() + 30000;
   if (!isExpired) return { state: 'ready', credential, refreshed: false };
   if (!credential.refreshToken) return { state: 'unusable', reason: 'expired' };
+  const clientSecret = await source.clientSecret?.(credential.clientId);
   let refreshed: OAuth2Credential;
   try {
-    refreshed = await refreshOnce(
-      credential,
-      credential.refreshToken,
-      transport,
-      await source.clientSecret?.(credential.clientId),
-    );
+    refreshed = await refreshOnce(credential, credential.refreshToken, transport, clientSecret);
   } catch (err) {
-    return {
-      state: 'unusable',
-      reason: 'refresh_failed',
-      detail: err instanceof Error ? err.message : String(err),
-    };
+    // why: a token server's error can repeat what it was sent; none of it leaves this side.
+    const sent = [credential.accessToken, credential.refreshToken, clientSecret];
+    const detail = sent.reduce<string>(
+      (text, secret) => (secret ? secretOmitter(secret)(text) : text),
+      err instanceof Error ? err.message : String(err),
+    );
+    return { state: 'unusable', reason: 'refresh_failed', detail };
   }
   // why: The host persists the refreshed credential before the call goes on; a rotated refresh
   // token lost to a closed stream cannot be recovered.

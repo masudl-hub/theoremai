@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
+  type CredentialSource,
   memoryCredentialSource,
   type SealedCredentialSource,
   type ToolCredentialSource,
@@ -140,10 +141,17 @@ function scopeOf(def: ToolDefinitionInput): KernelScope {
   return scope;
 }
 
-/** Runs the tool with `credentials`; the run's own fetch refuses, so every request went through the sealed side. */
-async function run(tool: ToolDefinitionInput, credentials: SealedCredentialSource) {
+/**
+ * Runs the tool with `credentials`. The run's own fetch refuses unless `ownFetch` is given, so
+ * every request went through the sealed side.
+ */
+async function run(
+  tool: ToolDefinitionInput,
+  credentials: CredentialSource,
+  ownFetch: typeof fetch = () => Promise.reject(new Error('the run sent a request itself')),
+) {
   const original = globalThis.fetch;
-  globalThis.fetch = () => Promise.reject(new Error('the run sent a request itself'));
+  globalThis.fetch = ownFetch;
   try {
     const events: TurnEvent[] = [];
     const exec = executeRegisteredTool({
@@ -191,6 +199,38 @@ Deno.test('a key the service echoes reaches the run omitted, for every tool kind
     );
     assertEquals(JSON.stringify({ events, settlement }).includes(KEY), false);
   }
+});
+
+Deno.test("a redirect off the slot's origin is followed by the run without the key, and never sent sealed again", async () => {
+  const sealedSent: string[] = [];
+  const sealedFetch: typeof fetch = (input) => {
+    sealedSent.push(input.toString());
+    return Promise.resolve(
+      new Response(null, { status: 302, headers: { Location: 'https://mirror.example/v1/now' } }),
+    );
+  };
+  const ownSent: { url: string; authorization: string | null }[] = [];
+  const ownFetch: typeof fetch = (input, init) => {
+    const url = input.toString();
+    ownSent.push({ url, authorization: new Headers(init?.headers).get('authorization') });
+    return Promise.resolve(
+      url.startsWith('https://mirror.example/')
+        ? new Response(null, { status: 302, headers: { Location: `${RESOURCE}v1/back` } })
+        : json({ temp: 6 }),
+    );
+  };
+  const { settlement } = await run(
+    HTTP_TOOL,
+    sealedOver(memoryCredentialSource({ weather: BEARER_KEY }), sealedFetch),
+    ownFetch,
+  );
+  assertEquals(settlement.failure, undefined);
+  assertEquals(sealedSent, [`${RESOURCE}v1/now?city=Oslo`]);
+  assertEquals(ownSent, [
+    { url: 'https://mirror.example/v1/now', authorization: null },
+    // Back on the slot's origin, but the key already left it once.
+    { url: `${RESOURCE}v1/back`, authorization: null },
+  ]);
 });
 
 Deno.test('a key the service refuses asks for a new sign-in, as a key the run holds does', async () => {
@@ -300,6 +340,44 @@ Deno.test('the sealed side omits a key split across pieces of the body, and in e
   assertEquals(await answer.text(), 'before [omitted - credential] middle [omitted - credential]');
 });
 
+Deno.test('the sealed side omits a key the service echoes escaped in JSON or encoded in a URL', async () => {
+  const key = 'ab/c+d e"f';
+  const forms = [
+    'ab/c+d e"f',
+    'ab/c+d e\\"f',
+    'ab\\/c+d e\\"f',
+    'ab%2Fc%2Bd%20e%22f',
+    'ab%2fc%2bd%20e%22f',
+    'ab%2Fc%2Bd+e%22f',
+  ];
+  const bytes = new TextEncoder().encode(forms.join(' | '));
+  const fetchFn: typeof fetch = () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let from = 0; from < bytes.length; from += 7) {
+          controller.enqueue(bytes.slice(from, from + 7));
+        }
+        controller.close();
+      },
+    });
+    return Promise.resolve(
+      new Response(body, {
+        status: 302,
+        headers: { Location: `https://api.weather.example/v1/next?key=${encodeURIComponent(key)}` },
+      }),
+    );
+  };
+  const host = sealedOver(
+    memoryCredentialSource({ weather: { type: 'bearer', token: key } }),
+    fetchFn,
+  );
+  const answer = await host.send('weather', `${RESOURCE}v1/now`, { method: 'GET', headers: {} });
+  assertEquals(
+    answer.headers.get('location'),
+    'https://api.weather.example/v1/next?key=[omitted - credential]',
+  );
+  assertEquals(await answer.text(), forms.map(() => '[omitted - credential]').join(' | '));
+});
 Deno.test('a sealed prepare refreshes an expired token on its own side and tells no secret', async () => {
   const expired: ToolCredential = {
     type: 'oauth2',
@@ -325,6 +403,113 @@ Deno.test('a sealed prepare refreshes an expired token on its own side and tells
     await host.prepare('nothing-here').catch((err) => String(err)),
     "TheoremError: No sealed slot 'nothing-here'",
   );
+});
+
+Deno.test('a refresh the token server refuses says why without anything it was sent', async () => {
+  const expired: ToolCredential = {
+    type: 'oauth2',
+    issuer: 'https://auth.weather.example',
+    resource: RESOURCE,
+    accessToken: 'old-access',
+    refreshToken: 'old-refresh',
+    tokenEndpoint: 'https://auth.weather.example/token',
+    clientId: 'client',
+    expiresAt: Date.now() - 1000,
+  };
+  const source: ToolCredentialSource = {
+    ...memoryCredentialSource({ weather: expired }),
+    clientSecret: () => Promise.resolve('client-secret'),
+  };
+  const fetchFn: typeof fetch = () =>
+    Promise.resolve(
+      json(
+        {
+          error: 'invalid_grant',
+          error_description: 'old-refresh from client-secret replaced old-access',
+        },
+        400,
+      ),
+    );
+  const ready = await sealedOver(source, fetchFn).prepare('weather');
+  assertEquals(ready.state === 'unusable' ? ready.reason : ready.state, 'refresh_failed');
+  const detail = ready.state === 'unusable' ? (ready.detail ?? '') : '';
+  assertEquals(detail.includes('invalid_grant'), true);
+  for (const secret of ['old-refresh', 'client-secret', 'old-access']) {
+    assertEquals({ [secret]: detail.includes(secret) }, { [secret]: false });
+  }
+});
+
+Deno.test('a sealed side that throws or fails settles the call, and the turn goes on', async () => {
+  const host = sealedOver(memoryCredentialSource({ weather: BEARER_KEY }), weather().fetchFn);
+  const down = () => Promise.reject(new Error('keys worker down'));
+  const crashes: Record<string, SealedCredentialSource> = {
+    undeclared: sealedCredentialHost({
+      source: memoryCredentialSource({ weather: BEARER_KEY }),
+      slots: {},
+      resolveHost: RESOLVE,
+    }),
+    prepare: { ...host, prepare: down },
+  };
+  for (const [name, source] of Object.entries(crashes)) {
+    for (const tool of TOOLS) {
+      const { events, settlement } = await run(tool, source);
+      assertEquals(
+        { [`${name} ${tool.type}`]: settlement.failure?.code },
+        { [`${name} ${tool.type}`]: 'hook_failed' },
+      );
+      const crash = events.find((event) => event.type === 'hook_failed');
+      assertEquals(crash?.type === 'hook_failed' ? [crash.hook, crash.callId] : undefined, [
+        'credentials',
+        'call-1',
+      ]);
+    }
+  }
+  for (const tool of TOOLS) {
+    const { settlement } = await run(tool, { ...host, send: down });
+    assertEquals({ [tool.type]: settlement.failure?.message }, { [tool.type]: 'keys worker down' });
+  }
+});
+
+Deno.test('a source the run reads that throws fails the call as a crashed credentials hook', async () => {
+  const expired: ToolCredential = {
+    type: 'oauth2',
+    issuer: 'https://auth.weather.example',
+    resource: RESOURCE,
+    accessToken: 'old-access',
+    refreshToken: 'old-refresh',
+    tokenEndpoint: 'https://auth.weather.example/token',
+    clientId: 'client',
+    expiresAt: Date.now() - 1000,
+  };
+  const down = () => Promise.reject(new Error('database down'));
+  const tokenServer: typeof fetch = () =>
+    Promise.resolve(json({ access_token: KEY, token_type: 'Bearer', expires_in: 3600 }));
+  const crashes: Record<string, ToolCredentialSource> = {
+    get: { ...memoryCredentialSource(), get: down },
+    set: { ...memoryCredentialSource({ weather: expired }), set: down },
+    clientSecret: { ...memoryCredentialSource({ weather: expired }), clientSecret: down },
+  };
+  for (const [name, source] of Object.entries(crashes)) {
+    const { events, settlement } = await run(HTTP_TOOL, source, tokenServer);
+    assertEquals({ [name]: settlement.failure?.code }, { [name]: 'hook_failed' });
+    const crash = events.find((event) => event.type === 'hook_failed');
+    assertEquals(
+      { [name]: crash?.type === 'hook_failed' ? crash.hook : undefined },
+      { [name]: 'credentials' },
+    );
+  }
+});
+
+Deno.test('the sealed side keeps every Set-Cookie the service sends', async () => {
+  const fetchFn: typeof fetch = () => {
+    const headers = new Headers();
+    headers.append('Set-Cookie', 'a=1');
+    headers.append('Set-Cookie', `b=${KEY}`);
+    return Promise.resolve(new Response('ok', { headers }));
+  };
+  const host = sealedOver(memoryCredentialSource({ weather: BEARER_KEY }), fetchFn);
+  const answer = await host.send('weather', `${RESOURCE}v1/now`, { method: 'GET', headers: {} });
+  assertEquals(answer.headers.getSetCookie(), ['a=1', 'b=[omitted - credential]']);
 });
 
 Deno.test('an empty sealed slot prepares as absent, and a key with no expiry is ready as it is', async () => {

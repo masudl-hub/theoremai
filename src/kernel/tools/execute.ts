@@ -26,6 +26,7 @@ import {
   type ToolCallEnd,
   type ToolOutcome,
 } from '../engine/tool-trace.ts';
+import { mapStrings } from '../engine/tree.ts';
 import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
 import { isTextFile, rewriteTextFile, textFileText } from '../registry/attachments.ts';
@@ -80,6 +81,7 @@ import { type ToolRegistry, toolAuthForCall } from './registry.ts';
 import {
   executeHttpTool,
   executeMcpTool,
+  failureWithoutSecret,
   modelResultFromOutput,
   outcomeFromUnauth,
   parseToolOutput,
@@ -807,12 +809,24 @@ async function* resolveFunctionSignIn(
   tool: FunctionToolDef,
   ctx: ToolContext,
   base: ToolCallBase,
+  stages: ToolStageSupport | undefined,
 ): AsyncGenerator<TurnEvent, FunctionSignIn> {
   const auth = fixedAuth(tool);
   if (!auth) return {};
-  const resolved = yield* resolveToolAuth(tool.name, auth, ctx, base);
+  const resolved = yield* resolveToolAuth(tool.name, auth, ctx, base, stages?.span);
   if (resolved.auth === 'unauthenticated') return { outcome: outcomeFromUnauth(resolved) };
+  if (resolved.auth === 'failed') {
+    return { outcome: { kind: 'failed', failure: resolved.failure, callNotStarted: true } };
+  }
   return resolved.auth === 'signed_in' ? { signedIn: resolved.signedIn } : {};
+}
+
+/** A credential the run holds, cleared from what a handler answers or throws; as it is when there is none. */
+function clearedOfCredential(omit: ((text: string) => string) | undefined) {
+  return {
+    failure: (failure: ToolFailure) => (omit ? failureWithoutSecret(failure, omit) : failure),
+    output: (output: unknown) => (omit ? mapStrings(output, omit) : output),
+  };
 }
 
 function functionHandlerFailure(error: unknown): ToolFailure {
@@ -914,7 +928,7 @@ export async function* executeFunction(
       guard,
       labels: ctx.profile.labels,
     });
-  const signedIn = yield* resolveFunctionSignIn(tool, ctx, base);
+  const signedIn = yield* resolveFunctionSignIn(tool, ctx, base, stages);
   if (signedIn.outcome) return yield* settleOutcome(signedIn.outcome);
 
   const preBody = yield* runFunctionPreBodyStages({ tool, input, ctx, base, stages, guard });
@@ -939,8 +953,13 @@ export async function* executeFunction(
   throwIfAborted(ctx.signal);
   const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
   ctx = yield* receivePageAnswer(tool, ctx, handOff, base);
+  const cleared = clearedOfCredential(signedIn.signedIn?.omit);
   const fail = (failure: ToolFailure) =>
-    settleToolFailure(guard, base, failure, stages, { toolName: tool.name, callId, input });
+    settleToolFailure(guard, base, cleared.failure(failure), stages, {
+      toolName: tool.name,
+      callId,
+      input,
+    });
 
   const checks = requestChecks(stages?.span);
   const handlerCtx: ToolContext = signedIn.signedIn
@@ -974,6 +993,7 @@ export async function* executeFunction(
     }
     return yield* fail(functionHandlerFailure(err));
   }
+  output = cleared.output(output);
   if (output === undefined) {
     return yield* fail({
       code: 'invalid_output',

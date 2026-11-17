@@ -61,6 +61,32 @@ Deno.test('origin-bound headers go out on the first request and same-origin hops
   );
 });
 
+Deno.test("the origin sender sends the first origin's hops only, never again once a redirect left it", async () => {
+  const hops = {
+    'https://a.example.com/1': redirect(302, '/2'),
+    'https://a.example.com/2': redirect(302, 'https://b.example.com/3'),
+    'https://b.example.com/3': redirect(302, 'https://a.example.com/4'),
+  };
+  const origin = recorder(hops);
+  const plain = recorder(hops);
+  await fetchGuarded(
+    'https://a.example.com/1',
+    { headers: {} },
+    { followRedirects: true, originFetchFn: origin.fetchFn, fetchFn: plain.fetchFn },
+  );
+  check(
+    origin.seen.map((hop) => hop.url),
+    ['https://a.example.com/1', 'https://a.example.com/2'],
+    'origin sender',
+  );
+  check(
+    plain.seen.map((hop) => hop.url),
+    // Back on the first origin, but the sender already lost it once.
+    ['https://b.example.com/3', 'https://a.example.com/4'],
+    'plain fetch',
+  );
+});
+
 Deno.test('a request without origin-bound headers sends only its own', async () => {
   const { fetchFn, seen } = recorder({});
   await fetchGuarded(

@@ -14,7 +14,9 @@ import {
 } from '../../mod.ts';
 import type { TranscriptBlock } from '../../src/interface/mod.ts';
 import type { ToolCallState } from '../../src/interface/types.ts';
+import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import type { OAuth2Credential } from '../../src/kernel/auth/types.ts';
+import { sealedCredentialHost } from '../../src/kernel/tools/credential-send.ts';
 import { withPageToolDispatch } from '../../web/src/client/page-dispatch.ts';
 import { sessionAfter } from '../../web/src/client/run-commit.ts';
 import {
@@ -1548,6 +1550,45 @@ Deno.test('a key typed at a sign-in gate is saved on the server and never sent b
     assertEquals(toolPhases(next, 'handler_tracker').at(-1), 'complete');
     assertEquals(sent, ['Bearer typed-key-123', 'Bearer typed-key-123']);
     assertEquals(JSON.stringify(next).includes('typed-key-123'), false);
+  });
+});
+Deno.test('a key typed at a sign-in gate is refused, and never saved, when the call runs with a sealed source', async () => {
+  const store = inspectableStore();
+  const sealed = sealedCredentialHost({
+    source: memoryCredentialSource(),
+    slots: { tracker: { resource: 'https://api.tracker.example/' } },
+  });
+  const handler = handlerFor({
+    profile: profile('handler-typed-key-sealed', ['handler_tracker']),
+    provider: () => fixtureHostOptions(toolCallingProvider('handler_tracker', 'item-1')),
+    credentialStore: store,
+    prepare: (turn) => ({ ...turn, credentials: sealed }),
+  });
+  const transport = transportFor(handler);
+  await withToolServer(async (sent) => {
+    const gate = pausedGate(
+      await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent)),
+    );
+    await assertRefused(
+      () =>
+        collect((onEvent) =>
+          transport.invoke(
+            {
+              gateId: gate.callId,
+              operationId: gate.operationId,
+              decision: 'approve',
+              secret: 'typed-key-sealed',
+            },
+            onEvent,
+          ),
+        ),
+      'error.request',
+    );
+    assertEquals(sent, []);
+    assertEquals(
+      [...store.saved.values()].some((saved) => 'tracker' in saved),
+      false,
+    );
   });
 });
 Deno.test('a typed key answers only a sign-in gate, and a refused one leaves the gate pending', async () => {

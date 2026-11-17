@@ -1,4 +1,4 @@
-import { errorKind } from '../../guardrails/error.ts';
+import { errorKind, throwIfAborted } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
 import { type ErrorKind, TheoremError } from '../../guardrails/theorem-error.ts';
@@ -8,12 +8,19 @@ import { retryTransient } from '../../providers/shared/retry.ts';
 import { isSealedSource, type SealedCredentialSource } from '../auth/credential-source.ts';
 import { tokenAudienceCovers } from '../auth/oauth.ts';
 import type { AuthScopeRefused } from '../auth/scope-refusal.ts';
+import { mapStrings } from '../engine/tree.ts';
+import { hookCrashFailure, hookFailed } from '../hook-failure.ts';
 import { isTextFile, modelTextFile } from '../registry/attachments.ts';
 import { mediaKindForMime } from '../registry/catalog.ts';
 import type { AuthUnauthenticatedPolicy } from '../schema.ts';
 import type { InteractionPart, ToolOutputPart, ToolWarning } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
-import { credentialId, credentialSender, readyCredential } from './credential-send.ts';
+import {
+  credentialId,
+  credentialOmitter,
+  credentialSender,
+  readyCredential,
+} from './credential-send.ts';
 import {
   dispatchToolBody,
   guardToolTarget,
@@ -63,6 +70,12 @@ export type SignedInSend = {
   credentialId: string;
   /** Where the credential may go: an OAuth token's resource (RFC 8707), or a sealed slot's. */
   audience?: string;
+  /**
+   * Replaces the credential wherever a text holds it. Set when the run holds the credential (a
+   * source that is not sealed), so a tool's output and failure are cleared of it too; a sealed
+   * credential never reaches the run, and its sender clears what the service sends back.
+   */
+  omit?: (text: string) => string;
 };
 
 /** Why a call is not signed in, settled per the tool's `onUnauthenticated`. */
@@ -73,10 +86,14 @@ export type UnauthenticatedResult = { auth: 'unauthenticated' } & (
   | { failureMessage: string }
 );
 
-/** How a call's sign-in resolved: the tool signs in to nothing, it is signed in, or it is not. */
+/**
+ * How a call's sign-in resolved: the tool signs in to nothing, it is signed in, it is not, or the
+ * host's credential source threw (`failed`, reported as `hook_failed`; the call does not start).
+ */
 export type AuthResolveResult =
   | { auth: 'none' }
   | { auth: 'signed_in'; signedIn: SignedInSend }
+  | { auth: 'failed'; failure: ToolFailure }
   | UnauthenticatedResult;
 
 function buildAuthGate(
@@ -175,6 +192,23 @@ export async function* resolveToolAuth(
   authConfig: ToolAuthConfig | undefined,
   ctx: ToolContext,
   base: ToolCallBase,
+  span?: SpanHandle,
+): AsyncGenerator<TurnEvent, AuthResolveResult> {
+  try {
+    return yield* readToolAuth(toolName, authConfig, ctx, base);
+  } catch (err) {
+    throwIfAborted(ctx.signal);
+    // invariant: a host hook that throws never ends the turn; the call fails as not started.
+    yield hookFailed('credentials', err, { callId: base.callId, span });
+    return { auth: 'failed', failure: hookCrashFailure(err, ctx.profile.labels) };
+  }
+}
+
+async function* readToolAuth(
+  toolName: string,
+  authConfig: ToolAuthConfig | undefined,
+  ctx: ToolContext,
+  base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, AuthResolveResult> {
   if (!authConfig) return { auth: 'none' };
   const slot = authConfig.slot;
@@ -230,6 +264,7 @@ export async function* resolveToolAuth(
       send: credentialSender(credential, authConfig, ctx.fetch),
       credentialId: await credentialId(credential),
       ...(credential.type === 'oauth2' ? { audience: credential.resource } : {}),
+      omit: credentialOmitter(credential),
     },
   };
 }
@@ -525,8 +560,15 @@ async function* remoteAuthAndPreBody(args: {
   TurnEvent,
   { ok: true; input: unknown; signedIn?: SignedInSend } | ToolBodyOutcome
 > {
-  const authRes = yield* resolveToolAuth(args.tool.name, args.tool.auth, args.ctx, args.base);
+  const authRes = yield* resolveToolAuth(
+    args.tool.name,
+    args.tool.auth,
+    args.ctx,
+    args.base,
+    args.stages?.span,
+  );
   if (authRes.auth === 'unauthenticated') return outcomeFromUnauth(authRes);
+  if (authRes.auth === 'failed') return failureOutcome(authRes.failure, true);
 
   const preBody = yield* runRemotePreBodyStages({
     tool: args.tool,
@@ -660,12 +702,49 @@ export function audienceMismatch(audience: string | undefined, url: URL): string
   return `The credential for "${audience}" cannot be sent to "${url.origin}${url.pathname}"`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
+/** A failure's message and details with the credential replaced. */
+export function failureWithoutSecret(
+  failure: ToolFailure,
+  omit: (text: string) => string,
+): ToolFailure {
+  return {
+    ...failure,
+    message: omit(failure.message),
+    ...(failure.details === undefined ? {} : { details: mapStrings(failure.details, omit) }),
+  };
+}
+
+/** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace, or client. */
+function withoutSecret(
+  outcome: ToolBodyOutcome,
+  omit: ((text: string) => string) | undefined,
+  outputSchema: JsonSchema,
+): ToolBodyOutcome {
+  if (!omit) return outcome;
+  if (outcome.kind === 'ok') {
+    const outputRaw = mapStrings(outcome.outputRaw, omit);
+    return {
+      ...outcome,
+      outputRaw,
+      modelResult: withMedia(
+        modelResultFromOutput(outputRaw, outputSchema),
+        outcome.modelResult.media,
+      ),
+    };
+  }
+  if (outcome.kind === 'failed') {
+    return { ...outcome, failure: failureWithoutSecret(outcome.failure, omit) };
+  }
+  return outcome;
+}
+
 /**
  * A credential goes only to where it is bound (an OAuth token's resource, RFC 8707, or a sealed
  * slot's); any other target gets no request. `send` gets the URL after the target's checks.
  */
 async function* sendWithCredential(
   signedIn: SignedInSend | undefined,
+  outputSchema: JsonSchema,
   url: URL,
   send: (url: URL) => AsyncGenerator<TurnEvent, ToolBodyOutcome>,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
@@ -676,7 +755,7 @@ async function* sendWithCredential(
       true,
     );
   }
-  return yield* send(url);
+  return withoutSecret(yield* send(url), signedIn?.omit, outputSchema);
 }
 
 /**
@@ -720,7 +799,7 @@ export async function* executeHttpTool(
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
   const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared.signedIn, guarded.url, (url) =>
+  return yield* sendWithCredential(prepared.signedIn, tool.outputSchema, guarded.url, (url) =>
     sendHttpRequest(
       tool,
       url,
@@ -1487,7 +1566,7 @@ export async function* executeMcpTool(
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
   const handOff = yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
-  return yield* sendWithCredential(prepared.signedIn, guarded.url, (url) =>
+  return yield* sendWithCredential(prepared.signedIn, tool.outputSchema, guarded.url, (url) =>
     sendMcpRequest(
       tool,
       url,

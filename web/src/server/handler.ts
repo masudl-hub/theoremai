@@ -94,6 +94,7 @@ import {
   type AnsweredGate,
   answerGatedCall,
   type GateAnswerRequest,
+  isSealedSource,
   resolveGateTtlMs,
   type ToolBackgroundService,
   type ToolCredentialSource,
@@ -811,6 +812,17 @@ async function* invokeAnswered(
       announce: (service) => announced(ctx, request, sessionId, service),
     },
   );
+  if (answer.typed) {
+    // invariant: a sealed source keeps every key where the run cannot read it, so a key typed
+    // here would be saved and never sent; the person enters it where the keys are kept.
+    if (prepared.credentials && isSealedSource(prepared.credentials)) {
+      throw new TheoremError(
+        'request',
+        `call ${callId} runs with a sealed credential source, which takes no typed secret`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+    await saveCredential(ctx, sessionId, answer.typed.slot, answer.typed.credential);
+  }
   yield* invokeTool({
     profile: ctx.profile.id,
     ...(prepared.execution ? { execution: prepared.execution } : {}),
@@ -1580,10 +1592,8 @@ async function* invokeEvents(
   session: Session,
   answered: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
-  const { pending, answer } = answered;
-  if (answer.typed)
-    await saveCredential(ctx, session.id, answer.typed.slot, answer.typed.credential);
   const events = settleAnswered(ctx, request, session, answered);
+  const { pending, answer } = answered;
   yield* recorded(
     ctx.sessions,
     session.id,

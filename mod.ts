@@ -494,6 +494,7 @@ export {
   toolOperationReplySchema,
 } from './src/kernel/tools/operation.ts';
 export type {
+  RunToolStepRequest,
   SettledToolCall,
   ToolCallResult,
   ToolStepCallResult,
@@ -503,6 +504,7 @@ export type {
   PageAnswer,
   ToolContext,
   ToolMediaEntry,
+  ToolStreamEvent,
 } from './src/kernel/tools/types.ts';
 export {
   awaitingUserInputSchema,

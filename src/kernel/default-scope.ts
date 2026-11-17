@@ -7,7 +7,7 @@ import type { Provider, RegisteredProvider, Registration } from './protocols/pro
 import type { ProviderHostOptions } from './protocols/runtime.ts';
 import type { ProfileDefinition } from './registry/profiles.ts';
 import { defaultKernelScope as scope } from './scope.ts';
-import type { ToolCallResult, ToolStepCallResult } from './tools/run.ts';
+import type { RunToolStepRequest, ToolCallResult, ToolStepCallResult } from './tools/run.ts';
 import type {
   InvokeToolRequest,
   InvokeToolStepRequest,
@@ -187,9 +187,12 @@ function runTool(request: InvokeToolRequest, sinkOverride?: TraceSink): Promise<
   return scope.runTool(request, sinkOverride);
 }
 
-/** Run the host's calls as one step in the default scope, giving each call's end as it settles. */
+/**
+ * Run the host's calls as one step in the default scope, giving each call's end as it settles;
+ * `onEvent` hears each event as it arrives.
+ */
 function runToolStep(
-  request: InvokeToolStepRequest,
+  request: RunToolStepRequest,
   sinkOverride?: TraceSink,
 ): AsyncGenerator<ToolStepCallResult> {
   return scope.runToolStep(request, sinkOverride);

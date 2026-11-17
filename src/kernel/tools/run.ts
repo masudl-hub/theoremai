@@ -7,6 +7,7 @@
 import { labelText } from '../../guardrails/labels.ts';
 import type { ToolPhaseEvent, TurnEvent, TurnEventOf } from '../turn-events.ts';
 import type { StartedInvoke, StartedStep } from './invoke.ts';
+import type { InvokeToolStepRequest } from './types.ts';
 
 /** The phase a call ends on: it completed, a gate held it, it failed, or it went on in the background. */
 export type SettledToolCall = Extract<
@@ -25,6 +26,19 @@ export type ToolCallResult = SettledToolCall & {
 
 /** A step's call, settled: its place in the step's `calls` beside its result. */
 export type ToolStepCallResult = ToolCallResult & { index: number };
+
+/** A step `runToolStep` runs, and what the host hears while it runs. */
+export interface RunToolStepRequest extends InvokeToolStepRequest {
+  /**
+   * Your function that is given each of the step's events as it arrives, before the call it
+   * belongs to settles, such as a call's progress. Left out, you get only each call's end. A throw
+   * fails the step, as a throw from the invoke does.
+   *
+   * @remarks Called for every event the step emits, in order, before `runToolStep` yields the
+   * call that event settles.
+   */
+  onEvent?: (event: TurnEvent) => void;
+}
 
 function isSettled(tool: TurnEventOf<'tool'>['tool']): tool is SettledToolCall {
   return (
@@ -90,8 +104,14 @@ async function settledCall(started: StartedInvoke): Promise<ToolCallResult> {
   return settle(fold, invokeError);
 }
 
-/** Run a step's calls, yielding each one's result as it settles; a call the step never settled comes last. */
-async function* settledCalls(started: StartedStep): AsyncGenerator<ToolStepCallResult> {
+/**
+ * Run a step's calls, yielding each one's result as it settles; a call the step never settled comes
+ * last. `onEvent` hears each event first.
+ */
+async function* settledCalls(
+  started: StartedStep,
+  onEvent?: (event: TurnEvent) => void,
+): AsyncGenerator<ToolStepCallResult> {
   const folds = started.calls.map(
     ({ name, callId }): CallFold => ({
       name,
@@ -103,6 +123,7 @@ async function* settledCalls(started: StartedStep): AsyncGenerator<ToolStepCallR
   const yielded = new Set<number>();
   let invokeError: TurnEventOf<'error'> | undefined;
   for await (const event of started.events) {
+    onEvent?.(event);
     if (event.type === 'error') invokeError = event;
     if (event.type !== 'tool') continue;
     const index = byCallId.get(event.tool.callId);

@@ -113,3 +113,39 @@ Deno.test("runToolStep gives each call's end by its place, named or not", async 
   }
   assertEquals(new Set(byIndex.map((result) => result.callId)).size, 3);
 });
+
+Deno.test('runToolStep tells onEvent each event before the call it belongs to settles', async () => {
+  const scope = scopeWithTools();
+  scope.tools.register({
+    type: 'function',
+    name: 'pieces',
+    description: 'pieces',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    labels: { activity: 'Looking it up' },
+    handler: async function* () {
+      yield { kind: 'progress', data: { piece: 1 } };
+      yield { kind: 'progress', data: { piece: 2 } };
+      yield { kind: 'complete', output: { finding: 'whole' } };
+    },
+  });
+  scope.profiles.register({ type: 'host', id: 'pieces_host', tools: { allow: ['pieces'] } });
+  const heard: string[] = [];
+  for await (const result of scope.runToolStep({
+    profile: 'pieces_host',
+    calls: [{ name: 'pieces', input: {} }],
+    onEvent: (event) => {
+      if (event.type === 'tool' && event.tool.phase === 'progress') {
+        heard.push(`progress ${JSON.stringify(event.tool.data)}`);
+      }
+    },
+  })) {
+    heard.push(`settled ${result.phase}`);
+  }
+  assertEquals(heard, ['progress {"piece":1}', 'progress {"piece":2}', 'settled complete']);
+});

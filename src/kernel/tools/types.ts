@@ -213,6 +213,7 @@ export type SignedInRequest = { method?: string; headers?: Record<string, string
  */
 export type SignedInFetch = (url: string | URL, request?: SignedInRequest) => Promise<Response>;
 
+/** What a streaming handler (an async generator function) yields; only `complete` is its output. */
 export type ToolStreamEvent<TOut = unknown> =
   | { kind: 'progress'; data: unknown }
   /**

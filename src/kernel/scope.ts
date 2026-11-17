@@ -9,6 +9,7 @@ import { createKernelRegistry, type KernelRegistry } from './registry/kernel-reg
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
 import { invokeTool, invokeToolStep, startInvoke, startInvokeStep } from './tools/invoke.ts';
 import {
+  type RunToolStepRequest,
   settledCall,
   settledCalls,
   type ToolCallResult,
@@ -53,7 +54,7 @@ interface KernelScope extends KernelRegistry {
   ): AsyncGenerator<TurnEvent>;
   runTool(request: InvokeToolRequest, sinkOverride?: TraceSink): Promise<ToolCallResult>;
   runToolStep(
-    request: InvokeToolStepRequest,
+    request: RunToolStepRequest,
     sinkOverride?: TraceSink,
   ): AsyncGenerator<ToolStepCallResult>;
   resolveTurn(req: TurnRequest): ReturnType<typeof resolveTurnInRegistry>;
@@ -100,8 +101,8 @@ function createKernelScope(): KernelScope {
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
     invokeToolStep: (request, sinkOverride) => invokeToolStep(registry, request, sinkOverride),
     runTool: (request, sinkOverride) => settledCall(startInvoke(registry, request, sinkOverride)),
-    runToolStep: (request, sinkOverride) =>
-      settledCalls(startInvokeStep(registry, request, sinkOverride)),
+    runToolStep: ({ onEvent, ...request }, sinkOverride) =>
+      settledCalls(startInvokeStep(registry, request, sinkOverride), onEvent),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
     projectProfile: (id) => projectProfileInRegistry(registry, id),
     runDecision: (request, options) => runDecisionInRegistry(registry, request, options),

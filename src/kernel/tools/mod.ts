@@ -7,6 +7,8 @@ export {
 export { askUserTool, registerHarnessTools } from './harness.ts';
 export { formatToolFailureForModel, formatToolResult } from './model-text.ts';
 export { toolOutputPartSchema } from './output-parts.ts';
+export type { ProbeToolOptions, ToolProbe, ToolProbeAnswer, ToolProbeTarget } from './probe.ts';
+export { probeTool } from './probe.ts';
 export type { ToolRegistry } from './registry.ts';
 export { assertToolSettings, createToolRegistry } from './registry.ts';
 export type { CredentialQuery, McpProtocolVersion, McpRpcResponse } from './remote.ts';

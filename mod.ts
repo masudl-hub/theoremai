@@ -449,6 +449,10 @@ export type {
   CredentialQuery,
   McpProtocolVersion,
   McpRpcResponse,
+  ProbeToolOptions,
+  ToolProbe,
+  ToolProbeAnswer,
+  ToolProbeTarget,
   ToolRegistry,
 } from './src/kernel/tools/mod.ts';
 export {
@@ -466,6 +470,7 @@ export {
   mcpRequestMeta,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
+  probeTool,
   registerHarnessTools,
   resolveToolAuth,
   toolOutputPartSchema,

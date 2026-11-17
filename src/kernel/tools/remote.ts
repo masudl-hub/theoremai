@@ -701,7 +701,7 @@ async function* cappedPieces(
 }
 
 /** A body, read up to `maxBytes` when set; `undefined` when it runs past, with the rest left unread. */
-async function readCappedText(
+export async function readCappedText(
   response: Response,
   maxBytes: number | undefined,
 ): Promise<string | undefined> {
@@ -761,7 +761,7 @@ function tooLargeFailure(host: string, maxBytes: number | undefined): ToolFailur
 }
 
 /** The text with the credential replaced. */
-function omitSecretText(text: string, secret: string): string {
+export function omitSecretText(text: string, secret: string): string {
   return text.replaceAll(secret, OMIT_CREDENTIAL);
 }
 
@@ -900,6 +900,19 @@ async function* readHttpBody(
   return yield* readCappedTextShowing(response, shown, secret, maxBytes);
 }
 
+/** The headers an HTTP tool's request is sent with, before its own and its credential's. */
+export function httpRequestHeaders(method: HttpToolDef['method']): Record<string, string> {
+  return method === 'GET'
+    ? { Accept: 'application/json' }
+    : { Accept: 'application/json', 'Content-Type': 'application/json' };
+}
+
+/** The headers every MCP request is sent with, before the tool's own and its credential's. */
+export const MCP_REQUEST_HEADERS: Readonly<Record<string, string>> = {
+  'Content-Type': 'application/json',
+  Accept: 'application/json, text/event-stream',
+};
+
 async function* sendHttpRequest(
   tool: HttpToolDef,
   targetUrl: URL,
@@ -912,10 +925,7 @@ async function* sendHttpRequest(
   handOff: HandOff,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (tool.method !== 'GET') {
-    headers['Content-Type'] = 'application/json';
-  }
+  const headers = httpRequestHeaders(tool.method);
 
   let timedOut: AbortSignal | undefined;
   try {
@@ -1108,9 +1118,31 @@ type McpFetchOutcome =
   | { kind: 'protocol_retry'; error: McpRpcResponse['error'] }
   | { kind: 'session_required' }
   | { kind: 'session_expired' }
-  | { kind: 'failure'; failure: ToolFailure; refusal?: CredentialRefusal };
+  | { kind: 'failure'; failure: ToolFailure; refusal?: CredentialRefusal; answer?: McpAnswer };
 
-type McpTransport = {
+/** What the server answered when it was not a JSON-RPC message: its status and body. */
+export type McpAnswer = { status: number; body: string };
+
+/** One JSON-RPC request: a tool call names its tool, a list names none. */
+export type McpRpcCall = {
+  id: string | number;
+  method: 'tools/call' | 'tools/list';
+  params: Record<string, unknown>;
+  /** The tool a `tools/call` names, sent as `Mcp-Name`. */
+  name?: string;
+};
+
+/** A `tools/call` for `mcpToolName` with `input`. */
+function mcpToolCall(rpcId: string | number, mcpToolName: string, input: unknown): McpRpcCall {
+  return {
+    id: rpcId,
+    method: 'tools/call',
+    params: { name: mcpToolName, arguments: input },
+    name: mcpToolName,
+  };
+}
+
+export type McpTransport = {
   url: string;
   /** Sent on every hop. */
   headers: Record<string, string>;
@@ -1128,20 +1160,14 @@ type McpTransport = {
 
 async function fetchMcpProtocolAttempt(
   transport: McpTransport,
-  rpcId: string | number,
-  mcpToolName: string,
-  input: unknown,
+  call: McpRpcCall,
   protocolVersion: string,
 ): Promise<McpFetchOutcome> {
   const jsonRpcPayload = {
     jsonrpc: '2.0',
-    id: rpcId,
-    method: 'tools/call',
-    params: {
-      name: mcpToolName,
-      arguments: input,
-      _meta: mcpRequestMeta(protocolVersion),
-    },
+    id: call.id,
+    method: call.method,
+    params: { ...call.params, _meta: mcpRequestMeta(protocolVersion) },
   };
 
   const response = await fetchGuarded(
@@ -1151,8 +1177,8 @@ async function fetchMcpProtocolAttempt(
       headers: {
         ...transport.headers,
         'MCP-Protocol-Version': protocolVersion,
-        'Mcp-Method': jsonRpcPayload.method,
-        'Mcp-Name': mcpToolName,
+        'Mcp-Method': call.method,
+        ...(call.name === undefined ? {} : { 'Mcp-Name': call.name }),
       },
       body: JSON.stringify(jsonRpcPayload),
       signal: transport.signal,
@@ -1191,6 +1217,7 @@ async function fetchMcpProtocolAttempt(
     return {
       kind: 'failure',
       ...(refusal ? { refusal } : {}),
+      answer: { status: response.status, body: text },
       failure: {
         code: `mcp_http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
@@ -1208,6 +1235,7 @@ async function fetchMcpProtocolAttempt(
   } catch {
     return {
       kind: 'failure',
+      answer: { status: response.status, body: text },
       failure: {
         code: 'invalid_response',
         kind: 'bad_response',
@@ -1217,41 +1245,50 @@ async function fetchMcpProtocolAttempt(
   }
 }
 
-type McpNegotiated = {
+export type McpNegotiated = {
   rpc?: McpRpcResponse;
+  /** The protocol version `rpc` was answered under. */
+  protocolVersion?: string;
   failure?: ToolFailure;
   refusal?: CredentialRefusal;
+  /** The server's status and body, when it answered with something other than JSON-RPC. */
+  answer?: McpAnswer;
   lastProtocolError?: McpRpcResponse['error'];
   /** The server refused a call without a session. */
   sessionRequired?: boolean;
 };
 
-async function negotiateMcpRpc(
+export async function negotiateMcpRpc(
   transport: McpTransport,
-  rpcId: string | number,
-  mcpToolName: string,
-  input: unknown,
+  call: McpRpcCall,
 ): Promise<McpNegotiated> {
   let lastProtocolError: McpRpcResponse['error'];
   for (const protocolVersion of MCP_PROTOCOL_VERSIONS) {
-    const outcome = await fetchMcpProtocolAttempt(
-      transport,
-      rpcId,
-      mcpToolName,
-      input,
-      protocolVersion,
-    );
+    const outcome = await fetchMcpProtocolAttempt(transport, call, protocolVersion);
     if (outcome.kind === 'retry' || outcome.kind === 'protocol_retry') {
       if (outcome.kind === 'protocol_retry') lastProtocolError = outcome.error;
       continue;
     }
-    if (outcome.kind === 'failure') {
-      return { failure: outcome.failure, ...(outcome.refusal ? { refusal: outcome.refusal } : {}) };
-    }
+    if (outcome.kind === 'failure') return failureNegotiated(outcome);
     if (outcome.kind !== 'rpc') return { sessionRequired: true };
-    return { rpc: outcome.response };
+    return { rpc: outcome.response, protocolVersion };
   }
   return { lastProtocolError };
+}
+
+function failureNegotiated(
+  outcome: Extract<McpFetchOutcome, { kind: 'failure' }>,
+  sessionId?: string,
+): McpNegotiated {
+  // why: A server can echo the session ID in its error; it goes no further than the server.
+  const hidden = (text: string) => (sessionId ? text.replaceAll(sessionId, '[session]') : text);
+  return {
+    failure: { ...outcome.failure, message: hidden(outcome.failure.message) },
+    ...(outcome.refusal ? { refusal: outcome.refusal } : {}),
+    ...(outcome.answer
+      ? { answer: { status: outcome.answer.status, body: hidden(outcome.answer.body) } }
+      : {}),
+  };
 }
 
 const SESSION_HEADER = 'Mcp-Session-Id';
@@ -1346,11 +1383,9 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
 }
 
 /** The call in a session: an expired one is reopened once, so a server can't loop us. */
-async function negotiateInSession(
+export async function negotiateInSession(
   transport: McpTransport,
-  rpcId: string | number,
-  mcpToolName: string,
-  input: unknown,
+  call: McpRpcCall,
   sessions: { cache: McpSessionCache; key: string; use: McpSessionUse; cached?: McpSession },
 ): Promise<McpNegotiated> {
   let session = sessions.cached;
@@ -1370,9 +1405,7 @@ async function negotiateInSession(
         ...transport,
         originBoundHeaders: { ...transport.originBoundHeaders, [SESSION_HEADER]: session.id },
       },
-      rpcId,
-      mcpToolName,
-      input,
+      call,
       session.protocolVersion,
     );
     if (outcome.kind === 'session_expired') {
@@ -1380,15 +1413,10 @@ async function negotiateInSession(
       session = undefined;
       continue;
     }
-    if (outcome.kind === 'rpc') return { rpc: outcome.response };
-    if (outcome.kind === 'failure') {
-      // why: A server can echo the session ID in its error; it goes no further than the server.
-      const failure = {
-        ...outcome.failure,
-        message: outcome.failure.message.replaceAll(session.id, '[session]'),
-      };
-      return { failure, ...(outcome.refusal ? { refusal: outcome.refusal } : {}) };
+    if (outcome.kind === 'rpc') {
+      return { rpc: outcome.response, protocolVersion: session.protocolVersion };
     }
+    if (outcome.kind === 'failure') return failureNegotiated(outcome, session.id);
     return {
       lastProtocolError: outcome.kind === 'protocol_retry' ? outcome.error : undefined,
     };
@@ -1619,10 +1647,7 @@ async function* sendMcpRequest(
   try {
     const transport: McpTransport = {
       url: url.href,
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-      },
+      headers: { ...MCP_REQUEST_HEADERS },
       originBoundHeaders: { ...tool.headers, ...authHeaders },
       policy: toolNetworkPolicy(ctx),
       resolveHost: ctx.resolveHost,
@@ -1636,21 +1661,13 @@ async function* sendMcpRequest(
     };
     const key = await mcpSessionKey(url.href, transport.originBoundHeaders);
     const use: McpSessionUse = { tool: tool.name, ...tool.session };
+    const call = mcpToolCall(base.callId, tool.mcpToolName, input);
     const cached = sessions.get(key, use);
     const first = cached
-      ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
-          cache: sessions,
-          key,
-          use,
-          cached,
-        })
-      : await negotiateMcpRpc(transport, base.callId, tool.mcpToolName, input);
+      ? await negotiateInSession(transport, call, { cache: sessions, key, use, cached })
+      : await negotiateMcpRpc(transport, call);
     const negotiated = first.sessionRequired
-      ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
-          cache: sessions,
-          key,
-          use,
-        })
+      ? await negotiateInSession(transport, call, { cache: sessions, key, use })
       : first;
     const refused = yield* refusedCredentialOutcome(
       tool,

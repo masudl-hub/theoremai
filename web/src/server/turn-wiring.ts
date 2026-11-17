@@ -121,6 +121,7 @@ export function stagesInOrder(
 /**
  * The application's credentials, then the session's. A credential is saved where the slot
  * already lives: a refreshed token back to the application, a sign-in at a gate to the session.
+ * A delete forgets the slot in both, so neither copy answers after it.
  */
 export function credentialsInOrder(
   app: ToolCredentialSource | undefined,
@@ -133,6 +134,10 @@ export function credentialsInOrder(
     get: async (slot) => (await app.get(slot)) ?? (await session.get(slot)),
     set: async (slot, credential) =>
       (await app.get(slot)) ? await app.set(slot, credential) : await session.set(slot, credential),
+    delete: async (slot) => {
+      await app.delete(slot);
+      await session.delete(slot);
+    },
     ...(secrets.clientSecret
       ? { clientSecret: async (clientId: string) => await secrets.clientSecret?.(clientId) }
       : {}),

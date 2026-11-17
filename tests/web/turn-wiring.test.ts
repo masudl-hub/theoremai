@@ -105,7 +105,7 @@ Deno.test("the application's stage handler goes first, and the handler's runs wh
   assertEquals(ran, ['app']);
 });
 
-Deno.test('credentials are read from the application first, and saved where the slot lives', async () => {
+Deno.test('credentials are read from the application first, saved where the slot lives, and forgotten in both', async () => {
   const key = (value: string): ToolCredential => ({ type: 'api_key', key: value });
   const app = memoryCredentialSource({ github: key('app-token') });
   const session = memoryCredentialSource({ github: key('session-token'), notion: key('n1') });
@@ -117,4 +117,9 @@ Deno.test('credentials are read from the application first, and saved where the 
   assertEquals(await app.get('github'), key('refreshed'));
   assertEquals(await app.get('linear'), undefined);
   assertEquals(await session.get('linear'), key('signed-in'));
+  await session.set('github', key('session-copy'));
+  await both.delete('github');
+  assertEquals(await both.get('github'), undefined);
+  assertEquals(await app.get('github'), undefined);
+  assertEquals(await session.get('github'), undefined);
 });

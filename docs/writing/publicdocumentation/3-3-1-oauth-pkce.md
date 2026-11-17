@@ -112,7 +112,7 @@ OAuth access tokens expire. When a tool with an OAuth credential executes, Theor
 
 `refreshOAuthToken` throws `OAuthTokenError` when the token endpoint refuses. Read its `kind` to decide what to do next:
 
-* `auth`: the refresh token is dead (`invalid_grant`) or the client was refused (`invalid_client`). Ask the user to sign in again.
+* `auth`: the refresh token is dead (`invalid_grant`), the client was refused (`invalid_client`), or the endpoint answered 401, 402 or 403. Ask the user to sign in again.
 * `unavailable`, `busy`, or `rate_limit`: the server could not answer now. Try again later.
 
 The error also has the HTTP `status` and the server's `error` code. A request that gets no answer throws a `TheoremError` with kind `network`.
@@ -128,11 +128,12 @@ import { revokeOAuthToken } from '@theoremjs/agents/kernel';
 
 const outcome = await revokeOAuthToken({ credential, clientSecret });
 // 'revoked' | 'already_invalid' | 'unsupported'
+await userCredentials.delete(slot);
 ```
 
 * Theorem revokes the refresh token first. Revoking it also ends the access tokens of the same grant.
 * Theorem finds the endpoint in the issuer's `revocation_endpoint` metadata. Pass `revocationEndpoint` to skip discovery.
-* `unsupported` means the provider names no revocation endpoint. Delete the credential from your store in every case.
+* `unsupported` means the provider names no revocation endpoint. Call `delete(slot)` on your `ToolCredentialSource` in every case; the next call that needs the slot then asks the person to sign in.
 
 ---
 

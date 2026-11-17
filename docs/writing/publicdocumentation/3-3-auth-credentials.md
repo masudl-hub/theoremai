@@ -111,6 +111,9 @@ const userCredentials: ToolCredentialSource = {
   set: async (slot: string, credential: ToolCredential): Promise<void> => {
     await secureVault.save(currentUserId, slot, credential);
   },
+  delete: async (slot: string): Promise<void> => {
+    await secureVault.remove(currentUserId, slot);
+  },
   clientSecret: async (clientId: string): Promise<string | undefined> => {
     return process.env.OAUTH_CLIENT_SECRET;
   },

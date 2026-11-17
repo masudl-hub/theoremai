@@ -1639,6 +1639,7 @@ function watchedSource(): {
         writes.push(slot);
         return inner.set(slot, credential);
       },
+      delete: (slot) => inner.delete(slot),
     },
   };
 }

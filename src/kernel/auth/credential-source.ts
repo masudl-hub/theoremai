@@ -14,6 +14,12 @@ export interface ToolCredentialSource {
    */
   set(slot: string, credential: ToolCredential): Promise<void>;
   /**
+   * Forget the slot's credential, as when the person disconnects the service: once it
+   * resolves, `get(slot)` answers `undefined` and the next call that needs it gates.
+   * Revoke an OAuth sign-in first with `revokeOAuthToken`; this only forgets.
+   */
+  delete(slot: string): Promise<void>;
+  /**
    * The secret of a confidential OAuth client, read when the kernel refreshes a token
    * issued to `clientId`. Omit it for public clients. The secret is the host's, not
    * the person's, so it never lives on a stored credential.
@@ -30,6 +36,10 @@ export function memoryCredentialSource(
     get: (slot) => Promise.resolve(slots.get(slot)),
     set: (slot, credential) => {
       slots.set(slot, credential);
+      return Promise.resolve();
+    },
+    delete: (slot) => {
+      slots.delete(slot);
       return Promise.resolve();
     },
   };

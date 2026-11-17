@@ -605,6 +605,7 @@ Deno.test('Proactive OAuth token refresh names the slot on the stream and update
     const ctxCredentials: ToolCredentialSource = {
       get: (slot) => slots.get(slot),
       set: (slot, credential) => slots.set(slot, credential),
+      delete: (slot) => slots.delete(slot),
       clientSecret: (clientId) =>
         Promise.resolve(clientId === 'client-abc' ? 'client-secret-sentinel' : undefined),
     };

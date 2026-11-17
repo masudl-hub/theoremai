@@ -612,6 +612,10 @@ function sessionCredentials(ctx: HandlerContext, sessionId: string): ToolCredent
   return {
     get: async (slot) => (await ctx.credentials.read(sessionId))[slot],
     set: (slot, credential) => saveCredential(ctx, sessionId, slot, credential),
+    delete: (slot) =>
+      ctx.credentials.mutate(sessionId, (saved) => {
+        delete saved[slot];
+      }),
   };
 }
 

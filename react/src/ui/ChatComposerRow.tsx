@@ -249,7 +249,12 @@ function RowTray({ tray }: { tray: ComposerTray }) {
   const contentId = useId();
   const Chevron = isOpen ? IconChevronDown : IconChevronUp;
   return (
-    <Card elevation="none" className="theorem-composer-tray" data-open={isOpen} style={trayStyle(isOpen)}>
+    <Card
+      elevation="none"
+      className="theorem-composer-tray"
+      data-open={isOpen}
+      style={trayStyle(isOpen)}
+    >
       <HStack
         gap={2}
         vAlign="center"

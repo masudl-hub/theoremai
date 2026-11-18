@@ -526,9 +526,12 @@ function PendingDrawerContent(props: {
 /** A hidden file input behind the paperclip button. */
 function AttachFilesButton({
   accept,
+  size,
   onFiles,
 }: {
   accept?: string;
+  /** `md` in the row, where attach sits beside send and the mic. */
+  size: 'sm' | 'md';
   onFiles: (files: File[]) => void;
 }) {
   const t = useLabels();
@@ -553,7 +556,7 @@ function AttachFilesButton({
       <IconButton
         label={label}
         tooltip={label}
-        size="sm"
+        size={size}
         variant="ghost"
         icon={<IconPaperclip size={16} />}
         onClick={() => fileInputRef.current?.click()}
@@ -935,7 +938,11 @@ function useComposerParts(props: ChatComposerBarProps) {
     ),
     tray: composerTray(t, props, stagedFiles, () => voice.discardRecordingOrVoice()),
     attach: inputs.attachments ? (
-      <AttachFilesButton accept={inputs.attachments.acceptAttr} onFiles={stageFiles} />
+      <AttachFilesButton
+        accept={inputs.attachments.acceptAttr}
+        size={props.layout === 'row' ? 'md' : 'sm'}
+        onFiles={stageFiles}
+      />
     ) : undefined,
     hintNode: hint ? (
       <ComposerHint hint={hint} onAction={() => props.onMenuAction('stash')} />

@@ -18,6 +18,7 @@ import {
   type TheoremTransport,
 } from '@theoremjs/web/client';
 import {
+  type ComponentProps,
   type ReactNode,
   type Ref,
   type RefObject,
@@ -302,6 +303,35 @@ function ChatComposerForChat({
   );
 }
 
+/** The handle `chatRef` gets: send, stop, focus and the controller. */
+function useChatHandle(chatRef: ChatBodyProps['chatRef'], chat: ReturnType<typeof useTheoremChat>) {
+  const { sendText, handleStop, controller } = chat;
+  const inputRef = useRef<ChatComposerInputHandle | null>(null);
+  useImperativeHandle(
+    chatRef,
+    () => ({
+      send: sendText,
+      stop: handleStop,
+      focus: () => {
+        inputRef.current?.focus();
+      },
+      controller,
+    }),
+    [sendText, handleStop, controller],
+  );
+  return inputRef;
+}
+
+/** The composer, or, with none, the failed turn's error where the composer was. */
+function ChatBodyComposer({
+  hasComposer,
+  ...props
+}: { hasComposer: boolean } & ComponentProps<typeof ChatComposerForChat>) {
+  if (hasComposer) return <ChatComposerForChat {...props} />;
+  const failure = props.chat.failure;
+  return failure ? <Banner status="error" role="alert" title={failure.error} /> : null;
+}
+
 function ChatBody({
   transport,
   iface,
@@ -350,7 +380,6 @@ function ChatBody({
     pageTools,
     onTurnEvent,
   });
-  const { sendText, handleStop, controller } = chat;
   const blocks = useMemo(
     () => [...chat.blocks, ...chat.streamBlocks],
     [chat.blocks, chat.streamBlocks],
@@ -359,26 +388,14 @@ function ChatBody({
   const clock = useTurnClock(groups, chat.streaming);
   const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
   const landing = blocks.length === 0;
-  const inputRef = useRef<ChatComposerInputHandle | null>(null);
-  useImperativeHandle(
-    chatRef,
-    () => ({
-      send: sendText,
-      stop: handleStop,
-      focus: () => {
-        inputRef.current?.focus();
-      },
-      controller,
-    }),
-    [sendText, handleStop, controller],
-  );
+  const inputRef = useChatHandle(chatRef, chat);
   const composerRef = useGlide<HTMLElement>(landing, () => inputRef.current?.focus());
   const inspector = useTraceInspector(iface, transport.traces, trace);
   const header = <SidePanelHeader floating>{inspector.toggle}</SidePanelHeader>;
 
-  // why: the composer says when a turn failed. Without one, the chat says it where the composer was.
-  const composer = hasComposer ? (
-    <ChatComposerForChat
+  const composer = (
+    <ChatBodyComposer
+      hasComposer={hasComposer}
       chat={chat}
       iface={iface}
       placeholder={placeholder}
@@ -387,8 +404,6 @@ function ChatBody({
       icons={composerIcons}
       workingSince={liveTurnStart(groups, clock, chat.streaming)}
     />
-  ) : (
-    chat.failure && <Banner status="error" role="alert" title={chat.failure.error} />
   );
 
   const docked = { composer, composerRef, maxWidth };

@@ -5,6 +5,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { StackItem } from '@astryxdesign/core/Stack';
+import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconClockPlay, IconPlayerStopFilled } from '@tabler/icons-react';
@@ -16,6 +17,8 @@ import {
   useState,
 } from 'react';
 import type { BackgroundJob } from '../client/transcript-groups.ts';
+import { useSecondTicker } from '../hooks/use-second-ticker.ts';
+import { type LabelText, workDuration } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 
 /** What the row composer draws; the bar works each piece out, so both layouts share it. */
@@ -42,23 +45,49 @@ export type ComposerRowParts = {
 };
 
 /**
- * why: Pills are round, like the composer's buttons, and as tall as a small button, so the stop
- * button's hover fill fits inside the working pill and a hint beside them keeps the row's height.
+ * The pill shape: round, a large element tall, kept whole when the row scrolls.
+ * why: It holds the stop button with the same ring of space the surface leaves round send.
  */
 const PILL: CSSProperties = {
+  height: 'var(--size-element-lg)',
+  flexShrink: 0,
   borderRadius: 'var(--radius-full)',
   '--_button-radius': 'var(--radius-full)',
 } as CSSProperties;
-/** why: The stop button sits flush in the pill's end, so its round fill follows the pill's curve. */
-const WORKING_PILL: CSSProperties = { ...PILL, paddingInlineEnd: 0 };
-/** invariant: The pill row is one small button tall, whatever it holds. */
-const PILL_ROW: CSSProperties = { minHeight: 'var(--size-element-sm)' };
+/** invariant: The stop button is a small element, so the end padding centres it in the pill's curve. */
+const WORKING_PILL: CSSProperties = {
+  ...PILL,
+  paddingInlineEnd: 'calc((var(--size-element-lg) - var(--size-element-sm)) / 2)',
+};
+/**
+ * why: The pill row is inset like the drawer, past the surface's curved ends, and keeps one
+ * pill's height whatever it holds, so a hint coming or going does not move the composer.
+ */
+const PILL_ROW: CSSProperties = {
+  paddingInline: 'var(--radius-chat)',
+  minHeight: 'var(--size-element-lg)',
+};
+/** why: More pills than fit scroll sideways rather than wrap, so the row keeps its height. */
+const PILL_SCROLL: CSSProperties = { overflowX: 'auto', scrollbarWidth: 'none' };
 /** why: The drawer is inset past the surface's curved ends, so it comes up from behind it. */
 const DRAWER_INSET: CSSProperties = { marginInline: 'var(--radius-chat)' };
 
-/** The pill for the reply in progress, with its stop button. */
+/** Whole seconds, so the timer ticks evenly instead of jumping between tenths and seconds. */
+function elapsedLabel(t: LabelText, ms: number): string {
+  const seconds = Math.floor(ms / 1_000);
+  return seconds === 0
+    ? t('@theorem.duration.seconds', { seconds: 0 })
+    : workDuration(t, seconds * 1_000);
+}
+
+/**
+ * The pill for the reply in progress: how long it has run, and its stop button.
+ * why: It mounts when the reply starts, as the transcript's own clock starts on first sight.
+ */
 function WorkingPill({ onStop }: { onStop: () => void }) {
   const t = useLabels();
+  const [startedAt] = useState(() => Date.now());
+  const now = useSecondTicker(true);
   const stop = t('@theorem.composer.pill.stop');
   return (
     <Token
@@ -67,42 +96,65 @@ function WorkingPill({ onStop }: { onStop: () => void }) {
       label={t('@theorem.composer.pill.working')}
       icon={<Spinner size="sm" shade="inherit" aria-label={t('@theorem.composer.pill.working')} />}
       endContent={
-        <IconButton
-          label={stop}
-          tooltip={stop}
-          size="sm"
-          variant="ghost"
-          icon={<IconPlayerStopFilled size={12} />}
-          onClick={onStop}
-        />
+        <HStack gap={1} vAlign="center">
+          <Text size="sm" color="secondary" hasTabularNumbers>
+            {elapsedLabel(t, now - startedAt)}
+          </Text>
+          <IconButton
+            label={stop}
+            tooltip={stop}
+            size="sm"
+            variant="ghost"
+            icon={<IconPlayerStopFilled size={12} />}
+            onClick={onStop}
+          />
+        </HStack>
       }
     />
   );
 }
 
+/**
+ * The pill row. One pill sits centred over the composer; with more, the working pill leads and
+ * the rest follow it, scrolling sideways once they outgrow the row.
+ */
 function PillRow(
   props: Pick<ComposerRowParts, 'isWorking' | 'backgroundJobs' | 'onStop' | 'hint'>,
 ) {
   const t = useLabels();
-  if (!props.isWorking && props.backgroundJobs.length === 0 && !props.hint) return null;
+  const pills = [
+    props.isWorking ? <WorkingPill key="working" onStop={props.onStop} /> : null,
+    ...props.backgroundJobs.map((job) => (
+      <Token
+        key={job.callId}
+        size="lg"
+        style={PILL}
+        label={job.label}
+        description={t('@theorem.composer.pill.background')}
+        icon={<IconClockPlay size={14} />}
+      />
+    )),
+  ].filter(Boolean);
+  if (pills.length === 0 && !props.hint) return null;
+  const hint = props.hint ? <HStack hAlign="end">{props.hint}</HStack> : null;
+  if (pills.length <= 1) {
+    // invariant: Two equal sides keep the one pill centred whether or not a hint is shown.
+    return (
+      <HStack gap={2} vAlign="center" style={PILL_ROW}>
+        <StackItem size="fill" />
+        {pills}
+        <StackItem size="fill">{hint}</StackItem>
+      </HStack>
+    );
+  }
   return (
-    <HStack gap={1} wrap="wrap" vAlign="center" paddingInline={1} style={PILL_ROW}>
-      {props.isWorking ? <WorkingPill onStop={props.onStop} /> : null}
-      {props.backgroundJobs.map((job) => (
-        <Token
-          key={job.callId}
-          size="lg"
-          style={PILL}
-          label={job.label}
-          description={t('@theorem.composer.pill.background')}
-          icon={<IconClockPlay size={14} />}
-        />
-      ))}
-      {props.hint ? (
-        <StackItem size="fill">
-          <HStack hAlign="end">{props.hint}</HStack>
-        </StackItem>
-      ) : null}
+    <HStack gap={2} vAlign="center" style={PILL_ROW}>
+      <StackItem size="fill" style={PILL_SCROLL}>
+        <HStack gap={1} vAlign="center">
+          {pills}
+        </HStack>
+      </StackItem>
+      {hint}
     </HStack>
   );
 }

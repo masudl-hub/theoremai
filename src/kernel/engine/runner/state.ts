@@ -231,7 +231,7 @@ function unreadLateResults(
 }
 
 /** One late result as the model reads it, and what it read, for the reader's marks. */
-interface LateResultRead {
+export interface LateResultRead {
   readBack: string;
   result: ModelToolResult | undefined;
 }

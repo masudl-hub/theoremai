@@ -59,7 +59,7 @@ registerTool({
 
 type Note = InboxItem<'note'>;
 /** `quiet` is the policy of an app that would refuse: it tells no item, at any opening. */
-type Refusing = { reply: boolean; call: boolean; quiet: boolean };
+type Refusing = { reply: boolean; call: boolean; quiet: boolean; deny: boolean };
 
 /** A model that keeps each history it read; `gated` makes its first step call the gated tool. */
 function model(seen: (TurnHistoryMessage[] | undefined)[], gated: boolean): TurnModel {
@@ -106,10 +106,12 @@ function textOf(lines: readonly ReplyLine[]): string[] {
 }
 
 /** A core whose `prepare` refuses a reply, or an answered call's turn, as `refusing` says. */
-function app(options: { gated?: boolean; gateTtlMs?: number; marks?: boolean } = {}) {
+function app(
+  options: { gated?: boolean; gateTtlMs?: number; marks?: boolean; quietAt?: 'wake' } = {},
+) {
   ran.length = 0;
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
-  const refusing: Refusing = { reply: false, call: false, quiet: false };
+  const refusing: Refusing = { reply: false, call: false, quiet: false, deny: false };
   const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
   const memory = createMemoryConversationStore();
   /** A store that marks told what the reply told, in its write, as an app's store does. */
@@ -133,9 +135,16 @@ function app(options: { gated?: boolean; gateTtlMs?: number; marks?: boolean } =
     inbox: () => ({
       inbox,
       conversation: KEEPER,
-      policy: (items) => ({ tell: refusing.quiet ? [] : items.map((item) => item.id) }),
+      policy: (items, moment) => ({
+        tell:
+          refusing.quiet || moment.opening === options.quietAt ? [] : items.map((item) => item.id),
+      }),
       leaseMs: LEASE_MS,
     }),
+    onStage: (stage) =>
+      stage.stage === 'pre_tool' && refusing.deny
+        ? { deny: { code: 'not_authorized', message: 'The plan is paused.' } }
+        : undefined,
     prepare: (turn) => {
       const refuse = turn.answersHeldCall ? refusing.call : refusing.reply;
       return refuse ? { refuse: { text: LINE, host: { cause: 'daily_limit' } } } : turn;
@@ -311,4 +320,43 @@ Deno.test('a refused reply that leaves a told item unmarked ends continue, and t
     ['refused', 'refused'],
   );
   await core.release(at(), { ref: refOf(next.lines), hold: first.end.hold });
+});
+
+Deno.test('an approved call the app denies before it runs does not run, and the reply after it is refused', async () => {
+  const { core, seen, refusing, saves } = app({ gated: true });
+  const paused = await drain(await core.message(at(), { input: { text: 'delete it' } }));
+  const gate = paused.lines.flatMap((line) =>
+    line.type === 'tool' && line.tool.phase === 'gate' && line.tool.operationId
+      ? [{ gateId: line.tool.callId, operationId: line.tool.operationId }]
+      : [],
+  )[0];
+  assert(gate, 'the reply did not pause');
+  saves.length = 0;
+  refusing.reply = true;
+  refusing.deny = true;
+  const { lines, end } = await drain(
+    await core.answer(at(), { ...gate, conversation: refOf(paused.lines), decision: 'approve' }),
+  );
+  assertEquals(end, { outcome: 'released' });
+  assertEquals(ran, [], 'the denied call ran');
+  assertEquals(textOf(lines), [LINE]);
+  assertEquals(seen.length, 1, 'the model ran again');
+  assertEquals(
+    saves.map((save) => save.ended),
+    ['refused'],
+  );
+});
+
+Deno.test('a policy that is quiet at a wake only still ends continue: the follow-up opening tells', async () => {
+  const { core, refusing, inbox, saves } = app({ quietAt: 'wake' });
+  const first = await drain(await core.message(at(), { input: { text: 'hello' } }));
+  const ref = refOf(first.lines);
+  saves.length = 0;
+  refusing.reply = true;
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const woke = await drain(await core.wake(at(), { ref }));
+  assertEquals(woke.lines, []);
+  assert(woke.end.outcome === 'continue', 'the wake let the conversation go');
+  assertEquals(saves, []);
+  await core.release(at(), { ref, hold: woke.end.hold });
 });

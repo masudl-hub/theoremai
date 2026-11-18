@@ -58,7 +58,8 @@ registerTool({
 });
 
 type Note = InboxItem<'note'>;
-type Refusing = { reply: boolean; call: boolean };
+/** `quiet` is the policy of an app that would refuse: it tells no item, at any opening. */
+type Refusing = { reply: boolean; call: boolean; quiet: boolean };
 
 /** A model that keeps each history it read; `gated` makes its first step call the gated tool. */
 function model(seen: (TurnHistoryMessage[] | undefined)[], gated: boolean): TurnModel {
@@ -105,10 +106,10 @@ function textOf(lines: readonly ReplyLine[]): string[] {
 }
 
 /** A core whose `prepare` refuses a reply, or an answered call's turn, as `refusing` says. */
-function app(options: { gated?: boolean; gateTtlMs?: number } = {}) {
+function app(options: { gated?: boolean; gateTtlMs?: number; marks?: boolean } = {}) {
   ran.length = 0;
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
-  const refusing: Refusing = { reply: false, call: false };
+  const refusing: Refusing = { reply: false, call: false, quiet: false };
   const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
   const memory = createMemoryConversationStore();
   /** A store that marks told what the reply told, in its write, as an app's store does. */
@@ -132,7 +133,7 @@ function app(options: { gated?: boolean; gateTtlMs?: number } = {}) {
     inbox: () => ({
       inbox,
       conversation: KEEPER,
-      policy: (items) => ({ tell: items.map((item) => item.id) }),
+      policy: (items) => ({ tell: refusing.quiet ? [] : items.map((item) => item.id) }),
       leaseMs: LEASE_MS,
     }),
     prepare: (turn) => {
@@ -147,7 +148,7 @@ function app(options: { gated?: boolean; gateTtlMs?: number } = {}) {
       });
       return Promise.resolve({
         blocks: reply.blocks,
-        told: reply.held?.opened.map((item) => item.id) ?? [],
+        told: options.marks === false ? [] : (reply.held?.opened.map((item) => item.id) ?? []),
       });
     },
     afterSave: (_at, saved) => {
@@ -261,4 +262,53 @@ Deno.test('a wake that walks away from lapsed gates can be refused, in one save'
     saves.map((save) => [save.ended, save.blocks]),
     [['refused', ['tool', 'turn-done', 'text', 'turn-done']]],
   );
+});
+
+Deno.test('an app that would refuse tells no item: a wake says nothing, and a refused message is one line', async () => {
+  const { core, seen, refusing, inbox, saves } = app();
+  const first = await drain(await core.message(at(), { input: { text: 'hello' } }));
+  const ref = refOf(first.lines);
+  saves.length = 0;
+  refusing.reply = true;
+  refusing.quiet = true;
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+
+  assertEquals((await core.read(at(), { ref })).wake, undefined);
+  const woke = await drain(await core.wake(at(), { ref }));
+  assertEquals(woke, { lines: [], end: { outcome: 'released' } });
+  assertEquals(saves, []);
+
+  const refused = await drain(await core.message(at(), { ref, input: { text: 'again' } }));
+  assertEquals(refused.end, { outcome: 'released' });
+  assertEquals(textOf(refused.lines), [LINE]);
+  assertEquals(
+    saves.map((save) => save.ended),
+    ['refused'],
+  );
+  assertEquals(seen.length, 1, 'the model ran for a refused reply');
+  assertEquals(
+    (await inbox.read(KEEPER)).items.map((item) => item.id),
+    ['note-1'],
+  );
+
+  refusing.reply = false;
+  refusing.quiet = false;
+  assertEquals((await core.read(at(), { ref })).wake, true);
+});
+
+Deno.test('a refused reply that leaves a told item unmarked ends continue, and the follow-up saves the line again', async () => {
+  const { core, refusing, inbox, saves } = app({ marks: false });
+  refusing.reply = true;
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const first = await drain(await core.message(at(), { input: { text: 'hello' } }));
+  assert(first.end.outcome === 'continue', 'the run let the conversation go');
+  const next = await drain(
+    await core.followUp(at(), { ref: refOf(first.lines), hold: first.end.hold }),
+  );
+  assertEquals(next.end.outcome, 'continue');
+  assertEquals(
+    saves.map((save) => save.ended),
+    ['refused', 'refused'],
+  );
+  await core.release(at(), { ref: refOf(next.lines), hold: first.end.hold });
 });

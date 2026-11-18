@@ -9,6 +9,7 @@
  */
 
 export * from '@theoremjs/web/client';
+export { type BackgroundJob, backgroundJobs } from './client/transcript-groups.ts';
 export {
   type EmbeddingIndex,
   type IndexProgress,

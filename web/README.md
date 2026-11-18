@@ -234,7 +234,7 @@ The controller writes no English text. The helpers below give the composer's con
 | `composerActionState(args)` | The primary button (`send`, `queue`, `stop`, or `none`), the send menu, and whether the button is off. |
 | `composerDrawerSummary(args)` | The count of waiting messages by kind, for a collapsed drawer. |
 | `resolveComposerHint(args)` | The stash hint, when the whole draft is selected. |
-| `isStashShortcut(event)` | Whether a key press is the stash shortcut, `STASH_SHORTCUT`. |
+| `composerShortcut(event)` | The send-menu action a key press asks for: ⌘↵ steers, ⌘⇧↵ sends now, ⌘⇧S stashes; `null` otherwise. `COMPOSER_SHORTCUTS` has each action's key for `Kbd`. |
 
 ## A custom browser transport
 

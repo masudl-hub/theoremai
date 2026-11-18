@@ -21,10 +21,10 @@ export {
   composerDrawerSummary,
 } from './composer-drawer.ts';
 export {
+  COMPOSER_SHORTCUTS,
   type ComposerHint,
-  isStashShortcut,
+  composerShortcut,
   resolveComposerHint,
-  STASH_SHORTCUT,
 } from './composer-hints.ts';
 export {
   type ComposerActionState,

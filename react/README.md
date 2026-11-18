@@ -176,6 +176,7 @@ To draw your own figures like the trace panel does, `@theoremjs/react/ui` also e
 | `initialPending` | The messages that the composer starts with set aside: queued, stashed, or steering, as `createComposerPendingMessage` from `@theoremjs/agents/interface` makes them. The component reads them once, when it mounts. |
 | `chatRef` | Sends a message, stops a reply, or focuses the composer from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
+| `composerLayout` | `'stacked'` or `'row'`. In `'row'`, the field, the mic and send share one line, and text that wraps moves the field onto its own line. Above them, a pill shows the reply in progress, with its stop button, and a pill shows each background call. While a reply runs or a step waits, Enter queues a draft and send opens the send menu. Default: `'stacked'`. |
 | `media` | Which media from tools the chat shows. `'sent'` shows only what a tool sent to the person. `'all'` also shows what only the model read, for an evaluation view. Default: `'sent'`. See [Tool media](#tool-media). |
 | `resolveMedia` | Turns a tool's reference into an address the page can load. See [Tool media](#tool-media). |
 
@@ -496,6 +497,8 @@ function MyChat() {
 ```
 
 `chat.phase` is `'idle'`, `'streaming'`, or `'gated'`. The actions are `handleSubmit`, `handleStop`, `handleSendNow`, and `handleToolDecision`.
+
+`chat.backgroundJobs` lists the tool calls that still run in the background, each as `{ callId, label }`. A call leaves the list when its late result lands. `backgroundJobs(blocks)` gives the same list from a transcript. `ChatComposerBar` takes `layout` and `backgroundJobs`, as `TheoremChat` takes `composerLayout`.
 
 `handlePendingMove(id, direction)` moves a pending message among those of its kind. `ChatComposerBar` draws a move only when `composerPendingMoves` from `@theoremjs/agents/interface` says the message can go that way: a message alone in its kind has none.
 

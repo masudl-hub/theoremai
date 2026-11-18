@@ -7,6 +7,7 @@ import { useSyncExternalStore } from 'react';
 export const SETTINGS_SECTIONS = [
   'files',
   'confirmations',
+  'chat',
   'keys',
   'people',
   'project',

@@ -33,7 +33,7 @@ import {
   useTheoremChat,
 } from '../hooks/use-theorem-chat.ts';
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
-import { ChatComposerBar } from './ChatComposerBar.tsx';
+import { ChatComposerBar, type ComposerLayout } from './ChatComposerBar.tsx';
 import { ChatTranscript } from './ChatTranscript.tsx';
 import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
@@ -162,6 +162,12 @@ export type TheoremChatProps = {
    * through `chatRef`. Gates are still answered in the transcript. Default `true`.
    */
   composer?: boolean;
+  /**
+   * How the composer is laid out: `stacked` (default), Astryx's composer with the field above its
+   * controls; or `row`, the field and its buttons on one line, with a pill row above it for the
+   * reply in progress and the background jobs. See {@link ComposerLayout}.
+   */
+  composerLayout?: ComposerLayout;
 };
 
 /** What a host can do to a mounted {@link TheoremChat}. */
@@ -221,15 +227,19 @@ function ChatComposerForChat({
   iface,
   placeholder,
   inputRef,
+  layout,
 }: {
   chat: ReturnType<typeof useTheoremChat>;
   iface: ComposerProfileInterface;
   placeholder?: string;
   inputRef: RefObject<ChatComposerInputHandle | null>;
+  layout?: ComposerLayout;
 }) {
   return (
     <ChatComposerBar
       iface={iface}
+      layout={layout}
+      backgroundJobs={chat.backgroundJobs}
       draftText={chat.draftText}
       pendingFiles={chat.pendingFiles}
       pendingVoice={chat.pendingVoice}
@@ -298,6 +308,7 @@ function ChatBody({
   onConversationChange,
   chatRef,
   composer: hasComposer = true,
+  composerLayout,
   options,
   onOptionsChange,
   stated,
@@ -349,7 +360,13 @@ function ChatBody({
 
   // why: the composer says when a turn failed. Without one, the chat says it where the composer was.
   const composer = hasComposer ? (
-    <ChatComposerForChat chat={chat} iface={iface} placeholder={placeholder} inputRef={inputRef} />
+    <ChatComposerForChat
+      chat={chat}
+      iface={iface}
+      placeholder={placeholder}
+      inputRef={inputRef}
+      layout={composerLayout}
+    />
   ) : (
     chat.failure && <Banner status="error" role="alert" title={chat.failure.error} />
   );

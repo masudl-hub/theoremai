@@ -15,6 +15,8 @@ export interface StudioPrefs {
   filesToast: 'on' | 'off';
   /** Whether changing a value several agents share is asked about first. */
   askShared: 'always' | 'never';
+  /** How the chat preview lays out its composer, as `TheoremChat`'s `composerLayout` does. */
+  composerLayout: 'stacked' | 'row';
 }
 
 export type StudioPref = keyof StudioPrefs;
@@ -24,6 +26,7 @@ export const PREF_DEFAULTS: StudioPrefs = {
   watch: 'on',
   filesToast: 'on',
   askShared: 'always',
+  composerLayout: 'stacked',
 };
 
 const PREF_KEYS: Record<StudioPref, string> = {
@@ -31,6 +34,7 @@ const PREF_KEYS: Record<StudioPref, string> = {
   watch: 'theorem.studio.watch',
   filesToast: 'theorem.studio.files-toast',
   askShared: 'theorem.studio.ask-shared',
+  composerLayout: 'theorem.studio.composer-layout',
 };
 
 /** Whether a kept text is a value the preference takes. */
@@ -39,6 +43,7 @@ const PREF_TAKES: { [K in StudioPref]: (kept: string) => boolean } = {
   watch: (kept) => kept === 'off',
   filesToast: (kept) => kept === 'off',
   askShared: (kept) => kept === 'never',
+  composerLayout: (kept) => kept === 'row',
 };
 
 /** Where preferences are kept: the part of `Storage` they use. */

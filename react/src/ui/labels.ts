@@ -85,6 +85,32 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Set it aside to send later.',
     description: 'Send menu item detail: the message waits in the composer until sent.',
   },
+  '@theorem.composer.menu.queue.gated.description': {
+    defaultMessage: 'Send it once you answer the waiting step.',
+    description:
+      'Send menu item detail while a step waits for approval: the message waits for the answer.',
+  },
+  '@theorem.composer.menu.send_now.gated.description': {
+    defaultMessage: 'Cancel the waiting step and send this instead.',
+    description:
+      'Send menu item detail while a step waits for approval: ends the wait, then sends.',
+  },
+  '@theorem.composer.send_menu': {
+    defaultMessage: 'Send options',
+    description: "The row composer's button while a reply runs: it opens the send menu.",
+  },
+  '@theorem.composer.pill.working': {
+    defaultMessage: 'Working',
+    description: "The row composer's pill while the agent replies.",
+  },
+  '@theorem.composer.pill.stop': {
+    defaultMessage: 'Stop',
+    description: 'The stop button on the working pill.',
+  },
+  '@theorem.composer.pill.background': {
+    defaultMessage: 'Running in the background',
+    description: 'Read by screen readers on a background job pill, after its name.',
+  },
   '@theorem.composer.hint.stash-selected-draft.message': {
     defaultMessage: 'Replacing this?',
     description: 'Hint when the whole draft is selected and could be stashed.',

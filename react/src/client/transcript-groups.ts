@@ -370,3 +370,25 @@ export function toolCallLabel(tool: Extract<TranscriptBlock, { kind: 'tool' }>['
   const settled = phase === 'complete' || phase === 'error';
   return (settled ? tool.activityPast : tool.activity) ?? humanize(tool.name);
 }
+
+/** A tool call still running in the background, as the composer's pill row shows it. */
+export type BackgroundJob = { callId: string; label: string };
+
+/**
+ * The calls still running in the background, oldest first: each tool call whose last phase is
+ * `background`, until a late-results message carries its result.
+ */
+export function backgroundJobs(blocks: readonly TranscriptBlock[]): BackgroundJob[] {
+  const landed = new Set<string>();
+  for (const block of blocks) {
+    if (block.kind === 'late-results') for (const id of block.operationIds) landed.add(id);
+  }
+  const jobs: BackgroundJob[] = [];
+  for (const block of blocks) {
+    if (block.kind !== 'tool' || block.tool.state?.phase !== 'background') continue;
+    const { operationId } = block.tool;
+    if (operationId && landed.has(operationId)) continue;
+    jobs.push({ callId: block.tool.callId, label: toolCallLabel(block.tool) });
+  }
+  return jobs;
+}

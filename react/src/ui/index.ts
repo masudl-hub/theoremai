@@ -37,6 +37,7 @@ export { theoremTheme } from './built/theorem.js';
 export {
   ChatComposerBar,
   type ChatComposerBarProps,
+  type ComposerLayout,
   EFFORT_ICON,
   generationOptions,
   type LiveComposerBarProps,

@@ -52,6 +52,7 @@ import { NAV_WIDTH } from './studio-nav.ts';
 const SECTION_LABELS: Record<SettingsSection, string> = {
   files: 'Files',
   confirmations: 'Confirmations',
+  chat: 'Chat',
   keys: 'Keys',
   people: 'People',
   project: 'Project',
@@ -73,6 +74,12 @@ const SETTINGS: readonly (SearchableItem & { section: SettingsSection; words?: s
     label: 'Ask before changing a shared value',
     section: 'confirmations',
     words: 'confirm asking',
+  },
+  {
+    id: 'composer-layout',
+    label: 'Composer layout',
+    section: 'chat',
+    words: 'composer row stacked pill input',
   },
   { id: 'keys', label: 'Model keys', section: 'keys', words: 'api key provider' },
   {
@@ -248,6 +255,32 @@ function ConfirmationSettings({ shared }: { shared: SharedAsking }) {
         value={shared.asks}
         onChange={shared.set}
       />
+    </Group>
+  );
+}
+
+/** How the chat preview lays out its composer: the same choice a builder makes in `TheoremChat`. */
+function ChatSettings() {
+  const layout = usePref('composerLayout');
+  const id = useId();
+  return (
+    <Group
+      title="Composer"
+      about="How the chat preview lays out its composer. Your app makes the same choice with TheoremChat's composerLayout."
+    >
+      <Field label="Composer layout" inputID={id} isGroupLabel>
+        <SegmentedControl
+          label="Composer layout"
+          size="sm"
+          value={layout}
+          onChange={(next) => {
+            setPref('composerLayout', next === 'row' ? 'row' : 'stacked');
+          }}
+        >
+          <SegmentedControlItem value="stacked" label="Stacked" />
+          <SegmentedControlItem value="row" label="Row" />
+        </SegmentedControl>
+      </Field>
     </Group>
   );
 }
@@ -534,6 +567,8 @@ function SectionBody({ section, ...props }: StudioSettingsProps & { section: Set
       return <FilesSettings project={props.project} watch={props.watch} />;
     case 'confirmations':
       return <ConfirmationSettings shared={props.shared} />;
+    case 'chat':
+      return <ChatSettings />;
     case 'keys':
       return (
         // why: a project's runs sign with the vault its own entry sets, so a key typed here runs nothing.

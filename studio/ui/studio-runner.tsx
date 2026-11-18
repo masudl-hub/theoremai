@@ -39,6 +39,7 @@ import { noting } from './lib/studio-activity.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import { STUDIO_TOOL_MEDIA, studioResolveMedia } from './lib/studio-media.ts';
+import { usePref } from './lib/studio-prefs.ts';
 import {
   editedProfileEndpoint,
   type ProjectSession,
@@ -411,6 +412,7 @@ function SideRun({
   const pageTools = useMemo(() => studioPageTools(payload), [payload]);
   const chats = isChat(payload);
   const { actingAs } = useActingAs();
+  const composerLayout = usePref('composerLayout');
   const chat = useMemo(
     () =>
       chats
@@ -443,6 +445,7 @@ function SideRun({
     return (
       <TheoremChat
         detectCodeLanguage
+        composerLayout={composerLayout}
         labels={STUDIO_LABELS}
         media={STUDIO_TOOL_MEDIA}
         resolveMedia={studioResolveMedia}
@@ -623,6 +626,7 @@ function TurnRun({
 }: RunProps) {
   const stated = statedOf?.(payload);
   const iface = useMemo(() => studioInterface(payload), [payload]);
+  const composerLayout = usePref('composerLayout');
   /** The studio's page answers each page tool with the tool's stub. */
   const pageTools = useMemo(() => studioPageTools(payload), [payload]);
   const transport = useMemo(
@@ -651,6 +655,7 @@ function TurnRun({
   ) : (
     <TheoremChat
       detectCodeLanguage
+      composerLayout={composerLayout}
       labels={STUDIO_LABELS}
       media={STUDIO_TOOL_MEDIA}
       resolveMedia={studioResolveMedia}

@@ -13,6 +13,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { backgroundJobs } from '../client/transcript-groups.ts';
 
 export type { SendTextOptions, SentTurn };
 
@@ -35,6 +36,10 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     () => (state.options ? { ...state.options, onChange: chat.pickOption } : undefined),
     [chat, state.options],
   );
+  const jobs = useMemo(
+    () => backgroundJobs([...state.blocks, ...state.streamBlocks]),
+    [state.blocks, state.streamBlocks],
+  );
   // why: The transcript draws each gate by its index; the chat answers the one gate that waits.
   const handleAuthenticated = useCallback(
     (_index: number, secret?: string) => chat.authenticate(secret),
@@ -47,6 +52,8 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
   return {
     ...state,
     optionChoices,
+    /** The tool calls still running in the background, oldest first, until their results land. */
+    backgroundJobs: jobs,
     setDraftText: chat.setDraftText,
     setPendingFiles: chat.setPendingFiles,
     setPendingVoice: chat.setPendingVoice,

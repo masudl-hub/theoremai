@@ -23,6 +23,7 @@ Deno.test('a preference the builder never set, or a browser that keeps nothing, 
     watch: 'on',
     filesToast: 'on',
     askShared: 'always',
+    composerLayout: 'stacked',
   });
   for (const from of [storage(), null]) {
     assertEquals(
@@ -51,12 +52,15 @@ Deno.test('a choice is kept under its own key, and the default is kept as nothin
   writePref(kept, 'watch', 'off');
   writePref(kept, 'filesToast', 'off');
   writePref(kept, 'askShared', 'never');
+  writePref(kept, 'composerLayout', 'row');
   assertEquals(kept.held, {
     'theorem.studio.editor': 'cursor',
     'theorem.studio.watch': 'off',
     'theorem.studio.files-toast': 'off',
     'theorem.studio.ask-shared': 'never',
+    'theorem.studio.composer-layout': 'row',
   });
+  assertEquals(readPref(kept, 'composerLayout'), 'row');
   assertEquals(
     [readPref(kept, 'editor'), readPref(kept, 'watch'), readPref(kept, 'askShared')],
     ['cursor', 'off', 'never'],
@@ -65,6 +69,7 @@ Deno.test('a choice is kept under its own key, and the default is kept as nothin
   writePref(kept, 'watch', 'on');
   writePref(kept, 'filesToast', 'on');
   writePref(kept, 'askShared', 'always');
+  writePref(kept, 'composerLayout', 'stacked');
   assertEquals(kept.held, {});
 });
 
@@ -73,7 +78,9 @@ Deno.test('a kept text the studio does not know reads as the default, and is nev
     'theorem.studio.editor': '/tmp/code',
     'theorem.studio.watch': 'sometimes',
     'theorem.studio.ask-shared': 'sometimes',
+    'theorem.studio.composer-layout': 'column',
   });
+  assertEquals(readPref(kept, 'composerLayout'), 'stacked');
   assertEquals(
     [readPref(kept, 'editor'), readPref(kept, 'watch'), readPref(kept, 'askShared')],
     ['', 'on', 'always'],

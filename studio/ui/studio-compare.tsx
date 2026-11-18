@@ -22,6 +22,7 @@ import {
   orderComposerPendingMessages,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
+import { type BackgroundJob, backgroundJobs } from '@theoremjs/react';
 import {
   ChatComposerBar,
   DEFAULT_CHAT_MAX_WIDTH,
@@ -68,6 +69,7 @@ import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 import { STUDIO_TOOL_MEDIA, studioResolveMedia } from './lib/studio-media.ts';
+import { usePref } from './lib/studio-prefs.ts';
 import {
   editedProfileEndpoint,
   openEdited,
@@ -368,6 +370,16 @@ const takesSteer = (state: ChatState): boolean =>
 
 type SideChat = { side: Side; chat: ChatController; state: ChatState };
 
+/** Both sides' background jobs, each named with its side, since both run the same message. */
+function pairJobs(sides: readonly SideChat[]): BackgroundJob[] {
+  return sides.flatMap(({ side, state }) =>
+    backgroundJobs([...state.blocks, ...state.streamBlocks]).map((job) => ({
+      callId: `${side}:${job.callId}`,
+      label: sides.length > 1 ? `${job.label} (${SIDE_NAMES[side]})` : job.label,
+    })),
+  );
+}
+
 /** A side's name where the two are named in a line. */
 const SIDE_NAMES: Record<Side, string> = { saved: 'Saved', edited: 'Edited' };
 
@@ -505,6 +517,7 @@ function SharedComposer({
   const [failure, setFailure] = useState<ClientFailure | null>(null);
   const states = sides.map((side) => side.state);
   const phase = pairPhase(states);
+  const layout = usePref('composerLayout');
   if (!iface) return null;
   const options = (): SendTextOptions => ({ files: pendingFiles, voice: pendingVoice });
   const message = async (kind: ComposerPendingKind) =>
@@ -569,6 +582,8 @@ function SharedComposer({
         issues={[]}
         phase={phase}
         failure={failure}
+        layout={layout}
+        backgroundJobs={pairJobs(sides)}
         placeholder="Message both"
         inputRef={inputRef}
         onDraftTextChange={setDraftText}
@@ -666,9 +681,11 @@ function SharedDock({ children }: { children: ReactNode }) {
 
 /** The composer while the edits cannot take a message: it says why. */
 function WaitingComposer({ handle, why }: { handle: string; why: string }) {
+  const layout = usePref('composerLayout');
   return (
     <SharedDock>
       <ChatComposerBar
+        layout={layout}
         handle={handle}
         draftText=""
         onDraftTextChange={() => {}}
@@ -970,7 +987,9 @@ export function ProjectChat(props: ProjectChatProps) {
   const sharedInput = useRef<ChatComposerInputHandle | null>(null);
   useChatHandle(chatRef, pair, only, !isBusy && isReady, sharedInput);
   const shared = openSides(pair);
+  const composerLayout = usePref('composerLayout');
   const common = {
+    composerLayout,
     detectCodeLanguage: true,
     labels: STUDIO_LABELS,
     media: STUDIO_TOOL_MEDIA,

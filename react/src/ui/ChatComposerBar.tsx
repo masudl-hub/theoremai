@@ -53,13 +53,13 @@ import {
 } from '@theoremjs/agents/interface';
 import type { ClientFailure } from '@theoremjs/web/client';
 import {
+  COMPOSER_SHORTCUTS,
   type ComposerDrawerSummary,
   type ComposerHint as ComposerHintData,
   composerActionState,
   composerDrawerSummary,
-  isStashShortcut,
+  composerShortcut,
   resolveComposerHint,
-  STASH_SHORTCUT,
 } from '@theoremjs/web/client';
 import {
   type ChangeEvent,
@@ -71,8 +71,10 @@ import {
   useState,
 } from 'react';
 import { stageComposerFiles } from '../client/composer-attachments.ts';
+import type { BackgroundJob } from '../client/transcript-groups.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
+import { ChatComposerRow } from './ChatComposerRow.tsx';
 import { ComposerControls, ComposerSelector } from './ComposerControls.tsx';
 import { composerDrawerLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -100,8 +102,20 @@ export type OptionChoices = {
   onChange: (name: string, value: string) => void;
 };
 
+/**
+ * How the composer is laid out. `stacked` (default): Astryx's composer, the field above a row of
+ * controls, with stop on the send button. `row`: the field and its buttons on one line, which
+ * stacks once the text wraps; a pill row above it shows the reply in progress, with stop on its
+ * pill, and the background jobs; while a reply runs the one button opens the send menu.
+ */
+export type ComposerLayout = 'stacked' | 'row';
+
 export type ChatComposerBarProps = {
   iface: ComposerProfileInterface;
+  /** Default `stacked`. */
+  layout?: ComposerLayout;
+  /** The tool calls running in the background; the `row` layout shows each as a pill. */
+  backgroundJobs?: readonly BackgroundJob[];
   draftText: string;
   pendingFiles: readonly File[];
   pendingVoice: readonly File[];
@@ -547,33 +561,55 @@ function AttachFilesButton({
   );
 }
 
+/** What a send-menu item says it does; while a step waits, queue and send now are about the step. */
+function menuDescriptionKey(action: ComposerMenuAction, phase: ComposerRunPhase) {
+  if (phase === 'gated' && (action === 'queue' || action === 'send_now'))
+    return `@theorem.composer.menu.${action}.gated.description` as const;
+  return `@theorem.composer.menu.${action}.description` as const;
+}
+
 function SendMenu({
   actions,
+  phase,
   onAction,
+  trigger = 'more',
 }: {
   actions: readonly ComposerMenuAction[];
+  phase: ComposerRunPhase;
   onAction: (action: ComposerMenuAction) => void;
+  /** `more`: a quiet button beside send. `send`: the composer's one button, in send's place. */
+  trigger?: 'more' | 'send';
 }) {
   const t = useLabels();
   if (actions.length === 0) return null;
   return (
     <DropdownMenu
-      button={{
-        label: t('@theorem.composer.send_options'),
-        isIconOnly: true,
-        icon: <IconStack2 size={16} />,
-        variant: 'ghost',
-      }}
+      button={
+        trigger === 'send'
+          ? {
+              label: t('@theorem.composer.send_menu'),
+              isIconOnly: true,
+              icon: <IconListNumbers size={16} />,
+              variant: 'primary',
+            }
+          : {
+              label: t('@theorem.composer.send_options'),
+              isIconOnly: true,
+              icon: <IconStack2 size={16} />,
+              variant: 'ghost',
+            }
+      }
       hasChevron={false}
       placement="above"
+      alignment="end"
       items={actions.map((action) => {
         const Glyph = SEND_ICON[action];
         return {
           id: action,
           label: t(`@theorem.composer.menu.${action}`),
-          description: t(`@theorem.composer.menu.${action}.description`),
+          description: t(menuDescriptionKey(action, phase)),
           icon: <Glyph size={16} />,
-          ...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
+          endContent: <Kbd keys={COMPOSER_SHORTCUTS[action]} />,
           onClick: () => onAction(action),
         };
       })}
@@ -694,24 +730,45 @@ function composerDrawer(
   );
 }
 
-/** The text field, with Seance's stash shortcut while it has focus; `onStash` is absent when there is nothing to stash. */
+/**
+ * The text field, with the send menu's shortcuts while it has focus: each acts only when the
+ * menu offers it. `field` wires it up when it stands outside Astryx's composer (the row layout).
+ */
 function ComposerTextInput({
   editorRef,
   handleRef,
-  onStash,
+  menuActions,
+  onMenuAction,
+  field,
 }: {
   editorRef: React.Ref<HTMLDivElement>;
   handleRef: ChatComposerBarProps['inputRef'];
-  onStash: (() => void) | undefined;
+  menuActions: readonly ComposerMenuAction[];
+  onMenuAction: (action: ComposerMenuAction) => void;
+  field?: {
+    value: string;
+    onChange: (text: string) => void;
+    onSubmit: () => void;
+    placeholder: string;
+  };
 }) {
   return (
     <ChatComposerInput
       ref={editorRef}
       handleRef={handleRef}
+      {...(field
+        ? {
+            value: field.value,
+            onChange: field.onChange,
+            onSubmit: field.onSubmit,
+            placeholder: field.placeholder,
+          }
+        : {})}
       onKeyDown={(event) => {
-        if (!isStashShortcut(event)) return;
+        const action = composerShortcut(event);
+        if (!action || !menuActions.includes(action)) return;
         event.preventDefault();
-        onStash?.();
+        onMenuAction(action);
       }}
     />
   );
@@ -779,8 +836,26 @@ function LiveComposerBarBody(props: LiveComposerBarProps) {
 }
 
 function ChatComposerBarBody(props: ChatComposerBarProps) {
-  const { iface, phase } = props;
+  const parts = useComposerParts(props);
+  return props.layout === 'row' ? (
+    <RowComposerBar props={props} parts={parts} />
+  ) : (
+    <StackedComposerBar props={props} parts={parts} />
+  );
+}
+
+/** What the field shows: listening while it records, else the builder's text or the default. */
+function useComposerPlaceholder(props: ChatComposerBarProps, recording: boolean): string {
   const t = useLabels();
+  if (recording) return t('@theorem.composer.listening');
+  return (
+    props.placeholder ?? t('@theorem.composer.placeholder', { handle: props.iface.identity.handle })
+  );
+}
+
+/** Everything both layouts draw, worked out once so the two cannot drift. */
+function useComposerParts(props: ChatComposerBarProps) {
+  const { iface, phase } = props;
   const inputs = iface.inputs;
   const pendingFiles = useMemo(() => [...props.pendingFiles], [props.pendingFiles]);
   const voice = useComposerVoice({
@@ -794,7 +869,7 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
 
   useEffect(() => () => voice.disposeRecorder(), [voice.disposeRecorder]);
 
-  const { primary, menuActions, primaryDisabled } = composerActionState({
+  const actions = composerActionState({
     iface,
     phase,
     draftText: props.draftText,
@@ -802,22 +877,127 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
     pendingVoice: props.pendingVoice,
     recording: voice.recording,
   });
-  const canStash = menuActions.includes('stash');
   const editorRef = useRef<HTMLDivElement | null>(null);
   const hint = resolveComposerHint({
     draftText: props.draftText,
     selectedText: useEditorSelection(editorRef),
-    canStash,
+    canStash: actions.menuActions.includes('stash'),
   });
-
-  function runPrimary() {
-    if (primaryDisabled) return;
-    if (primary === 'stop') props.onStop();
+  const runPrimary = () => {
+    if (actions.primaryDisabled) return;
+    if (actions.primary === 'stop') props.onStop();
     else props.onSubmit();
-  }
-
+  };
   const { stageFiles, stagingIssues } = useFileStaging(pendingFiles, inputs.maxFiles, props);
+  const placeholder = useComposerPlaceholder(props, voice.recording);
+  return {
+    ...actions,
+    runPrimary,
+    editorRef,
+    placeholder,
+    // why: A profile that takes no text has no text field (false, not null: null gets Astryx's default one).
+    input: inputs.text && (
+      <ComposerTextInput
+        editorRef={editorRef}
+        handleRef={props.inputRef}
+        menuActions={actions.menuActions}
+        onMenuAction={props.onMenuAction}
+        // why: The row draws its own surface, outside Astryx's ChatComposer, so the field takes its value here.
+        field={
+          props.layout === 'row'
+            ? {
+                value: props.draftText,
+                onChange: props.onDraftTextChange,
+                onSubmit: runPrimary,
+                placeholder,
+              }
+            : undefined
+        }
+      />
+    ),
+    drawer: composerDrawer(props, stagedFiles, () => voice.discardRecordingOrVoice()),
+    attach: inputs.attachments ? (
+      <AttachFilesButton accept={inputs.attachments.acceptAttr} onFiles={stageFiles} />
+    ) : undefined,
+    hintNode: hint ? (
+      <ComposerHint hint={hint} onAction={() => props.onMenuAction('stash')} />
+    ) : undefined,
+    controls: (
+      <GenerationSelect
+        iface={iface}
+        optionChoices={props.optionChoices}
+        selectedModel={props.selectedModel}
+        selectedEffort={props.selectedEffort}
+        isDisabled={phase === 'streaming'}
+        onChange={props.onGenerationChange}
+        control={props.generationSelect}
+      />
+    ),
+    record: <ComposerRecordButton hasVoice={Boolean(inputs.voice)} voice={voice} />,
+    status: composerStatus({
+      failure: props.failure,
+      issues: [...props.issues, ...stagingIssues],
+      voiceFailure: voice.failure,
+      labels: iface.labels,
+    }),
+  };
+}
 
+type ComposerBarParts = ReturnType<typeof useComposerParts>;
+
+/** The one-row layout. */
+function RowComposerBar({
+  props,
+  parts,
+}: {
+  props: ChatComposerBarProps;
+  parts: ComposerBarParts;
+}) {
+  // why: Stop lives on the working pill, so the button only sends; while a reply runs or a
+  // step waits, a draft opens the send menu instead (Enter still queues).
+  const opensMenu = props.phase !== 'idle' && parts.menuActions.length > 0;
+  return (
+    <ChatComposerRow
+      isWorking={props.phase === 'streaming'}
+      backgroundJobs={props.backgroundJobs ?? []}
+      onStop={props.onStop}
+      hint={parts.hintNode}
+      drawer={parts.drawer}
+      attach={parts.attach}
+      input={parts.input}
+      editorRef={parts.editorRef}
+      draftText={props.draftText}
+      controls={parts.controls}
+      record={parts.record}
+      action={
+        opensMenu ? (
+          <SendMenu
+            actions={parts.menuActions}
+            phase={props.phase}
+            onAction={props.onMenuAction}
+            trigger="send"
+          />
+        ) : (
+          <ChatSendButton
+            isDisabled={parts.primaryDisabled || parts.primary === 'stop'}
+            onSend={parts.runPrimary}
+          />
+        )
+      }
+      status={parts.status}
+    />
+  );
+}
+
+/** Today's layout: Astryx's ChatComposer. */
+function StackedComposerBar({
+  props,
+  parts,
+}: {
+  props: ChatComposerBarProps;
+  parts: ComposerBarParts;
+}) {
+  const isStopShown = parts.primary === 'stop';
   return (
     <ChatComposer
       // why: No keyboard focus ring on the composer (product choice): zero Astryx's
@@ -825,66 +1005,31 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
       style={NO_FOCUS_RING}
       value={props.draftText}
       onChange={props.onDraftTextChange}
-      onSubmit={runPrimary}
+      onSubmit={parts.runPrimary}
       onStop={props.onStop}
-      isStopShown={primary === 'stop'}
-      placeholder={
-        voice.recording
-          ? t('@theorem.composer.listening')
-          : (props.placeholder ??
-            t('@theorem.composer.placeholder', { handle: iface.identity.handle }))
-      }
-      // why: A profile that takes no text has no text field (false, not null: null gets Astryx's default one).
-      input={
-        inputs.text && (
-          <ComposerTextInput
-            editorRef={editorRef}
-            handleRef={props.inputRef}
-            onStash={canStash ? () => props.onMenuAction('stash') : undefined}
-          />
-        )
-      }
-      drawer={composerDrawer(props, stagedFiles, () => voice.discardRecordingOrVoice())}
-      headerActions={
-        inputs.attachments ? (
-          <AttachFilesButton accept={inputs.attachments.acceptAttr} onFiles={stageFiles} />
-        ) : undefined
-      }
-      headerContext={
-        hint ? <ComposerHint hint={hint} onAction={() => props.onMenuAction('stash')} /> : undefined
-      }
-      footerActions={
-        <GenerationSelect
-          iface={iface}
-          optionChoices={props.optionChoices}
-          selectedModel={props.selectedModel}
-          selectedEffort={props.selectedEffort}
-          isDisabled={phase === 'streaming'}
-          onChange={props.onGenerationChange}
-          control={props.generationSelect}
-        />
-      }
+      isStopShown={isStopShown}
+      placeholder={parts.placeholder}
+      input={parts.input}
+      drawer={parts.drawer}
+      headerActions={parts.attach}
+      headerContext={parts.hintNode}
+      footerActions={parts.controls}
       // why: Astryx: sendActions render to the left of the send button, at size="md".
       sendActions={
         <>
-          <SendMenu actions={menuActions} onAction={props.onMenuAction} />
-          <ComposerRecordButton hasVoice={Boolean(inputs.voice)} voice={voice} />
+          <SendMenu actions={parts.menuActions} phase={props.phase} onAction={props.onMenuAction} />
+          {parts.record}
         </>
       }
       sendButton={
         <ChatSendButton
-          isStopShown={primary === 'stop'}
-          isDisabled={primaryDisabled}
-          onSend={runPrimary}
+          isStopShown={isStopShown}
+          isDisabled={parts.primaryDisabled}
+          onSend={parts.runPrimary}
           onStop={props.onStop}
         />
       }
-      status={composerStatus({
-        failure: props.failure,
-        issues: [...props.issues, ...stagingIssues],
-        voiceFailure: voice.failure,
-        labels: iface.labels,
-      })}
+      status={parts.status}
     />
   );
 }

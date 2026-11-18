@@ -21,6 +21,7 @@ import {
 } from '../../react/src/client/live/live-captions.ts';
 import {
   assistantTurnTiming,
+  backgroundJobs,
   composeAssistantTurn,
   groupTranscriptBlocks,
   pendingPromptOf,
@@ -49,7 +50,7 @@ import type { ProviderEvidence, Source } from '../../src/kernel/turn-events.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
 import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { composerDrawerSummary } from '../../web/src/client/composer-drawer.ts';
-import { isStashShortcut, resolveComposerHint } from '../../web/src/client/composer-hints.ts';
+import { composerShortcut, resolveComposerHint } from '../../web/src/client/composer-hints.ts';
 import { composerActionState } from '../../web/src/client/composer-primary.ts';
 import {
   applyLiveToolTurnEvent,
@@ -728,13 +729,20 @@ Deno.test('composer hint suggests stashing only when the whole draft is selected
   );
 });
 
-Deno.test('stash shortcut is mod+shift+S', () => {
-  const key = { code: 'KeyS', metaKey: false, ctrlKey: false, shiftKey: true, altKey: false };
-  assertEquals(isStashShortcut({ ...key, metaKey: true }), true);
-  assertEquals(isStashShortcut({ ...key, ctrlKey: true }), true);
-  assertEquals(isStashShortcut(key), false);
-  assertEquals(isStashShortcut({ ...key, metaKey: true, shiftKey: false }), false);
-  assertEquals(isStashShortcut({ ...key, metaKey: true, altKey: true }), false);
+Deno.test('composer shortcuts: mod+Enter steers, mod+shift+Enter sends now, mod+shift+S stashes', () => {
+  const key = { code: '', key: '', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false };
+  const enter = { ...key, code: 'Enter', key: 'Enter' };
+  const s = { ...key, code: 'KeyS', key: 's' };
+  assertEquals(composerShortcut({ ...enter, metaKey: true }), 'steer');
+  assertEquals(composerShortcut({ ...enter, ctrlKey: true }), 'steer');
+  assertEquals(composerShortcut({ ...enter, metaKey: true, shiftKey: true }), 'send_now');
+  assertEquals(composerShortcut({ ...s, metaKey: true, shiftKey: true }), 'stash');
+  assertEquals(composerShortcut({ ...s, ctrlKey: true, shiftKey: true }), 'stash');
+  // why: Plain Enter is the field's own send or queue, not a menu action.
+  assertEquals(composerShortcut(enter), null);
+  assertEquals(composerShortcut({ ...enter, shiftKey: true }), null);
+  assertEquals(composerShortcut({ ...s, metaKey: true }), null);
+  assertEquals(composerShortcut({ ...enter, metaKey: true, altKey: true }), null);
 });
 
 Deno.test('composeAssistantTurn streams the answer after the latest tool in the body', () => {
@@ -1062,6 +1070,37 @@ Deno.test('a source favicon names only its site, never the page', () => {
     citations.map((citation) => citation.icon),
     [favicon('docs.example.org'), favicon('lisboa.pt'), undefined, undefined],
   );
+});
+
+Deno.test('background jobs are the calls still running in the background, until their results land', () => {
+  const tool = (callId: string, operationId: string, phase: 'background' | 'complete') => ({
+    kind: 'tool' as const,
+    tool: {
+      name: 'render_video',
+      callId,
+      operationId,
+      arguments: {},
+      activity: `Rendering ${callId}`,
+      state:
+        phase === 'background'
+          ? { phase, name: 'render_video', callId, at: 1, readBack: 'still running' }
+          : { phase, name: 'render_video', callId, at: 2, output: {} },
+    },
+  });
+  const blocks = [
+    tool('a', 'op-a', 'background'),
+    tool('b', 'op-b', 'background'),
+    tool('c', 'op-c', 'complete'),
+  ] as unknown as TranscriptBlock[];
+  assertEquals(backgroundJobs(blocks), [
+    { callId: 'a', label: 'Rendering a' },
+    { callId: 'b', label: 'Rendering b' },
+  ]);
+  const landed = [
+    ...blocks,
+    { kind: 'late-results', text: '', operationIds: ['op-a'], inReply: false },
+  ] as unknown as TranscriptBlock[];
+  assertEquals(backgroundJobs(landed), [{ callId: 'b', label: 'Rendering b' }]);
 });
 
 Deno.test('a tool row reads as its filled activity label, else the tool name in words', () => {

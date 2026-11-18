@@ -788,6 +788,11 @@ export interface RunStageArgs extends StageCallBag {
   handlers: readonly StageHandler[];
   /** Profile guardrails — every inject site runs the untrusted sanitize path. */
   guardrails: Profile['guardrails'];
+  /**
+   * What a `block` at the `injected` boundary does: `refuse` ends the turn (a turn's request is
+   * refused); `drop` sends none of the stage's injects and the run goes on (a live call).
+   */
+  injectBlock?: 'refuse' | 'drop';
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
   mutates?: StageMutateSubject;
@@ -871,6 +876,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     history,
     handlers,
     guardrails,
+    injectBlock,
     injectAllowed,
     injectWouldExceedMaxSteps,
     mutates,
@@ -939,17 +945,21 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
   }
 
   if (applied.inject.length === 0) return applied;
-  return { ...applied, inject: yield* sanitizeInjects(applied.inject, guardrails, span) };
+  return {
+    ...applied,
+    inject: yield* sanitizeInjects(applied.inject, guardrails, span, injectBlock),
+  };
 }
 
 /**
  * `units` as the profile's guardrails let them into the conversation. What they find is reported
- * once; a block refuses the turn.
+ * once; a block refuses the turn, or with `onBlock: 'drop'` lets none of them in.
  */
 export function* sanitizeInjects(
   units: readonly InjectUnit[],
   guardrails: Profile['guardrails'],
   span?: SpanHandle,
+  onBlock: 'refuse' | 'drop' = 'refuse',
 ): Generator<TurnEvent, InjectUnit[]> {
   const reader = boundaryReader('injected', resolveGuardrailPolicy(guardrails).detect);
   const sanitized = units.map((unit) => ({
@@ -962,6 +972,9 @@ export function* sanitizeInjects(
     span?.event('theorem.guardrail', guardrailAttributes(event));
     yield guardrailTurnEvent(event);
   }
-  if (found.action === 'block') throw requestRefused('injected');
+  if (found.action === 'block') {
+    if (onBlock === 'drop') return [];
+    throw requestRefused('injected');
+  }
   return sanitized;
 }

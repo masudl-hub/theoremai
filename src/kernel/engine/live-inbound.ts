@@ -1,4 +1,4 @@
-import { wrapContext, wrapUserData } from '../../guardrails/canary.ts';
+import { stripUserFences, wrapContext, wrapUserData } from '../../guardrails/canary.ts';
 import { boundaryReader, detectAt, detectEvent } from '../../guardrails/detect-at.ts';
 import { guardrailTurnEvent, projectGuardrailTurnEvent } from '../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
@@ -60,4 +60,20 @@ function prepareLiveContext(profile: Profile, context: TurnContext): LiveContext
   return { texts, guardrails };
 }
 
-export { prepareLiveContext, prepareLiveInboundText };
+/** One message of a stage inject a live call can send: the person's words, or the host's. */
+export interface LiveInjectMessage {
+  role: 'user' | 'system';
+  text: string;
+}
+
+/**
+ * A stage inject's message, read at `injected` already, as the model reads it in a live call:
+ * `sent` is a user message in the user-data fence and a system message as host words, outside it,
+ * with any fence in it removed so nothing passes as the person's; `kept` is what history keeps.
+ */
+function liveInjectText({ role, text }: LiveInjectMessage): { sent: string; kept: string } {
+  const kept = stripUserFences(text);
+  return { sent: role === 'user' ? wrapUserData(text) : kept, kept };
+}
+
+export { liveInjectText, prepareLiveContext, prepareLiveInboundText };

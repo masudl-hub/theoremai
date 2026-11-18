@@ -1247,6 +1247,7 @@ export {
   redactCanaryText,
   requestGivesCanary,
   scanTextForCanaryLeak,
+  stripUserFences,
   USER_CLOSE,
   USER_OPEN,
   userDataNote,

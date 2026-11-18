@@ -2080,10 +2080,10 @@ Use `wake()` and `SessionRequest.lateResults` when something must reach the mode
 
 **What the model reads.** It reads two things, at the moments a text turn reads them:
 
-- What your `onStage` handler injects at `pre_turn`, `post_tool` and `before_end`. A named inject (`injectId`) that lands is in that stage's `injected` list. An inject lands whole or not at all: when the inbound check blocks one of its texts, nothing of it is sent, and it is not in `injected`.
+- What your `onStage` handler injects at `pre_turn`, `post_tool` and `before_end`. A named inject (`injectId`) that lands is in that stage's `injected` list. The session reads injects at the `injected` guardrail boundary, as a turn does. When that check blocks one, none of the stage's injects is sent, none is in `injected`, and the call goes on. An inject message has the role `user` or `system` and plain text. A `user` message goes to the model inside the `<user_data>` fence, as the person's words. A `system` message goes as your own words, outside the fence, and history keeps it as a system message. An inject with any other role, or with parts, is refused whole (`inject_invalid_messages`).
 - What `SessionRequest.lateResults` gives: the background calls that settled after their turn. The source is the same `LateResultsSource` a text turn takes. The session asks it as a turn opens (`pre_turn`, after the stage), after each call settles and the model is sent its answer (`post_tool`), and once the model has answered (`before_end`, after the stage). The moment's `step` is the call's turn count, the step its stages get. Each landing is a `late_results` event, and a result lands once in the call: one its history holds is not sent again. With `allowSteering: false`, the session asks only at `pre_turn`. A source that throws is a `hook_failed` event, and the call goes on.
 
-Both go to the model as realtime text, so the model answers them. What lands at `before_end` opens the next turn: its `pre_turn` runs at once, so the model's answer has its own stages and its own end.
+Both go to the model as realtime text, so the model answers them. At the call's opening, what lands at the first `pre_turn` is sent before the profile's `greeting`, so the greeting answers it. What lands at `before_end` opens the next turn: its `pre_turn` runs at once, so the model's answer has its own stages and its own end.
 
 **Waking.** `wake()` returns a `LiveWakeOutcome`:
 

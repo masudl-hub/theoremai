@@ -515,7 +515,7 @@ Same names. Cycle state `idle` | `open` on the session.
 
 `sendContext` is not an ingress for this table: it opens no cycle, runs no `pre_turn`, and adds nothing to `StageContext.history`.
 
-A live inject lands whole or not at all: when the inbound check blocks one of its texts, none is sent and `injected` does not name it. Each `stage` event of a cycle a `wake()` started carries its `wake` id. See [Waking a live call](./kernel.md#waking-a-live-call).
+A live call reads injects at the `injected` boundary, as a turn does. A block sends none of the stage's injects, `injected` names none, and the call goes on. A `user` inject reaches the model inside `<user_data>`; a `system` inject reaches it as host words, outside the fence. Each `stage` event of a cycle a `wake()` started carries its `wake` id. See [Waking a live call](./kernel.md#waking-a-live-call).
 
 **Barge-in / empty audio:** interrupt ends the cycle with `before_end` /
 `interrupted` / `post_turn`, also after `generation_complete`. The `turnComplete`

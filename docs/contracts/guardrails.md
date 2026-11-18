@@ -1074,7 +1074,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 | Boundary | What `block` does |
 | --- | --- |
 | `user`, `attachment`, `voice`, `options`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by labels `detect.blocked` |
-| `injected` | The same, at the stage that added the message |
+| `injected` | The same, at the stage that added the message. In a live call, none of that stage's injects is sent, and the call goes on |
 | `live_user` | The message is not sent into the session |
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
 | `tool_output_<kind>` | The model does not read the output; the call settles as failed (`output_blocked`, labels `detect.output_blocked`) |

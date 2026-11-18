@@ -129,7 +129,12 @@ import type {
   TurnHistoryMessage,
   TurnRequest,
 } from '../../types.ts';
-import { prepareLiveContext, prepareLiveInboundText } from '../live-inbound.ts';
+import {
+  type LiveInjectMessage,
+  liveInjectText,
+  prepareLiveContext,
+  prepareLiveInboundText,
+} from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
 import { EGRESS_FILTERED_STOP } from '../runner/gates.ts';
 import { sessionAgentCaller } from '../runner/mod.ts';
@@ -263,15 +268,21 @@ function sessionEndedEvent(
   };
 }
 
-/** Live ingress takes text: an inject's texts, or `undefined` when any message is not plain text. */
-function liveInjectTexts(messages: readonly TurnHistoryMessage[]): string[] | undefined {
-  const texts: string[] = [];
+/**
+ * Live ingress takes text in the person's voice or the host's: an inject's messages, or `undefined`
+ * when any is not plain user or system text (a live call cannot write the model's own words).
+ */
+function liveInjectMessages(
+  messages: readonly TurnHistoryMessage[],
+): LiveInjectMessage[] | undefined {
+  const read: LiveInjectMessage[] = [];
   for (const msg of messages) {
-    const text = msg.role === 'tool' || msg.parts?.length ? undefined : msg.content?.trim();
-    if (!text) return undefined;
-    texts.push(text);
+    const role = msg.role === 'user' || msg.role === 'system' ? msg.role : undefined;
+    const text = role && !msg.parts?.length ? msg.content?.trim() : undefined;
+    if (!role || !text) return undefined;
+    read.push({ role, text });
   }
-  return texts;
+  return read;
 }
 
 function assertLiveProfile(profile: Profile): asserts profile is LiveProfile {
@@ -713,6 +724,12 @@ function buildLiveSession(args: {
     noteGiven(trimmed);
   };
 
+  /** A host's inject, kept in history as the system message it was. */
+  const recordSystemText = (text: string) => {
+    history.push({ role: 'system', content: text });
+    noteGiven(text);
+  };
+
   /** The user's line being heard: the id its note gave the model, and the words so far. */
   let userLine: { id: Promise<string> | undefined; text: string } = {
     id: args.firstLineId === undefined ? undefined : Promise.resolve(args.firstLineId),
@@ -919,6 +936,8 @@ function buildLiveSession(args: {
       history,
       handlers: onStage ? [onStage] : [],
       guardrails: profile.guardrails,
+      // why: A live call has no request to refuse; a blocked inject is not sent and the call goes on.
+      injectBlock: 'drop',
       injectAllowed: profileAllowsInject(profile),
       host: sessionHost,
       signal,
@@ -963,15 +982,10 @@ function buildLiveSession(args: {
     }
   };
 
-  /** `record` takes the text as it crossed, unwrapped: the user's typed line, or an inject's own entry. */
+  /** `record` takes the user's typed line as it crossed, unwrapped. */
   const ingestPreparedLiveText = (text: string, record: (crossed: string) => void) => {
     const safe = readLiveText(text);
     if (safe === undefined) return;
-    sendCrossed(safe, record);
-  };
-
-  /** Sends text that crossed the inbound check, and records it as it crossed, unwrapped. */
-  const sendCrossed = (safe: string, record: (crossed: string) => void) => {
     record(safe.slice(USER_OPEN.length + 1, -(USER_CLOSE.length + 1)));
     sendInput({ type: 'text', text: safe });
   };
@@ -1086,25 +1100,29 @@ function buildLiveSession(args: {
   ) => {
     const landed: InjectUnit[] = [];
     for (const unit of units) {
-      const texts = liveInjectTexts(unit.messages);
-      if (!texts) {
+      const messages = liveInjectMessages(unit.messages);
+      if (!messages) {
         enqueuePending({
           ...stageEventFields(stage, extra),
           stageWarnings: [
             {
               code: 'inject_invalid_messages',
               field: 'inject',
-              message: 'live ingress takes plain-text inject messages only; inject refused', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+              message:
+                'live ingress takes plain-text user or system inject messages only; inject refused', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
             },
           ],
         });
         continue;
       }
       assertLiveIngress(profile, 'text');
-      const crossed = texts.map(readLiveText);
-      // invariant: An inject lands whole or not at all; one the inbound check blocks is not landed.
-      if (crossed.some((text) => text === undefined)) continue;
-      for (const safe of crossed as string[]) sendCrossed(safe, recordUserText);
+      // why: `runStage` read the inject at `injected`, as a turn does; a block left it out.
+      for (const message of messages) {
+        const { sent, kept } = liveInjectText(message);
+        if (message.role === 'user') recordUserText(kept);
+        else recordSystemText(kept);
+        sendInput({ type: 'text', text: sent });
+      }
       landed.push(unit);
     }
     const event = injectedStageEvent(stage, landed, extra);

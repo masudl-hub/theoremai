@@ -69,6 +69,7 @@ interface Open {
   allowSteering?: boolean;
   blockInbound?: boolean;
   tool?: boolean;
+  greeting?: string;
 }
 
 async function openCall(id: string, setup: Open = {}) {
@@ -94,11 +95,15 @@ async function openCall(id: string, setup: Open = {}) {
     id,
     identity: { handle: 'live', system: 'hi' },
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
-    live: { voice: 'Aoede', ingress: { text: true } },
+    live: {
+      voice: 'Aoede',
+      ingress: { text: true },
+      ...(setup.greeting ? { greeting: setup.greeting } : {}),
+    },
     tools: { allow: setup.tool ? ['live_wake_lookup'] : [] },
     ...(setup.allowSteering === false ? { turnBehaviour: { allowSteering: false } } : {}),
     ...(setup.blockInbound
-      ? { guardrails: { detect: { injection: { at: { live_user: 'block' } } } } }
+      ? { guardrails: { detect: { injection: { at: { injected: 'block' } } } } }
       : {}),
   } as Parameters<typeof defineProfile>[0]);
   registerProfile(profile);
@@ -282,7 +287,7 @@ Deno.test('a late-results source that throws is reported, and the call goes on',
   await call.end();
 });
 
-Deno.test('an inject the inbound check blocks is not reported as landed', async () => {
+Deno.test('an inject the injected check blocks is not sent, not reported as landed, and the call goes on', async () => {
   const call = await openCall('live_wake_blocked', {
     blockInbound: true,
     onStage: ({ stage }) =>
@@ -301,6 +306,83 @@ Deno.test('an inject the inbound check blocks is not reported as landed', async 
     eventsOf(call.events, 'stage').filter((e) => e.injected),
     [],
   );
+  assertEquals(
+    eventsOf(call.events, 'guardrail').map((e) => e.guardrail.boundary),
+    ['injected'],
+  );
+  // The call goes on: the person's next line opens a turn.
+  await call.session.sendText('hello');
+  await call.settle();
+  assertEquals(call.spoken().at(-1), '<user_data>\nhello\n</user_data>');
+  await call.end();
+});
+
+Deno.test('a system inject reaches the model as host words, outside the user-data fence, and still lands', async () => {
+  const call = await openCall('live_wake_system', {
+    onStage: ({ stage }) =>
+      stage === 'pre_turn'
+        ? {
+            inject: [{ role: 'system', content: 'This call has 1:30 left. Say so briefly.' }],
+            injectId: 'minutes-low',
+          }
+        : undefined,
+  });
+  const woke = await call.session.wake();
+  await call.settle();
+  assertEquals(woke.outcome, 'started');
+  assertEquals(call.spoken(), ['This call has 1:30 left. Say so briefly.']);
+  const injected = eventsOf(call.events, 'stage').find((e) => e.injected);
+  assertEquals(injected?.injected?.[0]?.id, 'minutes-low');
+  await call.end();
+});
+
+Deno.test('a user inject is the person\u2019s words, inside the user-data fence', async () => {
+  const call = await openCall('live_wake_user_role', {
+    onStage: ({ stage }) =>
+      stage === 'pre_turn'
+        ? { inject: [{ role: 'user', content: 'Where is it in stock?' }], injectId: 'asked' }
+        : undefined,
+  });
+  await call.session.wake();
+  await call.settle();
+  assertEquals(call.spoken(), ['<user_data>\nWhere is it in stock?\n</user_data>']);
+  await call.end();
+});
+
+Deno.test('an inject in the model\u2019s own voice is refused whole: a live call cannot write its words', async () => {
+  const call = await openCall('live_wake_assistant_role', {
+    onStage: ({ stage }) =>
+      stage === 'pre_turn'
+        ? {
+            inject: [
+              { role: 'system', content: 'A reminder is due.' },
+              { role: 'assistant', content: 'I will remind them.' },
+            ],
+            injectId: 'mixed',
+          }
+        : undefined,
+  });
+  const woke = await call.session.wake();
+  await call.settle();
+  assertEquals(woke.outcome, 'nothing_landed');
+  assertEquals(call.spoken(), []);
+  assertEquals(
+    eventsOf(call.events, 'stage').flatMap((e) => e.stageWarnings?.map((w) => w.code) ?? []),
+    ['inject_invalid_messages'],
+  );
+  await call.end();
+});
+
+Deno.test('at the call\u2019s opening, what lands at pre_turn goes before the greeting, which answers it', async () => {
+  const call = await openCall('live_wake_greeting', {
+    greeting: 'Greet the caller briefly.',
+    onStage: ({ stage }) =>
+      stage === 'pre_turn'
+        ? { inject: [{ role: 'system', content: 'This call has 1:30 left.' }], injectId: 'low' }
+        : undefined,
+  });
+  await call.settle();
+  assertEquals(call.spoken(), ['This call has 1:30 left.', 'Greet the caller briefly.']);
   await call.end();
 });
 

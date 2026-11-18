@@ -52,6 +52,7 @@ import {
   type TurnWiring,
   type z,
 } from '@theoremjs/agents';
+import type { InboxItem } from '@theoremjs/agents/conversation';
 import {
   type ClientError,
   type ClientTurnOptions,
@@ -77,10 +78,13 @@ import { type ReplyLine, statelessRefusal } from './conversation.ts';
 import {
   type ChatContext,
   type ConversationCore,
+  type CoreState,
   chatOf,
   createConversationCore,
   followedUp,
+  oneInbox,
   type Reply,
+  type ReplyWiring,
   unconversedAnswer,
 } from './conversation-core.ts';
 import type { TheoremConversationStore } from './conversation-store.ts';
@@ -105,7 +109,12 @@ export type TheoremRequestContext = {
   model?: string;
 };
 
-export type TheoremHandlerOptions = {
+/**
+ * Options for `createTheoremHandler`. The app's own parts of a reply (`prepare`, `inbox`,
+ * `beforeSave`, `afterSave`, `compact`) are the conversation core's, and take the request's
+ * `CoreContext`: its `host` is what the `host` option returned for the request, asked once.
+ */
+export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWiring<Item> & {
   /** Profile to serve. Registered with the kernel when the handler is created. */
   profile: Profile | ProfileDefinition;
   /**
@@ -126,16 +135,6 @@ export type TheoremHandlerOptions = {
    * request and is read as untrusted; this one is the host's.
    */
   context?: (request: Request) => unknown;
-  /**
-   * The application's own turn, from the one the handler builds: `TurnWiring.prepare`, the
-   * value the application's other call sites use too. The handler keeps its profile and its
-   * abort. The application's `onStage` runs before the handler's steering, and its `credentials`
-   * are read before the session's. An `execution` it returns decides each call, and the session
-   * still records the same call; a `background` it returns takes the place of `background` below,
-   * and `notifier` still tells the page. A call held at a gate runs on, once answered, with the
-   * `host`, `onStage`, `credentials`, `execution` and `background` it gives for that call's turn.
-   */
-  prepare?: TurnWiring['prepare'];
   /**
    * Let the page say which prompt lines a turn gets (`stated`), for a page the host trusts as it
    * trusts itself: the studio's. Unset refuses them, so a public page never chooses its own lines.
@@ -261,6 +260,10 @@ export type TheoremHostHandlerOptions = Omit<
   | 'steerInbox'
   | 'conversationStore'
   | 'prepare'
+  | 'inbox'
+  | 'beforeSave'
+  | 'afterSave'
+  | 'compact'
   | 'notifier'
   | 'notifyRetryMs'
   | 'conversationLeaseMs'
@@ -325,11 +328,16 @@ function routeOf(request: Request): string {
 /** Everything a request needs from the handler that serves it. */
 type HandlerContext = {
   /** A host's handler has no provider: it runs no model. */
-  options: Omit<TheoremHandlerOptions, 'profile' | 'provider'> &
-    Partial<Pick<TheoremHandlerOptions, 'provider'>>;
+  options: Omit<TheoremHandlerOptions, 'profile' | 'provider' | keyof ReplyWiring> &
+    Partial<Pick<TheoremHandlerOptions, 'provider'>> & {
+      /** The app's turn for a call that no reply runs: an answered call, a host's call. */
+      prepare?: TurnWiring['prepare'];
+    };
   profile: Profile;
   /** A chat's: none for a host profile, which takes no messages. */
   chat?: ChatContext;
+  /** The conversation core over a request's state, with the app's own parts of a reply. */
+  wire: (state: CoreState) => ConversationCore;
   inbox: SteerInbox;
   sessions: SessionStateStore;
   pageToolBroker: PageToolBroker;
@@ -398,12 +406,15 @@ function providerFor(
 
 /** What a run reads in place of `request`. */
 function contextOf(ctx: HandlerContext, request: Request, sessionId: string): CoreContext {
+  let asked: { host: unknown } | undefined;
   return {
     sessionId,
     signal: request.signal,
-    // why: The app's `host` is asked each time a run reads it, so a route that reads none asks none.
+    // why: The app's `host` is asked when a run first reads it, so a route that reads none asks
+    // none, and a reply and the app's steps around its save read the same value.
     get host() {
-      return ctx.options.host?.(request);
+      asked ??= { host: ctx.options.host?.(request) };
+      return asked.host;
     },
   };
 }
@@ -444,7 +455,7 @@ function callsOf(ctx: HandlerContext, request: Request): CallsContext {
 /** The chat's conversation core as `request` runs it. */
 function coreOf(ctx: HandlerContext, chat: ChatContext, request: Request): ConversationCore {
   const calls = callsOf(ctx, request);
-  return createConversationCore({
+  return ctx.wire({
     ...calls,
     chat,
     steer: ctx.inbox,
@@ -751,13 +762,20 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   return steer(ctx, chat, request, session);
 }
 
-export function createTheoremHandler(
-  options: TheoremHandlerOptions,
+export function createTheoremHandler<Item extends InboxItem = InboxItem>(
+  options: TheoremHandlerOptions<Item>,
 ): (request: Request) => Promise<Response> {
   const chat = chatOf('createTheoremHandler', options.profile, options.conversationStore);
+  oneInbox(options);
+  const { prepare, inbox, beforeSave, afterSave, compact } = options;
   return serve('createTheoremHandler', chat.profile, options, {
     steerInbox: options.steerInbox,
     chat,
+    wire: (state) =>
+      createConversationCore<Item>({
+        ...state,
+        options: { ...state.options, prepare, inbox, beforeSave, afterSave, compact },
+      }),
   });
 }
 
@@ -798,7 +816,7 @@ function serve(
   name: string,
   profile: Profile,
   options: HandlerContext['options'],
-  chatOptions: { steerInbox?: SteerInbox; chat?: ChatContext } = {},
+  chatOptions: { steerInbox?: SteerInbox; chat?: ChatContext; wire?: HandlerContext['wire'] } = {},
 ): (request: Request) => Promise<Response> {
   requestByteLimit(options.maxRequestBytes);
   const ctx: HandlerContext = {
@@ -806,6 +824,7 @@ function serve(
     ...sessionParts(name, profile, options),
     ...(chatOptions.chat ? { chat: chatOptions.chat } : {}),
     inbox: chatOptions.steerInbox ?? createMemorySteerInbox(),
+    wire: chatOptions.wire ?? createConversationCore,
   };
 
   return async (request) => {

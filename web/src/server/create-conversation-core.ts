@@ -10,12 +10,10 @@ import { type ProviderHostOptions, TheoremError, type ToolGate } from '@theoremj
 import type { InboxItem } from '@theoremjs/agents/conversation';
 import type { ToolBackgroundService } from '@theoremjs/agents/kernel';
 import {
-  type AppInbox,
   type ConversationCore,
   chatOf,
   createConversationCore,
-  type ReplyPrepare,
-  type SaveHooks,
+  type ReplyWiring,
 } from './conversation-core.ts';
 import type { SettledOperation } from './conversation-inbox.ts';
 import type { TheoremHandlerOptions } from './handler.ts';
@@ -45,12 +43,7 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
   | 'steerInbox'
   | 'clientEvents'
 > &
-  SaveHooks<Item> & {
-    /**
-     * The app's `TurnWiring.prepare`. With `inbox`, it is also given the reply's hold, so the turn
-     * it returns can tell the model the items the reply reads: at once, or from its `onStage`.
-     */
-    prepare?: ReplyPrepare<Item>;
+  ReplyWiring<Item> & {
     /** Host options for registered providers, or a factory for apps that pick keys per run. */
     provider:
       | ProviderHostOptions
@@ -74,12 +67,6 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
      * `ref`, such as by a queued call to `wake`. Required with `lateResultsDecider`.
      */
     wake?: (at: CoreContext, ref: string) => Promise<void>;
-    /**
-     * The app's own inbox, for the runs of one context. Every reply then runs under a hold of the
-     * conversation in it. Not with `lateResultsDecider`: the app's inbox holds every item a reply
-     * is told.
-     */
-    inbox?: (at: CoreContext) => AppInbox<Item>;
   };
 
 /** Creates the conversation core for `options.profile`. */

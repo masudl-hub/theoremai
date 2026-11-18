@@ -55,6 +55,7 @@ export type {
   MessageArgs,
   Reply,
   ReplyPrepare,
+  ReplyWiring,
   RunEnd,
   SaveHooks,
   WakeArgs,

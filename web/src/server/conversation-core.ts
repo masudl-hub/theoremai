@@ -201,18 +201,48 @@ export type SaveHooks<Item extends InboxItem = InboxItem> = {
   ) => Promise<void>;
 };
 
+/**
+ * The app's own parts of a reply: its turn, its inbox, and its steps around each save. The
+ * conversation core and `createTheoremHandler` take the same ones.
+ */
+export type ReplyWiring<Item extends InboxItem = InboxItem> = SaveHooks<Item> & {
+  /**
+   * The app's own turn, from the one a reply builds: `TurnWiring.prepare`, the value the app's
+   * other call sites use too. The reply keeps its profile and its abort. The app's `onStage`
+   * runs before the reply's steering, and its `credentials` are read before the session's. An
+   * `execution` it returns decides each call, and the session still records the same call; a
+   * `background` it returns takes the place of the `background` option, and `notifier` still
+   * tells the page. A call held at a gate runs on, once answered, with the `host`, `onStage`,
+   * `credentials`, `execution` and `background` it gives for that call's turn. With `inbox`, it
+   * is also given the reply's hold, so the turn it returns can tell the model the items the
+   * reply reads: at once, or from its `onStage`.
+   */
+  prepare?: ReplyPrepare<Item>;
+  /**
+   * The app's own inbox, for the runs of one context. Every reply then runs under a hold of the
+   * conversation in it. Unset, a reply holds the session's inbox of ended background calls when
+   * `lateResultsDecider` is set, and holds nothing otherwise. Not with `lateResultsDecider`: the
+   * app's inbox holds every item a reply is told.
+   */
+  inbox?: (at: CoreContext) => AppInbox<Item>;
+};
+
+/** Refuses an app's inbox beside a decider for the session's: one inbox holds what a reply is told. */
+export function oneInbox(options: { inbox?: unknown; lateResultsDecider?: unknown }): void {
+  if (options.inbox === undefined || options.lateResultsDecider === undefined) return;
+  // labels-exempt: builder config error; the user reads error.config
+  throw new TheoremError(
+    'config',
+    "pass `inbox` or `lateResultsDecider`, not both: the app's inbox holds every item a reply is told",
+  );
+}
+
 /** Everything a conversation's runs read from whoever serves them. */
 export type CoreState<Item extends InboxItem = InboxItem> = Omit<CallsContext, 'options'> & {
   chat: ChatContext;
   steer: SteerInbox;
   options: Omit<CallsContext['options'], 'prepare'> &
-    SaveHooks<Item> & {
-      prepare?: ReplyPrepare<Item>;
-      /**
-       * The app's inbox, for the runs of one context. Unset, a reply holds the session's inbox of
-       * ended background calls when `lateResultsDecider` is set, and holds nothing otherwise.
-       */
-      inbox?: (at: CoreContext) => AppInbox<Item>;
+    ReplyWiring<Item> & {
       provider: (
         at: CoreContext,
         model?: string,
@@ -1154,13 +1184,7 @@ export type ConversationCore = {
 export function createConversationCore<Item extends InboxItem = InboxItem>(
   state: CoreState<Item>,
 ): ConversationCore {
-  if (state.options.inbox && state.options.lateResultsDecider) {
-    // labels-exempt: builder config error; the user reads error.config
-    throw new TheoremError(
-      'config',
-      "pass `inbox` or `lateResultsDecider`, not both: the app's inbox holds every item a reply is told",
-    );
-  }
+  oneInbox(state.options);
   return {
     message: (at, args) => message(state, at, args),
     answer: (at, body) => answer(state, at, body),

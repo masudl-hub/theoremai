@@ -3,6 +3,7 @@ import type { DetectAction, DetectMatrix, Detector, UrlDetector } from '../guard
 import type { GuardrailEvent } from '../guardrails/event-schemas.ts';
 import type { LabelOverrides } from '../guardrails/labels.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
+import type { JsonObject } from '../kernel/json.ts';
 import type { MediaInputKind } from '../kernel/schema.ts';
 import type { ProfileToolsSpec, ToolCallEdit, ToolPhaseEvent } from '../kernel/tools/types.ts';
 import type { ReasoningPart } from '../kernel/turn-events.ts';
@@ -198,6 +199,11 @@ export type TranscriptBlockKind =
 export interface TranscriptBlockBase {
   id: string;
   kind: TranscriptBlockKind;
+  /**
+   * The app's own values for this block, such as the id of the row it is saved as. Theorem keeps
+   * them with the block and never reads them, and the model never sees them.
+   */
+  host?: JsonObject;
 }
 
 export interface UserTextBlock extends TranscriptBlockBase {

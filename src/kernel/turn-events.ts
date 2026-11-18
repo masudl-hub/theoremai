@@ -202,6 +202,8 @@ export const turnHistoryMessageSchema: z.ZodType<TurnHistoryMessage> = turnHisto
 export interface InjectedMessages {
   id: string;
   messages: TurnHistoryMessage[];
+  /** The app's own values for this inject ({@linkcode StageInject.host}); its blocks carry them. */
+  host?: JsonObject;
 }
 
 /** Why a turn or live utterance ended. */
@@ -1337,7 +1339,13 @@ const TURN_EVENTS = {
     stop: turnStop.optional(),
     stageWarnings: z.array(stageApplyWarning).optional(),
     injected: z
-      .array(z.object({ id: z.string().regex(/\S/), messages: z.array(turnHistoryMessage) }))
+      .array(
+        z.object({
+          id: z.string().regex(/\S/),
+          messages: z.array(turnHistoryMessage),
+          host: jsonObjectSchema.optional(),
+        }),
+      )
       .min(1)
       .optional(),
     released: z.number().int().nonnegative().optional(),

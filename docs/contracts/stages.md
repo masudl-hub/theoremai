@@ -126,7 +126,8 @@ interface StageResult {
    * Several injects, each under its own id, in place of `inject` and `injectId`. They land
    * together, in order. `released` and `promote` apply to them all.
    */
-  injects?: { id: string; messages: TurnHistoryMessage[] }[];
+  /** `host` is the app's own values for the inject, a JSON object. The kernel carries it and never reads it. */
+  injects?: { id: string; messages: TurnHistoryMessage[]; host?: JsonObject }[];
   /**
    * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
    * reply text the user already has. The rest is a draft: it leaves the turn history and the
@@ -265,7 +266,12 @@ handler with several things to tell returns `injects`, a list of
 `{ id, messages }`. They land together, in the order given, and the stage event
 names each one. An entry with a blank id, an id another entry has, or messages
 that are not usable refuses all of them, with a warning. So does `injects`
-together with `inject` or `injectId`. An empty list injects nothing. Where
+together with `inject` or `injectId`. An empty list injects nothing. An entry
+can carry `host`, a JSON object of the host's own values, such as the id of
+the record the message came from. The stage event's `injected` entry carries
+it, and so does each transcript block made from that inject. A `host` that is
+not a JSON object refuses all the injects with an `inject_host_invalid`
+warning. Where
 the messages land in the conversation — not when the handler returns — the
 kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages }] }`
 naming the injects that landed at that stage, each with the messages it added as the model reads

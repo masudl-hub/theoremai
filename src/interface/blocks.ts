@@ -182,6 +182,7 @@ function foldCitation(
  * text, then a block per file. A message from anyone else (a host's note) is not the user's to show.
  */
 function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptBlock[] {
+  const host = inject.host === undefined ? {} : { host: inject.host };
   return inject.messages.flatMap((message) => {
     if (message.role !== 'user') return [];
     const parts = message.parts ?? [];
@@ -189,7 +190,7 @@ function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptB
       .join('')
       .trim();
     return [
-      ...(text ? [{ id: nextBlockId(idPrefix), kind: 'user-text' as const, text }] : []),
+      ...(text ? [{ id: nextBlockId(idPrefix), kind: 'user-text' as const, text, ...host }] : []),
       ...parts.flatMap((part): TranscriptBlock[] =>
         'text' in part
           ? []
@@ -202,6 +203,7 @@ function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptB
                 ...('data' in part
                   ? { sizeBytes: Math.floor((part.data.length * 3) / 4), data: part.data }
                   : { sizeBytes: 0 }),
+                ...host,
               },
             ],
       ),

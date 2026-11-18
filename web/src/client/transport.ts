@@ -46,7 +46,7 @@ import {
 import type { Equals } from '@theoremjs/agents/kernel';
 import type { PagePart } from './tool-resume.ts';
 import type { TraceFeed } from './trace-feed.ts';
-import { transcriptBlockSchema } from './transcript-schema.ts';
+import { pageBlockSchema, transcriptBlockSchema } from './transcript-schema.ts';
 import {
   checkWire,
   type MalformedEvent,
@@ -345,7 +345,8 @@ export const theoremRewindRequestSchema: z.ZodType<TheoremRewindRequest> = theor
 
 /** Start a conversation on blocks the host wrote, not ran: a `/conversation/start` body. */
 export type TheoremStartRequest = { blocks: TranscriptBlock[] };
-const theoremStartRequest = z.object({ blocks: z.array(transcriptBlockSchema) });
+// invariant: These blocks are a page's; only the app's own save sets a block's `host`.
+const theoremStartRequest = z.object({ blocks: z.array(pageBlockSchema) });
 true satisfies Equals<z.infer<typeof theoremStartRequest>, TheoremStartRequest>;
 /** A `/conversation/start` body as a host reads it. */
 export const theoremStartRequestSchema: z.ZodType<TheoremStartRequest> = theoremStartRequest;

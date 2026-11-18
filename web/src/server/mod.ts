@@ -34,9 +34,12 @@ export {
   postedMessage,
   type ReplyLine,
   type ReplyRunner,
+  type ReplySaving,
+  type ReplyToSave,
   type ReplyTurn,
   readerConversationHost,
   rewindConversation,
+  type ShapedReply,
   startConversation,
   statelessRefusal,
   type WalkedAwayCall,
@@ -53,6 +56,7 @@ export type {
   Reply,
   ReplyPrepare,
   RunEnd,
+  SaveHooks,
   WakeArgs,
 } from './conversation-core.ts';
 export { followedUp } from './conversation-core.ts';
@@ -63,12 +67,14 @@ export {
   createSealedConversationStore,
   emptyConversation,
   type PausedReply,
+  type ReplyEnd,
   type SealedConversationStoreOptions,
   type StoredConversation,
   storedConversationSchema,
   type TheoremConversationStore,
   type UncompactedBase,
   unknownConversation,
+  type WriteContext,
 } from './conversation-store.ts';
 export {
   createTheoremConversationCore,

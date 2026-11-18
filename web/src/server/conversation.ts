@@ -51,6 +51,7 @@ import {
 } from '@theoremjs/agents/interface';
 import { base64ToBytes } from '@theoremjs/agents/kernel';
 import { stampWorked, stoppedReply } from '../client/run-commit.ts';
+import { withoutHost } from '../client/transcript-schema.ts';
 import type {
   ConversationLine,
   ConversationView,
@@ -61,10 +62,12 @@ import type {
 import {
   emptyConversation,
   type PausedReply,
+  type ReplyEnd,
   type StoredConversation,
   type TheoremConversationStore,
   type UncompactedBase,
   unknownConversation,
+  type WriteContext,
 } from './conversation-store.ts';
 import { kernelTurnInput } from './turn-input.ts';
 
@@ -126,6 +129,11 @@ export type OpenedConversation = {
   ref: string | null;
   revision: string | null;
   conversation: StoredConversation;
+  /**
+   * How many of the transcript's blocks the store holds, when `conversation` has blocks the store
+   * has not heard of yet: a message the app saved itself, a walked-away reply not yet written.
+   */
+  stored?: number;
   /** What the guardrails decided reading a restored transcript, for the reply to stream first. */
   events?: TurnEvent[];
 };
@@ -180,7 +188,11 @@ async function openedAt(
   if (snapshot) return { ref, revision: snapshot.revision, conversation: snapshot.conversation };
   if (!restore) throw unknownConversation();
   // why: A null ref makes the reply's write a new conversation, whose ref the `conversation` line hands the page.
-  const { conversation, events } = conversationFromBlocks(restore.profile, restore.blocks);
+  // invariant: A page cannot state a block's host values; only the app's own save sets them.
+  const { conversation, events } = conversationFromBlocks(
+    restore.profile,
+    restore.blocks.map(withoutHost),
+  );
   return { ref: null, revision: null, conversation, events };
 }
 
@@ -287,9 +299,128 @@ async function save(
   return { ref: result.ref, revision: result.revision, conversation: next };
 }
 
+/** The ids of the named injects that landed in `events`, in order. */
+function landedIn(events: readonly TurnEvent[]): string[] {
+  return events.flatMap((event) =>
+    event.type === 'stage' ? (event.injected ?? []).map((inject) => inject.id) : [],
+  );
+}
+
+/** A reply's save: how it ended, the conversation as it leaves it, and what it read. */
+type ReplySave = {
+  ended: ReplyEnd;
+  next: StoredConversation;
+  events: readonly TurnEvent[];
+  failure?: ErrorEvent;
+};
+
+/** `saving.next` as the app's `before` step shapes it, with what the store is told beside it. */
+async function shaped(
+  opened: OpenedConversation,
+  runner: Pick<ReplyRunner, 'hold' | 'reply' | 'saving'>,
+  saving: ReplySave,
+): Promise<{ next: StoredConversation; context: WriteContext }> {
+  const stored = opened.stored ?? opened.conversation.transcript.length;
+  const appended = saving.next.transcript.slice(stored);
+  const before = runner.saving?.before;
+  const reply = before
+    ? await before({
+        ended: saving.ended,
+        blocks: appended,
+        ...(saving.failure ? { failure: saving.failure } : {}),
+        landed: landedIn(saving.events),
+      })
+    : { blocks: appended, told: [] };
+  return {
+    next: before
+      ? {
+          ...saving.next,
+          transcript: [...saving.next.transcript.slice(0, stored), ...reply.blocks],
+        }
+      : saving.next,
+    context: {
+      ...(runner.hold ? { hold: runner.hold } : {}),
+      ...(runner.reply ? { reply: runner.reply } : {}),
+      ...(reply.host === undefined ? {} : { host: reply.host }),
+      ended: saving.ended,
+      // invariant: A reply whose hold lost the conversation tells nothing.
+      told: saving.ended === 'lost' ? [] : reply.told,
+      appended: reply.blocks,
+    },
+  };
+}
+
+/**
+ * Saves a reply: the app shapes it, the store writes it with its context, then the app's `after`
+ * step runs. Undefined when the app's `before` step threw on a reply that failed or was stopped:
+ * nothing is saved, the throw is reported, and the reply ends with its own failure.
+ */
+async function saveReply(
+  host: ConversationHost,
+  opened: OpenedConversation,
+  runner: Pick<ReplyRunner, 'hold' | 'reply' | 'saving'>,
+  saving: ReplySave,
+): Promise<OpenedConversation | undefined> {
+  let reply: Awaited<ReturnType<typeof shaped>>;
+  try {
+    reply = await shaped(opened, runner, saving);
+  } catch (err) {
+    if (saving.ended !== 'failed' && saving.ended !== 'stopped') throw err;
+    runner.saving?.report(err);
+    return undefined;
+  }
+  const result = await host.store.write(
+    host.sessionId,
+    opened.ref,
+    opened.revision,
+    reply.next,
+    reply.context,
+  );
+  if (!result.written) {
+    // labels-exempt: internal diagnostic; the user reads error.unavailable
+    throw new TheoremError('unavailable', 'the conversation changed while this reply ran', {
+      cause: CONFLICT,
+    });
+  }
+  await runner.saving?.after?.({ ended: saving.ended, told: reply.context.told });
+  return { ref: result.ref, revision: result.revision, conversation: reply.next };
+}
+
+/**
+ * A reply to a message whose hold lost the conversation: the app's store hears what the person
+ * saw of it, and marks nothing told. Only with the app's `before` step, since a store that keeps
+ * no holds takes no write from a lost hold. It throws nothing: the reply is over.
+ */
+async function saveLost(
+  host: ConversationHost,
+  opened: OpenedConversation,
+  runner: Pick<ReplyRunner, 'hold' | 'reply' | 'saving'>,
+  saving: Omit<ReplySave, 'ended'>,
+): Promise<void> {
+  if (!runner.saving?.before) return;
+  try {
+    const reply = await shaped(opened, runner, { ...saving, ended: 'lost' });
+    await host.store.write(host.sessionId, opened.ref, opened.revision, reply.next, reply.context);
+  } catch (err) {
+    runner.saving.report(err);
+  }
+}
+
+/** The runner's hold and steps for the save of the paused reply it walks away from. */
+function walkedAway(
+  runner: ReplyRunner,
+  paused: PausedReply,
+): Pick<ReplyRunner, 'hold' | 'reply' | 'saving'> {
+  return {
+    ...(runner.hold ? { hold: runner.hold } : {}),
+    ...(paused.reply ? { reply: paused.reply } : {}),
+    ...(runner.saving ? { saving: runner.saving } : {}),
+  };
+}
+
 /** The line that tells the browser the ref of what was just written. */
-function refLine(opened: OpenedConversation, posted?: 'posted'): ConversationLine[] {
-  if (opened.ref === null) return [];
+function refLine(opened: OpenedConversation | undefined, posted?: 'posted'): ConversationLine[] {
+  if (!opened || opened.ref === null) return [];
   return [{ type: 'conversation', ref: opened.ref, ...(posted ? { posted: true } : {}) }];
 }
 
@@ -331,6 +462,43 @@ export type ReplyRunner = {
    * nothing: the hold that took the chat tells what it read.
    */
   held?: () => Promise<boolean>;
+  /** The hold the reply runs under, for the store's write. */
+  hold?: string;
+  /** The app's own steps around the save. */
+  saving?: ReplySaving;
+};
+
+/** A reply as the app's `before` step reads it. */
+export type ReplyToSave = {
+  ended: ReplyEnd;
+  /** The blocks the save adds to the transcript the store holds. */
+  blocks: readonly TranscriptBlock[];
+  /** Why the reply ended `failed`, or why a `paused` reply's answer did not settle its call. */
+  failure?: ErrorEvent;
+  /** The ids of the named injects that landed in this reply, in order. */
+  landed: readonly string[];
+};
+
+/** A reply as the app shaped it for the save. */
+export type ShapedReply = {
+  /** The blocks to save in place of the reply's `blocks`. */
+  blocks: readonly TranscriptBlock[];
+  /** The ids of the inbox items the reply told. */
+  told: readonly string[];
+  /** The app's own values for its store's write. */
+  host?: unknown;
+};
+
+/** The app's own steps around a reply's save, bound to the run they belong to. */
+export type ReplySaving = {
+  /** Shapes the reply before each save. */
+  before?: (reply: ReplyToSave) => Promise<ShapedReply>;
+  /** Runs once a save is written. It reports what it throws, and throws nothing. */
+  after?: (saved: { ended: ReplyEnd; told: readonly string[] }) => Promise<void>;
+  /** The app's compaction, in place of the runner's. It reports what it throws, and throws nothing. */
+  compact?: (signal: { history: TurnHistoryMessage[]; tokens: number }) => Promise<void>;
+  /** Reports an error the save does not throw. */
+  report: (err: unknown) => void;
 };
 
 /** A reply in progress: the history it was given, and its events. */
@@ -420,6 +588,7 @@ function failed(
   conversation: StoredConversation,
   reply: Reply,
   failure: ErrorEvent,
+  worded: 'core' | 'app',
 ): StoredConversation {
   const from = reply.uncompacted ?? reply;
   const unread = (events: readonly TurnEvent[]) =>
@@ -435,6 +604,8 @@ function failed(
     baseEvents: unread(reply.events.slice(0, from.baseEvents)).length,
     workedMs: reply.workedMs,
   });
+  // why: An app that shapes the save words the failure itself, from `failure`.
+  if (worded === 'app') return next;
   if (next.transcript.slice(conversation.transcript.length).some((b) => b.kind === 'error')) {
     return next;
   }
@@ -474,8 +645,18 @@ async function* runReply(
   runner: ReplyRunner,
   input: TurnInput,
   withMessage: (history: TurnHistoryMessage[]) => TurnHistoryMessage[],
+  answers?: 'message',
 ): AsyncGenerator<ReplyLine> {
   const { conversation } = opened;
+  const worded = runner.saving?.before ? 'app' : 'core';
+  /** What the person saw of a reply whose hold lost the conversation, for a reply to a message. */
+  const lost = async (from: Reply) => {
+    if (answers !== 'message') return;
+    const next = runner.signal.aborted
+      ? stopped(host, conversation, from)
+      : committed(host, conversation, from);
+    await saveLost(host, opened, runner, { next, events: from.events });
+  };
   const startedAt = Date.now();
   const worked = () => ({ ...reply, workedMs: reply.workedMs + (Date.now() - startedAt) });
   // invariant: A reply whose hold lost its chat saves nothing; the hold that has it tells what this one read.
@@ -509,31 +690,53 @@ async function* runReply(
       yield event;
     }
   } catch (err) {
+    const thrown = worked();
     if (await held()) {
-      const written = await save(
-        host,
-        opened,
-        runner.signal.aborted
-          ? stopped(host, conversation, worked())
-          : failed(host, conversation, worked(), toErrorEvent(err)),
+      const failure = toErrorEvent(err);
+      yield* refLine(
+        await saveReply(
+          host,
+          opened,
+          runner,
+          runner.signal.aborted
+            ? { ended: 'stopped', next: stopped(host, conversation, thrown), events: thrown.events }
+            : {
+                ended: 'failed',
+                next: failed(host, conversation, thrown, failure, worded),
+                events: thrown.events,
+                failure,
+              },
+        ),
       );
-      yield* refLine(written);
+    } else {
+      await lost(thrown);
     }
     // why: A stopped reply is no failure; the browser draws what it left from the ref.
     if (!runner.signal.aborted) throw err;
     return;
   }
   const settled = worked();
-  if (!(await held())) return;
+  const { events } = settled;
+  if (!(await held())) {
+    await lost(settled);
+    return;
+  }
   if (runner.signal.aborted) {
-    yield* refLine(await save(host, opened, stopped(host, conversation, settled)));
+    const next = stopped(host, conversation, settled);
+    yield* refLine(await saveReply(host, opened, runner, { ended: 'stopped', next, events }));
   } else if (errorEvent) {
-    yield* refLine(await save(host, opened, failed(host, conversation, settled, errorEvent)));
+    const next = failed(host, conversation, settled, errorEvent, worded);
+    yield* refLine(
+      await saveReply(host, opened, runner, { ended: 'failed', next, events, failure: errorEvent }),
+    );
     yield errorEvent;
-  } else if (gatedToolsFromEvents(settled.events).length) {
-    yield* refLine(await save(host, opened, pausedOn(conversation, settled, runner)));
+  } else if (gatedToolsFromEvents(events).length) {
+    const next = pausedOn(conversation, settled, runner);
+    yield* refLine(await saveReply(host, opened, runner, { ended: 'paused', next, events }));
   } else {
-    const current = await save(host, opened, committed(host, conversation, settled));
+    const next = committed(host, conversation, settled);
+    const current = await saveReply(host, opened, runner, { ended: 'committed', next, events });
+    if (!current) return;
     yield* refLine(current);
     // why: The reply is the browser's before compaction runs, so a failed compaction loses none of it.
     if (!(await held())) return;
@@ -556,6 +759,11 @@ async function compactedAfter(
   const done = reply.events.findLast((event) => event.type === 'done');
   const signal = done?.type === 'done' ? done.compaction : undefined;
   if (!signal?.needed) return undefined;
+  if (runner.saving?.compact) {
+    // invariant: The app's compaction is its own write; this reply writes nothing more.
+    await runner.saving.compact({ history: signal.history, tokens: signal.tokens });
+    return undefined;
+  }
   const compacted = await runner.compact(signal.history, signal.tokens, runner.model);
   if (!compacted) return undefined;
   const history = replyHistory({ ...reply, base: withMessage(compacted), baseEvents: 0 });
@@ -724,15 +932,26 @@ export async function* messageReply(args: {
     const walked = pausedReply(paused);
     const error = yield* settleWalkedAway(walked, args.walkAway ?? []);
     if (error) {
-      opened = await save(host, opened, {
+      const next = {
         ...opened.conversation,
         paused: { ...paused, events: walked.events, endedAt: Date.now() },
-      });
-      yield* refLine(opened);
+      };
+      yield* refLine(
+        await saveReply(host, opened, walkedAway(runner, paused), {
+          ended: 'paused',
+          next,
+          events: walked.events,
+          failure: error,
+        }),
+      );
       yield error;
       return;
     }
-    opened = { ...opened, conversation: committed(host, opened.conversation, walked) };
+    opened = {
+      ...opened,
+      stored: opened.conversation.transcript.length,
+      conversation: committed(host, opened.conversation, walked),
+    };
   }
   const withMessage = (history: TurnHistoryMessage[]) =>
     appendUserDraftToHistory(history, message.draft, message.media);
@@ -757,6 +976,7 @@ export async function* messageReply(args: {
   if (args.saved) {
     opened = {
       ...base,
+      stored: base.stored ?? conversation.transcript.length,
       conversation: {
         ...conversation,
         transcript: [...conversation.transcript, ...args.saved],
@@ -778,6 +998,7 @@ export async function* messageReply(args: {
     runner,
     { ...message.input, ...historyInput(conversation) },
     withMessage,
+    'message',
   );
 }
 
@@ -867,7 +1088,7 @@ export async function* answerReply(args: {
   runner: ReplyRunner;
 }): AsyncGenerator<ReplyLine> {
   const { host, runner } = args;
-  let opened = args.opened;
+  const opened = args.opened;
   requireWaitingOn(opened.conversation, args.call);
   const { paused, ...waiting } = opened.conversation;
   if (!paused) return;
@@ -888,11 +1109,18 @@ export async function* answerReply(args: {
     const settledCall = reply.events.some((event) => settlesToolCall(event, args.call.callId));
     const events = error && !settledCall ? paused.events : reply.events;
     if (runner.held && !(await runner.held())) return;
-    opened = await save(host, opened, {
+    const next = {
       ...opened.conversation,
       paused: { ...paused, events, workedMs: reply.workedMs, endedAt: Date.now() },
-    });
-    yield* refLine(opened);
+    };
+    yield* refLine(
+      await saveReply(host, opened, runner, {
+        ended: 'paused',
+        next,
+        events,
+        ...(error ? { failure: error } : {}),
+      }),
+    );
     if (error) yield error;
     return;
   }

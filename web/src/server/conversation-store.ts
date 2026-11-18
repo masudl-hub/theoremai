@@ -114,6 +114,32 @@ export interface ConversationSnapshot {
   conversation: StoredConversation;
 }
 
+/**
+ * How the reply a write saves ended. `committed`: it is over. `failed`: it ended with an error.
+ * `stopped`: the person stopped it. `paused`: it waits on gates. `lost`: its hold no longer has
+ * the conversation, so it tells nothing.
+ */
+export type ReplyEnd = 'committed' | 'failed' | 'stopped' | 'paused' | 'lost';
+
+/**
+ * What a write that saves a reply says beside the conversation. A store that keeps the app's own
+ * records honours it in the same statement as the write. A write with no context saves no reply:
+ * a new conversation, a posted message, a compaction, or a rewind.
+ */
+export type WriteContext = {
+  /** The hold the reply runs under. A store that keeps the holds refuses one that lost the conversation. */
+  hold?: string;
+  /** The reply's id under its hold. */
+  reply?: string;
+  /** What the app's `beforeSave` returned as `host`. Theorem never reads it. */
+  host?: unknown;
+  ended: ReplyEnd;
+  /** The ids of the inbox items this reply told, to mark in the same write. Empty when `ended` is `lost`. */
+  told: readonly string[];
+  /** The blocks this write adds to the transcript the store holds, so a store need not compare. */
+  appended: readonly TranscriptBlock[];
+};
+
 export type ConversationWriteResult =
   | { written: true; ref: string; revision: string }
   | { written: false };
@@ -136,6 +162,7 @@ export interface TheoremConversationStore {
     ref: string | null,
     expectedRevision: string | null,
     next: StoredConversation,
+    context?: WriteContext,
   ): Promise<ConversationWriteResult>;
 }
 
@@ -166,8 +193,12 @@ export function createMemoryConversationStore(
     return entry.snapshot;
   };
   const written = (
-    ...[sessionId, ref, expectedRevision, next]: Parameters<TheoremConversationStore['write']>
+    ...[sessionId, ref, expectedRevision, next, context]: Parameters<
+      TheoremConversationStore['write']
+    >
   ): ConversationWriteResult => {
+    // invariant: This store keeps no holds, so a reply whose hold lost the conversation writes nothing here.
+    if (context?.ended === 'lost') return { written: false };
     const snapshot = ref === null ? undefined : current(sessionId, ref);
     // invariant: A ref this session cannot read takes no write, so no session overwrites another's conversation.
     if (ref !== null && snapshot === undefined) return { written: false };
@@ -228,7 +259,9 @@ export function createSealedConversationStore(
       const conversation = storedConversation.parse(JSON.parse(plaintext));
       return { revision: ref, conversation };
     },
-    async write(sessionId, ref, expectedRevision, next) {
+    async write(sessionId, ref, expectedRevision, next, context) {
+      // invariant: This store keeps no holds, so a reply whose hold lost the conversation writes nothing here.
+      if (context?.ended === 'lost') return { written: false };
       if (ref !== expectedRevision) return { written: false };
       const conversation = storedConversation.parse(next);
       const sealed = await sealSecret({

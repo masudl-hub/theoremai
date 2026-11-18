@@ -16,7 +16,7 @@ import {
 } from '@theoremjs/agents';
 import { guardrailEventSchema } from '@theoremjs/agents/guardrails';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
-import type { Equals } from '@theoremjs/agents/kernel';
+import { type Equals, jsonObjectSchema } from '@theoremjs/agents/kernel';
 
 // why: The block shapes' event parts have one schema, the turn event's; a probe event reuses it.
 function eventPart<T>(probe: (value: unknown) => unknown) {
@@ -67,7 +67,7 @@ true satisfies Equals<z.infer<typeof toolCall>, ToolCall>;
 const turnStop = z.object({ kind: z.enum(TURN_STOP_KINDS), native: z.string().optional() });
 true satisfies Equals<z.infer<typeof turnStop>, TurnStop>;
 
-const blockId = { id: z.string() };
+const blockId = { id: z.string(), host: jsonObjectSchema.optional() };
 const transcriptBlock = z.discriminatedUnion('kind', [
   z.object({ ...blockId, kind: z.literal('user-text'), text: z.string() }),
   z.object({
@@ -149,3 +149,12 @@ const transcriptBlock = z.discriminatedUnion('kind', [
 true satisfies Equals<z.infer<typeof transcriptBlock>, TranscriptBlock>;
 /** One transcript block, as a host stores it and the browser reads it back. */
 export const transcriptBlockSchema: z.ZodType<TranscriptBlock> = transcriptBlock;
+
+/** The block without the app's own values: a page cannot state them. */
+export function withoutHost(block: TranscriptBlock): TranscriptBlock {
+  const { host: _host, ...rest } = block;
+  return rest;
+}
+
+/** A block as a page's request states it: `host` is the app's to set, so it is dropped. */
+export const pageBlockSchema = transcriptBlockSchema.transform(withoutHost);

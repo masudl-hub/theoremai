@@ -20,6 +20,7 @@ import {
   type TheoremConversationCoreOptions,
   type TheoremConversationStore,
   tellEveryResult,
+  type WriteContext,
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
@@ -468,4 +469,127 @@ Deno.test('a follow-up that cannot open its chat throws, and lets the conversati
   await assertRejects(() => core.followUp(at(), { ref: 'no-such-chat', hold: end.hold }));
   assertEquals(seen.length, 1);
   assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});
+
+/** A memory store that keeps the context of each write, and whether it was written. */
+function contextStore() {
+  const inner = createMemoryConversationStore();
+  const writes: { context: WriteContext | undefined; written: boolean }[] = [];
+  const store: TheoremConversationStore = {
+    read: (sessionId, ref) => inner.read(sessionId, ref),
+    async write(sessionId, ref, expectedRevision, next, context) {
+      const result = await inner.write(sessionId, ref, expectedRevision, next, context);
+      writes.push({ context, written: result.written });
+      return result;
+    },
+  };
+  return { store, writes };
+}
+
+Deno.test("the app's save steps are given the run's context and the reply's hold, and the last runs while the reply holds the conversation", async () => {
+  const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
+  const { store, writes } = contextStore();
+  const shaped: { session: string; ended: string; opened: string[]; hold: string }[] = [];
+  const after: { session: string; ended: string; told: readonly string[]; held: string }[] = [];
+  const { core } = harness({
+    conversationStore: store,
+    inbox: () => ({
+      inbox,
+      conversation: KEEPER,
+      policy: (items, moment) => ({
+        tell: moment.opening === 'message' ? items.map((item) => item.id) : [],
+      }),
+      leaseMs: LEASE_MS,
+    }),
+    beforeSave: (ctx, reply) => {
+      shaped.push({
+        session: ctx.sessionId,
+        ended: reply.ended,
+        opened: reply.held?.opened.map((item) => item.id) ?? [],
+        hold: reply.held?.hold ?? '',
+      });
+      return Promise.resolve({
+        blocks: reply.blocks,
+        told: ['note-1'],
+        host: { row: 'reply-row' },
+      });
+    },
+    afterSave: async (ctx, saved) => {
+      after.push({
+        session: ctx.sessionId,
+        ...saved,
+        held: (await inbox.open(KEEPER, 'another-hold')).outcome,
+      });
+    },
+  });
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  assertEquals((await say(core, 'hello')).end, { outcome: 'released' });
+  assertEquals(
+    shaped.map((reply) => [reply.session, reply.ended, reply.opened]),
+    [[KEEPER, 'committed', ['note-1']]],
+  );
+  const saves = writes.filter((write) => write.context);
+  assertEquals(saves.length, 1, 'the posted message is a write with no context');
+  assertEquals(saves[0].context?.hold, shaped[0].hold);
+  assertEquals(saves[0].context?.host, { row: 'reply-row' });
+  assertEquals(saves[0].context?.told, ['note-1']);
+  assertEquals(after, [{ session: KEEPER, ended: 'committed', told: ['note-1'], held: 'held' }]);
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});
+
+Deno.test('a reply whose hold another run took over ends lost, and its save tells nothing', async () => {
+  const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
+  const { store, writes } = contextStore();
+  const ends: string[] = [];
+  const after: string[] = [];
+  const { core, hold, free } = harness({
+    conversationStore: store,
+    inbox: () => ({
+      inbox,
+      conversation: KEEPER,
+      policy: () => ({ tell: [] }),
+      leaseMs: LEASE_MS,
+    }),
+    beforeSave: (_ctx, reply) => {
+      ends.push(reply.ended);
+      return Promise.resolve({ blocks: reply.blocks, told: ['note-1'] });
+    },
+    afterSave: (_ctx, saved) => {
+      after.push(saved.ended);
+      return Promise.resolve();
+    },
+  });
+  const running = hold();
+  const reply = say(core, 'hello');
+  await running;
+  await inbox.takeOver(KEEPER, 'the-newer-message');
+  free();
+  assertEquals((await reply).end.outcome, 'lost');
+  assertEquals(ends, ['lost']);
+  assertEquals(after, []);
+  const saves = writes.filter((write) => write.context);
+  assertEquals(
+    saves.map((write) => [write.context?.ended, write.context?.told, write.written]),
+    [['lost', [], false]],
+  );
+});
+
+Deno.test("an after-save step that throws is reported, and the reply's save stands", async () => {
+  const reported: unknown[] = [];
+  const { core } = harness({
+    beforeSave: (_ctx, reply) => Promise.resolve({ blocks: reply.blocks, told: [] }),
+    afterSave: () => Promise.reject(new Error('the channel is down')),
+    onError: (err) => reported.push(err),
+  });
+  const { lines, end } = await say(core, 'hello');
+  assertEquals(end, { outcome: 'released' });
+  assertEquals(
+    reported.map((err) => (err instanceof Error ? err.message : err)),
+    ['the channel is down'],
+  );
+  const view = await core.read(at(), { ref: refOf(lines) });
+  assertEquals(
+    view.transcript.map((block) => block.kind),
+    ['user-text', 'text', 'turn-done'],
+  );
 });

@@ -21,6 +21,7 @@ import {
   runTurn,
   TheoremError,
   type TurnEvent,
+  type TurnHistoryMessage,
   type TurnInput,
   type TurnRequest,
 } from '@theoremjs/agents';
@@ -57,15 +58,19 @@ import {
   postedMessage,
   type ReplyLine,
   type ReplyRunner,
+  type ReplySaving,
+  type ReplyToSave,
   type ReplyTurn,
   readerConversationHost,
   rewindConversation,
+  type ShapedReply,
   statelessRefusal,
   waitingCalls,
   wakeReply,
 } from './conversation.ts';
 import { detachedEnd, sessionConversationInbox } from './conversation-inbox.ts';
 import {
+  type ReplyEnd,
   type StoredConversation,
   type TheoremConversationStore,
   unknownConversation,
@@ -163,25 +168,57 @@ export type ReplyPrepare<Item extends InboxItem = InboxItem> = (
   run?: ReplyRun<Item>,
 ) => TurnRequest | Promise<TurnRequest>;
 
+/**
+ * The app's own steps around each save of a reply. Each takes the run's context, as every option
+ * of the core does.
+ */
+export type SaveHooks<Item extends InboxItem = InboxItem> = {
+  /**
+   * Shapes a reply before each save: the blocks to save in place of the reply's, the ids of the
+   * inbox items it told, and the app's own values for its store's write. `held` is the reply's
+   * hold of the app's `inbox`. With it set, a reply that failed gets no error block from the
+   * core: the app words the failure. A throw on a reply that failed or was stopped is reported
+   * to `onError` and saves nothing; any other throw fails the reply.
+   */
+  beforeSave?: (
+    at: CoreContext,
+    reply: ReplyToSave & { held?: ReplyRun<Item> },
+  ) => Promise<ShapedReply>;
+  /** Runs once a save is written, under the hold. What it throws goes to `onError`. */
+  afterSave?: (
+    at: CoreContext,
+    saved: { ended: ReplyEnd; told: readonly string[] },
+  ) => Promise<void>;
+  /**
+   * The app's compaction, in place of the core's, when a saved reply says the history is due
+   * for it. The core then writes nothing after the reply. What it throws goes to `onError`.
+   */
+  compact?: (
+    at: CoreContext,
+    signal: { history: TurnHistoryMessage[]; tokens: number },
+  ) => Promise<void>;
+};
+
 /** Everything a conversation's runs read from whoever serves them. */
 export type CoreState<Item extends InboxItem = InboxItem> = Omit<CallsContext, 'options'> & {
   chat: ChatContext;
   steer: SteerInbox;
-  options: Omit<CallsContext['options'], 'prepare'> & {
-    prepare?: ReplyPrepare<Item>;
-    /**
-     * The app's inbox, for the runs of one context. Unset, a reply holds the session's inbox of
-     * ended background calls when `lateResultsDecider` is set, and holds nothing otherwise.
-     */
-    inbox?: (at: CoreContext) => AppInbox<Item>;
-    provider: (
-      at: CoreContext,
-      model?: string,
-    ) => ProviderHostOptions | Promise<ProviderHostOptions>;
-    conversationLeaseMs?: number;
-    notifyRetryMs?: number;
-    clientEvents?: ClientTurnOptions;
-  };
+  options: Omit<CallsContext['options'], 'prepare'> &
+    SaveHooks<Item> & {
+      prepare?: ReplyPrepare<Item>;
+      /**
+       * The app's inbox, for the runs of one context. Unset, a reply holds the session's inbox of
+       * ended background calls when `lateResultsDecider` is set, and holds nothing otherwise.
+       */
+      inbox?: (at: CoreContext) => AppInbox<Item>;
+      provider: (
+        at: CoreContext,
+        model?: string,
+      ) => ProviderHostOptions | Promise<ProviderHostOptions>;
+      conversationLeaseMs?: number;
+      notifyRetryMs?: number;
+      clientEvents?: ClientTurnOptions;
+    };
 };
 
 /**
@@ -630,7 +667,36 @@ function chatRunner<Item extends InboxItem>(
     ...(generation.effort ? { effort: generation.effort } : {}),
     ...(generation.stated ? { stated: generation.stated } : {}),
     signal,
-    ...(held ? { reply: held.run.reply, held: held.renew } : {}),
+    ...(held ? { reply: held.run.reply, hold: held.run.hold, held: held.renew } : {}),
+    saving: replySaving(ctx, at, held),
+  };
+}
+
+/** The app's steps around a reply's save, bound to `at` and to the reply's hold. */
+function replySaving<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  held: HeldRun<Item> | undefined,
+): ReplySaving {
+  const { beforeSave, afterSave, compact, onError } = ctx.options;
+  const report = (err: unknown) => onError?.(err, at);
+  const reported =
+    <T>(step: (at: CoreContext, value: T) => Promise<void>) =>
+    (value: T) =>
+      step(at, value).catch(report);
+  return {
+    ...(beforeSave
+      ? {
+          before: (reply) =>
+            beforeSave(at, {
+              ...reply,
+              ...(held?.reads.from === 'app' ? { held: held.reads.run } : {}),
+            }),
+        }
+      : {}),
+    ...(afterSave ? { after: reported(afterSave) } : {}),
+    ...(compact ? { compact: reported(compact) } : {}),
+    report,
   };
 }
 

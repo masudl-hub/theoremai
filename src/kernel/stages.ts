@@ -7,7 +7,7 @@ import type { GuardrailHit, Provenance } from '../guardrails/types.ts';
 import type { SpanHandle } from '../observability/trace-span.ts';
 import { guardrailAttributes } from './engine/turn-trace.ts';
 import { hookFailed } from './hook-failure.ts';
-import { jsonValueSchema } from './json.ts';
+import { type JsonObject, jsonObjectSchema, jsonValueSchema } from './json.ts';
 import type { StageApplyWarningCode, TurnStage } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
@@ -124,6 +124,11 @@ export interface StageInject {
   /** Names this inject in the `stage` event that records it landing. */
   id: string;
   messages: TurnHistoryMessage[];
+  /**
+   * The app's own values for this inject, a JSON object. The `stage` event that records it landing
+   * carries them, and so does each block the transcript makes from it. The model never reads them.
+   */
+  host?: JsonObject;
 }
 
 /** What a stage handler returns: what it asks the turn to do. */
@@ -231,6 +236,8 @@ export interface StageApplyInput {
 export interface InjectUnit {
   id?: string;
   messages: TurnHistoryMessage[];
+  /** {@linkcode StageInject.host}. */
+  host?: JsonObject;
   /** {@linkcode StageResult.released}: the reply text the user has when this inject lands. */
   released?: number;
   /** {@linkcode StageResult.promote}: the tools the model may call once this inject lands. */
@@ -455,7 +462,14 @@ function namedInjectUnit(
     return undefined;
   }
   const messages = coerceHistoryMessages(entry.messages, warnings);
-  return messages ? { id, messages } : undefined;
+  if (!messages) return undefined;
+  if (entry.host === undefined) return { id, messages };
+  const host = jsonObjectSchema.safeParse(entry.host);
+  if (!host.success) {
+    warn(warnings, 'inject_host_invalid', 'injects', 'an injects entry host must be a JSON object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return undefined;
+  }
+  return { id, messages, host: host.data };
 }
 
 /** `injects` as units, the first carrying `released` and `promote`; one unusable entry refuses them all. */
@@ -848,7 +862,15 @@ export function injectedStageEvent(
   extra?: Pick<StageEventExtra, 'callId' | 'toolName' | 'released'>,
 ): TurnEventOf<'stage'> | undefined {
   const injected = units.flatMap((unit) =>
-    unit.id === undefined ? [] : [{ id: unit.id, messages: unit.messages }],
+    unit.id === undefined
+      ? []
+      : [
+          {
+            id: unit.id,
+            messages: unit.messages,
+            ...(unit.host === undefined ? {} : { host: unit.host }),
+          },
+        ],
   );
   if (injected.length === 0 && extra?.released === undefined) return undefined;
   return stageEventFields(stage, { ...extra, ...(injected.length > 0 ? { injected } : {}) });

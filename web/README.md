@@ -550,6 +550,7 @@ The core takes these options from [Server options](#server-options), with the sa
 | `onError(err, at)` | Receives each error that a run reports and does not throw. |
 | `wake(at, ref)` | Required with `lateResultsDecider`. Start a reply to no message for the conversation under `ref`, for example with a queued call to `core.wake`. |
 | `inbox(at)` | Your own inbox for the conversation. See below. |
+| `beforeSave(at, reply)`, `afterSave(at, saved)`, `compact(at, signal)` | Your steps around the save that ends a reply. See [Shape the save that ends a reply](#shape-the-save-that-ends-a-reply). |
 
 ### Hold the conversation in your own inbox
 
@@ -577,6 +578,50 @@ await core.message(at, { ref, input, saved: { hold, blocks } });
 ```
 
 `hold` is the hold your write took. `blocks` is the message as your app saved it, as transcript blocks. The core then posts nothing. The reply runs under `hold`, and the save that ends the reply writes `blocks` with the reply. When another run holds the conversation, the run returns `held` and writes nothing. `saved` needs `inbox`.
+
+### Shape the save that ends a reply
+
+Use `beforeSave` when your app keeps each block as its own record, and must decide what a reply writes. The core calls it once for each save that ends a reply, before the store's `write`.
+
+```ts
+const core = createTheoremConversationCore({
+  // ...
+  beforeSave: async (at, reply) => ({ blocks: reply.blocks, told: [], host: {} }),
+  afterSave: async (at, { ended, told }) => {},
+});
+```
+
+`reply` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `ended` | How the reply ended: `committed`, `failed`, `stopped`, `paused`, or `lost`. |
+| `blocks` | The blocks this save adds to what the store last wrote. They include a message that you passed in `saved`, and the blocks of a paused reply that this message walked away from. |
+| `failure` | The error event, when the reply failed. With `ended: 'paused'`, an answer or a walk-away did not settle, and the reply still waits. |
+| `landed` | The ids of the named injects and the steers that the model read in this reply. |
+| `held` | With `inbox`, the reply's hold of your inbox, as `prepare` receives it. |
+
+Return `{ blocks, told, host? }`:
+
+- `blocks` replaces `reply.blocks` in the transcript. Add, remove, or reword blocks here. Set `host` on a block, a JSON object, to keep your own values with it, such as the id of its record. The core never reads a block's `host`.
+- `told` is the ids of the inbox items that this save marks as told.
+- `host` is a value of your own for the store.
+
+The store's `write` then receives a fifth argument, a `WriteContext`: `{ hold?, reply?, host?, ended, told, appended }`. `appended` is the blocks that you returned. A store on your database can write the reply, mark the items in `told`, and check that `hold` still holds the conversation, in one statement. A write with no context saves no reply: a new conversation, a posted message, a rewind, or the core's own compaction.
+
+These rules apply:
+
+- A reply that paused keeps its own blocks with the paused reply, and they are not in `blocks`. They arrive in the save that ends the reply after the person answers.
+- With `beforeSave`, the core adds no error block to a reply that failed. Word the failure from `reply.failure`.
+- When `beforeSave` throws on a reply that failed or stopped, the core reports the error to `onError`, saves nothing, and the run ends with the reply's own failure. On any other reply, the throw fails the reply.
+- `afterSave` runs after the store wrote the reply, while the run still holds the conversation. Use it to send the reply to a channel. When it throws, the core reports the error to `onError`, and the save stands.
+- With no `beforeSave`, `told` is empty and the blocks are saved as they are.
+
+A reply to a message can lose its hold while it runs: a newer message took the conversation over. The core then calls `beforeSave` with `ended: 'lost'`, and calls `write` with `ended: 'lost'` and an empty `told`. Your store keeps the blocks that the person saw and marks no item as told. `afterSave` does not run. The memory store and the sealed store refuse this write, because they keep no holds. With no `beforeSave`, or for a reply to no message, a lost reply writes nothing.
+
+Set `compact` when your app compacts the history in its own run. After a reply's save, the core calls `compact(at, { history, tokens })` in place of its own compaction, and writes nothing more.
+
+A page cannot set `host` on a block. The core drops `host` from the blocks of a transcript that a page restores, and `theoremStartRequestSchema` drops it from the blocks of a start request.
 
 ### Run the follow-up
 

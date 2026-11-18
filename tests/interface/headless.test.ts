@@ -784,6 +784,25 @@ Deno.test('a steer lands in history and the transcript after what the reply said
     ],
   );
 });
+Deno.test("an inject's blocks carry the host values the app gave the inject", () => {
+  const blocks = foldTurnEvents([
+    {
+      type: 'stage',
+      stage: 'post_tool',
+      injected: [
+        { id: 's1', messages: [{ role: 'user', content: 'Also the fern' }], host: { row: 'r1' } },
+        { id: 's2', messages: [{ role: 'user', content: 'And the moss' }] },
+      ],
+    },
+  ]);
+  assertEquals(
+    blocks.map((b) => [b.kind, 'text' in b ? b.text : null, b.host]),
+    [
+      ['user-text', 'Also the fern', { row: 'r1' }],
+      ['user-text', 'And the moss', undefined],
+    ],
+  );
+});
 Deno.test('appendAssistantEventsToHistory refuses a settled tool with no readBack', () => {
   const failure = { code: 'denied', kind: 'declined', message: 'not allowed' } as const;
   for (const settled of [

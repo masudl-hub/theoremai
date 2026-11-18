@@ -15,6 +15,7 @@ import {
   chatOf,
   createConversationCore,
   type ReplyPrepare,
+  type SaveHooks,
 } from './conversation-core.ts';
 import type { SettledOperation } from './conversation-inbox.ts';
 import type { TheoremHandlerOptions } from './handler.ts';
@@ -43,42 +44,43 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
   | 'conversationLeaseMs'
   | 'steerInbox'
   | 'clientEvents'
-> & {
-  /**
-   * The app's `TurnWiring.prepare`. With `inbox`, it is also given the reply's hold, so the turn
-   * it returns can tell the model the items the reply reads: at once, or from its `onStage`.
-   */
-  prepare?: ReplyPrepare<Item>;
-  /** Host options for registered providers, or a factory for apps that pick keys per run. */
-  provider:
-    | ProviderHostOptions
-    | ((at: CoreContext, model?: string) => ProviderHostOptions | Promise<ProviderHostOptions>);
-  /** The service for tools with a `background` setting, for the session of `at`. */
-  background?: (at: CoreContext) => ToolBackgroundService;
-  /** Check current resource access before disclosing a saved tool result. Read-only. */
-  authorizeToolReplay?: (
-    at: CoreContext,
-    operation: SettledOperation,
-  ) => boolean | Promise<boolean>;
-  /** The sign-in URL for an OAuth gate. */
-  authorizationUrl?: (
-    challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
-    at: CoreContext,
-  ) => string | Promise<string>;
-  /** Called with any error a run reports and does not throw. */
-  onError?: (err: unknown, at: CoreContext) => void;
-  /**
-   * The `lateResultsDecider`'s wake: start a reply to no message for the conversation under
-   * `ref`, such as by a queued call to `wake`. Required with `lateResultsDecider`.
-   */
-  wake?: (at: CoreContext, ref: string) => Promise<void>;
-  /**
-   * The app's own inbox, for the runs of one context. Every reply then runs under a hold of the
-   * conversation in it. Not with `lateResultsDecider`: the app's inbox holds every item a reply
-   * is told.
-   */
-  inbox?: (at: CoreContext) => AppInbox<Item>;
-};
+> &
+  SaveHooks<Item> & {
+    /**
+     * The app's `TurnWiring.prepare`. With `inbox`, it is also given the reply's hold, so the turn
+     * it returns can tell the model the items the reply reads: at once, or from its `onStage`.
+     */
+    prepare?: ReplyPrepare<Item>;
+    /** Host options for registered providers, or a factory for apps that pick keys per run. */
+    provider:
+      | ProviderHostOptions
+      | ((at: CoreContext, model?: string) => ProviderHostOptions | Promise<ProviderHostOptions>);
+    /** The service for tools with a `background` setting, for the session of `at`. */
+    background?: (at: CoreContext) => ToolBackgroundService;
+    /** Check current resource access before disclosing a saved tool result. Read-only. */
+    authorizeToolReplay?: (
+      at: CoreContext,
+      operation: SettledOperation,
+    ) => boolean | Promise<boolean>;
+    /** The sign-in URL for an OAuth gate. */
+    authorizationUrl?: (
+      challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
+      at: CoreContext,
+    ) => string | Promise<string>;
+    /** Called with any error a run reports and does not throw. */
+    onError?: (err: unknown, at: CoreContext) => void;
+    /**
+     * The `lateResultsDecider`'s wake: start a reply to no message for the conversation under
+     * `ref`, such as by a queued call to `wake`. Required with `lateResultsDecider`.
+     */
+    wake?: (at: CoreContext, ref: string) => Promise<void>;
+    /**
+     * The app's own inbox, for the runs of one context. Every reply then runs under a hold of the
+     * conversation in it. Not with `lateResultsDecider`: the app's inbox holds every item a reply
+     * is told.
+     */
+    inbox?: (at: CoreContext) => AppInbox<Item>;
+  };
 
 /** Creates the conversation core for `options.profile`. */
 export function createTheoremConversationCore<Item extends InboxItem = InboxItem>(
@@ -109,6 +111,9 @@ export function createTheoremConversationCore<Item extends InboxItem = InboxItem
       authorizationUrl: options.authorizationUrl,
       onError: options.onError,
       inbox: options.inbox,
+      beforeSave: options.beforeSave,
+      afterSave: options.afterSave,
+      compact: options.compact,
       provider: (at, model) => (typeof provider === 'function' ? provider(at, model) : provider),
       wake: (at, ref) => (wake ? wake(at, ref) : Promise.resolve()),
     },

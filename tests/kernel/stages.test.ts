@@ -971,6 +971,50 @@ Deno.test('applyStageResult: one unusable injects entry refuses them all', () =>
   assertEquals(none.warnings, []);
 });
 
+Deno.test('applyStageResult: an inject carries the host values the app gave it', () => {
+  const messages = [{ role: 'user' as const, content: 'one' }];
+  const applied = applyStageResult({
+    stage: 'post_tool',
+    injectAllowed: true,
+    result: {
+      injects: [
+        { id: 'a', messages, host: { row: 'row-1' } },
+        { id: 'b', messages },
+      ],
+    },
+  });
+  assertEquals(applied.warnings, []);
+  assertEquals(applied.injects, [
+    { id: 'a', messages, host: { row: 'row-1' } },
+    { id: 'b', messages },
+  ]);
+  assertEquals(injectedStageEvent('post_tool', applied.injects ?? []), {
+    type: 'stage',
+    stage: 'post_tool',
+    injected: [
+      { id: 'a', messages, host: { row: 'row-1' } },
+      { id: 'b', messages },
+    ],
+  });
+  for (const host of ['row-1', ['row-1'], { at: () => 1 }]) {
+    const refused = applyStageResult({
+      stage: 'post_tool',
+      injectAllowed: true,
+      result: {
+        injects: [
+          { id: 'b', messages },
+          { id: 'a', messages, host },
+        ],
+      },
+    });
+    assertEquals(refused.injects, undefined);
+    assertEquals(
+      refused.warnings.map((w) => [w.code, w.field]),
+      [['inject_host_invalid', 'injects']],
+    );
+  }
+});
+
 Deno.test('applyStageResult: injects pass the gates an inject passes', () => {
   const result = { injects: [{ id: 'a', messages: [{ role: 'user', content: 'one' }] }] };
   for (const [input, code] of [

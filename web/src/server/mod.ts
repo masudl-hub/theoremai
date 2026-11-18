@@ -43,6 +43,15 @@ export {
   waitingCalls,
   wakeReply,
 } from './conversation.ts';
+export type {
+  AppInbox,
+  ConversationCore,
+  Generation,
+  MessageArgs,
+  Reply,
+  RunEnd,
+  WakeArgs,
+} from './conversation-core.ts';
 export {
   type ConversationSnapshot,
   type ConversationWriteResult,
@@ -57,6 +66,10 @@ export {
   type UncompactedBase,
   unknownConversation,
 } from './conversation-store.ts';
+export {
+  createTheoremConversationCore,
+  type TheoremConversationCoreOptions,
+} from './create-conversation-core.ts';
 export {
   createMemoryCredentialStore,
   type TheoremCredentialStore,
@@ -101,6 +114,7 @@ export {
   type SessionBoundaryOptions,
   type TheoremSessionBoundary,
 } from './session-boundary.ts';
+export type { CoreContext } from './session-calls.ts';
 export type { TheoremSessionCapacity } from './session-limits.ts';
 export {
   createMemorySessionStore,

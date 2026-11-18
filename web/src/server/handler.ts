@@ -1,10 +1,4 @@
-import {
-  checkPageToolTimeout,
-  createMemoryPageToolBroker,
-  type PageToolBroker,
-  pageToolResultSchema,
-  sessionPageDispatch,
-} from './page-dispatch.ts';
+import { type PageToolBroker, pageToolResultSchema, sessionPageDispatch } from './page-dispatch.ts';
 /**
  * One Web-standard handler that serves a Theorem chat UI for a single profile.
  *
@@ -52,7 +46,6 @@ import {
   type Profile,
   type ProfileDefinition,
   type ProviderHostOptions,
-  registerProfile,
   type StageHandler,
   TheoremError,
   type ToolGate,
@@ -68,7 +61,7 @@ import {
   HTTP_NOT_FOUND,
 } from '@theoremjs/agents/host';
 import { clientProfileInterface } from '@theoremjs/agents/interface';
-import { resolveGateTtlMs, type ToolBackgroundService } from '@theoremjs/agents/kernel';
+import type { ToolBackgroundService } from '@theoremjs/agents/kernel';
 import { hostInterface, theoremHostCallRequestSchema } from '../client/host-transport.ts';
 import {
   theoremConversationRequestSchema,
@@ -80,27 +73,19 @@ import {
   theoremTurnRequestSchema,
   theoremWakeRequestSchema,
 } from '../client/transport.ts';
-import { postedMessage, type ReplyLine, statelessRefusal } from './conversation.ts';
+import { type ReplyLine, statelessRefusal } from './conversation.ts';
 import {
   type ChatContext,
   type ConversationCore,
-  chatInterface,
+  chatOf,
   createConversationCore,
   unconversedAnswer,
 } from './conversation-core.ts';
 import type { TheoremConversationStore } from './conversation-store.ts';
-import {
-  createMemoryCredentialStore,
-  type TheoremCredentialStore,
-  type TheoremCredentials,
-} from './credential-store.ts';
+import type { TheoremCredentialStore, TheoremCredentials } from './credential-store.ts';
 import type { TheoremNotifier } from './notifier.ts';
-import {
-  type MutableStore,
-  type SessionStateStore,
-  sessionStateStore,
-} from './session-authority.ts';
-import { type CallsContext, type CoreContext, callEvents } from './session-calls.ts';
+import type { MutableStore, SessionStateStore } from './session-authority.ts';
+import { type CallsContext, type CoreContext, callEvents, sessionParts } from './session-calls.ts';
 import { type Session, theoremSession } from './session-identity.ts';
 import { kernelTurnInput } from './turn-input.ts';
 
@@ -109,13 +94,7 @@ export { theoremSession, theoremSessionId } from './session-identity.ts';
 import { jsonResponse } from './json-response.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
 import { checkRequest } from './request-check.ts';
-import {
-  createMemorySessionStore,
-  DEFAULT_OPERATION_RETENTION_MS,
-  type PerSessionStore,
-  type SessionToolOperation,
-  type TheoremSessionStore,
-} from './session-store.ts';
+import type { SessionToolOperation, TheoremSessionStore } from './session-store.ts';
 import { createMemorySteerInbox, type SteerInbox, steerUnitOf } from './steer-inbox.ts';
 
 export type TheoremRequestContext = {
@@ -332,31 +311,6 @@ function routeOf(request: Request): string {
     : '';
 }
 
-function lockedStore<T>(
-  store: PerSessionStore<T>,
-  loaded: (value: T | undefined) => T,
-): MutableStore<T> {
-  const locks = new Map<string, Promise<unknown>>();
-  const read = async (sessionId: string) => loaded(await store.load(sessionId));
-  return {
-    read,
-    mutate(sessionId, change) {
-      const next = (locks.get(sessionId) ?? Promise.resolve()).then(async () => {
-        const value = await read(sessionId);
-        const result = change(value);
-        await store.save(sessionId, value);
-        return result;
-      });
-      const settled = next.catch(() => {});
-      locks.set(sessionId, settled);
-      void settled.then(() => {
-        if (locks.get(sessionId) === settled) locks.delete(sessionId);
-      });
-      return next;
-    },
-  };
-}
-
 /** Everything a request needs from the handler that serves it. */
 type HandlerContext = {
   /** A host's handler has no provider: it runs no model. */
@@ -482,7 +436,7 @@ function coreOf(ctx: HandlerContext, chat: ChatContext, request: Request): Conve
   return createConversationCore({
     ...calls,
     chat,
-    inbox: ctx.inbox,
+    steer: ctx.inbox,
     options: {
       ...calls.options,
       provider: (_at, model) => providerFor(ctx, request, model),
@@ -543,14 +497,11 @@ async function turn(
   if (body.stated && !ctx.options.pageStatesTurn) {
     throw new TheoremError('request', labelText('error.request'));
   }
-  const message = postedMessage(
-    chatInterface(chat),
-    body.input,
-    await ctx.options.context?.(request),
-  );
+  const context = await ctx.options.context?.(request);
   const lines = await coreOf(ctx, chat, request).message(contextOf(ctx, request, session.id), {
     ref: body.conversation,
-    message,
+    input: body.input,
+    ...(context === undefined ? {} : { context }),
     generation: body,
     ...(body.abandon ? { abandon: body.abandon } : {}),
   });
@@ -767,38 +718,10 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
 export function createTheoremHandler(
   options: TheoremHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  const profile = defineProfile(options.profile as ProfileDefinition);
-  if (profile.type === 'decision') {
-    // labels-exempt: builder config error at setup; no user sees it
-    throw new Error(
-      "createTheoremHandler serves turn-based profiles; serve type 'decision' with createTheoremDecisionHandler.",
-    );
-  }
-  if (profile.type === 'host') {
-    // labels-exempt: builder config error at setup; no user sees it
-    throw new Error(
-      "createTheoremHandler serves turn-based profiles; serve type 'host' with createTheoremHostHandler.",
-    );
-  }
-  if (profile.type === 'live' || profile.type === 'embedding') {
-    // labels-exempt: builder config error at setup; no user sees it
-    throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
-  }
-  const stateless = profile.providerContinuation?.history === 'stateless';
-  if (stateless === (options.conversationStore !== undefined)) {
-    throw new TheoremError('config', labelText('error.config'), {
-      cause: {
-        code: stateless ? 'conversation_store_stateless' : 'conversation_store_missing',
-        profile: profile.id,
-      },
-    });
-  }
-  return serve('createTheoremHandler', profile, options, {
+  const chat = chatOf('createTheoremHandler', options.profile, options.conversationStore);
+  return serve('createTheoremHandler', chat.profile, options, {
     steerInbox: options.steerInbox,
-    chat: {
-      profile,
-      ...(options.conversationStore ? { conversations: options.conversationStore } : {}),
-    },
+    chat,
   });
 }
 
@@ -835,45 +758,18 @@ export function hostTool(name: string) {
   return registered?.type === 'builtin' ? undefined : registered;
 }
 
-function checkNotifyRetry(ms: number | undefined): void {
-  if (ms === undefined || (Number.isFinite(ms) && ms >= 0)) return;
-  throw new TheoremError('config', labelText('error.config'), {
-    cause: { code: 'notify_retry' },
-  });
-}
-
 function serve(
   name: string,
   profile: Profile,
   options: HandlerContext['options'],
   chatOptions: { steerInbox?: SteerInbox; chat?: ChatContext } = {},
 ): (request: Request) => Promise<Response> {
-  const gateTtlMs = resolveGateTtlMs(name, options.gateTtlMs);
-  const operationRetentionMs = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
-  if (!Number.isSafeInteger(operationRetentionMs) || operationRetentionMs <= 0) {
-    throw new TheoremError('config', labelText('error.config'), {
-      cause: { code: 'operation_retention' },
-    });
-  }
   requestByteLimit(options.maxRequestBytes);
-  checkPageToolTimeout(options.pageToolTimeoutMs);
-  checkNotifyRetry(options.notifyRetryMs);
-  registerProfile(profile);
   const ctx: HandlerContext = {
     options,
-    pageToolBroker: options.pageToolBroker ?? createMemoryPageToolBroker(),
-    profile,
+    ...sessionParts(name, profile, options),
     ...(chatOptions.chat ? { chat: chatOptions.chat } : {}),
     inbox: chatOptions.steerInbox ?? createMemorySteerInbox(),
-    sessions: sessionStateStore(
-      options.sessionStore ?? createMemorySessionStore(),
-      gateTtlMs,
-      operationRetentionMs,
-    ),
-    credentials: lockedStore(
-      options.credentialStore ?? createMemoryCredentialStore(),
-      (saved = {}) => saved,
-    ),
   };
 
   return async (request) => {

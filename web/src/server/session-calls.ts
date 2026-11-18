@@ -14,6 +14,7 @@ import {
   jsonObjectSchema,
   labelText,
   type Profile,
+  registerProfile,
   type StageHandler,
   TheoremError,
   type ToolGate,
@@ -33,6 +34,7 @@ import {
   answerGatedCall,
   type GateAnswerRequest,
   isSealedSource,
+  resolveGateTtlMs,
   type ToolBackgroundService,
   type ToolCredentialSource,
 } from '@theoremjs/agents/kernel';
@@ -41,14 +43,31 @@ import type { TheoremInvokeRequest } from '../client/transport.ts';
 import { type IssuedWalkAway, requiredOperationId } from './conversation.ts';
 import { detachedEnd, type SettledOperation } from './conversation-inbox.ts';
 import type { StoredConversation } from './conversation-store.ts';
-import type { TheoremCredentials } from './credential-store.ts';
+import {
+  createMemoryCredentialStore,
+  type TheoremCredentialStore,
+  type TheoremCredentials,
+} from './credential-store.ts';
 import type { TheoremNotifier } from './notifier.ts';
-import { type PageToolBroker, sessionPageDispatch } from './page-dispatch.ts';
-import type { MutableStore, SessionStateStore } from './session-authority.ts';
-import type {
-  PendingToolGate,
-  SessionToolOperation,
-  TheoremSessionState,
+import {
+  checkPageToolTimeout,
+  createMemoryPageToolBroker,
+  type PageToolBroker,
+  sessionPageDispatch,
+} from './page-dispatch.ts';
+import {
+  lockedStore,
+  type MutableStore,
+  type SessionStateStore,
+  sessionStateStore,
+} from './session-authority.ts';
+import {
+  createMemorySessionStore,
+  DEFAULT_OPERATION_RETENTION_MS,
+  type PendingToolGate,
+  type SessionToolOperation,
+  type TheoremSessionState,
+  type TheoremSessionStore,
 } from './session-store.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
 import { preparedTurn } from './turn-wiring.ts';
@@ -90,6 +109,56 @@ export type CallsContext = {
     wake: (at: CoreContext, ref: string) => Promise<void>;
   };
 };
+
+/** The stores and limits a session's calls run on; each is the handler option of the same name. */
+export type SessionOptions = {
+  sessionStore?: TheoremSessionStore;
+  credentialStore?: TheoremCredentialStore;
+  gateTtlMs?: number;
+  operationRetentionMs?: number;
+  pageToolBroker?: PageToolBroker;
+  pageToolTimeoutMs?: number;
+  notifyRetryMs?: number;
+};
+
+/**
+ * The profile, registered, and the session's stores as its calls read them. `name` is the
+ * function the app called, for the error a wrong option throws.
+ */
+export function sessionParts(
+  name: string,
+  profile: Profile,
+  options: SessionOptions,
+): Pick<CallsContext, 'profile' | 'sessions' | 'credentials' | 'pageToolBroker'> {
+  const gateTtlMs = resolveGateTtlMs(name, options.gateTtlMs);
+  const operationRetentionMs = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
+  if (!Number.isSafeInteger(operationRetentionMs) || operationRetentionMs <= 0) {
+    throw new TheoremError('config', labelText('error.config'), {
+      cause: { code: 'operation_retention' },
+    });
+  }
+  checkPageToolTimeout(options.pageToolTimeoutMs);
+  const retryMs = options.notifyRetryMs;
+  if (retryMs !== undefined && !(Number.isFinite(retryMs) && retryMs >= 0)) {
+    throw new TheoremError('config', labelText('error.config'), {
+      cause: { code: 'notify_retry' },
+    });
+  }
+  registerProfile(profile);
+  return {
+    profile,
+    pageToolBroker: options.pageToolBroker ?? createMemoryPageToolBroker(),
+    sessions: sessionStateStore(
+      options.sessionStore ?? createMemorySessionStore(),
+      gateTtlMs,
+      operationRetentionMs,
+    ),
+    credentials: lockedStore(
+      options.credentialStore ?? createMemoryCredentialStore(),
+      (saved = {}) => saved,
+    ),
+  };
+}
 
 type OutcomeContext = {
   profileId: string;

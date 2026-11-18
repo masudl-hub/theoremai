@@ -9,18 +9,28 @@
 import {
   compactHistory,
   defaultKernelScope,
+  defineProfile,
   type GateReference,
   type LateResultItem,
   type LateResultsSource,
   labelText,
   type Profile,
+  type ProfileDefinition,
   type ProviderHostOptions,
   runTurn,
   TheoremError,
   type TurnEvent,
   type TurnInput,
 } from '@theoremjs/agents';
-import { type ReplyRun, type ReplyStart, runConversation } from '@theoremjs/agents/conversation';
+import {
+  type ConversationInbox,
+  type ConversationRun,
+  type InboxItem,
+  type InboxPolicy,
+  type ReplyRun,
+  type ReplyStart,
+  runConversation,
+} from '@theoremjs/agents/conversation';
 import type { ClientTurnOptions } from '@theoremjs/agents/host';
 import {
   type ComposerProfileInterface,
@@ -33,6 +43,7 @@ import type {
   StatedTurn,
   TheoremInvokeRequest,
   TheoremRewound,
+  TheoremTurnInput,
 } from '../client/transport.ts';
 import {
   answerReply,
@@ -41,7 +52,7 @@ import {
   messageReply,
   type OpenedConversation,
   openConversation,
-  type PostedMessage,
+  postedMessage,
   type ReplyLine,
   type ReplyRunner,
   type ReplyTurn,
@@ -84,16 +95,72 @@ export type ChatContext = {
   conversations?: TheoremConversationStore;
 };
 
+/**
+ * The chat `definition` serves, with the store that keeps its conversation. `name` is the function
+ * the app called, for the error a wrong profile throws.
+ */
+export function chatOf(
+  name: string,
+  definition: Profile | ProfileDefinition,
+  conversations: TheoremConversationStore | undefined,
+): ChatContext {
+  const profile = defineProfile(definition as ProfileDefinition);
+  if (profile.type === 'decision') {
+    // labels-exempt: builder config error at setup; no user sees it
+    throw new Error(
+      `${name} serves turn-based profiles; serve type 'decision' with createTheoremDecisionHandler.`,
+    );
+  }
+  if (profile.type === 'host') {
+    // labels-exempt: builder config error at setup; no user sees it
+    throw new Error(
+      `${name} serves turn-based profiles; serve type 'host' with createTheoremHostHandler.`,
+    );
+  }
+  if (profile.type === 'live' || profile.type === 'embedding') {
+    // labels-exempt: builder config error at setup; no user sees it
+    throw new Error(`${name} serves turn-based profiles; got type '${profile.type}'.`);
+  }
+  const stateless = profile.providerContinuation?.history === 'stateless';
+  if (stateless === (conversations !== undefined)) {
+    throw new TheoremError('config', labelText('error.config'), {
+      cause: {
+        code: stateless ? 'conversation_store_stateless' : 'conversation_store_missing',
+        profile: profile.id,
+      },
+    });
+  }
+  return { profile, ...(conversations ? { conversations } : {}) };
+}
+
 /** The profile as the server reads a message against it, its tools as registered now. */
 export function chatInterface(chat: ChatContext): ComposerProfileInterface {
   return interfaceFromProfile(chat.profile, defaultKernelScope.tools);
 }
 
+/**
+ * The app's own inbox for a conversation, and its rule for what a reply may be told. A reply runs
+ * under a hold of `conversation` in it, and the app reads the reply's items itself.
+ */
+export type AppInbox<Item extends InboxItem = InboxItem> = {
+  inbox: ConversationInbox<Item>;
+  /** The inbox's name for the conversation the runs of this context hold. */
+  conversation: string;
+  policy: InboxPolicy<Item>;
+  /** How long a hold keeps the conversation after it last renewed, in milliseconds. */
+  leaseMs: number;
+};
+
 /** Everything a conversation's runs read from whoever serves them. */
-export type CoreState = Omit<CallsContext, 'options'> & {
+export type CoreState<Item extends InboxItem = InboxItem> = Omit<CallsContext, 'options'> & {
   chat: ChatContext;
-  inbox: SteerInbox;
+  steer: SteerInbox;
   options: CallsContext['options'] & {
+    /**
+     * The app's inbox, for the runs of one context. Unset, a reply holds the session's inbox of
+     * ended background calls when `lateResultsDecider` is set, and holds nothing otherwise.
+     */
+    inbox?: (at: CoreContext) => AppInbox<Item>;
     provider: (
       at: CoreContext,
       model?: string,
@@ -134,43 +201,33 @@ function inboxKey(sessionId: string, turnId: string): string {
 const DEFAULT_CONVERSATION_LEASE_MS = 60_000;
 
 /**
- * The chat's inbox as this request reads it: the chat as this request last wrote it, and the
- * results this request may read. `seen` follows each line's ref, because a store's ref can change
- * with each write.
+ * The session's inbox for the chat: the chat as this context last wrote it, and the results this
+ * context may read. `ref` is the chat's ref now, because a store's ref can change with each write.
  */
-function chatInbox(
-  ctx: CoreState,
+function chatInbox<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   host: ConversationHost,
-  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
+  opened: Pick<OpenedConversation, 'conversation'>,
+  ref: () => string | null,
 ) {
-  let ref = opened.ref;
   const leaseMs = ctx.options.conversationLeaseMs ?? DEFAULT_CONVERSATION_LEASE_MS;
   const inbox = sessionConversationInbox({
     sessions: ctx.sessions,
     sessionId: at.sessionId,
     leaseMs,
     conversation: async (key) => {
+      const current = ref();
       const conversation =
-        ref === null
+        current === null
           ? opened.conversation
-          : (await host.store.read(at.sessionId, ref))?.conversation;
+          : (await host.store.read(at.sessionId, current))?.conversation;
       return conversation?.id === key ? conversation : undefined;
     },
     readable: (operation) => replayAllowed(ctx, at, operation),
     labels: ctx.profile.labels,
   });
-  return {
-    inbox,
-    key: opened.conversation.id,
-    leaseMs,
-    seen(line: ReplyLine) {
-      if (line.type === 'conversation') ref = line.ref;
-    },
-    get ref() {
-      return ref;
-    },
-  };
+  return { inbox, key: opened.conversation.id, leaseMs };
 }
 
 /** The values `produce` sends, as it sends them, then its end or what it threw. */
@@ -206,8 +263,16 @@ async function* sent<T, R>(
   }
 }
 
-/** A reply under a hold of the chat: the run, and the renewal each save checks first. */
-type HeldRun = { run: ReplyRun<LateResultItem>; renew: () => Promise<boolean> };
+/**
+ * A reply under a hold of the chat: the run, the renewal each save checks first, and whose items
+ * it reads. `session`: the session's late results, as the model reads them. `app`: the app's run,
+ * whose items the app reads itself.
+ */
+type HeldRun<Item extends InboxItem> = {
+  run: Pick<ReplyRun, 'hold' | 'reply' | 'signal' | 'resume'>;
+  renew: () => Promise<boolean>;
+  reads: { from: 'session'; late: LateResultsSource } | { from: 'app'; run: ReplyRun<Item> };
+};
 
 /** What a held reply does once its hold ends with results waiting, or finds the chat held. */
 type HeldFollow = {
@@ -215,63 +280,156 @@ type HeldFollow = {
   again?: boolean;
 };
 
-/**
- * Runs a reply under a hold of the chat, and streams its lines. The reply reads the late results
- * the decider's policy tells it. Without a decider no reply reads one, and no hold is taken.
- * invariant: One hold has a chat at a time, and lets it go only once nothing waits that may be told.
- * A page's reply that leaves results waiting lets the chat go, so the page wakes for them; a
- * server's wake runs the next reply under its hold.
- */
-function heldLines(
-  ctx: CoreState,
-  at: CoreContext,
-  host: ConversationHost,
-  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
-  start: Exclude<ReplyStart, { opening: 'follow_up' }>,
-  reply: (held: HeldRun | undefined, ref: () => string | null) => AsyncIterable<ReplyLine>,
-  follow: HeldFollow = {},
-): Reply {
-  const decider = ctx.options.lateResultsDecider;
-  if (!decider) return unheld(reply(undefined, () => opened.ref));
-  const chat = chatInbox(ctx, at, host, opened);
-  const ref = () => chat.ref;
-  return sent<ReplyLine, RunEnd>(async (send) => {
-    const whose = await at.host;
-    const runOnce = (begin: ReplyStart, lines: (held: HeldRun) => AsyncIterable<ReplyLine>) =>
+/** The inbox a chat's replies hold, as one context runs under it. */
+type Holding<Item extends InboxItem> = {
+  /** Runs one reply under a hold, and sends its lines as it yields them. */
+  run(
+    start: ReplyStart,
+    lines: (held: HeldRun<Item>) => AsyncIterable<ReplyLine>,
+    send: (line: ReplyLine) => void,
+  ): Promise<ConversationRun>;
+  /** Lets the chat go under `hold`, reading again each time an item arrives first. */
+  letGo(hold: string): Promise<void>;
+  /** Whether an item waits that the policy tells a reply to no message. */
+  due(): Promise<boolean>;
+  /** The chat's ref as the last line of a run under it said. */
+  ref(): string | null;
+};
+
+function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
+  kept: {
+    inbox: ConversationInbox<Kept>;
+    key: string;
+    leaseMs: number;
+    policy: InboxPolicy<Kept>;
+    reads: (run: ReplyRun<Kept>) => HeldRun<Item>['reads'];
+    gaveUp: (items: readonly Kept[]) => void;
+  },
+  chat: { ref: () => string | null; seen: (line: ReplyLine) => void },
+): Holding<Item> {
+  const { inbox, key, policy } = kept;
+  return {
+    run: (start, lines, send) =>
       runConversation({
-        conversation: chat.key,
-        inbox: chat.inbox,
-        policy: (items, moment) => decider.policy(items, { ...moment, host: whose }),
-        start: begin,
+        conversation: key,
+        inbox,
+        policy,
+        start,
         newId: () => crypto.randomUUID(),
-        renewEveryMs: chat.leaseMs / 3,
+        renewEveryMs: kept.leaseMs / 3,
         reply: async (run) => {
-          const renew = () => chat.inbox.renew(chat.key, run.hold);
-          for await (const line of lines({ run, renew })) {
+          const held = { run, renew: () => inbox.renew(key, run.hold), reads: kept.reads(run) };
+          for await (const line of lines(held)) {
             chat.seen(line);
             send(line);
           }
         },
-        gaveUp: (items) => {
-          ctx.options.onError?.(
-            // labels-exempt: internal diagnostic; no reader sees a given-up result
-            new TheoremError('unavailable', 'The late-results policy gave up results', {
-              cause: { code: 'late_results_given_up', operationIds: items.map((item) => item.id) },
-            }),
-            at,
-          );
-        },
-      });
-    let run = await runOnce(start, (held) => reply(held, ref));
+        gaveUp: kept.gaveUp,
+      }),
+    async letGo(hold) {
+      for (;;) {
+        const { version } = await inbox.read(key);
+        if ((await inbox.release(key, hold, version)) !== 'moved') return;
+      }
+    },
+    async due() {
+      const { items } = await inbox.read(key);
+      if (items.length === 0) return false;
+      const { tell } = await policy(items, { stage: 'pre_turn', step: 0, opening: 'wake' });
+      return tell.length > 0;
+    },
+    ref: chat.ref,
+  };
+}
+
+/**
+ * The inbox this context's replies hold: the app's when it passes one, the session's when a
+ * decider tells its late results, and none otherwise.
+ */
+function holdingOf<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  host: ConversationHost,
+  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
+): Holding<Item> | undefined {
+  let ref = opened.ref;
+  const chat = {
+    ref: () => ref,
+    seen(line: ReplyLine) {
+      if (line.type === 'conversation') ref = line.ref;
+    },
+  };
+  const gaveUp = (code: string) => (items: readonly InboxItem[]) => {
+    ctx.options.onError?.(
+      // labels-exempt: internal diagnostic; no reader sees a given-up item
+      new TheoremError('unavailable', 'The inbox policy gave up items', {
+        cause: { code, operationIds: items.map((item) => item.id) },
+      }),
+      at,
+    );
+  };
+  const app = ctx.options.inbox?.(at);
+  if (app) {
+    return holdingOver(
+      {
+        inbox: app.inbox,
+        key: app.conversation,
+        leaseMs: app.leaseMs,
+        policy: app.policy,
+        reads: (run) => ({ from: 'app', run }),
+        gaveUp: gaveUp('inbox_items_given_up'),
+      },
+      chat,
+    );
+  }
+  const decider = ctx.options.lateResultsDecider;
+  if (!decider) return undefined;
+  let whose: Promise<unknown> | undefined;
+  return holdingOver<LateResultItem, Item>(
+    {
+      ...chatInbox(ctx, at, host, opened, chat.ref),
+      policy: async (items, moment) => {
+        whose ??= Promise.resolve(at.host);
+        return decider.policy(items, { ...moment, host: await whose });
+      },
+      reads: (run) => ({ from: 'session', late: lateSource(run) }),
+      gaveUp: gaveUp('late_results_given_up'),
+    },
+    chat,
+  );
+}
+
+/**
+ * Runs a reply under a hold of the chat, and streams its lines. The reply reads the items the
+ * policy tells it. With no inbox to hold, no reply reads one, and no hold is taken.
+ * invariant: One hold has a chat at a time, and lets it go only once nothing waits that may be told.
+ * A page's reply that leaves results waiting lets the chat go, so the page wakes for them; a
+ * server's wake runs the next reply under its hold.
+ */
+function heldLines<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  host: ConversationHost,
+  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
+  start: Exclude<ReplyStart, { opening: 'follow_up' }>,
+  reply: (held: HeldRun<Item> | undefined, ref: () => string | null) => AsyncIterable<ReplyLine>,
+  follow: HeldFollow = {},
+): Reply {
+  const holding = holdingOf(ctx, at, host, opened);
+  if (!holding) return unheld(reply(undefined, () => opened.ref));
+  return sent<ReplyLine, RunEnd>(async (send) => {
+    let run = await holding.run(start, (held) => reply(held, holding.ref), send);
     let failure = run.outcome === 'held' ? undefined : run.failure;
     while (run.outcome === 'continue') {
-      const paused = await isPaused(host, chat.ref, opened.conversation);
+      const paused = await isPaused(host, holding.ref(), opened.conversation);
       if (!follow.again || paused) {
-        await letGo(chat.inbox, chat.key, run.hold);
+        await holding.letGo(run.hold);
         break;
       }
-      run = await runOnce({ opening: 'follow_up', hold: run.hold }, (held) =>
-        wakeReplyLines(ctx, at, host, chat.ref, {}, held),
+      run = await holding.run(
+        { opening: 'follow_up', hold: run.hold },
+        (held) => wakeReplyLines(ctx, at, host, holding.ref(), {}, held),
+        send,
       );
       if (run.outcome !== 'held' && run.failure !== undefined) failure ??= run.failure;
     }
@@ -292,18 +450,6 @@ async function isPaused(
   return conversation?.paused !== undefined;
 }
 
-/** Lets the chat go under `hold`, reading again each time a result arrives first. */
-async function letGo(
-  inbox: ReturnType<typeof chatInbox>['inbox'],
-  key: string,
-  hold: string,
-): Promise<void> {
-  for (;;) {
-    const { version } = await inbox.read(key);
-    if ((await inbox.release(key, hold, version)) !== 'moved') return;
-  }
-}
-
 /** The late results a reply's model reads: what it opened with, then what each later moment hands it. */
 function lateSource(run: ReplyRun<LateResultItem>): LateResultsSource {
   let opening = true;
@@ -317,26 +463,26 @@ function lateSource(run: ReplyRun<LateResultItem>): LateResultsSource {
 }
 
 /** One model run of a chat's reply, its gates recorded in the session as they pause. */
-async function* chatTurn(
-  ctx: CoreState,
+async function* chatTurn<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   turn: ReplyTurn,
   key: string | undefined,
   signal: AbortSignal,
   stop: AbortController,
-  late: ReplyRun<LateResultItem> | undefined,
+  held: HeldRun<Item> | undefined,
 ): AsyncGenerator<TurnEvent> {
   const state = await ctx.sessions.read(at.sessionId);
   const provider = await ctx.options.provider(at, turn.model);
   const host = await at.host;
   if (key) {
-    await ctx.inbox.open(key);
-    stopOnRequest(ctx.inbox, key, stop);
+    await ctx.steer.open(key);
+    stopOnRequest(ctx.steer, key, stop);
   }
   try {
     const onStage = stagesInOrder(
       ctx.options.onStage,
-      key ? steerStage(ctx.inbox, key) : undefined,
+      key ? steerStage(ctx.steer, key) : undefined,
     );
     const prepared = await preparedTurn(
       ctx.options.prepare,
@@ -351,7 +497,7 @@ async function* chatTurn(
           ctx.options.pageToolTimeoutMs,
         ).execution,
         input: turn.input,
-        ...(late ? { lateResults: lateSource(late) } : {}),
+        ...(held?.reads.from === 'session' ? { lateResults: held.reads.late } : {}),
         ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
@@ -375,7 +521,7 @@ async function* chatTurn(
       model: turn.model,
     });
   } finally {
-    if (key) await ctx.inbox.close(key);
+    if (key) await ctx.steer.close(key);
   }
 }
 
@@ -383,8 +529,8 @@ async function* chatTurn(
  * How this request runs the model for a reply: its generation, its abort (the request's, a stop,
  * or its hold losing the chat), and the chat's hold it saves under.
  */
-function chatRunner(
-  ctx: CoreState,
+function chatRunner<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   generation: {
     model?: string;
@@ -392,7 +538,7 @@ function chatRunner(
     turnId?: string;
     stated?: StatedTurn;
   },
-  held?: HeldRun,
+  held?: HeldRun<Item>,
 ): ReplyRunner {
   // invariant: The page's pick is checked here, before prepare; a model prepare sets is the host's own.
   refuseInterfacePick(ctx.profile, generation);
@@ -400,7 +546,7 @@ function chatRunner(
   const stop = new AbortController();
   const signal = AbortSignal.any([at.signal, stop.signal, ...(held ? [held.run.signal] : [])]);
   return {
-    run: (turn) => chatTurn(ctx, at, turn, key, signal, stop, held?.run),
+    run: (turn) => chatTurn(ctx, at, turn, key, signal, stop, held),
     async compact(history, tokens, model) {
       const provider = await ctx.options.provider(at, model);
       const compacted = await compactHistory(
@@ -424,7 +570,10 @@ function chatRunner(
 }
 
 /** The chat's conversation as this session's runs read and write it; undefined when the profile keeps none. */
-function conversationHost(ctx: CoreState, at: CoreContext): ConversationHost | undefined {
+function conversationHost<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+): ConversationHost | undefined {
   const store = ctx.chat.conversations;
   if (!store) return undefined;
   return readerConversationHost({
@@ -439,8 +588,8 @@ function conversationHost(ctx: CoreState, at: CoreContext): ConversationHost | u
  * The wake's reply under a hold of the chat; nothing when no decider tells a result, or while a
  * reply waits on gates: the answer that goes on reads what waits.
  */
-async function wakeLines(
-  ctx: CoreState,
+async function wakeLines<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   host: ConversationHost,
   ref: string,
@@ -449,7 +598,7 @@ async function wakeLines(
   input?: Pick<TurnInput, 'options' | 'context'>,
 ): Promise<Reply> {
   const opened = await openConversation(host, ref, { kind: 'read' });
-  if (!ctx.options.lateResultsDecider || opened.conversation.paused) return unheld(noLines());
+  if (!holds(ctx) || opened.conversation.paused) return unheld(noLines());
   return heldLines(
     ctx,
     at,
@@ -468,13 +617,13 @@ async function* noLines(): AsyncGenerator<ReplyLine> {}
  * A reply to no message under `held`, on the chat as it stands now. The page that woke draws it;
  * any other page open on the session reads it once it ends.
  */
-async function* wakeReplyLines(
-  ctx: CoreState,
+async function* wakeReplyLines<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   host: ConversationHost,
   ref: string | null,
   generation: { model?: string; effort?: string; turnId?: string },
-  held: HeldRun | undefined,
+  held: HeldRun<Item> | undefined,
   input?: Pick<TurnInput, 'options' | 'context'>,
 ): AsyncGenerator<ReplyLine> {
   if (ref === null) return;
@@ -488,15 +637,19 @@ async function* wakeReplyLines(
  * why: The transcript keeps a detached call as the turn left it. The session holds what became of
  * it, so a call that has ended does not read as running.
  */
-async function currentView(
-  ctx: CoreState,
+async function currentView<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   host: ConversationHost,
   ref: string,
   conversation: StoredConversation,
 ): Promise<ConversationView> {
   const view = conversationView(host, conversation);
-  if (!view.transcript.some(isDetachedBlock)) return view;
+  const detached = view.transcript.some(isDetachedBlock);
+  // why: a session's late results come from detached calls only; an app's items come from anywhere
+  if (!detached && !ctx.options.inbox) return view;
+  const wake = (await wakeDue(ctx, at, host, ref, conversation)) ? { wake: true as const } : {};
+  if (!detached) return { ...view, ...wake };
   const { operations } = await ctx.sessions.read(at.sessionId);
   const transcript = await Promise.all(
     view.transcript.map((block) =>
@@ -510,7 +663,7 @@ async function currentView(
     ...(notifier && transcript.some(isDetachedBlock)
       ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
       : {}),
-    ...((await wakeDue(ctx, at, host, ref, conversation)) ? { wake: true as const } : {}),
+    ...wake,
   };
 }
 
@@ -518,25 +671,21 @@ async function currentView(
  * Whether the page wakes the chat now: the decider's policy tells a waiting result to a reply to no
  * message. Never while a reply waits on gates: the answer that goes on reads what waits.
  */
-async function wakeDue(
-  ctx: CoreState,
+function wakeDue<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   host: ConversationHost,
   ref: string,
   conversation: StoredConversation,
 ): Promise<boolean> {
-  const decider = ctx.options.lateResultsDecider;
-  if (!decider || conversation.paused) return false;
-  const chat = chatInbox(ctx, at, host, { ref, conversation });
-  const { items } = await chat.inbox.read(chat.key);
-  if (items.length === 0) return false;
-  const { tell } = await decider.policy(items, {
-    stage: 'pre_turn',
-    step: 0,
-    opening: 'wake',
-    host: await at.host,
-  });
-  return tell.length > 0;
+  if (conversation.paused) return Promise.resolve(false);
+  const holding = holdingOf(ctx, at, host, { ref, conversation });
+  return holding ? holding.due() : Promise.resolve(false);
+}
+
+/** Whether a reply runs under a hold of the chat: the app passes an inbox, or a decider tells late results. */
+function holds<Item extends InboxItem>(ctx: CoreState<Item>): boolean {
+  return ctx.options.inbox !== undefined || ctx.options.lateResultsDecider !== undefined;
 }
 
 type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
@@ -546,8 +695,8 @@ function isDetachedBlock(block: TranscriptBlock): block is ToolBlock {
 }
 
 /** A detached call's block as its operation stands. One the session no longer holds has no known end. */
-async function lateBlock(
-  ctx: CoreState,
+async function lateBlock<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   block: ToolBlock,
   operations: TheoremSessionState['operations'],
@@ -596,8 +745,8 @@ async function lateBlock(
 }
 
 /** The answer's reply, handed first what the paused reply read, so it tells them as it goes on. */
-async function* answered(
-  held: HeldRun | undefined,
+async function* answered<Item extends InboxItem>(
+  held: HeldRun<Item> | undefined,
   paused: string | undefined,
   reply: () => AsyncIterable<ReplyLine>,
 ): AsyncGenerator<ReplyLine> {
@@ -606,17 +755,13 @@ async function* answered(
 }
 
 /** The person's message: a new reply, run against the conversation the app keeps. */
-async function message(
-  ctx: CoreState,
+async function message<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
-  args: {
-    ref?: string;
-    message: PostedMessage;
-    generation: Generation;
-    abandon?: readonly GateReference[];
-  },
+  args: MessageArgs,
 ): Promise<Reply> {
-  const { generation } = args;
+  const { generation = {} } = args;
+  const posted = postedMessage(chatInterface(ctx.chat), args.input, args.context);
   const host = conversationHost(ctx, at);
   if (!host) {
     if (args.ref !== undefined) throw statelessRefusal('continue');
@@ -625,7 +770,7 @@ async function message(
     const runner = chatRunner(ctx, at, generation);
     return unheld(
       runner.run({
-        input: args.message.input,
+        input: posted.input,
         model: generation.model,
         effort: generation.effort,
         ...(generation.stated ? { stated: generation.stated } : {}),
@@ -644,7 +789,7 @@ async function message(
     messageReply({
       host,
       opened,
-      message: args.message,
+      message: posted,
       ...(walkAway ? { walkAway } : {}),
       runner: chatRunner(ctx, at, generation, held),
     }),
@@ -665,7 +810,11 @@ export async function unconversedAnswer(
  * The person's answer to a paused call. In a kept conversation the reply goes on in the same
  * run once no call waits; otherwise the run is the call's.
  */
-async function answer(ctx: CoreState, at: CoreContext, body: TheoremInvokeRequest): Promise<Reply> {
+async function answer<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  body: TheoremInvokeRequest,
+): Promise<Reply> {
   const host = conversationHost(ctx, at);
   if (!host) return unconversedAnswer(ctx, at, body);
   if (body.conversation === undefined) throw unknownConversation();
@@ -690,16 +839,10 @@ async function answer(ctx: CoreState, at: CoreContext, body: TheoremInvokeReques
  * A reply to no message, for results that ended since the model last ran. It runs under a hold of
  * the chat, so two wakes at once run it once, and reads what the decider's policy tells.
  */
-async function wake(
-  ctx: CoreState,
+async function wake<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
-  args: {
-    ref: string;
-    generation?: Generation;
-    input?: Pick<TurnInput, 'options' | 'context'>;
-    /** A server's wake: it runs each next reply itself while results wait. */
-    again?: boolean;
-  },
+  args: WakeArgs,
 ): Promise<Reply> {
   const host = conversationHost(ctx, at);
   if (!host) throw statelessRefusal('wake');
@@ -715,8 +858,8 @@ async function wake(
 }
 
 /** The conversation as a page draws it. */
-async function read(
-  ctx: CoreState,
+async function read<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   args: { ref: string },
 ): Promise<ConversationView> {
@@ -727,8 +870,8 @@ async function read(
 }
 
 /** The conversation cut after one block; a reply that waits on gates is walked away from first. */
-async function rewind(
-  ctx: CoreState,
+async function rewind<Item extends InboxItem>(
+  ctx: CoreState<Item>,
   at: CoreContext,
   args: { ref: string; at: number },
 ): Promise<TheoremRewound> {
@@ -752,12 +895,38 @@ async function rewind(
   };
 }
 
-/** One conversation's runs, as whoever serves it calls them. */
+/** A person's message, for {@link ConversationCore.message}. */
+export type MessageArgs = {
+  /** The conversation's ref; unset for a new one. */
+  ref?: string;
+  input: TheoremTurnInput;
+  /** The app's own context for the run. The profile's `inputs.context.from` must list `server`. */
+  context?: unknown;
+  generation?: Generation;
+  /** The calls a paused reply waits on, to walk away from: exactly those. */
+  abandon?: readonly GateReference[];
+};
+
+/** A reply to no message, for {@link ConversationCore.wake}. */
+export type WakeArgs = {
+  ref: string;
+  generation?: Generation;
+  input?: Pick<TurnInput, 'options' | 'context'>;
+  /** A server's wake: it runs each next reply itself while results wait. */
+  again?: boolean;
+};
+
+/** A conversation's runs, with no HTTP request. Each run's lines end with how it ended. */
 export type ConversationCore = {
-  message(at: CoreContext, args: Parameters<typeof message>[2]): Promise<Reply>;
+  /** The person's message: it posts, and its reply runs. */
+  message(at: CoreContext, args: MessageArgs): Promise<Reply>;
+  /** The person's answer to a paused call; the reply goes on once no call waits. */
   answer(at: CoreContext, body: TheoremInvokeRequest): Promise<Reply>;
-  wake(at: CoreContext, args: Parameters<typeof wake>[2]): Promise<Reply>;
+  /** A reply to no message, for items that arrived since the model last ran. */
+  wake(at: CoreContext, args: WakeArgs): Promise<Reply>;
+  /** The conversation as a page draws it. */
   read(at: CoreContext, args: { ref: string }): Promise<ConversationView>;
+  /** The conversation cut after block `at`; a reply that waits on gates is walked away from first. */
   rewind(at: CoreContext, args: { ref: string; at: number }): Promise<TheoremRewound>;
   /** Puts `unit` into a running turn. False when the turn is not running. */
   steer(at: CoreContext, args: { turnId: string; unit: SteerUnit }): Promise<boolean>;
@@ -766,7 +935,16 @@ export type ConversationCore = {
 };
 
 /** The conversation core over `state`. */
-export function createConversationCore(state: CoreState): ConversationCore {
+export function createConversationCore<Item extends InboxItem = InboxItem>(
+  state: CoreState<Item>,
+): ConversationCore {
+  if (state.options.inbox && state.options.lateResultsDecider) {
+    // labels-exempt: builder config error; the user reads error.config
+    throw new TheoremError(
+      'config',
+      "pass `inbox` or `lateResultsDecider`, not both: the app's inbox holds every item a reply is told",
+    );
+  }
   return {
     message: (at, args) => message(state, at, args),
     answer: (at, body) => answer(state, at, body),
@@ -774,7 +952,7 @@ export function createConversationCore(state: CoreState): ConversationCore {
     read: (at, args) => read(state, at, args),
     rewind: (at, args) => rewind(state, at, args),
     steer: (at, { turnId, unit }) =>
-      Promise.resolve(state.inbox.enqueue(inboxKey(at.sessionId, turnId), unit)),
-    stop: (at, { turnId }) => Promise.resolve(state.inbox.stop(inboxKey(at.sessionId, turnId))),
+      Promise.resolve(state.steer.enqueue(inboxKey(at.sessionId, turnId), unit)),
+    stop: (at, { turnId }) => Promise.resolve(state.steer.stop(inboxKey(at.sessionId, turnId))),
   };
 }

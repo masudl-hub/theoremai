@@ -491,9 +491,81 @@ Use `pageToolBroker` to supply that broker. It carries results; the atomic sessi
 Lost result delivery does not permit another dispatch. The operation retains its claim or an uncertain outcome.
 Set `pageToolTimeoutMs` to give the page a deadline for a result. Unset, a dispatch waits until the page answers or the turn stops. The browser clients answer every dispatch they get, with no answer when the page has no function for the tool, so only a page function that never returns holds a turn. An expired or interrupted result cannot reopen approval.
 
+## Run replies with no page request
+
+Use `createTheoremConversationCore` when a message reaches your server with no `Request` from a page: a messaging channel, a voice channel, or a timer. The core runs the replies that `createTheoremHandler` runs, on the same stores. A page that uses the handler reads the same conversation.
+
+Each call takes a **run context** where the handler takes the `Request`: `{ sessionId, signal, host? }`. `sessionId` names the session, `signal` aborts the run, and `host` is your context for tool handlers.
+
+```ts
+import { createMemoryConversationStore, createTheoremConversationCore } from '@theoremjs/web/server';
+
+const core = createTheoremConversationCore({
+  profile: support,
+  provider: { vault: { main: process.env.GEMINI_API_KEY } },
+  conversationStore: createMemoryConversationStore(),
+});
+
+async function received(sessionId: string, text: string, ref: string | undefined, signal: AbortSignal) {
+  const reply = await core.message({ sessionId, signal }, { ...(ref ? { ref } : {}), input: { text } });
+  for (;;) {
+    const next = await reply.next();
+    if (next.done) return next.value;
+    deliver(next.value);
+  }
+}
+```
+
+`deliver` is your function: it sends one line to the channel. A run yields the lines that the handler streams. The `conversation` line carries the ref: keep it, and pass it with the next message. The run then returns how it ended:
+
+| `outcome` | Meaning |
+| --- | --- |
+| `released` | The run ended, and no run holds the conversation. |
+| `held` | Another run holds the conversation until `leasedUntil`. This run ran nothing. |
+| `lost` | Another run took the conversation from this run. |
+
+| Method | Use |
+| --- | --- |
+| `message(at, { ref?, input, context?, generation?, abandon? })` | Posts the person's message and runs the reply. |
+| `answer(at, body)` | Answers a call that a paused reply waits on. |
+| `wake(at, { ref })` | Runs a reply to no message, for items that arrived since the model last ran. |
+| `read(at, { ref })` | Returns the conversation as a page draws it. |
+| `rewind(at, { ref, at })` | Cuts the conversation after transcript block `at`. |
+| `steer(at, { turnId, unit })` | Puts `unit` into a running turn. Returns `false` when the turn is not running. |
+| `stop(at, { turnId })` | Stops a running turn. Returns `false` when the turn is not running. |
+
+The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `prepare`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
+
+| Option | Use |
+| --- | --- |
+| `provider` | Required. The host options for registered providers, or `(at, model?)` that returns them. |
+| `background(at)` | The service for tools with a `background` setting. |
+| `authorizeToolReplay(at, operation)` | Checks access before the core discloses a saved tool result. |
+| `authorizationUrl(challenge, at)` | The sign-in URL for an OAuth gate. |
+| `onError(err, at)` | Receives each error that a run reports and does not throw. |
+| `wake(at, ref)` | Required with `lateResultsDecider`. Start a reply to no message for the conversation under `ref`, for example with a queued call to `core.wake`. |
+| `inbox(at)` | Your own inbox for the conversation. See below. |
+
+### Hold the conversation in your own inbox
+
+Use `inbox` when messages and events arrive from more than one place, and one reply at a time must run for a conversation. An **inbox** is a `ConversationInbox` from `@theoremjs/agents/conversation`: it holds the items that wait for a reply, and it gives one run at a time a hold of the conversation, on a lease.
+
+`inbox(at)` returns `{ inbox, conversation, policy, leaseMs }`:
+
+| Field | Use |
+| --- | --- |
+| `inbox` | Your `ConversationInbox`. `createMemoryInbox` is one for tests. |
+| `conversation` | The name of the conversation in your inbox. |
+| `policy` | Your `InboxPolicy`: which waiting items a reply is told, and which are given up. |
+| `leaseMs` | How long a hold keeps the conversation after it last renewed, in milliseconds. |
+
+Each run then holds `conversation` in your inbox while it runs. A run that finds the conversation held returns `held` and runs nothing. `read` answers `wake: true` when your policy tells a waiting item to a reply to no message.
+
+You cannot pass `inbox` together with `lateResultsDecider`. The core fails at setup with a `config` error.
+
 ## Build your own server
 
-`createTheoremHandler` runs each chat reply through a small loop that `@theoremjs/web/server` exports. Use the loop when your server is not a `fetch` handler, or when your routes differ from the handler's. The conversation store, the guardrails, and the wire stay the same, so `TheoremChat` and the hooks work with your server unchanged.
+`createTheoremHandler` runs each chat reply through a small loop that `@theoremjs/web/server` exports. Use the loop when your server is not a `fetch` handler, or when your routes differ from the handler's. For a server that only has no page request, [the conversation core](#run-replies-with-no-page-request) is less work. The conversation store, the guardrails, and the wire stay the same, so `TheoremChat` and the hooks work with your server unchanged.
 
 | Function | Use |
 | --- | --- |

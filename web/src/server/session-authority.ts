@@ -2,6 +2,7 @@ import { labelText, TheoremError, z } from '@theoremjs/agents';
 import { checkedCapacity, fitSession, type TheoremSessionCapacity } from './session-limits.ts';
 import {
   emptySessionState,
+  type PerSessionStore,
   pruneGates,
   pruneInbox,
   type TheoremSessionState,
@@ -110,6 +111,32 @@ export function sessionStateStore(
         'Other writes changed the session on each of 8 tries, so this change was not saved', // labels-exempt: internal diagnostic; the user reads session.busy
         { copy: { key: 'session.busy' }, cause: { code: 'session_store_contention' } },
       );
+    },
+  };
+}
+
+/** A store read and changed one session at a time: each change waits for the one before it. */
+export function lockedStore<T>(
+  store: PerSessionStore<T>,
+  loaded: (value: T | undefined) => T,
+): MutableStore<T> {
+  const locks = new Map<string, Promise<unknown>>();
+  const read = async (sessionId: string) => loaded(await store.load(sessionId));
+  return {
+    read,
+    mutate(sessionId, change) {
+      const next = (locks.get(sessionId) ?? Promise.resolve()).then(async () => {
+        const value = await read(sessionId);
+        const result = change(value);
+        await store.save(sessionId, value);
+        return result;
+      });
+      const settled = next.catch(() => {});
+      locks.set(sessionId, settled);
+      void settled.then(() => {
+        if (locks.get(sessionId) === settled) locks.delete(sessionId);
+      });
+      return next;
     },
   };
 }

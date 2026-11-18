@@ -41,12 +41,19 @@ export type ComposerRowParts = {
   status?: ChatComposerStatus;
 };
 
+/** why: Pills are round, like the composer's buttons; the stop button inside follows the curve. */
+const PILL: CSSProperties = {
+  borderRadius: 'var(--radius-full)',
+  '--_button-radius': 'var(--radius-full)',
+} as CSSProperties;
+
 /** The pill for the reply in progress, with its stop button. */
 function WorkingPill({ onStop }: { onStop: () => void }) {
   const t = useLabels();
   const stop = t('@theorem.composer.pill.stop');
   return (
     <Token
+      style={PILL}
       label={t('@theorem.composer.pill.working')}
       icon={<Spinner size="sm" shade="inherit" aria-label={t('@theorem.composer.pill.working')} />}
       endContent={
@@ -74,6 +81,7 @@ function PillRow(
       {props.backgroundJobs.map((job) => (
         <Token
           key={job.callId}
+          style={PILL}
           label={job.label}
           description={t('@theorem.composer.pill.background')}
           icon={<IconClockPlay size={14} />}

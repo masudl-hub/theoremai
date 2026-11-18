@@ -45,7 +45,9 @@ export {
 } from './conversation.ts';
 export type {
   AppInbox,
+  ContinueChoice,
   ConversationCore,
+  FollowUpArgs,
   Generation,
   MessageArgs,
   Reply,
@@ -53,6 +55,7 @@ export type {
   RunEnd,
   WakeArgs,
 } from './conversation-core.ts';
+export { followedUp } from './conversation-core.ts';
 export {
   type ConversationSnapshot,
   type ConversationWriteResult,

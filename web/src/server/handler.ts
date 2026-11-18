@@ -79,6 +79,8 @@ import {
   type ConversationCore,
   chatOf,
   createConversationCore,
+  followedUp,
+  type Reply,
   unconversedAnswer,
 } from './conversation-core.ts';
 import type { TheoremConversationStore } from './conversation-store.ts';
@@ -213,6 +215,15 @@ export type TheoremHandlerOptions = {
    * that stopped without letting go keeps the chat no longer. Default 60000.
    */
   conversationLeaseMs?: number;
+  /**
+   * Who runs the next reply when a reply ends with items that wait and may be told now. `here`:
+   * the handler runs it in the same response. `taken`: your app runs it, by its own call to the
+   * conversation core's `followUp`. Unset, the handler lets the chat go, and the page wakes it.
+   */
+  onContinue?: (
+    run: { ref: string; hold: string },
+    at: { request: Request; sessionId: string },
+  ) => 'here' | 'taken' | Promise<'here' | 'taken'>;
   /**
    * Tool credentials by session. Your OAuth callback route saves the token here
    * under the same session id; every turn reads from here. Default: in-process
@@ -448,6 +459,23 @@ function coreOf(ctx: HandlerContext, chat: ChatContext, request: Request): Conve
 }
 
 /**
+ * A page's run: when it ends with items that wait, `onContinue` says who runs the next reply.
+ * Unset, the chat is let go, and the page wakes it.
+ */
+function pageRun(
+  ctx: HandlerContext,
+  request: Request,
+  core: ConversationCore,
+  at: CoreContext,
+  reply: Reply,
+): Reply {
+  const { onContinue } = ctx.options;
+  return followedUp(core, at, reply, (run) =>
+    onContinue ? onContinue(run, { request, sessionId: at.sessionId }) : 'let_go',
+  );
+}
+
+/**
  * The decider's wake, with no page: the reply runs on a request of its own, with the headers of
  * the one that started the call and no signal, because that request has ended. When another reply
  * holds the chat, it tries again as that hold's lease runs out.
@@ -461,7 +489,9 @@ async function serverWake(
   const request = new Request(started.url, { headers: started.headers });
   if (!ctx.chat) throw statelessRefusal('wake');
   const core = coreOf(ctx, ctx.chat, request);
-  const lines = await core.wake(contextOf(ctx, request, sessionId), { ref, again: true });
+  const at = contextOf(ctx, request, sessionId);
+  // why: no page is open to wake the chat, so this wake runs each next reply itself
+  const lines = followedUp(core, at, await core.wake(at, { ref }), () => 'here');
   for (;;) {
     const next = await lines.next();
     if (next.done) {
@@ -498,14 +528,16 @@ async function turn(
     throw new TheoremError('request', labelText('error.request'));
   }
   const context = await ctx.options.context?.(request);
-  const lines = await coreOf(ctx, chat, request).message(contextOf(ctx, request, session.id), {
+  const core = coreOf(ctx, chat, request);
+  const at = contextOf(ctx, request, session.id);
+  const reply = await core.message(at, {
     ref: body.conversation,
     input: body.input,
     ...(context === undefined ? {} : { context }),
     generation: body,
     ...(body.abandon ? { abandon: body.abandon } : {}),
   });
-  return eventStream(ctx, request, () => lines);
+  return eventStream(ctx, request, () => pageRun(ctx, request, core, at, reply));
 }
 
 /** The conversation as the browser draws it. */
@@ -538,12 +570,10 @@ async function wake(
 ): Promise<Response> {
   const body = await readBody(request, theoremWakeRequestSchema, ctx.options.maxRequestBytes);
   const input = kernelTurnInput(body.input ?? {}, await ctx.options.context?.(request));
-  const lines = await coreOf(ctx, chat, request).wake(contextOf(ctx, request, session.id), {
-    ref: body.conversation,
-    generation: body,
-    input,
-  });
-  return eventStream(ctx, request, () => lines);
+  const core = coreOf(ctx, chat, request);
+  const at = contextOf(ctx, request, session.id);
+  const reply = await core.wake(at, { ref: body.conversation, generation: body, input });
+  return eventStream(ctx, request, () => pageRun(ctx, request, core, at, reply));
 }
 
 const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
@@ -656,10 +686,13 @@ async function invoke(ctx: HandlerContext, request: Request, session: Session): 
   if (body.page && 'output' in body.page)
     throw new TheoremError('request', labelText('error.request'));
   const at = contextOf(ctx, request, session.id);
-  const lines = ctx.chat
-    ? await coreOf(ctx, ctx.chat, request).answer(at, body)
-    : await unconversedAnswer(callsOf(ctx, request), at, body);
-  return eventStream(ctx, request, () => lines);
+  if (!ctx.chat) {
+    const lines = await unconversedAnswer(callsOf(ctx, request), at, body);
+    return eventStream(ctx, request, () => lines);
+  }
+  const core = coreOf(ctx, ctx.chat, request);
+  const reply = await core.answer(at, body);
+  return eventStream(ctx, request, () => pageRun(ctx, request, core, at, reply));
 }
 
 async function hostRoute(

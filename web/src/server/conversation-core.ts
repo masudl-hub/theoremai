@@ -185,12 +185,15 @@ export type CoreState<Item extends InboxItem = InboxItem> = Omit<CallsContext, '
 };
 
 /**
- * How one run of a conversation ended. `released`: the run let the conversation go. `held`:
- * another hold has it until `leasedUntil`, and tells what waits. `lost`: this run's hold no
- * longer has it.
+ * How one run of a conversation ended. `released`: the run let the conversation go. `continue`:
+ * items wait that may be told now, and `hold` still has the conversation under `ref`; the caller
+ * runs `followUp` or calls `release`. `failure` is what the run threw, for the caller to throw
+ * once it has done either. `held`: another hold has the conversation until `leasedUntil`, and
+ * tells what waits. `lost`: this run's hold no longer has it.
  */
 export type RunEnd =
   | { outcome: 'released' }
+  | { outcome: 'continue'; ref: string; hold: string; failure?: unknown }
   | { outcome: 'held'; leasedUntil: number }
   | { outcome: 'lost' };
 
@@ -285,12 +288,6 @@ type HeldRun<Item extends InboxItem> = {
   run: Pick<ReplyRun, 'hold' | 'reply' | 'signal' | 'resume'>;
   renew: () => Promise<boolean>;
   reads: { from: 'session'; late: LateResultsSource } | { from: 'app'; run: ReplyRun<Item> };
-};
-
-/** What a held reply does once its hold ends with results waiting, or finds the chat held. */
-type HeldFollow = {
-  /** A server's wake: it runs the next reply itself, under the hold it has. */
-  again?: boolean;
 };
 
 /** The inbox a chat's replies hold, as one context runs under it. */
@@ -416,40 +413,72 @@ function holdingOf<Item extends InboxItem>(
  * Runs a reply under a hold of the chat, and streams its lines. The reply reads the items the
  * policy tells it. With no inbox to hold, no reply reads one, and no hold is taken.
  * invariant: One hold has a chat at a time, and lets it go only once nothing waits that may be told.
- * A page's reply that leaves results waiting lets the chat go, so the page wakes for them; a
- * server's wake runs the next reply under its hold.
+ * A run that leaves items waiting ends `continue`, with its hold: the caller runs the follow-up or
+ * lets the chat go. Never while the chat waits on gates: the answer that goes on reads what waits.
  */
 function heldLines<Item extends InboxItem>(
   ctx: CoreState<Item>,
   at: CoreContext,
   host: ConversationHost,
   opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
-  start: Exclude<ReplyStart, { opening: 'follow_up' }>,
+  start: ReplyStart,
   reply: (held: HeldRun<Item> | undefined, ref: () => string | null) => AsyncIterable<ReplyLine>,
-  follow: HeldFollow = {},
 ): Reply {
   const holding = holdingOf(ctx, at, host, opened);
   if (!holding) return unheld(reply(undefined, () => opened.ref));
   return sent<ReplyLine, RunEnd>(async (send) => {
-    let run = await holding.run(start, (held) => reply(held, holding.ref), send);
-    let failure = run.outcome === 'held' ? undefined : run.failure;
-    while (run.outcome === 'continue') {
-      const paused = await isPaused(host, holding.ref(), opened.conversation);
-      if (!follow.again || paused) {
-        await holding.letGo(run.hold);
-        break;
-      }
-      run = await holding.run(
-        { opening: 'follow_up', hold: run.hold },
-        (held) => wakeReplyLines(ctx, at, host, holding.ref(), {}, held),
-        send,
-      );
-      if (run.outcome !== 'held' && run.failure !== undefined) failure ??= run.failure;
-    }
-    if (failure !== undefined) throw failure;
+    const run = await holding.run(start, (held) => reply(held, holding.ref), send);
     if (run.outcome === 'held') return { outcome: 'held', leasedUntil: run.leasedUntil };
+    if (run.outcome === 'continue') {
+      const ref = holding.ref();
+      if (ref !== null && !(await isPaused(host, ref, opened.conversation))) {
+        return {
+          outcome: 'continue',
+          ref,
+          hold: run.hold,
+          ...(run.failure === undefined ? {} : { failure: run.failure }),
+        };
+      }
+      await holding.letGo(run.hold);
+    }
+    if (run.failure !== undefined) throw run.failure;
     return { outcome: run.outcome === 'lost' ? 'lost' : 'released' };
   });
+}
+
+/**
+ * What the caller of a run that ended `continue` does with its hold. `here`: runs the follow-up
+ * in the same stream. `taken`: the app runs it elsewhere, by a call of its own to `followUp`.
+ * `let_go`: no follow-up runs, and whoever opens the conversation next reads what waits.
+ */
+export type ContinueChoice = 'here' | 'taken' | 'let_go';
+
+/**
+ * A run, then what `choose` says for each `continue` it and its follow-ups end with. It ends as
+ * the last run ended, `continue` only when the app took it, and throws the first failure.
+ */
+export async function* followedUp(
+  core: Pick<ConversationCore, 'followUp' | 'release'>,
+  at: CoreContext,
+  reply: Reply,
+  choose: (run: { ref: string; hold: string }) => ContinueChoice | Promise<ContinueChoice>,
+): Reply {
+  let end = yield* reply;
+  let failure: unknown;
+  while (end.outcome === 'continue') {
+    failure ??= end.failure;
+    const { ref, hold } = end;
+    const choice = await choose({ ref, hold });
+    if (choice === 'taken') break;
+    if (choice === 'let_go') {
+      await core.release(at, { ref, hold });
+      end = { outcome: 'released' };
+      break;
+    }
+    end = yield* await core.followUp(at, { ref, hold });
+  }
+  if (failure !== undefined) throw failure;
+  return end;
 }
 
 /** Whether the chat waits on gates: a wake leaves it to the answer that goes on. */
@@ -609,19 +638,12 @@ async function wakeLines<Item extends InboxItem>(
   host: ConversationHost,
   ref: string,
   generation: { model?: string; effort?: string; turnId?: string },
-  follow: HeldFollow,
   input?: Pick<TurnInput, 'options' | 'context'>,
 ): Promise<Reply> {
   const opened = await openConversation(host, ref, { kind: 'read' });
   if (!holds(ctx) || opened.conversation.paused) return unheld(noLines());
-  return heldLines(
-    ctx,
-    at,
-    host,
-    opened,
-    { opening: 'wake' },
-    (held, current) => wakeReplyLines(ctx, at, host, current(), generation, held, input),
-    follow,
+  return heldLines(ctx, at, host, opened, { opening: 'wake' }, (held, current) =>
+    wakeReplyLines(ctx, at, host, current(), generation, held, input),
   );
 }
 
@@ -872,15 +894,38 @@ async function wake<Item extends InboxItem>(
 ): Promise<Reply> {
   const host = conversationHost(ctx, at);
   if (!host) throw statelessRefusal('wake');
-  return await wakeLines(
-    ctx,
-    at,
-    host,
-    args.ref,
-    args.generation ?? {},
-    args.again ? { again: true } : {},
-    args.input,
+  return await wakeLines(ctx, at, host, args.ref, args.generation ?? {}, args.input);
+}
+
+/** One follow-up, under the hold a run ended `continue` with. */
+async function followUp<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  args: FollowUpArgs,
+): Promise<Reply> {
+  const host = conversationHost(ctx, at);
+  if (!host) throw statelessRefusal('wake');
+  const opened = await openConversation(host, args.ref, { kind: 'read' });
+  const start: ReplyStart = { opening: 'follow_up', hold: args.hold };
+  if (opened.conversation.paused) {
+    await release(ctx, at, args);
+    return unheld(noLines());
+  }
+  return heldLines(ctx, at, host, opened, start, (held, current) =>
+    wakeReplyLines(ctx, at, host, current(), args.generation ?? {}, held, args.input),
   );
+}
+
+/** Lets the conversation go under the hold a run ended `continue` with. */
+async function release<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  args: { ref: string; hold: string },
+): Promise<void> {
+  const host = conversationHost(ctx, at);
+  if (!host) throw statelessRefusal('wake');
+  const opened = await openConversation(host, args.ref, { kind: 'read' });
+  await holdingOf(ctx, at, host, opened)?.letGo(args.hold);
 }
 
 /** The conversation as a page draws it. */
@@ -944,8 +989,14 @@ export type WakeArgs = {
   ref: string;
   generation?: Generation;
   input?: Pick<TurnInput, 'options' | 'context'>;
-  /** A server's wake: it runs each next reply itself while results wait. */
-  again?: boolean;
+};
+
+/** A follow-up, for {@link ConversationCore.followUp}: the `ref` and `hold` of a `continue`. */
+export type FollowUpArgs = {
+  ref: string;
+  hold: string;
+  generation?: Generation;
+  input?: Pick<TurnInput, 'options' | 'context'>;
 };
 
 /** A conversation's runs, with no HTTP request. Each run's lines end with how it ended. */
@@ -956,6 +1007,13 @@ export type ConversationCore = {
   answer(at: CoreContext, body: TheoremInvokeRequest): Promise<Reply>;
   /** A reply to no message, for items that arrived since the model last ran. */
   wake(at: CoreContext, args: WakeArgs): Promise<Reply>;
+  /**
+   * The next reply to no message, under the hold of a run that ended `continue`. `at` may name
+   * another session than that run's, when the app's `inbox` names the same conversation for both.
+   */
+  followUp(at: CoreContext, args: FollowUpArgs): Promise<Reply>;
+  /** Lets the conversation go under the hold of a run that ended `continue`, with no follow-up. */
+  release(at: CoreContext, args: { ref: string; hold: string }): Promise<void>;
   /** The conversation as a page draws it. */
   read(at: CoreContext, args: { ref: string }): Promise<ConversationView>;
   /** The conversation cut after block `at`; a reply that waits on gates is walked away from first. */
@@ -981,6 +1039,8 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
     message: (at, args) => message(state, at, args),
     answer: (at, body) => answer(state, at, body),
     wake: (at, args) => wake(state, at, args),
+    followUp: (at, args) => followUp(state, at, args),
+    release: (at, args) => release(state, at, args),
     read: (at, args) => read(state, at, args),
     rewind: (at, args) => rewind(state, at, args),
     steer: (at, { turnId, unit }) =>

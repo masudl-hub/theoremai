@@ -775,3 +775,32 @@ Deno.test('a wake that stops on an approval and is denied keeps the result, told
 
 Deno.test('a message over a wake waiting on an approval keeps the result, told once', () =>
   gatedWake('message'));
+
+Deno.test('a page reply that leaves a result waiting runs the next reply in its response when the app says here', async () => {
+  const continued: string[] = [];
+  const { transport, handles, seen } = harness({
+    lateResultsDecider: {
+      policy: (items, moment) => ({
+        tell: moment.opening === 'follow_up' ? items.map((item) => item.id) : [],
+      }),
+    },
+    onContinue: (run, at) => {
+      continued.push(at.sessionId);
+      assert(run.hold !== '' && run.ref !== '');
+      return 'here';
+    },
+  });
+  try {
+    const ref = await say(transport, 'start the job');
+    held.free();
+    await handles[0].done;
+    const before = seen.length;
+    const next = await say(transport, 'any news?', ref);
+    assertEquals(continued, ['one-person']);
+    assert(reads(seen, before) > 0, 'the follow-up did not read the result');
+    assertEquals(await lateBlocks(transport, next), 1);
+    assertEquals((await transport.conversation({ conversation: next })).wake, undefined);
+  } finally {
+    held.free();
+  }
+});

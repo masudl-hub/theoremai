@@ -276,6 +276,7 @@ const transport = withPageToolDispatch(
 | `sessionStore`, `steerInbox` | Where open gates are kept, and where steers and stops reach a running turn. Default: process memory, which reaches only turns this process runs. On more than one instance, give a shared `SteerInbox`. |
 | `lateResultsDecider` | Who tells the model that a background call ended: `TurnWiring.lateResultsDecider`. Set it on your `TurnWiring`, and the studio uses it too. Unset, no page wakes the chat and no reply reads a late result. `tellEveryResult` tells each result to the first reply that runs, and gives up a result two replies read without telling. See [the background section](#share-session-authority). |
 | `conversationLeaseMs` | How long a reply keeps its chat after it last renewed, in milliseconds. A running reply renews every third of it. A wake that finds another reply running tries again once this runs out. Default: `60000`. |
+| `onContinue` | Who runs the next reply when a reply ends with items that wait and may be told now. Return `'here'`, and the handler runs it in the same response. Return `'taken'`, and your app runs it with the conversation core's `followUp`. Unset, the handler lets the chat go, and the page wakes it. |
 | `notifier`, `notifyRetryMs` | Tell an open page that a background call ended, and how long the page waits to reopen a cut stream. Unset, the page reads the end on its next turn or reload. See [the background section](#share-session-authority). |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
@@ -521,6 +522,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `outcome` | Meaning |
 | --- | --- |
 | `released` | The run ended, and no run holds the conversation. |
+| `continue` | Items wait that a reply may be told now. The run's `hold` still has the conversation under `ref`. See [Run the follow-up](#run-the-follow-up). |
 | `held` | Another run holds the conversation until `leasedUntil`. This run ran nothing. |
 | `lost` | Another run took the conversation from this run. |
 
@@ -529,6 +531,8 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `message(at, { ref?, input, context?, generation?, abandon?, saved? })` | Posts the person's message and runs the reply. |
 | `answer(at, body)` | Answers a call that a paused reply waits on. |
 | `wake(at, { ref })` | Runs a reply to no message, for items that arrived since the model last ran. |
+| `followUp(at, { ref, hold })` | Runs the next reply to no message, under the hold of a run that ended `continue`. |
+| `release(at, { ref, hold })` | Lets the conversation go under that hold, with no follow-up. |
 | `read(at, { ref })` | Returns the conversation as a page draws it. |
 | `rewind(at, { ref, at })` | Cuts the conversation after transcript block `at`. |
 | `steer(at, { turnId, unit })` | Puts `unit` into a running turn. Returns `false` when the turn is not running. |
@@ -573,6 +577,32 @@ await core.message(at, { ref, input, saved: { hold, blocks } });
 ```
 
 `hold` is the hold your write took. `blocks` is the message as your app saved it, as transcript blocks. The core then posts nothing. The reply runs under `hold`, and the save that ends the reply writes `blocks` with the reply. When another run holds the conversation, the run returns `held` and writes nothing. `saved` needs `inbox`.
+
+### Run the follow-up
+
+A run ends `continue` when items arrived that a reply may be told now. For example, a person sent a second message while the reply ran. The run still holds the conversation, so no other run can start. Your server does one of two things with `ref` and `hold`:
+
+- Call `followUp` to run the next reply. It can end `continue` again.
+- Call `release` to let the conversation go. The next run that opens the conversation reads what waits.
+
+A run that ends `continue` can carry `failure`, which is what the run threw. Throw it after the follow-up or the release.
+
+`followedUp` does this for you. Pass it the run and a function that returns `'here'`, `'taken'`, or `'let_go'` for each `continue`:
+
+```ts
+import { followedUp } from '@theoremjs/web/server';
+
+const reply = await core.message(at, { ref, input });
+const lines = followedUp(core, at, reply, () => 'here');
+```
+
+| Choice | What `followedUp` does |
+| --- | --- |
+| `here` | Runs the follow-up, and yields its lines after the run's lines. |
+| `taken` | Does nothing, and returns the `continue`. Your app calls `followUp` from another place, such as a queue. |
+| `let_go` | Calls `release`, and returns `released`. |
+
+A hold that nothing follows up or releases keeps the conversation until its lease runs out.
 
 You cannot pass `inbox` together with `lateResultsDecider`. The core fails at setup with a `config` error.
 

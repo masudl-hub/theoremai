@@ -13,6 +13,7 @@ import {
   createMemoryConversationStore,
   createMemorySessionStore,
   createTheoremConversationCore,
+  followedUp,
   type Reply,
   type ReplyLine,
   type RunEnd,
@@ -335,4 +336,80 @@ Deno.test("the app's prepare is given no hold when the app passes no inbox", asy
   });
   await say(core, 'hello');
   assertEquals(runs, [undefined]);
+});
+
+/** An inbox whose policy tells an item no reply has read, to a reply to no message. */
+function followUpInbox() {
+  const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
+  const asked: string[] = [];
+  return {
+    inbox,
+    asked,
+    option: () => ({
+      inbox,
+      conversation: KEEPER,
+      policy: (items: readonly Note[], moment: { opening: string }) => {
+        asked.push(moment.opening);
+        const fresh = items.filter((item) => item.handovers.length === 0);
+        return { tell: moment.opening === 'message' ? [] : fresh.map((item) => item.id) };
+      },
+      leaseMs: LEASE_MS,
+    }),
+  };
+}
+
+Deno.test('a run that leaves an item waiting ends continue, and still holds the conversation', async () => {
+  const { inbox, option } = followUpInbox();
+  const { core, seen } = harness({ inbox: option });
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const { lines, end } = await say(core, 'hello');
+  assert(end.outcome === 'continue');
+  assertEquals(end.ref, refOf(lines));
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'held');
+
+  const next = await drain(await core.followUp(at(), { ref: end.ref, hold: end.hold }));
+  assertEquals(next.end, { outcome: 'released' });
+  assertEquals(seen.length, 2);
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});
+
+Deno.test('a caller that runs no follow-up lets the conversation go', async () => {
+  const { inbox, option } = followUpInbox();
+  const { core, seen } = harness({ inbox: option });
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const { end } = await say(core, 'hello');
+  assert(end.outcome === 'continue');
+  await core.release(at(), { ref: end.ref, hold: end.hold });
+  assertEquals(seen.length, 1);
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});
+
+Deno.test('a caller chooses, for each run that ends continue, who runs the next reply', async () => {
+  for (const [choice, models, after] of [
+    ['here', 2, 'opened'],
+    ['let_go', 1, 'opened'],
+    ['taken', 1, 'held'],
+  ] as const) {
+    const { inbox, option } = followUpInbox();
+    const { core, seen } = harness({ inbox: option });
+    inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+    const reply = await core.message(at(), { input: { text: 'hello' } });
+    const { end } = await drain(followedUp(core, at(), reply, () => choice));
+    assertEquals(end.outcome, choice === 'taken' ? 'continue' : 'released');
+    assertEquals(seen.length, models);
+    assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, after);
+  }
+});
+
+Deno.test('a follow-up under a hold that lost the conversation runs nothing', async () => {
+  const { inbox, option } = followUpInbox();
+  const { core, seen } = harness({ inbox: option });
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const { end } = await say(core, 'hello');
+  assert(end.outcome === 'continue');
+  await inbox.takeOver(KEEPER, 'another-hold');
+  const next = await drain(await core.followUp(at(), { ref: end.ref, hold: end.hold }));
+  assertEquals(next.lines, []);
+  assertEquals(next.end, { outcome: 'lost' });
+  assertEquals(seen.length, 1);
 });

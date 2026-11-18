@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef } from 'react';
+import { useRef } from 'react';
 import { replyKey, type TranscriptTurnGroup, type TurnSpan } from '../client/transcript-groups.ts';
 
 /**
@@ -18,7 +18,14 @@ function useFirstSeen(keys: readonly string[]): (key: string) => number {
   for (const key of keys) {
     if (!times.current.has(key)) times.current.set(key, now);
   }
-  return (key) => times.current.get(key) ?? now;
+  // why: A key first asked for later (a divider's group) keeps the time it was first asked for.
+  return (key) => {
+    const known = times.current.get(key);
+    if (known !== undefined) return known;
+    const at = Date.now();
+    times.current.set(key, at);
+    return at;
+  };
 }
 
 /**
@@ -70,17 +77,4 @@ export function liveTurnStart(
   if (!prompt) return undefined;
   const span = clock.spans.get(prompt.key);
   return span ? clock.timeOf(prompt.key) + span.pausedMs : undefined;
-}
-
-/** The clock a chat shares with its transcript; a transcript on its own keeps its own. */
-export const TurnClockContext = createContext<TurnClock | null>(null);
-
-/** The shared clock when a chat provides one, else this transcript's own. */
-export function useSharedTurnClock(
-  groups: readonly TranscriptTurnGroup[],
-  streaming: boolean,
-): TurnClock {
-  const shared = useContext(TurnClockContext);
-  const own = useTurnClock(groups, streaming);
-  return shared ?? own;
 }

@@ -60,7 +60,7 @@ import {
   workStatus,
 } from '../client/transcript-groups.ts';
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
-import { useSharedTurnClock } from '../hooks/use-turn-clock.ts';
+import { type TurnClock, useTurnClock } from '../hooks/use-turn-clock.ts';
 import { useDisclosureMotion } from './disclosure-motion.ts';
 import { type LabelText, usageLine, workDuration, workStatusLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -99,6 +99,11 @@ export type ChatTranscriptProps = {
    * starts at its block, and that block always starts a turn of its own.
    */
   dividers?: Readonly<Record<string, string>>;
+  /**
+   * The chat's turn clock (`useTheoremChat().turnClock`), so the times here agree with the
+   * composer's working pill. Without it the transcript keeps its own.
+   */
+  clock?: TurnClock;
   /**
    * Set for image profiles: generated images show large, framed to their own
    * aspect ratio, with a matching skeleton while one generates.
@@ -1159,12 +1164,14 @@ function ChatTranscriptBody({
   imageOutput,
   bodyKindPlacement,
   labels,
+  clock,
 }: ChatTranscriptProps) {
   const groups = useMemo(
     () => groupTranscriptBlocks(blocks, dividers && new Set(Object.keys(dividers))),
     [blocks, dividers],
   );
-  const { timeOf, spans } = useSharedTurnClock(groups, streaming);
+  const own = useTurnClock(groups, streaming);
+  const { timeOf, spans } = clock ?? own;
   const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
   const listRef = useRef<HTMLDivElement>(null);
   useDisclosureMotion(listRef);

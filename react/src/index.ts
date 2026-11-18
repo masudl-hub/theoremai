@@ -32,3 +32,4 @@ export {
   useTheoremHost,
 } from './hooks/use-theorem-host.ts';
 export { type TheoremInterfaceState, useTheoremInterface } from './hooks/use-theorem-interface.ts';
+export type { TurnClock } from './hooks/use-turn-clock.ts';

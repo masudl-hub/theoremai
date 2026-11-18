@@ -83,8 +83,12 @@ export { InPlace, PaneLayout, PanePanel, Prose, RaisedPane } from './SidePanel.t
 export {
   DEFAULT_CHAT_MAX_WIDTH,
   TheoremChat,
+  TheoremChatComposer,
+  type TheoremChatComposerProps,
   type TheoremChatHandle,
   type TheoremChatProps,
+  TheoremChatTranscript,
+  type TheoremChatTranscriptProps,
 } from './TheoremChat.tsx';
 export { TheoremDecision, type TheoremDecisionProps } from './TheoremDecision.tsx';
 export { TheoremEmbedding, type TheoremEmbeddingProps } from './TheoremEmbedding.tsx';

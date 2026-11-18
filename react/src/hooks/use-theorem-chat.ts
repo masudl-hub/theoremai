@@ -13,7 +13,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { backgroundJobs } from '../client/transcript-groups.ts';
+import { backgroundJobs, groupTranscriptBlocks } from '../client/transcript-groups.ts';
+import { liveTurnStart, useTurnClock } from './use-turn-clock.ts';
 
 export type { SendTextOptions, SentTurn };
 
@@ -36,10 +37,13 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     () => (state.options ? { ...state.options, onChange: chat.pickOption } : undefined),
     [chat, state.options],
   );
-  const jobs = useMemo(
-    () => backgroundJobs([...state.blocks, ...state.streamBlocks]),
+  const shownBlocks = useMemo(
+    () => [...state.blocks, ...state.streamBlocks],
     [state.blocks, state.streamBlocks],
   );
+  const jobs = useMemo(() => backgroundJobs(shownBlocks), [shownBlocks]);
+  const groups = useMemo(() => groupTranscriptBlocks(shownBlocks), [shownBlocks]);
+  const turnClock = useTurnClock(groups, state.streaming);
   // why: The transcript draws each gate by its index; the chat answers the one gate that waits.
   const handleAuthenticated = useCallback(
     (_index: number, secret?: string) => chat.authenticate(secret),
@@ -52,6 +56,15 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
   return {
     ...state,
     optionChoices,
+    /** What the transcript shows: the committed blocks, then the reply streaming in. */
+    shownBlocks,
+    /**
+     * When each turn started and how long it waited on approvals. Pass it to `ChatTranscript`'s
+     * `clock` so its times agree with the composer's working pill.
+     */
+    turnClock,
+    /** When the reply in progress started, its approval waits skipped; `undefined` when none runs. */
+    workingSince: liveTurnStart(groups, turnClock, state.streaming),
     /** The tool calls still running in the background, oldest first, until their results land. */
     backgroundJobs: jobs,
     setDraftText: chat.setDraftText,

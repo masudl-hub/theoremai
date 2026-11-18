@@ -18,7 +18,6 @@ import {
   type TheoremTransport,
 } from '@theoremjs/web/client';
 import {
-  type ComponentProps,
   type ReactNode,
   type Ref,
   type RefObject,
@@ -27,7 +26,6 @@ import {
   useRef,
 } from 'react';
 import { parseAspectRatio } from '../client/image-output.ts';
-import { groupTranscriptBlocks } from '../client/transcript-groups.ts';
 import {
   type SendTextOptions,
   type SentTurn,
@@ -35,10 +33,9 @@ import {
   useTheoremChat,
 } from '../hooks/use-theorem-chat.ts';
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
-import { liveTurnStart, TurnClockContext, useTurnClock } from '../hooks/use-turn-clock.ts';
 import { ChatComposerBar, type ComposerLayout } from './ChatComposerBar.tsx';
 import type { ComposerRowIcons } from './ChatComposerRow.tsx';
-import { ChatTranscript } from './ChatTranscript.tsx';
+import { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
@@ -231,30 +228,39 @@ type ChatBodyProps = Omit<
   iface: ComposerProfileInterface;
 };
 
-/** The composer bar wired to a `useTheoremChat` model. */
-function ChatComposerForChat({
+type TheoremChatModel = ReturnType<typeof useTheoremChat>;
+
+export type TheoremChatComposerProps = {
+  /** The chat it writes to (`useTheoremChat`). */
+  chat: TheoremChatModel;
+  /** The profile's interface (`useTheoremInterface`). */
+  iface: ComposerProfileInterface;
+  placeholder?: string;
+  /** Focus the field from outside. */
+  inputRef?: Ref<ChatComposerInputHandle>;
+  layout?: ComposerLayout;
+  icons?: ComposerRowIcons;
+};
+
+/**
+ * The composer bound to a chat: drafts, files, voice, the pending queue, send and stop, and the
+ * working pill on the chat's turn clock. Place it anywhere; `TheoremChat` is built from it and
+ * `TheoremChatTranscript`.
+ */
+export function TheoremChatComposer({
   chat,
   iface,
   placeholder,
   inputRef,
   layout,
   icons,
-  workingSince,
-}: {
-  chat: ReturnType<typeof useTheoremChat>;
-  iface: ComposerProfileInterface;
-  placeholder?: string;
-  inputRef: RefObject<ChatComposerInputHandle | null>;
-  layout?: ComposerLayout;
-  icons?: ComposerRowIcons;
-  workingSince?: number;
-}) {
+}: TheoremChatComposerProps) {
   return (
     <ChatComposerBar
       iface={iface}
       layout={layout}
       icons={icons}
-      workingSince={workingSince}
+      workingSince={chat.workingSince}
       backgroundJobs={chat.backgroundJobs}
       draftText={chat.draftText}
       pendingFiles={chat.pendingFiles}
@@ -304,7 +310,7 @@ function ChatComposerForChat({
 }
 
 /** The handle `chatRef` gets: send, stop, focus and the controller. */
-function useChatHandle(chatRef: ChatBodyProps['chatRef'], chat: ReturnType<typeof useTheoremChat>) {
+function useChatHandle(chatRef: ChatBodyProps['chatRef'], chat: TheoremChatModel) {
   const { sendText, handleStop, controller } = chat;
   const inputRef = useRef<ChatComposerInputHandle | null>(null);
   useImperativeHandle(
@@ -326,8 +332,8 @@ function useChatHandle(chatRef: ChatBodyProps['chatRef'], chat: ReturnType<typeo
 function ChatBodyComposer({
   hasComposer,
   ...props
-}: { hasComposer: boolean } & ComponentProps<typeof ChatComposerForChat>) {
-  if (hasComposer) return <ChatComposerForChat {...props} />;
+}: { hasComposer: boolean } & TheoremChatComposerProps) {
+  if (hasComposer) return <TheoremChatComposer {...props} />;
   const failure = props.chat.failure;
   return failure ? <Banner status="error" role="alert" title={failure.error} /> : null;
 }
@@ -380,14 +386,8 @@ function ChatBody({
     pageTools,
     onTurnEvent,
   });
-  const blocks = useMemo(
-    () => [...chat.blocks, ...chat.streamBlocks],
-    [chat.blocks, chat.streamBlocks],
-  );
-  const groups = useMemo(() => groupTranscriptBlocks(blocks), [blocks]);
-  const clock = useTurnClock(groups, chat.streaming);
   const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
-  const landing = blocks.length === 0;
+  const landing = chat.shownBlocks.length === 0;
   const inputRef = useChatHandle(chatRef, chat);
   const composerRef = useGlide<HTMLElement>(landing, () => inputRef.current?.focus());
   const inspector = useTraceInspector(iface, transport.traces, trace);
@@ -402,41 +402,37 @@ function ChatBody({
       inputRef={inputRef}
       layout={composerLayout}
       icons={composerIcons}
-      workingSince={liveTurnStart(groups, clock, chat.streaming)}
     />
   );
 
   const docked = { composer, composerRef, maxWidth };
   return (
-    <TurnClockContext value={clock}>
-      <WithTrace inspector={inspector}>
-        <Layout
-          height="fill"
-          className={className}
-          style={{ position: 'relative', ...style }}
-          header={header}
-          content={
-            // why: Once there are messages ChatLayout is the scroller; a second one around it moved the docked composer.
-            <LayoutContent padding={0} isScrollable={landing}>
-              {landing ? (
-                <ChatLanding {...docked} handle={handle} emptyState={emptyState} />
-              ) : (
-                <ChatThread
-                  {...docked}
-                  chat={chat}
-                  iface={iface}
-                  blocks={blocks}
-                  handle={handle}
-                  density={density}
-                  scrollRef={scrollRef}
-                  usage={usage}
-                />
-              )}
-            </LayoutContent>
-          }
-        />
-      </WithTrace>
-    </TurnClockContext>
+    <WithTrace inspector={inspector}>
+      <Layout
+        height="fill"
+        className={className}
+        style={{ position: 'relative', ...style }}
+        header={header}
+        content={
+          // why: Once there are messages ChatLayout is the scroller; a second one around it moved the docked composer.
+          <LayoutContent padding={0} isScrollable={landing}>
+            {landing ? (
+              <ChatLanding {...docked} handle={handle} emptyState={emptyState} />
+            ) : (
+              <ChatThread
+                {...docked}
+                chat={chat}
+                iface={iface}
+                handle={handle}
+                density={density}
+                scrollRef={scrollRef}
+                usage={usage}
+              />
+            )}
+          </LayoutContent>
+        }
+      />
+    </WithTrace>
   );
 }
 
@@ -497,16 +493,14 @@ function ChatThread({
   maxWidth,
   chat,
   iface,
-  blocks,
   handle,
   density,
   scrollRef,
   usage,
 }: DockedComposer &
   Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage'> & {
-    chat: ReturnType<typeof useTheoremChat>;
+    chat: TheoremChatModel;
     iface: ComposerProfileInterface;
-    blocks: ReturnType<typeof useTheoremChat>['blocks'];
     handle: string;
   }) {
   return (
@@ -532,29 +526,66 @@ function ChatThread({
         }
       >
         <ChatColumn maxWidth={maxWidth}>
-          <ChatTranscript
-            blocks={blocks}
-            handle={handle}
-            streaming={chat.streaming}
-            delivery={chat.delivery}
-            answering={chat.answering}
-            usage={usage}
-            labels={iface.labels}
-            imageOutput={
-              iface.type === 'image'
-                ? { ratio: parseAspectRatio(iface.image.aspectRatio) }
-                : undefined
-            }
-            onToolDecision={(index, action) => {
-              void chat.handleToolDecision(index, action);
-            }}
-            onAuthenticated={(index, secret) => {
-              void chat.handleAuthenticated(index, secret);
-            }}
-          />
+          <TheoremChatTranscript chat={chat} iface={iface} handle={handle} usage={usage} />
         </ChatColumn>
       </ChatLayout>
     </VStack>
+  );
+}
+
+export type TheoremChatTranscriptProps = Omit<
+  ChatTranscriptProps,
+  | 'blocks'
+  | 'handle'
+  | 'streaming'
+  | 'delivery'
+  | 'answering'
+  | 'clock'
+  | 'onToolDecision'
+  | 'onAuthenticated'
+  | 'imageOutput'
+  | 'labels'
+> & {
+  /** The chat it shows (`useTheoremChat`). */
+  chat: TheoremChatModel;
+  /** The profile's interface (`useTheoremInterface`). */
+  iface: ComposerProfileInterface;
+  /** The name over each reply. Default: the profile's handle. */
+  handle?: string;
+};
+
+/**
+ * The transcript bound to a chat: its blocks as they stream, its gates answered through the chat,
+ * and its times on the chat's turn clock, so they agree with `TheoremChatComposer` wherever each
+ * is placed.
+ */
+export function TheoremChatTranscript({
+  chat,
+  iface,
+  handle,
+  ...props
+}: TheoremChatTranscriptProps) {
+  const t = useLabels();
+  return (
+    <ChatTranscript
+      {...props}
+      handle={handle ?? t('@theorem.agent.handle', { handle: iface.identity.handle })}
+      blocks={chat.shownBlocks}
+      streaming={chat.streaming}
+      delivery={chat.delivery}
+      answering={chat.answering}
+      clock={chat.turnClock}
+      labels={iface.labels}
+      imageOutput={
+        iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
+      }
+      onToolDecision={(index, action) => {
+        void chat.handleToolDecision(index, action);
+      }}
+      onAuthenticated={(index, secret) => {
+        void chat.handleAuthenticated(index, secret);
+      }}
+    />
   );
 }
 

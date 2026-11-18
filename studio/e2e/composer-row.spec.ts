@@ -137,3 +137,21 @@ test('a staged file opens the drawer under the row, and the field stays in reach
   await sendButton(page).click();
   await expect(page.getByText('with 1 attached')).toBeVisible();
 });
+
+test('the working pill and the reply status count from the same start', async ({ page }) => {
+  await openRow(page);
+  await send(page, 'first [hold rowclock]');
+  const working = page.getByText(/^Working for \d+s$/).locator('visible=true');
+  // why: The pill and the status line read one clock; two clocks would differ once a second passes.
+  await expect
+    .poll(async () => {
+      const shown = await working.allTextContents();
+      const [first] = shown;
+      return (
+        shown.length >= 2 && first !== 'Working for 0s' && shown.every((text) => text === first)
+      );
+    })
+    .toBe(true);
+  await release(page, 'rowclock');
+  await expect(page.getByText('Fake reply on full to "first [hold rowclock]"')).toBeVisible();
+});

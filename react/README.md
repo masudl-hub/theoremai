@@ -545,7 +545,29 @@ function MyChat() {
 
 `handlePendingMove(id, direction)` moves a pending message among those of its kind. `ChatComposerBar` draws a move only when `composerPendingMoves` from `@theoremjs/agents/interface` says the message can go that way: a message alone in its kind has none.
 
-To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
+### Place the pieces yourself
+
+`TheoremChat` is built from two pieces in `/ui` that you can place apart: `TheoremChatComposer` and `TheoremChatTranscript`. Each takes the `chat` from `useTheoremChat` and the `iface` from `useTheoremInterface`. You decide where each one sits and when each one shows. Theorem moves neither of them.
+
+```tsx
+import { TheoremChatComposer, TheoremChatTranscript } from '@theoremjs/react/ui';
+
+function Dock({ chat, iface }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div onFocus={() => setOpen(true)}>
+      {open && <TheoremChatTranscript chat={chat} iface={iface} />}
+      <TheoremChatComposer chat={chat} iface={iface} layout="row" />
+    </div>
+  );
+}
+```
+
+`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, and `bodyKindPlacement`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside `TheoremThemeProvider`, as for `ChatTranscript`.
+
+The two pieces read one clock: `chat.turnClock`. So the working pill of the composer and the status line of the transcript show the same time. `chat.workingSince` is when the reply in progress started, less its waits for approval. `chat.shownBlocks` is what the transcript shows: `chat.blocks`, then `chat.streamBlocks`.
+
+To draw one piece in your own way, use `ChatTranscript` and `ChatComposerBar` from `/ui`, or draw from `chat.shownBlocks`. Pass `clock={chat.turnClock}` to `ChatTranscript` and `workingSince={chat.workingSince}` to `ChatComposerBar` so their times agree.
 
 The composer bar has a selector for the model, its effort, and each option. When their values do not fit the bar, each selector shows only its icon, and a tooltip gives its name and value. When the icons do not fit either, the row scrolls inside the composer. A control you pass as `generationSelect` keeps its own look and scrolls with the row.
 

@@ -209,7 +209,9 @@ await chat.submit();
 - Each method is bound to the controller. Pass it as a callback as it is.
 - `state.delivery` says how far the latest message has got: `sending` while it posts, `sent` once the server has it, `delivered` once the model works on it, and `read` once the reply starts. The server's own events (`stage`, `guardrail`, `late_results`, `session`, `hook_failed`, `error`, `done`) leave it at `sent`, because they say nothing of the model. It is `null` before the first message and after its turn fails.
 
-`state.phase` is `'idle'`, `'streaming'`, or `'gated'`. The methods for the composer depend on it:
+`state.phase` is `'idle'`, `'streaming'`, or `'gated'`. At `'gated'`, the reply waits on a tool gate. `state.waitingGate` is that gate when the person must answer it: a confirmation, a permission or a sign-in. It is `null` at other times, and for a page gate, which the page answers.
+
+The methods for the composer depend on the phase:
 
 | Method | What it does |
 | --- | --- |

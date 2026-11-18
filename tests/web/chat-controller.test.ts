@@ -522,6 +522,9 @@ Deno.test('a message sent now while the reply waits on a gate walks away from it
   host.turns[0].end();
   await asked;
   assertEquals(chat.getState().phase, 'gated');
+  // why: A permission gate waits for the person, so the chat names it.
+  assertEquals(chat.getState().waitingGate?.callId, 'call-1');
+  assertEquals(chat.getState().waitingGate?.gateKind, 'permission');
   chat.setDraftText('Never mind');
   const sent = chat.sendNow();
   await settle();
@@ -531,6 +534,7 @@ Deno.test('a message sent now while the reply waits on a gate walks away from it
   reply(host.turns[1], 'Sure.');
   await sent;
   assertEquals(chat.getState().phase, 'idle');
+  assertEquals(chat.getState().waitingGate, null);
 });
 
 /** A gated reply whose stream and conversation read stay open until the test lets them go. */
@@ -656,6 +660,8 @@ Deno.test('a restored page gate is answered unanswered once someone follows the 
   const chat = createChatController(options);
   await settle();
   assertEquals(chat.getState().phase, 'gated');
+  // why: The page answers a page gate, so nothing waits for the person.
+  assertEquals(chat.getState().waitingGate, null);
   assertEquals(invokes, []);
   chat.subscribe(() => {});
   await settle();

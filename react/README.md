@@ -539,7 +539,7 @@ function MyChat() {
 }
 ```
 
-`chat.phase` is `'idle'`, `'streaming'`, or `'gated'`. The actions are `handleSubmit`, `handleStop`, `handleSendNow`, and `handleToolDecision`.
+`chat.phase` is `'idle'`, `'streaming'`, or `'gated'`. `chat.waitingGate` is the gate that waits for the person, and `null` when none waits. A page gate is never one, because the page answers it. The actions are `handleSubmit`, `handleStop`, `handleSendNow`, and `handleToolDecision`.
 
 `chat.backgroundJobs` lists the tool calls that still run in the background, each as `{ callId, label }`. A call leaves the list when its late result lands. `backgroundJobs(blocks)` gives the same list from a transcript. `ChatComposerBar` takes `layout` and `backgroundJobs`, as `TheoremChat` takes `composerLayout`.
 

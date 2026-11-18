@@ -16,6 +16,7 @@ import {
   createComposerPendingMessage,
   defaultInterfaceEffort,
   emptyInterfaceTurnSession,
+  type GatedToolContext,
   type InterfaceTurnSession,
   moveComposerPendingWithinKind,
   orderComposerPendingMessages,
@@ -143,6 +144,11 @@ export type ChatState = {
   /** The answer on its way to a gate, shown on it until the answer settles or fails. */
   answering: AnsweringGate | null;
   phase: ComposerRunPhase;
+  /**
+   * The gate that waits for the person: a confirmation, a permission or a sign-in; `null` when
+   * none waits. A page gate, which the page answers, is never one.
+   */
+  waitingGate: GatedToolContext | null;
   session: InterfaceTurnSession;
   /** The latest message's delivery; `null` before the first and once its turn failed. */
   delivery: MessageDelivery | null;
@@ -411,6 +417,7 @@ class Chat implements ChatController {
       failure: null,
       answering: null,
       phase: 'idle',
+      waitingGate: null,
       session: emptyInterfaceTurnSession(),
       delivery: null,
       streaming: false,
@@ -737,6 +744,8 @@ class Chat implements ChatController {
   #set(patch: Partial<ChatState>): void {
     const next = { ...this.#state, ...patch };
     next.phase = this.#busy ? 'streaming' : next.session.gatedTool ? 'gated' : 'idle';
+    const gate = next.session.gatedTool;
+    next.waitingGate = next.phase === 'gated' && gate && gate.gateKind !== 'page' ? gate : null;
     this.#state = next;
     if (this.#flushQueued) return;
     this.#flushQueued = true;

@@ -60,15 +60,31 @@ await Deno.copyFile('LICENSE', `${outDir}/LICENSE`);
 // no types, and tsc keeps the import there, where a consumer's typecheck
 // cannot resolve it.
 const cssImport = /^import ['"][^'"]+\.css['"];\n/gm;
+// why: tsc keeps a relative `.ts` specifier as written in the declarations it emits; the package ships `.js` and `.d.ts`.
+const sourceSpecifier = /((?:from |import\()['"]\.{1,2}\/[^'"]+)\.tsx?(['"])/g;
+const relativeSpecifier = /(?:from |import\()['"](\.{1,2}\/[^'"]+)['"]/g;
+const packageRoot = new URL(`${outDir}/`, `file://${Deno.cwd()}/`).href;
 const sideEffects = ['**/*.css'];
+const escaping: string[] = [];
 for await (const file of walkFiles(outDir)) {
   const text = await Deno.readTextFile(file);
-  if (!text.match(cssImport)) continue;
   if (file.endsWith('.d.ts')) {
-    await Deno.writeTextFile(file, text.replace(cssImport, ''));
-  } else if (file.endsWith('.js')) {
+    const shipped = text.replace(cssImport, '').replace(sourceSpecifier, '$1.js$2');
+    if (shipped !== text) await Deno.writeTextFile(file, shipped);
+    const at = new URL(file, `file://${Deno.cwd()}/`);
+    for (const [, specifier] of shipped.matchAll(relativeSpecifier)) {
+      if (!new URL(specifier, at).href.startsWith(packageRoot))
+        escaping.push(`${file.slice(outDir.length + 1)}: ${specifier}`);
+    }
+  } else if (file.endsWith('.js') && text.match(cssImport)) {
     sideEffects.push(`./${file.slice(outDir.length + 1)}`);
   }
+}
+// A declaration that reaches outside the package resolves to nothing for a consumer, and its type turns `any`.
+if (escaping.length > 0) {
+  throw new Error(
+    `@theoremjs/react declarations import from outside the package; give the type a name from a public entry:\n${escaping.join('\n')}`,
+  );
 }
 
 // The manifest declares which modules have side effects, so a bundler that

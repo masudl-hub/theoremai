@@ -1,4 +1,5 @@
 import { FileInput } from '@astryxdesign/core/FileInput';
+import type { DecisionAsset } from '@theoremjs/agents';
 import { useState } from 'react';
 import { type DecisionImages, IMAGE_ACCEPT, readImage } from '../client/decision-images.ts';
 import { useLabels } from './labels-provider.tsx';
@@ -13,12 +14,15 @@ function asList(files: File | File[] | null): File[] {
  * Reads each file as an image and hands over the ones that are, with the name of the first that
  * is not as the refusal to show.
  */
-export function useImageReader() {
+export function useImageReader(): {
+  read: (files: File | File[] | null) => Promise<[File, DecisionAsset][]>;
+  status: { type: 'error'; message: string } | undefined;
+} {
   const t = useLabels();
   const [refused, setRefused] = useState<string | null>(null);
   const read = async (files: File | File[] | null) => {
     setRefused(null);
-    const held: [File, DecisionImages[string]][] = [];
+    const held: [File, DecisionAsset][] = [];
     for (const file of asList(files)) {
       const image = await readImage(file);
       if (image) held.push([file, image]);

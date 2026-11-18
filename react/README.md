@@ -177,8 +177,50 @@ To draw your own figures like the trace panel does, `@theoremjs/react/ui` also e
 | `chatRef` | Sends a message, stops a reply, or focuses the composer from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
 | `composerLayout` | `'stacked'` or `'row'`. In `'row'`, the field, the mic and send share one line, and text that wraps moves the field onto its own line. Above them, a pill shows the reply in progress, with its stop button, and a pill shows each background call. While a reply runs or a step waits, Enter queues a draft and send opens the send menu. Default: `'stacked'`. |
+| `composerIcons` | The glyphs the `'row'` composer draws: `working`, before the working pill's text; `backgroundJob`, before each background call's name; `stop`, in the working pill's stop button. Each one you leave out keeps Theorem's. See [The row composer's look](#the-row-composers-look). |
 | `media` | Which media from tools the chat shows. `'sent'` shows only what a tool sent to the person. `'all'` also shows what only the model read, for an evaluation view. Default: `'sent'`. See [Tool media](#tool-media). |
 | `resolveMedia` | Turns a tool's reference into an address the page can load. See [Tool media](#tool-media). |
+
+### The row composer's look
+
+The `'row'` composer has three parts: the pill row, the tray of what waits to send, and the surface with the field. The working pill reads "Working for 12s". It counts from the time the reply started and leaves out the time a step waited for approval, the same as the transcript's status line.
+
+Each part of the look is a CSS custom property. Set it on any element above the composer, in your stylesheet or in `style`, or in your Astryx theme's `localTokens`. A property you do not set keeps Theorem's value.
+
+| Property | What it sets | Default |
+| --- | --- | --- |
+| `--theorem-composer-radius` | The surface's corner radius. Send and the send menu follow its curve. | `var(--radius-chat)` |
+| `--theorem-composer-fill` | The fill of the surface and the tray. | `var(--color-background-popover)` |
+| `--theorem-composer-shadow` | The shadow of the surface and the tray. | `var(--shadow-low)` |
+| `--theorem-composer-padding` | The space inside the surface. | `var(--spacing-3)` |
+| `--theorem-composer-gap` | The space between the pill row, the tray and the surface. | `var(--spacing-2)` |
+| `--theorem-composer-inset` | How far the pill row and the tray sit in from the surface's sides. | `0px` |
+| `--theorem-composer-tray-radius` | The tray's corner radius. | the surface's radius less `var(--spacing-2)` |
+| `--theorem-composer-tray-padding` | The space inside the tray. | `var(--spacing-3)` |
+| `--theorem-composer-pill-height` | The height of each pill. | `var(--size-element-lg)` |
+| `--theorem-composer-pill-radius` | The corner radius of each pill and of the stop button. | `var(--radius-full)` |
+| `--theorem-composer-pill-fill` | The fill of each pill. | the surface's fill |
+| `--theorem-composer-pill-shadow` | The shadow of each pill. | the surface's shadow |
+| `--theorem-composer-pill-align` | Where one pill sits in the row, as `justify-content`. Two or more pills start at the row's start, and scroll once they do not fit. | `center` |
+
+```tsx
+<TheoremChat
+  endpoint="/api/theorem"
+  composerLayout="row"
+  composerIcons={{ working: <LeafSpinner /> }}
+  labels={{ '@theorem.composer.pill.working_for': 'Thinking · {duration}' }}
+  className="chat"
+/>
+```
+
+```css
+.chat {
+  --theorem-composer-radius: 22px;
+  --theorem-composer-pill-align: start;
+}
+```
+
+The words are labels: `@theorem.composer.pill.working_for`, `@theorem.composer.pill.working` (before the start is known), `@theorem.composer.pill.stop`, `@theorem.composer.pill.background`, `@theorem.composer.tray.expand` and `@theorem.composer.tray.collapse`. See [Wording](#wording). For a rule that no property covers, each part has a class: `theorem-composer-row`, `theorem-composer-pills`, `theorem-composer-pill` (with `data-pill="working"` or `"background"`), `theorem-composer-tray` (with `data-open`) and `theorem-composer-surface`.
 
 ### Tool media
 

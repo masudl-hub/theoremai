@@ -54,7 +54,6 @@ import {
 import type { ClientFailure } from '@theoremjs/web/client';
 import {
   COMPOSER_SHORTCUTS,
-  type ComposerDrawerSummary,
   type ComposerHint as ComposerHintData,
   composerActionState,
   composerDrawerSummary,
@@ -74,13 +73,15 @@ import { stageComposerFiles } from '../client/composer-attachments.ts';
 import type { BackgroundJob } from '../client/transcript-groups.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
-import { ChatComposerRow } from './ChatComposerRow.tsx';
+import { ChatComposerRow, type ComposerRowIcons, type ComposerTray } from './ChatComposerRow.tsx';
 import { ComposerControls, ComposerSelector } from './ComposerControls.tsx';
-import { composerDrawerLabel } from './labels.ts';
+import { composerDrawerLabel, type LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { VoiceNote } from './VoiceNote.tsx';
 
 const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
+/** why: A hint stays one line; the pill row scrolls its pills instead. */
+const NO_WRAP: React.CSSProperties = { whiteSpace: 'nowrap', flexShrink: 0 };
 
 /** An option the profile declares: its allowed values, the one chosen, and how to choose another. */
 /** The effort selector's icon. The studio's Agents list shows the same one. */
@@ -116,6 +117,10 @@ export type ChatComposerBarProps = {
   layout?: ComposerLayout;
   /** The tool calls running in the background; the `row` layout shows each as a pill. */
   backgroundJobs?: readonly BackgroundJob[];
+  /** When the reply in progress started, its approval waits skipped; the `row` layout's working pill counts from it. */
+  workingSince?: number;
+  /** Glyphs the `row` layout draws; each one left out keeps Theorem's. See {@link ComposerRowIcons}. */
+  icons?: ComposerRowIcons;
   draftText: string;
   pendingFiles: readonly File[];
   pendingVoice: readonly File[];
@@ -458,8 +463,7 @@ function composerStatus(args: {
 type StagedFile = { file: File; index: number; preview?: string };
 
 /** Pending messages, then two uniform rows: 64px tiles (images, voice notes), then file tokens. */
-function PendingDrawer(props: {
-  summary: ComposerDrawerSummary;
+function PendingDrawerContent(props: {
   messages: readonly ComposerPendingMessage[];
   imageFiles: readonly StagedFile[];
   otherFiles: readonly StagedFile[];
@@ -469,56 +473,53 @@ function PendingDrawer(props: {
   onAttachmentRemove: (index: number) => void;
   onVoiceRemove: () => void;
 }) {
-  const t = useLabels();
   return (
-    <ChatComposerDrawer count={props.summary.count} label={composerDrawerLabel(t, props.summary)}>
-      <VStack gap={2} width="100%">
-        {props.messages.map((message) => (
-          <PendingRow
-            key={message.id}
-            message={message}
-            moves={composerPendingMoves(props.messages, message.id)}
-            {...props.pendingActions}
-          />
-        ))}
-        {props.imageFiles.length + props.voiceFiles.length > 0 ? (
-          <HStack gap={2} wrap="wrap" vAlign="center">
-            {props.imageFiles.map(({ file, index, preview }) => (
-              <Thumbnail
-                key={`${file.name}:${String(index)}`}
-                src={preview}
-                alt={file.name}
-                label={file.name}
-                onRemove={() => props.onAttachmentRemove(index)}
+    <VStack gap={2} width="100%">
+      {props.messages.map((message) => (
+        <PendingRow
+          key={message.id}
+          message={message}
+          moves={composerPendingMoves(props.messages, message.id)}
+          {...props.pendingActions}
+        />
+      ))}
+      {props.imageFiles.length + props.voiceFiles.length > 0 ? (
+        <HStack gap={2} wrap="wrap" vAlign="center">
+          {props.imageFiles.map(({ file, index, preview }) => (
+            <Thumbnail
+              key={`${file.name}:${String(index)}`}
+              src={preview}
+              alt={file.name}
+              label={file.name}
+              onRemove={() => props.onAttachmentRemove(index)}
+            />
+          ))}
+          {props.voiceFiles.map((file, index) => {
+            const src = props.voiceUrls[index];
+            // why: An empty src makes the browser fetch the page again; a note draws once it has its URL.
+            return src === undefined ? null : (
+              <VoiceNote
+                key={`voice:${file.name}`}
+                src={src}
+                mimeType={file.type || undefined}
+                onRemove={props.onVoiceRemove}
               />
-            ))}
-            {props.voiceFiles.map((file, index) => {
-              const src = props.voiceUrls[index];
-              // why: An empty src makes the browser fetch the page again; a note draws once it has its URL.
-              return src === undefined ? null : (
-                <VoiceNote
-                  key={`voice:${file.name}`}
-                  src={src}
-                  mimeType={file.type || undefined}
-                  onRemove={props.onVoiceRemove}
-                />
-              );
-            })}
-          </HStack>
-        ) : null}
-        {props.otherFiles.length > 0 ? (
-          <HStack gap={2} wrap="wrap">
-            {props.otherFiles.map(({ file, index }) => (
-              <Token
-                key={`${file.name}:${String(index)}`}
-                label={file.name}
-                onRemove={() => props.onAttachmentRemove(index)}
-              />
-            ))}
-          </HStack>
-        ) : null}
-      </VStack>
-    </ChatComposerDrawer>
+            );
+          })}
+        </HStack>
+      ) : null}
+      {props.otherFiles.length > 0 ? (
+        <HStack gap={2} wrap="wrap">
+          {props.otherFiles.map(({ file, index }) => (
+            <Token
+              key={`${file.name}:${String(index)}`}
+              label={file.name}
+              onRemove={() => props.onAttachmentRemove(index)}
+            />
+          ))}
+        </HStack>
+      ) : null}
+    </VStack>
   );
 }
 
@@ -609,7 +610,7 @@ function SendMenu({
           label: t(`@theorem.composer.menu.${action}`),
           description: t(menuDescriptionKey(action, phase)),
           icon: <Glyph size={16} />,
-          endContent: <Kbd keys={COMPOSER_SHORTCUTS[action]} />,
+          endContent: <ShortcutKeys keys={COMPOSER_SHORTCUTS[action]} />,
           onClick: () => onAction(action),
         };
       })}
@@ -632,11 +633,26 @@ function RecordButton({ recording, onToggle }: { recording: boolean; onToggle: (
   );
 }
 
+/**
+ * A shortcut, worded and named as Astryx's Kbd does it, drawn with the ghost look: no key fill
+ * and no key edge, in secondary text.
+ * why: Kbd paints its keys from these tokens, so setting them here restyles only these keys.
+ */
+const GHOST_KEYS: React.CSSProperties = {
+  '--color-neutral': 'transparent',
+  '--color-border-emphasized': 'transparent',
+  '--color-text-primary': 'var(--color-text-secondary)',
+} as React.CSSProperties;
+
+function ShortcutKeys({ keys }: { keys: string }) {
+  return <Kbd keys={keys} className="theorem-composer-shortcut" style={GHOST_KEYS} />;
+}
+
 /** Astryx's slot for contextual info (header, right side). */
 function ComposerHint({ hint, onAction }: { hint: ComposerHintData; onAction: () => void }) {
   const t = useLabels();
   return (
-    <HStack gap={2} vAlign="center">
+    <HStack gap={2} vAlign="center" style={NO_WRAP}>
       <Text size="sm" color="secondary">
         {t(`@theorem.composer.hint.${hint.id}.message`)}
       </Text>
@@ -646,7 +662,7 @@ function ComposerHint({ hint, onAction }: { hint: ComposerHintData; onAction: ()
         variant="ghost"
         onClick={onAction}
       />
-      <Kbd keys={hint.shortcut} />
+      <ShortcutKeys keys={hint.shortcut} />
     </HStack>
   );
 }
@@ -700,20 +716,20 @@ function ComposerRecordButton({
   return <RecordButton recording={voice.recording} onToggle={() => void voice.toggleRecording()} />;
 }
 
-/** The drawer of messages and files waiting to send; absent while nothing waits. */
-function composerDrawer(
+/** The tray of messages and files waiting to send; absent while nothing waits. */
+function composerTray(
+  t: LabelText,
   props: ChatComposerBarProps,
   stagedFiles: ReturnType<typeof useStagedFiles>,
   onVoiceRemove: () => void,
-): ReactNode {
+): ComposerTray | undefined {
   const summary = composerDrawerSummary({
     pendingMessages: props.pendingMessages,
     attachmentCount: props.pendingFiles.length + props.pendingVoice.length,
   });
   if (!summary) return undefined;
-  return (
-    <PendingDrawer
-      summary={summary}
+  const content = (
+    <PendingDrawerContent
       messages={props.pendingMessages}
       {...stagedFiles}
       voiceFiles={props.pendingVoice}
@@ -728,6 +744,7 @@ function composerDrawer(
       onVoiceRemove={onVoiceRemove}
     />
   );
+  return { count: summary.count, label: composerDrawerLabel(t, summary), content };
 }
 
 /**
@@ -855,6 +872,7 @@ function useComposerPlaceholder(props: ChatComposerBarProps, recording: boolean)
 
 /** Everything both layouts draw, worked out once so the two cannot drift. */
 function useComposerParts(props: ChatComposerBarProps) {
+  const t = useLabels();
   const { iface, phase } = props;
   const inputs = iface.inputs;
   const pendingFiles = useMemo(() => [...props.pendingFiles], [props.pendingFiles]);
@@ -915,7 +933,7 @@ function useComposerParts(props: ChatComposerBarProps) {
         }
       />
     ),
-    drawer: composerDrawer(props, stagedFiles, () => voice.discardRecordingOrVoice()),
+    tray: composerTray(t, props, stagedFiles, () => voice.discardRecordingOrVoice()),
     attach: inputs.attachments ? (
       <AttachFilesButton accept={inputs.attachments.acceptAttr} onFiles={stageFiles} />
     ) : undefined,
@@ -959,10 +977,12 @@ function RowComposerBar({
   return (
     <ChatComposerRow
       isWorking={props.phase === 'streaming'}
+      workingSince={props.workingSince}
+      icons={props.icons}
       backgroundJobs={props.backgroundJobs ?? []}
       onStop={props.onStop}
       hint={parts.hintNode}
-      drawer={parts.drawer}
+      tray={parts.tray}
       attach={parts.attach}
       input={parts.input}
       editorRef={parts.editorRef}
@@ -1010,7 +1030,13 @@ function StackedComposerBar({
       isStopShown={isStopShown}
       placeholder={parts.placeholder}
       input={parts.input}
-      drawer={parts.drawer}
+      drawer={
+        parts.tray && (
+          <ChatComposerDrawer count={parts.tray.count} label={parts.tray.label}>
+            {parts.tray.content}
+          </ChatComposerDrawer>
+        )
+      }
       headerActions={parts.attach}
       headerContext={parts.hintNode}
       footerActions={parts.controls}

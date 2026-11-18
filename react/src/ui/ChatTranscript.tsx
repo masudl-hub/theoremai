@@ -53,15 +53,14 @@ import {
   pendingPromptOf,
   promptReplyKey,
   promptTime,
-  replyKey,
   type TraceItem,
   type TranscriptTurnGroup,
-  type TurnSpan,
   type TurnUsage,
   toolCallLabel,
   workStatus,
 } from '../client/transcript-groups.ts';
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
+import { useSharedTurnClock } from '../hooks/use-turn-clock.ts';
 import { useDisclosureMotion } from './disclosure-motion.ts';
 import { type LabelText, usageLine, workDuration, workStatusLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -134,42 +133,6 @@ type BlockHandlers = {
   onToolDecision?: ChatTranscriptProps['onToolDecision'];
   onAuthenticated?: ChatTranscriptProps['onAuthenticated'];
 };
-
-/** First-seen time per group key, so timestamps don't jump while streaming. */
-function useFirstSeen(keys: readonly string[]): (key: string) => number {
-  const times = useRef(new Map<string, number>());
-  const now = Date.now();
-  for (const key of keys) {
-    if (!times.current.has(key)) times.current.set(key, now);
-  }
-  return (key) => times.current.get(key) ?? now;
-}
-
-/**
- * Each turn's span, keyed by the user group that started it. A turn stops at
- * a gate and streams again under the same prompt once it's answered; the wait
- * in between counts as paused, not worked.
- */
-function useTurnSpans(
-  streaming: boolean,
-  lastUserKey: string | undefined,
-): ReadonlyMap<string, TurnSpan> {
-  const spans = useRef(new Map<string, TurnSpan>());
-  // why: The first send mounts the transcript already streaming; that's the start.
-  const wasStreaming = useRef(false);
-  if (lastUserKey && streaming !== wasStreaming.current) {
-    const now = Date.now();
-    const span = spans.current.get(lastUserKey);
-    if (streaming) {
-      const pausedMs = span?.endedAt === undefined ? 0 : span.pausedMs + now - span.endedAt;
-      spans.current.set(lastUserKey, { pausedMs });
-    } else if (span) {
-      spans.current.set(lastUserKey, { ...span, endedAt: now });
-    }
-  }
-  wasStreaming.current = streaming;
-  return spans.current;
-}
 
 function CopyButton({ text }: { text: string }) {
   const t = useLabels();
@@ -1201,10 +1164,7 @@ function ChatTranscriptBody({
     () => groupTranscriptBlocks(blocks, dividers && new Set(Object.keys(dividers))),
     [blocks, dividers],
   );
-  const timeOf = useFirstSeen(
-    groups.map((group, index) => (group.kind === 'user' ? group.key : replyKey(groups, index))),
-  );
-  const spans = useTurnSpans(streaming, groups.findLast((group) => group.kind === 'user')?.key);
+  const { timeOf, spans } = useSharedTurnClock(groups, streaming);
   const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
   const listRef = useRef<HTMLDivElement>(null);
   useDisclosureMotion(listRef);

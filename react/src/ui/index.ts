@@ -42,6 +42,7 @@ export {
   generationOptions,
   type LiveComposerBarProps,
 } from './ChatComposerBar.tsx';
+export type { ComposerRowIcons } from './ChatComposerRow.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 export {
   ConsoleFrame,

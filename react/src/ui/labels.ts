@@ -101,7 +101,22 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.composer.pill.working': {
     defaultMessage: 'Working',
-    description: "The row composer's pill while the agent replies.",
+    description: "The row composer's pill while the agent replies, before its start is known.",
+  },
+  '@theorem.composer.pill.working_for': {
+    defaultMessage: 'Working for {duration}',
+    description: "The row composer's pill while the agent replies, with how long it has run.",
+    params: ['duration'],
+  },
+  '@theorem.composer.tray.expand': {
+    defaultMessage: 'Expand {label}',
+    description: "Names the row composer's tray toggle while the tray is folded.",
+    params: ['label'],
+  },
+  '@theorem.composer.tray.collapse': {
+    defaultMessage: 'Collapse {label}',
+    description: "Names the row composer's tray toggle while the tray is open.",
+    params: ['label'],
   },
   '@theorem.composer.pill.stop': {
     defaultMessage: 'Stop',

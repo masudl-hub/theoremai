@@ -26,6 +26,7 @@ import {
   useRef,
 } from 'react';
 import { parseAspectRatio } from '../client/image-output.ts';
+import { groupTranscriptBlocks } from '../client/transcript-groups.ts';
 import {
   type SendTextOptions,
   type SentTurn,
@@ -33,7 +34,9 @@ import {
   useTheoremChat,
 } from '../hooks/use-theorem-chat.ts';
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
+import { liveTurnStart, TurnClockContext, useTurnClock } from '../hooks/use-turn-clock.ts';
 import { ChatComposerBar, type ComposerLayout } from './ChatComposerBar.tsx';
+import type { ComposerRowIcons } from './ChatComposerRow.tsx';
 import { ChatTranscript } from './ChatTranscript.tsx';
 import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
@@ -168,6 +171,12 @@ export type TheoremChatProps = {
    * reply in progress and the background jobs. See {@link ComposerLayout}.
    */
   composerLayout?: ComposerLayout;
+  /**
+   * Glyphs the `row` composer draws: the working pill's, each background job's, and stop's. Each
+   * one left out keeps Theorem's. Its text is in `labels`; its look is the
+   * `--theorem-composer-*` CSS properties.
+   */
+  composerIcons?: ComposerRowIcons;
 };
 
 /** What a host can do to a mounted {@link TheoremChat}. */
@@ -228,17 +237,23 @@ function ChatComposerForChat({
   placeholder,
   inputRef,
   layout,
+  icons,
+  workingSince,
 }: {
   chat: ReturnType<typeof useTheoremChat>;
   iface: ComposerProfileInterface;
   placeholder?: string;
   inputRef: RefObject<ChatComposerInputHandle | null>;
   layout?: ComposerLayout;
+  icons?: ComposerRowIcons;
+  workingSince?: number;
 }) {
   return (
     <ChatComposerBar
       iface={iface}
       layout={layout}
+      icons={icons}
+      workingSince={workingSince}
       backgroundJobs={chat.backgroundJobs}
       draftText={chat.draftText}
       pendingFiles={chat.pendingFiles}
@@ -309,6 +324,7 @@ function ChatBody({
   chatRef,
   composer: hasComposer = true,
   composerLayout,
+  composerIcons,
   options,
   onOptionsChange,
   stated,
@@ -339,6 +355,8 @@ function ChatBody({
     () => [...chat.blocks, ...chat.streamBlocks],
     [chat.blocks, chat.streamBlocks],
   );
+  const groups = useMemo(() => groupTranscriptBlocks(blocks), [blocks]);
+  const clock = useTurnClock(groups, chat.streaming);
   const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
   const landing = blocks.length === 0;
   const inputRef = useRef<ChatComposerInputHandle | null>(null);
@@ -366,6 +384,8 @@ function ChatBody({
       placeholder={placeholder}
       inputRef={inputRef}
       layout={composerLayout}
+      icons={composerIcons}
+      workingSince={liveTurnStart(groups, clock, chat.streaming)}
     />
   ) : (
     chat.failure && <Banner status="error" role="alert" title={chat.failure.error} />
@@ -373,33 +393,35 @@ function ChatBody({
 
   const docked = { composer, composerRef, maxWidth };
   return (
-    <WithTrace inspector={inspector}>
-      <Layout
-        height="fill"
-        className={className}
-        style={{ position: 'relative', ...style }}
-        header={header}
-        content={
-          // why: Once there are messages ChatLayout is the scroller; a second one around it moved the docked composer.
-          <LayoutContent padding={0} isScrollable={landing}>
-            {landing ? (
-              <ChatLanding {...docked} handle={handle} emptyState={emptyState} />
-            ) : (
-              <ChatThread
-                {...docked}
-                chat={chat}
-                iface={iface}
-                blocks={blocks}
-                handle={handle}
-                density={density}
-                scrollRef={scrollRef}
-                usage={usage}
-              />
-            )}
-          </LayoutContent>
-        }
-      />
-    </WithTrace>
+    <TurnClockContext value={clock}>
+      <WithTrace inspector={inspector}>
+        <Layout
+          height="fill"
+          className={className}
+          style={{ position: 'relative', ...style }}
+          header={header}
+          content={
+            // why: Once there are messages ChatLayout is the scroller; a second one around it moved the docked composer.
+            <LayoutContent padding={0} isScrollable={landing}>
+              {landing ? (
+                <ChatLanding {...docked} handle={handle} emptyState={emptyState} />
+              ) : (
+                <ChatThread
+                  {...docked}
+                  chat={chat}
+                  iface={iface}
+                  blocks={blocks}
+                  handle={handle}
+                  density={density}
+                  scrollRef={scrollRef}
+                  usage={usage}
+                />
+              )}
+            </LayoutContent>
+          }
+        />
+      </WithTrace>
+    </TurnClockContext>
   );
 }
 

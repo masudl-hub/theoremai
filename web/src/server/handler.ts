@@ -492,9 +492,12 @@ async function serverWake(
   const at = contextOf(ctx, request, sessionId);
   // why: no page is open to wake the chat, so this wake runs each next reply itself
   const lines = followedUp(core, at, await core.wake(at, { ref }), () => 'here');
+  // why: the run lets the chat go as it ends, so its lines are read to the end before a failure is thrown
+  let failed: TheoremError | undefined;
   for (;;) {
     const next = await lines.next();
     if (next.done) {
+      if (failed) throw failed;
       if (next.value.outcome !== 'held') return;
       setTimeout(
         () => {
@@ -508,7 +511,7 @@ async function serverWake(
     }
     if (next.value.type === 'error') {
       // labels-exempt: internal diagnostic for the decider's wake; no page reads it
-      throw new TheoremError(
+      failed ??= new TheoremError(
         next.value.errorKind,
         next.value.errorInternal ?? next.value.error ?? 'the wake failed',
       );

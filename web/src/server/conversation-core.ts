@@ -352,6 +352,54 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
   };
 }
 
+/** The chat's ref, as each `conversation` line of a run changes it. */
+function chatRef(first: string | null) {
+  let ref = first;
+  return {
+    ref: () => ref,
+    seen(line: ReplyLine) {
+      if (line.type === 'conversation') ref = line.ref;
+    },
+  };
+}
+
+/** Reports the items an inbox policy gave up, under `code`. */
+function gaveUp<Item extends InboxItem>(ctx: CoreState<Item>, at: CoreContext, code: string) {
+  return (items: readonly InboxItem[]) => {
+    ctx.options.onError?.(
+      // labels-exempt: internal diagnostic; no reader sees a given-up item
+      new TheoremError('unavailable', 'The inbox policy gave up items', {
+        cause: { code, operationIds: items.map((item) => item.id) },
+      }),
+      at,
+    );
+  };
+}
+
+/**
+ * The app's inbox, when it passes one. Its key is the app's, so it holds one conversation for
+ * every session and stored chat that names that key.
+ */
+function appHolding<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  ref: string | null,
+): Holding<Item> | undefined {
+  const app = ctx.options.inbox?.(at);
+  if (!app) return undefined;
+  return holdingOver(
+    {
+      inbox: app.inbox,
+      key: app.conversation,
+      leaseMs: app.leaseMs,
+      policy: app.policy,
+      reads: (run) => ({ from: 'app', run }),
+      gaveUp: gaveUp(ctx, at, 'inbox_items_given_up'),
+    },
+    chatRef(ref),
+  );
+}
+
 /**
  * The inbox this context's replies hold: the app's when it passes one, the session's when a
  * decider tells its late results, and none otherwise.
@@ -362,36 +410,9 @@ function holdingOf<Item extends InboxItem>(
   host: ConversationHost,
   opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
 ): Holding<Item> | undefined {
-  let ref = opened.ref;
-  const chat = {
-    ref: () => ref,
-    seen(line: ReplyLine) {
-      if (line.type === 'conversation') ref = line.ref;
-    },
-  };
-  const gaveUp = (code: string) => (items: readonly InboxItem[]) => {
-    ctx.options.onError?.(
-      // labels-exempt: internal diagnostic; no reader sees a given-up item
-      new TheoremError('unavailable', 'The inbox policy gave up items', {
-        cause: { code, operationIds: items.map((item) => item.id) },
-      }),
-      at,
-    );
-  };
-  const app = ctx.options.inbox?.(at);
-  if (app) {
-    return holdingOver(
-      {
-        inbox: app.inbox,
-        key: app.conversation,
-        leaseMs: app.leaseMs,
-        policy: app.policy,
-        reads: (run) => ({ from: 'app', run }),
-        gaveUp: gaveUp('inbox_items_given_up'),
-      },
-      chat,
-    );
-  }
+  const app = appHolding(ctx, at, opened.ref);
+  if (app) return app;
+  const chat = chatRef(opened.ref);
   const decider = ctx.options.lateResultsDecider;
   if (!decider) return undefined;
   let whose: Promise<unknown> | undefined;
@@ -403,7 +424,7 @@ function holdingOf<Item extends InboxItem>(
         return decider.policy(items, { ...moment, host: await whose });
       },
       reads: (run) => ({ from: 'session', late: lateSource(run) }),
-      gaveUp: gaveUp('late_results_given_up'),
+      gaveUp: gaveUp(ctx, at, 'late_results_given_up'),
     },
     chat,
   );
@@ -897,7 +918,11 @@ async function wake<Item extends InboxItem>(
   return await wakeLines(ctx, at, host, args.ref, args.generation ?? {}, args.input);
 }
 
-/** One follow-up, under the hold a run ended `continue` with. */
+/**
+ * One follow-up, under the hold a run ended `continue` with. `ref` is the chat the follow-up
+ * answers in, which is `at`'s to read: under an app inbox it can be another session's than the
+ * run's.
+ */
 async function followUp<Item extends InboxItem>(
   ctx: CoreState<Item>,
   at: CoreContext,
@@ -905,23 +930,35 @@ async function followUp<Item extends InboxItem>(
 ): Promise<Reply> {
   const host = conversationHost(ctx, at);
   if (!host) throw statelessRefusal('wake');
-  const opened = await openConversation(host, args.ref, { kind: 'read' });
-  const start: ReplyStart = { opening: 'follow_up', hold: args.hold };
+  if (!holds(ctx)) return unheld(noLines());
+  const opened = await openConversation(host, args.ref, { kind: 'read' }).catch(
+    async (err: unknown) => {
+      // why: a follow-up that cannot open its chat runs nothing, so the hold is let go at once
+      await appHolding(ctx, at, args.ref)?.letGo(args.hold);
+      throw err;
+    },
+  );
   if (opened.conversation.paused) {
-    await release(ctx, at, args);
+    await holdingOf(ctx, at, host, opened)?.letGo(args.hold);
     return unheld(noLines());
   }
+  const start: ReplyStart = { opening: 'follow_up', hold: args.hold };
   return heldLines(ctx, at, host, opened, start, (held, current) =>
     wakeReplyLines(ctx, at, host, current(), args.generation ?? {}, held, args.input),
   );
 }
 
-/** Lets the conversation go under the hold a run ended `continue` with. */
+/**
+ * Lets the conversation go under the hold a run ended `continue` with. Under an app inbox no chat
+ * is read: the hold is of the app's key.
+ */
 async function release<Item extends InboxItem>(
   ctx: CoreState<Item>,
   at: CoreContext,
   args: { ref: string; hold: string },
 ): Promise<void> {
+  const app = appHolding(ctx, at, args.ref);
+  if (app) return app.letGo(args.hold);
   const host = conversationHost(ctx, at);
   if (!host) throw statelessRefusal('wake');
   const opened = await openConversation(host, args.ref, { kind: 'read' });

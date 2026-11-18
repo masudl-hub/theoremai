@@ -413,3 +413,59 @@ Deno.test('a follow-up under a hold that lost the conversation runs nothing', as
   assertEquals(next.end, { outcome: 'lost' });
   assertEquals(seen.length, 1);
 });
+
+Deno.test('a follow-up on a core that holds no conversation runs nothing', async () => {
+  const { core, seen } = harness();
+  const ref = refOf((await say(core, 'hello')).lines);
+  const next = await drain(await core.followUp(at(), { ref, hold: 'no-hold' }));
+  assertEquals(next.lines, []);
+  assertEquals(next.end, { outcome: 'released' });
+  assertEquals(seen.length, 1);
+});
+
+Deno.test('a follow-up answers in another session of the same conversation', async () => {
+  const { inbox, option } = followUpInbox();
+  const { core, seen } = harness({ inbox: option });
+  const phone = at('phone-session');
+  const first = await drain(await core.message(phone, { input: { text: 'hello' } }));
+  const phoneRef = refOf(first.lines);
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const { lines, end } = await say(core, 'hello');
+  assert(end.outcome === 'continue');
+
+  const next = await drain(await core.followUp(phone, { ref: phoneRef, hold: end.hold }));
+  assertEquals(next.end, { outcome: 'released' });
+  assertEquals(seen.length, 3);
+  const kinds = async (where: CoreContext, ref: string) =>
+    (await core.read(where, { ref })).transcript.map((block) => block.kind);
+  assertEquals(await kinds(at(), refOf(lines)), ['user-text', 'text', 'turn-done']);
+  assertEquals(await kinds(phone, refOf(next.lines)), [
+    'user-text',
+    'text',
+    'turn-done',
+    'text',
+    'turn-done',
+  ]);
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});
+
+Deno.test("a release under the app's inbox reads no chat", async () => {
+  const { inbox, option } = followUpInbox();
+  const { core } = harness({ inbox: option });
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const { end } = await say(core, 'hello');
+  assert(end.outcome === 'continue');
+  await core.release(at('phone-session'), { ref: 'no-such-chat', hold: end.hold });
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});
+
+Deno.test('a follow-up that cannot open its chat throws, and lets the conversation go', async () => {
+  const { inbox, option } = followUpInbox();
+  const { core, seen } = harness({ inbox: option });
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  const { end } = await say(core, 'hello');
+  assert(end.outcome === 'continue');
+  await assertRejects(() => core.followUp(at(), { ref: 'no-such-chat', hold: end.hold }));
+  assertEquals(seen.length, 1);
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});

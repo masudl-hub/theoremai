@@ -587,6 +587,8 @@ A run ends `continue` when items arrived that a reply may be told now. For examp
 
 A run that ends `continue` can carry `failure`, which is what the run threw. Throw it after the follow-up or the release.
 
+A follow-up answers in the chat that `ref` names, and `at` must be able to read that chat. With `inbox`, one conversation can have a chat in more than one session. Pass the `at` and the `ref` of the session that the follow-up answers in. A follow-up that cannot open its chat throws, and lets the conversation go. With `inbox`, `release` reads no chat.
+
 `followedUp` does this for you. Pass it the run and a function that returns `'here'`, `'taken'`, or `'let_go'` for each `continue`:
 
 ```ts
@@ -602,7 +604,7 @@ const lines = followedUp(core, at, reply, () => 'here');
 | `taken` | Does nothing, and returns the `continue`. Your app calls `followUp` from another place, such as a queue. |
 | `let_go` | Calls `release`, and returns `released`. |
 
-A hold that nothing follows up or releases keeps the conversation until its lease runs out.
+Read each run to its end. A run lets the conversation go as it ends, after its last line. A hold that nothing follows up or releases keeps the conversation until its lease runs out, and so does a run that your server stops reading.
 
 You cannot pass `inbox` together with `lateResultsDecider`. The core fails at setup with a `config` error.
 

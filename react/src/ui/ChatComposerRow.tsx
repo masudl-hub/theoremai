@@ -41,11 +41,20 @@ export type ComposerRowParts = {
   status?: ChatComposerStatus;
 };
 
-/** why: Pills are round, like the composer's buttons; the stop button inside follows the curve. */
+/**
+ * why: Pills are round, like the composer's buttons, and as tall as a small button, so the stop
+ * button's hover fill fits inside the working pill and a hint beside them keeps the row's height.
+ */
 const PILL: CSSProperties = {
   borderRadius: 'var(--radius-full)',
   '--_button-radius': 'var(--radius-full)',
 } as CSSProperties;
+/** why: The stop button sits flush in the pill's end, so its round fill follows the pill's curve. */
+const WORKING_PILL: CSSProperties = { ...PILL, paddingInlineEnd: 0 };
+/** invariant: The pill row is one small button tall, whatever it holds. */
+const PILL_ROW: CSSProperties = { minHeight: 'var(--size-element-sm)' };
+/** why: The drawer is inset past the surface's curved ends, so it comes up from behind it. */
+const DRAWER_INSET: CSSProperties = { marginInline: 'var(--radius-chat)' };
 
 /** The pill for the reply in progress, with its stop button. */
 function WorkingPill({ onStop }: { onStop: () => void }) {
@@ -53,7 +62,8 @@ function WorkingPill({ onStop }: { onStop: () => void }) {
   const stop = t('@theorem.composer.pill.stop');
   return (
     <Token
-      style={PILL}
+      size="lg"
+      style={WORKING_PILL}
       label={t('@theorem.composer.pill.working')}
       icon={<Spinner size="sm" shade="inherit" aria-label={t('@theorem.composer.pill.working')} />}
       endContent={
@@ -76,11 +86,12 @@ function PillRow(
   const t = useLabels();
   if (!props.isWorking && props.backgroundJobs.length === 0 && !props.hint) return null;
   return (
-    <HStack gap={1} wrap="wrap" vAlign="center" paddingInline={1}>
+    <HStack gap={1} wrap="wrap" vAlign="center" paddingInline={1} style={PILL_ROW}>
       {props.isWorking ? <WorkingPill onStop={props.onStop} /> : null}
       {props.backgroundJobs.map((job) => (
         <Token
           key={job.callId}
+          size="lg"
           style={PILL}
           label={job.label}
           description={t('@theorem.composer.pill.background')}
@@ -205,7 +216,7 @@ export function ChatComposerRow(props: ComposerRowParts) {
         hint={props.hint}
       />
       <VStack gap={0} width="100%" style={DRAWER_AND_SURFACE}>
-        {props.drawer}
+        {props.drawer ? <StackItem style={DRAWER_INSET}>{props.drawer}</StackItem> : null}
         <RowSurface
           stacked={stacked}
           attach={props.attach}

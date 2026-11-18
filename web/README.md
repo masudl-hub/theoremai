@@ -604,7 +604,7 @@ const lines = followedUp(core, at, reply, () => 'here');
 | `taken` | Does nothing, and returns the `continue`. Your app calls `followUp` from another place, such as a queue. |
 | `let_go` | Calls `release`, and returns `released`. |
 
-Read each run to its end. A run lets the conversation go as it ends, after its last line. A hold that nothing follows up or releases keeps the conversation until its lease runs out, and so does a run that your server stops reading.
+Read each run to its end, because the end is where a `continue` arrives. A run goes on to its end and saves its reply even when your server stops reading its lines. A `continue` that nothing follows up or releases keeps the conversation until its lease runs out.
 
 You cannot pass `inbox` together with `lateResultsDecider`. The core fails at setup with a `config` error.
 

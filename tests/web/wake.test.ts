@@ -1,4 +1,4 @@
-import { assert, assertEquals } from '@std/assert';
+import { assert, assertEquals, assertRejects } from '@std/assert';
 import {
   defaultKernelScope,
   type LateResultEnded,
@@ -80,11 +80,12 @@ registerTool({
   handler: () => ({ ok: true }),
 });
 
-type Script = { fail: boolean; gate?: Promise<void>; askAt?: number };
+type Script = { fail: boolean; failLine?: boolean; gate?: Promise<void>; askAt?: number };
 
 /**
  * A model that calls the job on its first step and answers in text after. It keeps every request;
- * `fail` makes the next step after the first throw; `askAt` calls the gated tool on that step.
+ * `fail` makes the next step after the first throw; `failLine` makes it end with an error line;
+ * `askAt` calls the gated tool on that step.
  */
 function caller(seen: ModelRequest[], script: Script): TurnModel {
   let step = 0;
@@ -103,6 +104,10 @@ function caller(seen: ModelRequest[], script: Script): TurnModel {
           return;
         }
         if (script.fail) throw new Error('the-model-broke');
+        if (script.failLine) {
+          yield { type: 'error' as const, errorKind: 'unavailable' as const, errorInternal: 'busy' };
+          return;
+        }
         yield { type: 'text' as const, text: 'It finished.' };
         yield { type: 'done' as const, stop: { kind: 'completed' } };
       })(),
@@ -307,6 +312,36 @@ Deno.test('a server wake whose model keeps failing tries twice, then gives the r
     assertEquals(after.wake, undefined);
     const given = errors.filter(givenUp);
     assertEquals(given.length, 1);
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test('a server wake whose reply ends with an error line still runs the next reply, then lets the chat go', async () => {
+  let ref = '';
+  let again: ((ref: string) => Promise<void>) | undefined;
+  let woken: Promise<void> | undefined;
+  const { transport, handles, seen, script } = harness({
+    lateResultsDecider: {
+      ...tellEveryResult,
+      ended: (end) => {
+        again = end.wake;
+        woken = end.wake(ref);
+        return woken;
+      },
+    },
+  });
+  try {
+    ref = await say(transport, 'start the job');
+    script.failLine = true;
+    const before = seen.length;
+    held.free();
+    await handles[0].done;
+    await waitFor(() => woken !== undefined);
+    await assertRejects(() => woken ?? Promise.resolve());
+    assertEquals(reads(seen, before), 2, 'the error line ended the wake before its next reply');
+    // why: a wake that finds the chat held sets a timer for the lease's end, which this test would leak
+    await again?.(ref);
   } finally {
     held.free();
   }

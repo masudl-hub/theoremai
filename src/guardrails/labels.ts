@@ -153,6 +153,7 @@ export const LABEL_KEYS = [
   'thought.omitted_link',
   'thought.omitted_instructions',
   'session.abandon_gated',
+  'session.gate_lapsed',
   'session.tool_denied',
   'session.tool_aborted',
   'session.sign_in',
@@ -285,6 +286,7 @@ export const CLIENT_LABEL_KEYS = [
   'error.cancelled',
   'error.internal',
   'session.abandon_gated',
+  'session.gate_lapsed',
   'session.tool_denied',
   'session.sign_in',
   'session.gate_expired',
@@ -571,6 +573,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'thought.omitted_link': ' (omitted - link)',
   'thought.omitted_instructions': ' (omitted - instructions)',
   'session.abandon_gated': "User cancelled gated tool '{tool}' to send a new message.",
+  'session.gate_lapsed': "Nobody answered the request to run '{tool}' before it stopped waiting.",
   'session.tool_denied': "User denied execution of '{tool}'.",
   'session.tool_aborted': "'{tool}' was stopped before it ran.",
   'session.sign_in': 'Please sign in to continue.',
@@ -898,6 +901,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'Shown in a thought in place of the canary, words repeated from the system prompt, or the user-data markers.',
   'session.abandon_gated':
     'Told to the model when the user sends a new message instead of answering a step waiting for approval. Takes {tool}.',
+  'session.gate_lapsed':
+    'Told to the model when nobody answers a step waiting for approval before its time limit. Takes {tool}.',
   'session.tool_denied':
     'Told to the model when the user declines a step that needed approval. Takes {tool}.',
   'session.tool_aborted':
@@ -1074,6 +1079,7 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'egress.rejection': ['found'],
   'egress.rejection_found': ['hint', 'matches'],
   'session.abandon_gated': TOOL,
+  'session.gate_lapsed': TOOL,
   'session.tool_denied': TOOL,
   'session.tool_aborted': TOOL,
   'sign_in.link': ['service', 'link'],

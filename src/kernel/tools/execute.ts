@@ -1324,25 +1324,28 @@ function pinCallAuth(
 }
 
 /**
- * A gate nobody answered: a sign-in for `expiredService` whose link expired, or any other gate
- * left behind. Both settle as `cancelled`.
+ * A gate that was not answered. `abandoned`: the person sent a new message. `expired`: its time
+ * limit passed; a sign-in names `service`, whose link expired. Each settles as `cancelled`.
  */
 export function lapsedGateFailure(
   toolName: string,
-  expiredService: string | undefined,
+  cause: 'abandoned' | 'expired',
+  service: string | undefined,
   labels: LabelOverrides | undefined,
 ): ToolFailure {
-  if (expiredService) {
+  if (cause === 'abandoned') {
     return {
-      code: 'expired',
+      code: 'cancelled',
       kind: 'cancelled',
-      message: labelText('sign_in.expired', { service: expiredService }, labels),
+      message: labelText('session.abandon_gated', { tool: toolName }, labels),
     };
   }
   return {
-    code: 'cancelled',
+    code: 'expired',
     kind: 'cancelled',
-    message: labelText('session.abandon_gated', { tool: toolName }, labels),
+    message: service
+      ? labelText('sign_in.expired', { service }, labels)
+      : labelText('session.gate_lapsed', { tool: toolName }, labels),
   };
 }
 
@@ -1363,7 +1366,7 @@ function refusalFailure(
         : labelText('session.tool_denied', { tool: tool.name }, labels),
     };
   }
-  return lapsedGateFailure(tool.name, cause === 'expired' ? service : undefined, labels);
+  return lapsedGateFailure(tool.name, cause, service, labels);
 }
 
 function resumeApproval(resume: ToolContext['resume']): boolean | undefined {

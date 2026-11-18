@@ -1813,7 +1813,7 @@ placeholder, or a placeholder the key never fills in.
 | Quota | `quota.exhausted`, `quota.busy` | labels (`quotaExhausted`, `quotaBusy` → `rate_limit`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.refusal_cut`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | labels |
 | Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | labels |
-| Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | labels |
+| Session | `session.abandon_gated`, `session.gate_lapsed`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | labels |
 | Live | `live.session_ended` (the provider ended the call after warning it would) | labels (the Live session words the ended signal's `message` when it closes) |
 | Voice (browser recording) | `voice.unsupported`, `voice.permission`, `voice.unavailable`, `voice.failed`, `voice.empty` | labels |
 | Stops | `stop.<kind>` for each kind that ends a reply short: `cancelled`, `interrupted`, `length`, `filtered`, `provider_error`, `stream_incomplete`, `step_limit`, `answer_missing`. A turn whose transcript has an error shows the error instead; `stopText(stop, blocks, labels)` applies that rule | labels |

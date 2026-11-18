@@ -182,33 +182,35 @@ const failureOf = (r: Run) => ({
   kind: r.settlement.failure?.kind,
   message: r.settlement.failure?.message,
 });
-Deno.test('lapsedGateFailure names the expired sign-in service, else the abandoned tool', () => {
+Deno.test('lapsedGateFailure names the expired sign-in service, the expired tool, or the abandoned tool', () => {
   check(
-    lapsedGateFailure('docs_search', 'Docs', undefined),
+    lapsedGateFailure('docs_search', 'expired', 'Docs', undefined),
     {
       code: 'expired',
       kind: 'cancelled',
       message: 'The sign-in link for Docs expired before it was used.',
     },
-    'expired',
+    'expired sign-in',
   );
+  for (const service of [undefined, '']) {
+    check(
+      lapsedGateFailure('docs_search', 'expired', service, undefined),
+      {
+        code: 'expired',
+        kind: 'cancelled',
+        message: "Nobody answered the request to run 'docs_search' before it stopped waiting.",
+      },
+      'expired with no service',
+    );
+  }
   check(
-    lapsedGateFailure('docs_search', undefined, undefined),
+    lapsedGateFailure('docs_search', 'abandoned', 'Docs', undefined),
     {
       code: 'cancelled',
       kind: 'cancelled',
       message: "User cancelled gated tool 'docs_search' to send a new message.",
     },
     'abandoned',
-  );
-  check(
-    lapsedGateFailure('docs_search', '', undefined),
-    {
-      code: 'cancelled',
-      kind: 'cancelled',
-      message: "User cancelled gated tool 'docs_search' to send a new message.",
-    },
-    'blank service is no service',
   );
 });
 Deno.test('a refused gate settles as the failure its cause and sign-in name', async () => {
@@ -290,13 +292,13 @@ Deno.test('a refused gate settles as the failure its cause and sign-in name', as
       },
     },
     {
-      label: 'expired without sign-in is abandoned',
+      label: 'expired without sign-in names the tool nobody answered',
       tool: 'docs',
       resume: { granted: false, cause: 'expired' },
       expected: {
-        code: 'cancelled',
+        code: 'expired',
         kind: 'cancelled',
-        message: "User cancelled gated tool 'docs' to send a new message.",
+        message: "Nobody answered the request to run 'docs' before it stopped waiting.",
       },
     },
     {
@@ -304,9 +306,9 @@ Deno.test('a refused gate settles as the failure its cause and sign-in name', as
       tool: 'plain',
       resume: { granted: false, cause: 'expired', signIn: true },
       expected: {
-        code: 'cancelled',
+        code: 'expired',
         kind: 'cancelled',
-        message: "User cancelled gated tool 'plain' to send a new message.",
+        message: "Nobody answered the request to run 'plain' before it stopped waiting.",
       },
     },
   ];

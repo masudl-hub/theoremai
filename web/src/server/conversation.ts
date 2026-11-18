@@ -914,6 +914,45 @@ function failureOf(error: ErrorEvent): TheoremError {
 }
 
 /**
+ * Walks away from the reply `opened` waits on: each call settles cancelled, and the paused reply
+ * commits. Returns the conversation to go on from. Undefined when a call did not settle: the reply
+ * is saved as it waits, and the error is sent.
+ */
+async function* walkAwayFrom(
+  host: ConversationHost,
+  opened: OpenedConversation,
+  runner: ReplyRunner,
+  calls: readonly IssuedWalkAway[] | undefined,
+): AsyncGenerator<ReplyLine, OpenedConversation | undefined> {
+  const { paused } = opened.conversation;
+  requireWalkAway(opened.conversation, calls);
+  if (!paused) return opened;
+  const walked = pausedReply(paused);
+  const error = yield* settleWalkedAway(walked, calls ?? []);
+  if (error) {
+    const next = {
+      ...opened.conversation,
+      paused: { ...paused, events: walked.events, endedAt: Date.now() },
+    };
+    yield* refLine(
+      await saveReply(host, opened, walkedAway(runner, paused), {
+        ended: 'paused',
+        next,
+        events: walked.events,
+        failure: error,
+      }),
+    );
+    yield error;
+    return undefined;
+  }
+  return {
+    ...opened,
+    stored: opened.conversation.transcript.length,
+    conversation: committed(host, opened.conversation, walked),
+  };
+}
+
+/**
  * The person sends a message. A reply that waits on gates is walked away
  * from first: each call settles cancelled and the paused reply commits; then
  * the message posts and its reply runs.
@@ -936,32 +975,9 @@ export async function* messageReply(args: {
   let opened: OpenedConversation = stored;
   yield* restored;
   const { paused } = opened.conversation;
-  requireWalkAway(opened.conversation, args.walkAway);
-  if (paused) {
-    const walked = pausedReply(paused);
-    const error = yield* settleWalkedAway(walked, args.walkAway ?? []);
-    if (error) {
-      const next = {
-        ...opened.conversation,
-        paused: { ...paused, events: walked.events, endedAt: Date.now() },
-      };
-      yield* refLine(
-        await saveReply(host, opened, walkedAway(runner, paused), {
-          ended: 'paused',
-          next,
-          events: walked.events,
-          failure: error,
-        }),
-      );
-      yield error;
-      return;
-    }
-    opened = {
-      ...opened,
-      stored: opened.conversation.transcript.length,
-      conversation: committed(host, opened.conversation, walked),
-    };
-  }
+  const walked = yield* walkAwayFrom(host, opened, runner, args.walkAway);
+  if (!walked) return;
+  opened = walked;
   const withMessage = (history: TurnHistoryMessage[]) =>
     appendUserDraftToHistory(history, message.draft, message.media);
   let base = opened;
@@ -1058,7 +1074,8 @@ function historyInput(conversation: StoredConversation): TurnInput {
 /**
  * The model takes up the results of calls that ended while nothing ran: a reply to no message.
  * It writes nothing until it ends, so a message posted meanwhile keeps the conversation, and this
- * reply ends with no write: that message's reply read the same results.
+ * reply ends with no write: that message's reply read the same results. A reply that waits on
+ * gates is walked away from first, as a message does.
  */
 export async function* wakeReply(args: {
   host: ConversationHost;
@@ -1066,8 +1083,12 @@ export async function* wakeReply(args: {
   runner: ReplyRunner;
   /** What the page sends with every message: its option picks and context. */
   input?: Pick<TurnInput, 'options' | 'context'>;
+  /** The paused reply's calls, each with the run that settles it: exactly the calls it waits on. */
+  walkAway?: readonly IssuedWalkAway[];
 }): AsyncGenerator<ReplyLine> {
-  const { host, opened, runner } = args;
+  const { host, runner } = args;
+  const opened = yield* walkAwayFrom(host, args.opened, runner, args.walkAway);
+  if (!opened) return;
   const { conversation } = opened;
   const reply: Reply = { base: conversation.history, events: [], baseEvents: 0, workedMs: 0 };
   try {

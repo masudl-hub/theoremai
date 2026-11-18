@@ -81,10 +81,12 @@ import {
   backgroundWiring,
   type CallsContext,
   type CoreContext,
+  pausedWaits,
   recorded,
   replayAllowed,
   sessionCredentials,
   settlingOf,
+  takeLapsed,
   takeWalkedAway,
   withAuthorizationUrls,
 } from './session-calls.ts';
@@ -225,8 +227,9 @@ export type CoreState<Item extends InboxItem = InboxItem> = Omit<CallsContext, '
  * How one run of a conversation ended. `released`: the run let the conversation go. `continue`:
  * items wait that may be told now, and `hold` still has the conversation under `ref`; the caller
  * runs `followUp` or calls `release`. `failure` is what the run threw, for the caller to throw
- * once it has done either. `held`: another hold has the conversation until `leasedUntil`, and
- * tells what waits. `lost`: this run's hold no longer has it.
+ * once it has done either. `held`: nothing ran, and a run after `leasedUntil` may: until then
+ * another hold has the conversation and tells what waits, or a paused reply waits on a gate that
+ * lapses then. `lost`: this run's hold no longer has it.
  */
 export type RunEnd =
   | { outcome: 'released' }
@@ -712,7 +715,8 @@ function conversationHost<Item extends InboxItem>(
 
 /**
  * The wake's reply under a hold of the chat; nothing when no decider tells a result, or while a
- * reply waits on gates: the answer that goes on reads what waits.
+ * paused reply still waits: the answer that goes on reads what waits. Once every gate of a paused
+ * reply has lapsed, the wake walks away from it and runs.
  */
 async function wakeLines<Item extends InboxItem>(
   ctx: CoreState<Item>,
@@ -723,7 +727,9 @@ async function wakeLines<Item extends InboxItem>(
   input?: Pick<TurnInput, 'options' | 'context'>,
 ): Promise<Reply> {
   const opened = await openConversation(host, ref, { kind: 'read' });
-  if (!holds(ctx) || opened.conversation.paused) return unheld(noLines());
+  if (!holds(ctx)) return unheld(noLines());
+  const waits = await pausedWaits(ctx, at, opened.conversation);
+  if (waits) return waiting(waits);
   return heldLines(ctx, at, host, opened, { opening: 'wake' }, (held, current) =>
     wakeReplyLines(ctx, at, host, current(), generation, held, input),
   );
@@ -731,6 +737,17 @@ async function wakeLines<Item extends InboxItem>(
 
 /** No reply lines. */
 async function* noLines(): AsyncGenerator<ReplyLine> {}
+
+/**
+ * No run, while a paused reply waits: `held` until its last gate lapses. A gate with no time limit
+ * never lapses, so the run ends `released` and only the person's answer or next message goes on.
+ */
+async function* waiting(waits: { until?: number }): Reply {
+  yield* noLines();
+  return waits.until === undefined
+    ? { outcome: 'released' }
+    : { outcome: 'held', leasedUntil: waits.until };
+}
 
 /**
  * A reply to no message under `held`, on the chat as it stands now. The page that woke draws it;
@@ -747,8 +764,19 @@ async function* wakeReplyLines<Item extends InboxItem>(
 ): AsyncGenerator<ReplyLine> {
   if (ref === null) return;
   const opened = await openConversation(host, ref, { kind: 'read' });
+  const walkAway = opened.conversation.paused
+    ? await takeLapsed(ctx, at, opened.conversation)
+    : undefined;
+  // why: an answer landed since the run was let in, so the reply still waits and the answer goes on
+  if (opened.conversation.paused && !walkAway) return;
   const runner = chatRunner(ctx, at, generation, held);
-  yield* wakeReply({ host, opened, runner, ...(input ? { input } : {}) });
+  yield* wakeReply({
+    host,
+    opened,
+    runner,
+    ...(input ? { input } : {}),
+    ...(walkAway ? { walkAway } : {}),
+  });
   ctx.options.notifier?.publish(at.sessionId);
 }
 
@@ -788,18 +816,18 @@ async function currentView<Item extends InboxItem>(
 
 /**
  * Whether the page wakes the chat now: the decider's policy tells a waiting result to a reply to no
- * message. Never while a reply waits on gates: the answer that goes on reads what waits.
+ * message. Never while a paused reply still waits: the answer that goes on reads what waits.
  */
-function wakeDue<Item extends InboxItem>(
+async function wakeDue<Item extends InboxItem>(
   ctx: CoreState<Item>,
   at: CoreContext,
   host: ConversationHost,
   ref: string,
   conversation: StoredConversation,
 ): Promise<boolean> {
-  if (conversation.paused) return Promise.resolve(false);
+  if (await pausedWaits(ctx, at, conversation)) return false;
   const holding = holdingOf(ctx, at, host, { ref, conversation });
-  return holding ? holding.due() : Promise.resolve(false);
+  return holding ? holding.due() : false;
 }
 
 /** Whether a reply runs under a hold of the chat: the app passes an inbox, or a decider tells late results. */
@@ -999,7 +1027,7 @@ async function followUp<Item extends InboxItem>(
       throw err;
     },
   );
-  if (opened.conversation.paused) {
+  if (await pausedWaits(ctx, at, opened.conversation)) {
     await holdingOf(ctx, at, host, opened)?.letGo(args.hold);
     return unheld(noLines());
   }

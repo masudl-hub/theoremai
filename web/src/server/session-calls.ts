@@ -40,7 +40,7 @@ import {
 } from '@theoremjs/agents/kernel';
 import type { TheoremHostCallRequest } from '../client/host-transport.ts';
 import type { TheoremInvokeRequest } from '../client/transport.ts';
-import { type IssuedWalkAway, requiredOperationId } from './conversation.ts';
+import { type IssuedWalkAway, requiredOperationId, waitingCalls } from './conversation.ts';
 import { detachedEnd, type SettledOperation } from './conversation-inbox.ts';
 import type { StoredConversation } from './conversation-store.ts';
 import {
@@ -375,10 +375,15 @@ function walkedCallOf(
   reference: GateReference,
   profileId: string,
   paused: TurnEvent[],
+  cause: 'abandoned' | 'expired' = 'abandoned',
 ): WalkedCall {
   const settled = Object.hasOwn(state.operations, reference.operationId)
     ? state.operations[reference.operationId]
     : undefined;
+  // why: A wake that took the call and ended before the call settled left it refused and not run; the next wake runs it with the answer it has.
+  if (cause === 'expired' && settled && refusedAndNotRun(settled, reference, profileId)) {
+    return { callId: reference.callId, pending: settled.pending, answer: settled.answer };
+  }
   // why: A gate that lapsed is gone from the session while the reply still waits on its call. The call is only ever cancelled here, so the next message is never refused for it.
   if (!settled && !Object.hasOwn(state.gates, reference.operationId)) {
     const lapsed = pendingGatesFrom(paused, { profileId, turnInput: {} }).find(
@@ -386,11 +391,116 @@ function walkedCallOf(
     );
     if (lapsed) state.gates[reference.operationId] = lapsed.gate;
   }
-  return settled?.status === 'settled' &&
+  if (
+    settled?.status === 'settled' &&
     settled.callId === reference.callId &&
     settled.profileId === profileId
-    ? { callId: reference.callId, settled }
-    : answerPendingGate(state, { ...reference, decision: 'abandon' }, profileId);
+  ) {
+    return { callId: reference.callId, settled };
+  }
+  const answered = answerPendingGate(state, { ...reference, decision: 'abandon' }, profileId);
+  if (cause === 'abandoned') return answered;
+  const answer = { ...answered.answer, resume: { ...answered.answer.resume, cause } };
+  const taken = state.operations[reference.operationId];
+  if (taken?.status === 'ready') taken.answer = answer;
+  return { ...answered, answer };
+}
+
+type ReadyOperation = Extract<SessionToolOperation, { status: 'ready' }>;
+
+/** Whether `operation` is this call, answered with a refusal and not yet run. */
+function refusedAndNotRun(
+  operation: SessionToolOperation,
+  reference: GateReference,
+  profileId: string,
+): operation is ReadyOperation {
+  return (
+    operation.status === 'ready' &&
+    operation.profileId === profileId &&
+    operation.pending.callId === reference.callId &&
+    operation.answer.resume.granted !== true
+  );
+}
+
+/**
+ * What a paused reply's calls still wait on, for a reply to no message. Defined while a call's
+ * gate can be answered, or its answer runs; `until` is when the last gate lapses, unset when one
+ * has no time limit or an answer runs. Undefined once every gate has lapsed, and for a
+ * conversation that is not paused.
+ */
+function stillWaits(
+  state: TheoremSessionState,
+  calls: readonly GateReference[],
+  profileId: string,
+): { until?: number } | undefined {
+  let waits = false;
+  let until: number | undefined = 0;
+  for (const reference of calls) {
+    const gate = Object.hasOwn(state.gates, reference.operationId)
+      ? state.gates[reference.operationId]
+      : undefined;
+    const operation = Object.hasOwn(state.operations, reference.operationId)
+      ? state.operations[reference.operationId]
+      : undefined;
+    const runs =
+      operation !== undefined &&
+      operation.status !== 'settled' &&
+      !refusedAndNotRun(operation, reference, profileId);
+    if (!gate && !runs) continue;
+    waits = true;
+    until =
+      gate?.expiresAt === undefined || until === undefined || runs
+        ? undefined
+        : Math.max(until, gate.expiresAt);
+  }
+  return waits ? (until === undefined ? {} : { until }) : undefined;
+}
+
+/** {@link stillWaits} for `conversation`'s paused reply, read from the session. Writes nothing. */
+export async function pausedWaits(
+  ctx: CallsContext,
+  at: CoreContext,
+  conversation: StoredConversation,
+): Promise<{ until?: number } | undefined> {
+  const calls = waitingCalls(conversation);
+  if (!calls.length) return undefined;
+  return stillWaits(await ctx.sessions.read(at.sessionId), calls, ctx.profile.id);
+}
+
+/**
+ * Take the calls of a paused reply whose gates have all lapsed out of the session, each settled
+ * as `expired`. Undefined, with nothing taken, while one still waits ({@link stillWaits}).
+ */
+export async function takeLapsed(
+  ctx: CallsContext,
+  at: CoreContext,
+  conversation: StoredConversation,
+): Promise<IssuedWalkAway[] | undefined> {
+  const references = waitingCalls(conversation);
+  const paused = conversation.paused?.events ?? [];
+  // why: One write decides and takes, so an answer that lands meanwhile is never walked away from.
+  const calls = await ctx.sessions.mutate(at.sessionId, (state) =>
+    stillWaits(state, references, ctx.profile.id)
+      ? undefined
+      : references.map((reference) => ({
+          reference,
+          call: walkedCallOf(state, reference, ctx.profile.id, paused, 'expired'),
+        })),
+  );
+  return calls?.map((taken) => issuedWalkAway(ctx, at, taken));
+}
+
+/** A taken call with the run that settles it. */
+function issuedWalkAway(
+  ctx: CallsContext,
+  at: CoreContext,
+  { reference, call }: { reference: GateReference; call: WalkedCall },
+): IssuedWalkAway {
+  return {
+    ...reference,
+    events:
+      'settled' in call ? replayOperation(ctx, at, call.settled) : settleAnswered(ctx, at, call),
+  };
 }
 
 /**
@@ -412,11 +522,7 @@ export async function takeWalkedAway(
       call: walkedCallOf(state, reference, ctx.profile.id, paused),
     })),
   );
-  return calls.map(({ reference, call }) => ({
-    ...reference,
-    events:
-      'settled' in call ? replayOperation(ctx, at, call.settled) : settleAnswered(ctx, at, call),
-  }));
+  return calls.map((taken) => issuedWalkAway(ctx, at, taken));
 }
 
 async function* settleAnswered(

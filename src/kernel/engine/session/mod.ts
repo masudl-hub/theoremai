@@ -840,12 +840,13 @@ function buildLiveSession(args: {
     settleHeld(callId, held, readBack);
   };
 
-  /** A released call nobody answered in time: the model reads that its sign-in expired. */
+  /** A released call nobody answered in time: the model reads that it expired. */
   const lapseReleased = (callId: string, held: HeldCall) => {
     if (closed || calls.get(callId) !== held || typeof held.state !== 'object') return;
     const { gate } = held.state;
     const failure = lapsedGateFailure(
       held.name,
+      'expired',
       gate.kind === 'auth' ? gate.authChallenge.service : undefined,
       profile.labels,
     );

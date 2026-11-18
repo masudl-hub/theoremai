@@ -280,7 +280,7 @@ const transport = withPageToolDispatch(
 | `notifier`, `notifyRetryMs` | Tell an open page that a background call ended, and how long the page waits to reopen a cut stream. Unset, the page reads the end on its next turn or reload. See [the background section](#share-session-authority). |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
-| `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`, and the next message cancels the call. Unset, a gate waits until it is answered. |
+| `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`, and the next message or the next wake cancels the call. Unset, a gate waits until it is answered. |
 | `maxRequestBytes` | The largest browser request body, in bytes. Unset, a body of any size is read. |
 | `pageToolTimeoutMs` | How long the page has to answer a tool call it runs. A call it has not answered by then settles as timed out. Unset, the call waits until the page answers or the turn stops. The browser clients answer every call they get, so only a page function that never returns holds a turn. |
 | `operationRetentionMs` | How long a settled tool result is kept. Default: 24 hours. |
@@ -474,7 +474,7 @@ The handler runs each reply under a hold of the chat, with `runConversation` fro
 
 `tellEveryResult` is the decider for an app with no server of its own: every reply reads every result that waits, and the open page wakes the chat. A result that two replies read and did not tell (the model failed, or the reply lost the chat) is given up and reported once as `late_results_given_up`, so a model that keeps failing does not reply again and again. Write your own to keep a count, such as a cap or quiet hours, or to reply from the server.
 
-When the policy tells a result at `opening: 'wake'`, the conversation read says `wake: true`, and the page posts `<base>/wake` once it is idle. The handler runs a reply with no message, under a hold of the chat, so two pages that post at once run one reply. No wake runs while a reply waits on a gate: the reply that goes on after the answer reads what waits. A wake that fails gives its results back, so the chat wakes again. A message the person sends during a wake takes the chat: the wake writes nothing, and its stream ends with no error. When the wake was already saving its reply as the message read the chat, the message posts after that reply. When that reply stopped on an approval, the message fails with `session.gate_pending`, and the approval waits.
+When the policy tells a result at `opening: 'wake'`, the conversation read says `wake: true`, and the page posts `<base>/wake` once it is idle. The handler runs a reply with no message, under a hold of the chat, so two pages that post at once run one reply. No wake runs while a reply waits on a gate that the person can still answer: the reply that goes on after the answer reads what waits. With `gateTtlMs` set, a wake that finds every gate of the reply past its limit cancels those calls as expired, and then runs. The model reads `sign_in.expired` for a sign-in and `session.gate_lapsed` for any other gate. A wake that fails gives its results back, so the chat wakes again. A message the person sends during a wake takes the chat: the wake writes nothing, and its stream ends with no error. When the wake was already saving its reply as the message read the chat, the message posts after that reply. When that reply stopped on an approval, the message fails with `session.gate_pending`, and the approval waits.
 
 When a result ends while a reply runs, that reply reads it at its next moment. If it ends as the reply saves, the policy is asked once more before the reply lets the chat go. A reply from the server then runs a follow-up under the same hold. A page's reply lets the chat go, and the conversation read tells the page to wake. A server wake that finds another reply running tries again once that reply's lease runs out (`conversationLeaseMs`).
 
@@ -567,7 +567,7 @@ Use `inbox` when messages and events arrive from more than one place, and one re
 
 Each run then holds `conversation` in your inbox while it runs. Your `prepare` receives that hold as `run`, a `ReplyRun`. `run.opened` is the items the reply reads as it opens. `run.take` returns the items that arrive while the reply runs. To tell the model an item, add it to the turn that `prepare` returns, or inject it from that turn's `onStage`.
 
-A run that finds the conversation held returns `held` and runs nothing. `read` answers `wake: true` when your policy tells a waiting item to a reply to no message.
+A run that finds the conversation held returns `held` and runs nothing. A wake on a reply that waits on a gate also returns `held`, and `leasedUntil` is when the last gate lapses. When a gate has no time limit, the wake returns `released` and runs nothing. `read` answers `wake: true` when your policy tells a waiting item to a reply to no message.
 
 ### Save the person's message in your own write
 

@@ -101,7 +101,8 @@ export function registerTools(): void {
     input: z.object({}),
     output: z.object({ pages: z.number() }),
     handler: async () => {
-      await new Promise((done) => setTimeout(done, 1500));
+      // why: The tests keep it short; a person trying the studio by hand sets SLOW_REPORT_MS to watch it run.
+      await new Promise((done) => setTimeout(done, Number(process.env.SLOW_REPORT_MS ?? 1500)));
       return { pages: 12 };
     },
   });

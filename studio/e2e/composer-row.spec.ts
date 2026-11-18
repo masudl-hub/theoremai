@@ -114,3 +114,26 @@ test('while a step waits for approval, the send menu speaks of the step', async 
   );
   await expect(page.getByRole('menuitem', { name: /^Steer/ })).toHaveCount(0);
 });
+
+test('a staged file opens the drawer under the row, and the field stays in reach', async ({
+  page,
+}) => {
+  await openRow(page);
+  await page
+    .locator('input[type=file]')
+    .last()
+    .setInputFiles({
+      name: 'pixel.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    });
+  await expect(page.getByRole('button', { name: 'Collapse attached' })).toBeVisible();
+  // why: A click lands only on what is on top, so the drawer must not cover the field or send.
+  await composer(page).click();
+  await composer(page).fill('look');
+  await sendButton(page).click();
+  await expect(page.getByText('with 1 attached')).toBeVisible();
+});

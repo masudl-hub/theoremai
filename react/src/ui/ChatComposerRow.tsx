@@ -8,7 +8,13 @@ import { StackItem } from '@astryxdesign/core/Stack';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconClockPlay, IconPlayerStopFilled } from '@tabler/icons-react';
-import { type ReactNode, type RefObject, useLayoutEffect, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+  useLayoutEffect,
+  useState,
+} from 'react';
 import type { BackgroundJob } from '../client/transcript-groups.ts';
 import { useLabels } from './labels-provider.tsx';
 
@@ -122,6 +128,22 @@ function RowField({ input, stacked }: { input: ReactNode; stacked: boolean }) {
   );
 }
 
+/**
+ * The surface takes Astryx's composer body: the chat radius, the popover fill, no border.
+ * invariant: It sits above the drawer, which tucks under it by the chat radius, as in ChatComposer.
+ */
+const ROW_SURFACE: CSSProperties = {
+  position: 'relative',
+  zIndex: 2,
+  border: 'none',
+  borderRadius: 'var(--radius-chat)',
+  background: 'var(--color-background-popover)',
+  // why: As in ChatComposer: buttons follow the shell's curve, so send and the send menu are round.
+  '--_button-radius': 'max(var(--radius-element), calc(var(--radius-chat) - var(--spacing-3)))',
+} as CSSProperties;
+/** why: The drawer and the surface overlap, so their layering stays inside the composer. */
+const DRAWER_AND_SURFACE: CSSProperties = { position: 'relative', zIndex: 0, isolation: 'isolate' };
+
 /** The surface: attach, the field, then the controls, the mic, and send. */
 function RowSurface(
   props: Pick<ComposerRowParts, 'attach' | 'input' | 'controls' | 'record' | 'action'> & {
@@ -130,7 +152,7 @@ function RowSurface(
 ) {
   const attach = props.attach ? <StackItem>{props.attach}</StackItem> : null;
   return (
-    <Card elevation="low" padding={1.5}>
+    <Card elevation="low" padding={3} style={ROW_SURFACE}>
       {/* invariant: One flex row that wraps; stacking only changes the field's width, so the layout reshapes in place. */}
       <HStack gap={1} wrap="wrap" vAlign="end">
         {props.stacked ? null : attach}
@@ -174,15 +196,17 @@ export function ChatComposerRow(props: ComposerRowParts) {
         onStop={props.onStop}
         hint={props.hint}
       />
-      {props.drawer}
-      <RowSurface
-        stacked={stacked}
-        attach={props.attach}
-        input={props.input}
-        controls={props.controls}
-        record={props.record}
-        action={props.action}
-      />
+      <VStack gap={0} width="100%" style={DRAWER_AND_SURFACE}>
+        {props.drawer}
+        <RowSurface
+          stacked={stacked}
+          attach={props.attach}
+          input={props.input}
+          controls={props.controls}
+          record={props.record}
+          action={props.action}
+        />
+      </VStack>
       <RowStatus status={props.status} />
     </VStack>
   );

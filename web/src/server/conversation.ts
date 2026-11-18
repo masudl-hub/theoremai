@@ -707,6 +707,11 @@ export async function* messageReply(args: {
   message: PostedMessage;
   /** The paused reply's calls, each with the run that settles it: exactly the calls it waits on. */
   walkAway?: readonly IssuedWalkAway[];
+  /**
+   * The message's blocks as the app saved them itself. The reply then posts nothing: the store
+   * hears of the message first in the save that ends the reply.
+   */
+  saved?: readonly TranscriptBlock[];
   runner: ReplyRunner;
 }): AsyncGenerator<ReplyLine> {
   const { host, message, runner } = args;
@@ -732,7 +737,7 @@ export async function* messageReply(args: {
   const withMessage = (history: TurnHistoryMessage[]) =>
     appendUserDraftToHistory(history, message.draft, message.media);
   let base = opened;
-  for (;;) {
+  while (!args.saved) {
     try {
       // why: The message posts before the model runs, so a reply the browser stops still leaves it, in the transcript and the history.
       opened = await save(host, base, {
@@ -749,6 +754,16 @@ export async function* messageReply(args: {
     }
   }
   const { conversation } = base;
+  if (args.saved) {
+    opened = {
+      ...base,
+      conversation: {
+        ...conversation,
+        transcript: [...conversation.transcript, ...args.saved],
+        history: withMessage(conversation.history),
+      },
+    };
+  }
   yield* refLine(opened, 'posted');
   const reply: Reply = {
     base: withMessage(conversation.history),

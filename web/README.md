@@ -526,7 +526,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 
 | Method | Use |
 | --- | --- |
-| `message(at, { ref?, input, context?, generation?, abandon? })` | Posts the person's message and runs the reply. |
+| `message(at, { ref?, input, context?, generation?, abandon?, saved? })` | Posts the person's message and runs the reply. |
 | `answer(at, body)` | Answers a call that a paused reply waits on. |
 | `wake(at, { ref })` | Runs a reply to no message, for items that arrived since the model last ran. |
 | `read(at, { ref })` | Returns the conversation as a page draws it. |
@@ -560,6 +560,16 @@ Use `inbox` when messages and events arrive from more than one place, and one re
 | `leaseMs` | How long a hold keeps the conversation after it last renewed, in milliseconds. |
 
 Each run then holds `conversation` in your inbox while it runs. A run that finds the conversation held returns `held` and runs nothing. `read` answers `wake: true` when your policy tells a waiting item to a reply to no message.
+
+### Save the person's message in your own write
+
+Use `saved` when your app saves each message when it arrives, before any reply runs. In that write, your app also takes the conversation in your inbox under a hold. Pass both to `message`:
+
+```ts
+await core.message(at, { ref, input, saved: { hold, blocks } });
+```
+
+`hold` is the hold your write took. `blocks` is the message as your app saved it, as transcript blocks. The core then posts nothing. The reply runs under `hold`, and the save that ends the reply writes `blocks` with the reply. When another run holds the conversation, the run returns `held` and writes nothing. `saved` needs `inbox`.
 
 You cannot pass `inbox` together with `lateResultsDecider`. The core fails at setup with a `config` error.
 

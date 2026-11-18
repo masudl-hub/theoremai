@@ -760,7 +760,14 @@ async function message<Item extends InboxItem>(
   at: CoreContext,
   args: MessageArgs,
 ): Promise<Reply> {
-  const { generation = {} } = args;
+  const { generation = {}, saved } = args;
+  if (saved && !ctx.options.inbox) {
+    // labels-exempt: builder config error; the user reads error.config
+    throw new TheoremError(
+      'config',
+      "a `saved` message needs `inbox`: its hold is in the app's inbox",
+    );
+  }
   const posted = postedMessage(chatInterface(ctx.chat), args.input, args.context);
   const host = conversationHost(ctx, at);
   if (!host) {
@@ -785,12 +792,16 @@ async function message<Item extends InboxItem>(
   const walkAway = args.abandon
     ? await takeWalkedAway(ctx, at, args.abandon, opened.conversation)
     : undefined;
-  return heldLines(ctx, at, host, opened, { opening: 'message', takeOver: true }, (held) =>
+  const start: ReplyStart = saved
+    ? { opening: 'message', hold: saved.hold }
+    : { opening: 'message', takeOver: true };
+  return heldLines(ctx, at, host, opened, start, (held) =>
     messageReply({
       host,
       opened,
       message: posted,
       ...(walkAway ? { walkAway } : {}),
+      ...(saved ? { saved: saved.blocks } : {}),
       runner: chatRunner(ctx, at, generation, held),
     }),
   );
@@ -905,6 +916,12 @@ export type MessageArgs = {
   generation?: Generation;
   /** The calls a paused reply waits on, to walk away from: exactly those. */
   abandon?: readonly GateReference[];
+  /**
+   * The app saved the message itself and took the conversation in its `inbox` under `hold`, in
+   * one write. The core then posts nothing and runs the reply under `hold`. `blocks` is the
+   * message as the app saved it.
+   */
+  saved?: { hold: string; blocks: readonly TranscriptBlock[] };
 };
 
 /** A reply to no message, for {@link ConversationCore.wake}. */

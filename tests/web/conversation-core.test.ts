@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from '@std/assert';
+import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import {
   defaultKernelScope,
   type ModelRequest,
@@ -17,6 +17,7 @@ import {
   type ReplyLine,
   type RunEnd,
   type TheoremConversationCoreOptions,
+  type TheoremConversationStore,
   tellEveryResult,
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -199,5 +200,102 @@ Deno.test("the app's inbox and a late-results decider are refused together", () 
 
 Deno.test('a late-results decider needs the wake it calls', () => {
   const error = assertThrows(() => harness({ lateResultsDecider: tellEveryResult }), TheoremError);
+  assertEquals(error.kind, 'config');
+});
+
+/** A store that counts its writes. */
+function countingStore(): { store: TheoremConversationStore; writes: () => number } {
+  const inner = createMemoryConversationStore();
+  let writes = 0;
+  return {
+    store: {
+      read: (sessionId, ref) => inner.read(sessionId, ref),
+      write(sessionId, ref, expectedRevision, next) {
+        writes++;
+        return inner.write(sessionId, ref, expectedRevision, next);
+      },
+    },
+    writes: () => writes,
+  };
+}
+
+Deno.test("a message the app saved posts nothing, and its reply runs under the app's hold", async () => {
+  const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
+  const { store, writes } = countingStore();
+  const { core, hold, free } = harness({
+    conversationStore: store,
+    inbox: () => ({
+      inbox,
+      conversation: KEEPER,
+      policy: () => ({ tell: [] }),
+      leaseMs: LEASE_MS,
+    }),
+  });
+  assertEquals((await inbox.open(KEEPER, 'app-hold')).outcome, 'opened');
+  const running = hold();
+  const reply = drain(
+    await core.message(at(), {
+      input: { text: 'hello' },
+      saved: { hold: 'app-hold', blocks: [{ id: 'row-1', kind: 'user-text', text: 'hello' }] },
+    }),
+  );
+  await running;
+  assertEquals(writes(), 0);
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'held');
+  free();
+  const { lines, end } = await reply;
+  assertEquals(end, { outcome: 'released' });
+  assertEquals(writes(), 1);
+  assertEquals(
+    lines.filter((line) => line.type === 'conversation').map((line) => 'posted' in line),
+    [false],
+  );
+  const view = await core.read(at(), { ref: refOf(lines) });
+  assertEquals(
+    view.transcript.map((block) => [block.id === 'row-1', block.kind]),
+    [
+      [true, 'user-text'],
+      [false, 'text'],
+      [false, 'turn-done'],
+    ],
+  );
+  assertEquals((await inbox.open(KEEPER, 'another-hold')).outcome, 'opened');
+});
+
+Deno.test('a message the app saved, under a hold that lost the conversation, runs nothing', async () => {
+  const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
+  const { store, writes } = countingStore();
+  const { core, seen } = harness({
+    conversationStore: store,
+    inbox: () => ({
+      inbox,
+      conversation: KEEPER,
+      policy: () => ({ tell: [] }),
+      leaseMs: LEASE_MS,
+    }),
+  });
+  await inbox.open(KEEPER, 'another-hold');
+  const { lines, end } = await drain(
+    await core.message(at(), {
+      input: { text: 'hello' },
+      saved: { hold: 'app-hold', blocks: [{ id: 'row-1', kind: 'user-text', text: 'hello' }] },
+    }),
+  );
+  assertEquals(lines, []);
+  assertEquals(end.outcome, 'held');
+  assertEquals(seen.length, 0);
+  assertEquals(writes(), 0);
+});
+
+Deno.test('a message the app saved is refused with no app inbox', async () => {
+  const { core } = harness();
+  const error = await assertRejects(
+    () =>
+      core.message(at(), {
+        input: { text: 'hello' },
+        saved: { hold: 'app-hold', blocks: [{ id: 'row-1', kind: 'user-text', text: 'hello' }] },
+      }),
+    TheoremError,
+  );
   assertEquals(error.kind, 'config');
 });

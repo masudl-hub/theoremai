@@ -116,7 +116,7 @@ allowModelSelect: true,
 ```
 
 * **`defaultModel`**: Required whenever more than one model is bound. Specifies which model executes turns that omit a `model` parameter.
-* **`allowModelSelect`**: When `true`, turn callers can explicitly select among declared keys (`runTurn({ profile: 'harbor.desk', model: 'fast', input: { ... } })`). When `false`, requests specifying a model are rejected with a typed `TheoremError`.
+* **`allowModelSelect`**: When `true`, turn callers can explicitly select among declared keys (`runTurn({ profile: 'harbor.desk', model: 'fast', input: { ... } })`). Your server code may name any declared key either way; when `false`, the web handler refuses a model the page picked, with a typed `TheoremError`.
 
 ---
 
@@ -143,7 +143,7 @@ models: {
 
 * **`efforts`**: Maps custom tier names to kernel thinking levels: `'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'`.
 * **`defaultEffort`**: The effort tier used when a request specifies none. Required when multiple efforts are configured.
-* **`allowEffortSelect`**: Allows turn requests to select an effort level (`input: { effort: 'thorough' }`).
+* **`allowEffortSelect`**: Lets the page pick an effort level; your server code may name any declared one either way (`input: { effort: 'thorough' }`).
 * **`summaries`**: When `true`, requests thinking process summaries from supported models and retains them in trace telemetry.
 
 ---

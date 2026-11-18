@@ -31,7 +31,7 @@ export const manifestEmbedder = defineProfile({
 
 * **No System Prompt**: Embedding profiles accept no system prompt (`identity.system`). The model vectorizes the supplied input directly without instruction framing.
 * **No Tool Execution**: Embedding profiles execute no tools and maintain no conversational history or compaction cycles.
-* **Multi-Model Routing**: Like text agents, embedding profiles support multiple bound models under `models`, declaring `defaultModel` and `allowModelSelect` to permit callers to specify embedding architectures dynamically.
+* **Multi-Model Routing**: Like text agents, embedding profiles support multiple bound models under `models`, declaring `defaultModel` and `allowModelSelect` to let the page pick among them.
 
 ---
 

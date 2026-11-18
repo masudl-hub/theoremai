@@ -53,6 +53,7 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
 const STAGE_RESULT_KEYS = new Set<string>([
   ...STAGE_AFFORDANCES,
   'injectId',
+  'injects',
   'released',
   'promote',
 ]);
@@ -118,6 +119,13 @@ export interface StageContext extends StageCallBag {
   host?: unknown;
 }
 
+/** One of the injects a stage handler returns in {@linkcode StageResult.injects}. */
+export interface StageInject {
+  /** Names this inject in the `stage` event that records it landing. */
+  id: string;
+  messages: TurnHistoryMessage[];
+}
+
 /** What a stage handler returns: what it asks the turn to do. */
 export interface StageResult {
   inject?: TurnHistoryMessage[];
@@ -126,6 +134,13 @@ export interface StageResult {
    * non-string id refuses the inject whole.
    */
   injectId?: string;
+  /**
+   * Several injects, each under its own id, in place of `inject` and `injectId`. They land
+   * together, in order, and the `stage` event names each one that landed. An entry with a blank
+   * id, an id another entry has, or no usable message refuses them all. `released` and `promote`
+   * are for all of them.
+   */
+  injects?: StageInject[];
   /**
    * With `inject`, at `post_tool` or `before_end`: how many characters of the attempt's reply text,
    * as the turn gave it, the user already has. The rest is a draft they never got: it leaves the
@@ -225,6 +240,8 @@ export interface InjectUnit {
 /** A stage handler's result after validation: the parts the turn will act on. */
 export interface StageApplyOutput {
   inject?: InjectUnit;
+  /** {@linkcode StageResult.injects}, in order. */
+  injects?: InjectUnit[];
   abort?: boolean | { reason?: string };
   deny?: { code: string; message: string; details?: Record<string, unknown> };
   confirm?: { summary?: string };
@@ -417,12 +434,77 @@ function injectUnit(
   return undefined;
 }
 
+/** One entry of `injects` as a unit; an entry that is not one is a warning and `undefined`. */
+function namedInjectUnit(
+  entry: unknown,
+  taken: ReadonlySet<string>,
+  warnings: StageApplyWarning[],
+): (InjectUnit & { id: string }) | undefined {
+  if (!isRecord(entry)) {
+    warn(warnings, 'inject_invalid_messages', 'injects', 'injects entry must be an object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return undefined;
+  }
+  const { id } = entry;
+  if (typeof id !== 'string' || !id.trim() || taken.has(id)) {
+    warn(
+      warnings,
+      'inject_id_invalid',
+      'injects',
+      'each injects entry needs its own non-empty string id', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+    return undefined;
+  }
+  const messages = coerceHistoryMessages(entry.messages, warnings);
+  return messages ? { id, messages } : undefined;
+}
+
+/** `injects` as units, the first carrying `released` and `promote`; one unusable entry refuses them all. */
+function namedInjectUnits(
+  result: Record<string, unknown>,
+  warnings: StageApplyWarning[],
+): InjectUnit[] | undefined {
+  if (!Array.isArray(result.injects)) {
+    warn(warnings, 'inject_invalid_messages', 'injects', 'injects must be an array'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return undefined;
+  }
+  if (result.inject !== undefined || result.injectId !== undefined) {
+    warn(
+      warnings,
+      'inject_invalid_messages',
+      'injects',
+      'injects with inject or injectId: pass one form; all refused', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+    return undefined;
+  }
+  const units: InjectUnit[] = [];
+  const taken = new Set<string>();
+  for (const entry of result.injects) {
+    const unit = namedInjectUnit(entry, taken, warnings);
+    if (!unit) return undefined;
+    taken.add(unit.id);
+    units.push(unit);
+  }
+  const [first, ...rest] = units;
+  if (!first) return undefined;
+  const released = injectReleased(result.released, warnings);
+  const promote = injectPromote(result.promote, warnings);
+  return [
+    {
+      ...first,
+      ...(released === undefined ? {} : { released }),
+      ...(promote === undefined ? {} : { promote }),
+    },
+    ...rest,
+  ];
+}
+
 function applyInjectField(
   result: Record<string, unknown>,
   input: StageApplyInput,
   out: StageApplyOutput,
 ): void {
-  if (!('inject' in result) || result.inject === undefined) {
+  const named = result.injects !== undefined;
+  if (!named && (!('inject' in result) || result.inject === undefined)) {
     if (result.injectId !== undefined) {
       warn(out.warnings, 'inject_id_invalid', 'injectId', 'injectId without inject ignored'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
@@ -456,6 +538,9 @@ function applyInjectField(
       'inject',
       'inject rejected: another model step would exceed maxSteps', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
+  } else if (named) {
+    const units = namedInjectUnits(result, out.warnings);
+    if (units) out.injects = units;
   } else {
     const unit = injectUnit(result, out.warnings);
     if (unit) out.inject = unit;
@@ -829,6 +914,7 @@ function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
     if (part.waitFor) out.waitFor = [...new Set([...(out.waitFor ?? []), ...part.waitFor])];
     if (part.end) out.end = true;
     if (part.inject) out.inject.push(part.inject);
+    if (part.injects) out.inject.push(...part.injects);
   }
   if (out.deny && out.confirm) {
     warn(out.warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

@@ -921,6 +921,75 @@ Deno.test('applyStageResult: injectId names the inject; an unusable one refuses 
   );
 });
 
+Deno.test('applyStageResult: injects names each inject; released and promote ride the first', () => {
+  const applied = applyStageResult({
+    stage: 'post_tool',
+    injectAllowed: true,
+    result: {
+      injects: [
+        { id: 'a', messages: [{ role: 'user', content: 'one' }] },
+        { id: 'b', messages: [{ role: 'user', content: 'two' }] },
+      ],
+      released: 4,
+      promote: ['tool_x'],
+    },
+  });
+  assertEquals(applied.inject, undefined);
+  assertEquals(applied.injects, [
+    { id: 'a', messages: [{ role: 'user', content: 'one' }], released: 4, promote: ['tool_x'] },
+    { id: 'b', messages: [{ role: 'user', content: 'two' }] },
+  ]);
+  assertEquals(applied.warnings, []);
+});
+
+Deno.test('applyStageResult: one unusable injects entry refuses them all', () => {
+  const good = { id: 'a', messages: [{ role: 'user', content: 'one' }] };
+  const cases: [unknown, string, string][] = [
+    [{ injects: 'no' }, 'inject_invalid_messages', 'injects'],
+    [{ injects: [good, 7] }, 'inject_invalid_messages', 'injects'],
+    [{ injects: [good, { ...good }] }, 'inject_id_invalid', 'injects'],
+    [{ injects: [good, { id: ' ', messages: good.messages }] }, 'inject_id_invalid', 'injects'],
+    [{ injects: [good, { id: 'b', messages: 'no' }] }, 'inject_invalid_messages', 'inject'],
+    [{ injects: [good], inject: good.messages }, 'inject_invalid_messages', 'injects'],
+    [{ injects: [good], injectId: 'x' }, 'inject_invalid_messages', 'injects'],
+  ];
+  for (const [result, code, field] of cases) {
+    const applied = applyStageResult({ stage: 'pre_turn', injectAllowed: true, result });
+    assertEquals(applied.injects, undefined);
+    assertEquals(applied.inject, undefined);
+    assertEquals(
+      applied.warnings.map((w) => [w.code, w.field]),
+      [[code, field]],
+    );
+  }
+  const none = applyStageResult({
+    stage: 'pre_turn',
+    injectAllowed: true,
+    result: { injects: [] },
+  });
+  assertEquals(none.injects, undefined);
+  assertEquals(none.warnings, []);
+});
+
+Deno.test('applyStageResult: injects pass the gates an inject passes', () => {
+  const result = { injects: [{ id: 'a', messages: [{ role: 'user', content: 'one' }] }] };
+  for (const [input, code] of [
+    [{ stage: 'pre_tool', injectAllowed: true }, 'affordance_not_allowed'],
+    [{ stage: 'pre_turn', injectAllowed: false }, 'inject_not_allowed'],
+    [
+      { stage: 'pre_turn', injectAllowed: true, injectWouldExceedMaxSteps: true },
+      'inject_rejected_max_steps',
+    ],
+  ] as const) {
+    const applied = applyStageResult({ ...input, result });
+    assertEquals(applied.injects, undefined);
+    assertEquals(
+      applied.warnings.map((w) => w.code),
+      [code],
+    );
+  }
+});
+
 Deno.test('injectedStageEvent names only the injects the host named', () => {
   const units = [
     { id: 'a', messages: [{ role: 'user' as const, content: 'one' }] },

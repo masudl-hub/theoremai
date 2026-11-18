@@ -1103,7 +1103,7 @@ export type TurnEvent =
       stop?: TurnStop;
       /** Stage result fields the kernel dropped. */
       stageWarnings?: StageApplyWarning[];
-      /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage, each with the messages it added. */
+      /** The named injects (`StageResult.injectId`, `StageResult.injects`) that landed in the conversation at this stage, each with the messages it added. */
       injected?: InjectedMessages[];
       /**
        * An inject at this stage dropped a draft the user never got: of the reply text since the

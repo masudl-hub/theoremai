@@ -105,7 +105,11 @@ function caller(seen: ModelRequest[], script: Script): TurnModel {
         }
         if (script.fail) throw new Error('the-model-broke');
         if (script.failLine) {
-          yield { type: 'error' as const, errorKind: 'unavailable' as const, errorInternal: 'busy' };
+          yield {
+            type: 'error' as const,
+            errorKind: 'unavailable' as const,
+            errorInternal: 'busy',
+          };
           return;
         }
         yield { type: 'text' as const, text: 'It finished.' };

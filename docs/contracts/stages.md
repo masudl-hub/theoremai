@@ -123,6 +123,11 @@ interface StageResult {
   /** Names this inject; the stage event recording it landing carries it, with its messages, in `injected`. */
   injectId?: string;
   /**
+   * Several injects, each under its own id, in place of `inject` and `injectId`. They land
+   * together, in order. `released` and `promote` apply to them all.
+   */
+  injects?: { id: string; messages: TurnHistoryMessage[] }[];
+  /**
    * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
    * reply text the user already has. The rest is a draft: it leaves the turn history and the
    * reply when the inject lands. Left out, the user has all of it.
@@ -255,7 +260,12 @@ provider checkpoint still covers it. Structured replies get no blank line.
 
 **Reporting a landed inject.** A handler names its inject with `injectId` (a
 non-empty string; anything else refuses the inject whole with an
-`inject_id_invalid` warning, as does an `injectId` without an `inject`). Where
+`inject_id_invalid` warning, as does an `injectId` without an `inject`). A
+handler with several things to tell returns `injects`, a list of
+`{ id, messages }`. They land together, in the order given, and the stage event
+names each one. An entry with a blank id, an id another entry has, or messages
+that are not usable refuses all of them, with a warning. So does `injects`
+together with `inject` or `injectId`. An empty list injects nothing. Where
 the messages land in the conversation — not when the handler returns — the
 kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages }] }`
 naming the injects that landed at that stage, each with the messages it added as the model reads

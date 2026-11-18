@@ -357,6 +357,69 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
   assertEquals(replyText(events), 'first reply\n\nsecond reply');
 });
 
+Deno.test('stages: several named injects land together at pre_turn, post_tool and before_end', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      id: 'stage.injects.named',
+      identity: { handle: 'bot' },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 4,
+      tools: { allow: ['stub_tool'] },
+      inputs: { text: true },
+    }),
+  );
+
+  const read: string[][] = [];
+  let call = 0;
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
+      call++;
+      read.push(
+        (req.history ?? []).flatMap((m) =>
+          m.role === 'user' && typeof m.content === 'string' ? [m.content] : [],
+        ),
+      );
+      if (call === 1) {
+        yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } };
+        yield { type: 'done', stop: { kind: 'tool' }, interactionId: 'ix-1' };
+        return;
+      }
+      yield { type: 'text', text: `reply ${call}` };
+      yield { type: 'done', stop: { kind: 'completed' } };
+    },
+  };
+
+  const pair = (stage: string) => [
+    { id: `${stage}-a`, messages: [{ role: 'user' as const, content: `${stage} one` }] },
+    { id: `${stage}-b`, messages: [{ role: 'user' as const, content: `${stage} two` }] },
+  ];
+  const fired = new Set<string>();
+  const events = await Array.fromAsync(
+    runTurn(
+      {
+        profile: 'stage.injects.named',
+        input: { text: 'run tool' },
+        onStage: ({ stage }) => {
+          if (stage === 'pre_tool' || stage === 'post_turn' || fired.has(stage)) return undefined;
+          fired.add(stage);
+          return { injects: pair(stage) };
+        },
+      },
+      provider,
+    ),
+  );
+
+  assertEquals(
+    injectedOf(events).map((event) => (event.type === 'stage' ? event.injected : undefined)),
+    ['pre_turn', 'post_tool', 'before_end'].map(pair),
+  );
+  assertEquals(call, 3);
+  assertEquals(read[0]?.slice(-2), ['pre_turn one', 'pre_turn two']);
+  assertEquals(read[1]?.slice(-2), ['post_tool one', 'post_tool two']);
+  assertEquals(read[2]?.slice(-2), ['before_end one', 'before_end two']);
+});
+
 Deno.test('stages: before_end inject cannot exceed maxSteps across re-entry', async () => {
   registerProfile(
     defineProfile({

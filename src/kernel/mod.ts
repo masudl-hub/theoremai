@@ -263,6 +263,7 @@ export type {
   StageContext,
   StageEventExtra,
   StageHandler,
+  StageInject,
   StageMutate,
   StageMutateSubject,
   StageResult,

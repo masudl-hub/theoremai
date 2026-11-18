@@ -39,6 +39,7 @@ import {
 } from '../../../guardrails/live-outbound-gate.ts';
 import type { ResolveHost } from '../../../guardrails/network.ts';
 import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
+import { lateResultsMessage } from '../../../guardrails/tool-fence.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TurnTaint } from '../../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
@@ -51,6 +52,7 @@ import {
   memoryCredentialSource,
 } from '../../auth/credential-source.ts';
 import { historyHash } from '../../checkpoint.ts';
+import { hookFailed } from '../../hook-failure.ts';
 import { stepReplyMessages } from '../../interaction-parts.ts';
 import type { ProviderHostOptions } from '../../protocols/runtime.ts';
 import { openRegisteredLiveSession } from '../../provider-live.ts';
@@ -111,11 +113,13 @@ import { type ModelEvent, turnDoneOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   KeyVault,
+  LateResultsSource,
   LiveAnswerToolCallArgs,
   LiveExecuteToolArgs,
   LiveExecuteToolResult,
   LiveProfile,
   LiveSession,
+  LiveWakeOutcome,
   ModelRequest,
   Profile,
   ResolvedGeneration,
@@ -129,6 +133,7 @@ import { prepareLiveContext, prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
 import { EGRESS_FILTERED_STOP } from '../runner/gates.ts';
 import { sessionAgentCaller } from '../runner/mod.ts';
+import { lateResultsText, unreadLateResults } from '../runner/state.ts';
 import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace.ts';
 
 export type { LiveSession, SessionRequest };
@@ -632,6 +637,8 @@ function buildLiveSession(args: {
   lines?: LiveLines;
   /** The first user line's id, reserved before setup so its note rides in the opening seed. */
   firstLineId?: string;
+  /** Gives the background calls that settled after their turn (`SessionRequest.lateResults`). */
+  lateResults?: LateResultsSource;
 }): LiveSession {
   const {
     profile,
@@ -676,6 +683,10 @@ function buildLiveSession(args: {
   };
 
   let cycle: 'idle' | 'open' = 'idle';
+  /** The model is answering: it spoke, wrote, or called since the cycle's last boundary. */
+  let responding = false;
+  /** The id of the wake that started the open cycle; its stage events carry it. */
+  let cycleWake: string | undefined;
   /** An interrupt ended the reply; its `turnComplete` is still to come. */
   let cutOff = false;
   /** Input landed while this cycle was already open: if an interrupt ends it, that input opens the next. */
@@ -742,7 +753,8 @@ function buildLiveSession(args: {
   };
 
   const enqueuePending = (ev: TurnEvent) => {
-    pendingHostEvents.push(projectGuardrailTurnEvent(ev, includeMatch));
+    const tagged = ev.type === 'stage' && cycleWake !== undefined ? { ...ev, wake: cycleWake } : ev;
+    pendingHostEvents.push(projectGuardrailTurnEvent(tagged, includeMatch));
     const wake = wakeHost;
     wakeHost = undefined;
     wake?.();
@@ -788,6 +800,10 @@ function buildLiveSession(args: {
     clearTimeout(held.lapse);
     calls.delete(callId);
     answerModel(callId, held, readBack, parts);
+    if (args.lateResults) {
+      // why: The call's answer is sent first, so what landed late follows it, as in a text turn.
+      void withIngress(() => landLateResults('post_tool').then(() => {})).catch(() => undefined);
+    }
   };
 
   const settleHeldFailure = (callId: string, held: HeldCall, failure: ToolFailure) => {
@@ -951,6 +967,11 @@ function buildLiveSession(args: {
   const ingestPreparedLiveText = (text: string, record: (crossed: string) => void) => {
     const safe = readLiveText(text);
     if (safe === undefined) return;
+    sendCrossed(safe, record);
+  };
+
+  /** Sends text that crossed the inbound check, and records it as it crossed, unwrapped. */
+  const sendCrossed = (safe: string, record: (crossed: string) => void) => {
     record(safe.slice(USER_OPEN.length + 1, -(USER_CLOSE.length + 1)));
     sendInput({ type: 'text', text: safe });
   };
@@ -1079,14 +1100,53 @@ function buildLiveSession(args: {
         });
         continue;
       }
-      for (const text of texts) {
-        assertLiveIngress(profile, 'text');
-        ingestPreparedLiveText(text, recordUserText);
-      }
+      assertLiveIngress(profile, 'text');
+      const crossed = texts.map(readLiveText);
+      // invariant: An inject lands whole or not at all; one the inbound check blocks is not landed.
+      if (crossed.some((text) => text === undefined)) continue;
+      for (const safe of crossed as string[]) sendCrossed(safe, recordUserText);
       landed.push(unit);
     }
     const event = injectedStageEvent(stage, landed, extra);
     if (event) enqueuePending(event);
+    return landed.length;
+  };
+
+  /**
+   * Asks `lateResults` at `stage` and lands what the call does not hold yet: one message the model
+   * reads as tool results, then the `late_results` event. True when something landed.
+   */
+  const landLateResults = async (stage: 'pre_turn' | 'post_tool' | 'before_end') => {
+    const source = args.lateResults;
+    if (!source || closed) return false;
+    if (stage !== 'pre_turn' && !profileAllowsInject(profile)) return false;
+    const step = Math.max(1, cycleStep);
+    let given: Awaited<ReturnType<LateResultsSource>>;
+    try {
+      given = await source({ stage, step, host: sessionHost, ...(signal ? { signal } : {}) });
+    } catch (err) {
+      throwIfAborted(signal);
+      enqueuePending(hookFailed('lateResults', err, { stage, span: trace.root }));
+      return false;
+    }
+    if (closed) return false;
+    const unread = unreadLateResults(history, given);
+    if (unread.length === 0) return false;
+    const { text, operationIds, reads } = lateResultsText(unread, profile.labels);
+    for (const { readBack, result } of reads) {
+      if (result?.provenance) {
+        cycleTaint = recordTaint(cycleTaint, result.provenance, result.suspicious);
+        addResultDestinations(destinations, result, result.provenance);
+      }
+      addSeenUrls(givenUrls.tools, readBack);
+    }
+    const inReply = stage !== 'pre_turn';
+    const message = lateResultsMessage(text, operationIds, inReply);
+    givenUrls.own.add(message);
+    history.push(message);
+    sendInput({ type: 'text', text });
+    enqueuePending({ type: 'late_results', text, operationIds, stage, step, inReply });
+    return true;
   };
 
   /** A stage's `abort` ends the open cycle: a cancelled `done`, then `post_turn`. */
@@ -1094,27 +1154,38 @@ function buildLiveSession(args: {
     const stop = stageAbortStop(abort);
     // why: Idle first, so a boundary the provider sends meanwhile does not end the cycle again.
     cycle = 'idle';
+    responding = false;
     enqueuePending({ type: 'done', stop, interrupted: true });
     await runCycleStage('post_turn', { stop });
+    cycleWake = undefined;
   };
 
-  const openCycleIfNeeded = async (): Promise<{ aborted: boolean }> => {
+  /** The turn's opening moment: `pre_turn`, then the late results. */
+  const openingMoment = async (): Promise<{ aborted: boolean; landed: boolean }> => {
+    const pre = await runCycleStage('pre_turn');
+    if (pre.abort) {
+      await cancelCycle(pre.abort);
+      return { aborted: true, landed: false };
+    }
+    const injected = landInject('pre_turn', pre.inject);
+    const late = await landLateResults('pre_turn');
+    return { aborted: false, landed: injected > 0 || late };
+  };
+
+  const openCycleIfNeeded = async (
+    wake?: string,
+  ): Promise<{ aborted: boolean; landed: boolean }> => {
     if (cycle === 'open') {
       ingressInCycle = true;
-      return { aborted: false };
+      return { aborted: false, landed: false };
     }
     cycle = 'open';
+    cycleWake = wake;
     ingressInCycle = false;
     cycleStep += 1;
     cycleTaint = undefined;
     destinations.remote.clear();
-    const pre = await runCycleStage('pre_turn');
-    if (pre.abort) {
-      await cancelCycle(pre.abort);
-      return { aborted: true };
-    }
-    landInject('pre_turn', pre.inject);
-    return { aborted: false };
+    return await openingMoment();
   };
 
   const endCycleAroundDone = async function* (doneEvents: TurnEvent[]): AsyncGenerator<TurnEvent> {
@@ -1129,15 +1200,21 @@ function buildLiveSession(args: {
       yield { type: 'done', stop: { kind: 'cancelled' }, interrupted: true };
       await runCycleStage('post_turn', { stop: { kind: 'cancelled' } });
       cycle = 'idle';
+      cycleWake = undefined;
       return;
     }
-    landInject('before_end', before.inject);
+    const injected = landInject('before_end', before.inject);
+    const late = await landLateResults('before_end');
     for (const ev of doneEvents) {
       yield ev;
     }
     const terminal = doneEvents.find((e) => e.type === 'done');
     await runCycleStage('post_turn', { stop: terminal?.stop });
     cycle = 'idle';
+    cycleWake = undefined;
+    // why: What landed at before_end draws an answer; it opens the next turn, so that answer has
+    // its own stages and its own end, as a text turn's next step does.
+    if (injected > 0 || late) await withIngress(() => openCycleIfNeeded().then(() => {}));
   };
 
   const withIngress = (fn: () => Promise<void>): Promise<void> => {
@@ -1394,6 +1471,7 @@ function buildLiveSession(args: {
       if (ev.type === 'guardrail') trace.outbound(ev);
     }
 
+    if (gated.some(isModelAction)) responding = true;
     await recordLines(gated);
     const sealed = await sealLiveCheckpoints(
       closesCutOff ? checkpointOfClose(gated) : gated,
@@ -1418,6 +1496,7 @@ function buildLiveSession(args: {
         withholdClose ||
         ending.length > 0);
 
+    if (completeBoundary) responding = false;
     // why: Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
     // provider sends no status) often have no folded `done` — still end the cycle.
     if (completeBoundary && cycle === 'open') {
@@ -1540,6 +1619,32 @@ function buildLiveSession(args: {
         landContext(context);
         return Promise.resolve();
       });
+    },
+    async wake(): Promise<LiveWakeOutcome> {
+      let outcome: LiveWakeOutcome | undefined;
+      await withIngress(async () => {
+        assertOpen();
+        if (calls.size > 0) {
+          outcome = { outcome: 'folded', stage: 'post_tool' };
+          return;
+        }
+        if (responding) {
+          outcome = { outcome: 'folded', stage: 'before_end' };
+          return;
+        }
+        const wake = crypto.randomUUID();
+        let opened: { aborted: boolean; landed: boolean };
+        if (cycle === 'open') {
+          // why: Input the model has not answered keeps the cycle open (a microphone streams
+          // through silence); the wake's turn is that cycle, and it opens again for the wake.
+          cycleWake = wake;
+          opened = await openingMoment();
+        } else {
+          opened = await openCycleIfNeeded(wake);
+        }
+        outcome = { outcome: opened.landed ? 'started' : 'nothing_landed', wake };
+      });
+      return outcome as LiveWakeOutcome;
     },
     async executeTool({
       callId,
@@ -1812,5 +1917,6 @@ async function openTracedSession(
     gateTtlMs,
     signInGate: options.signInGate ?? 'hold',
     ...(lines ? { lines, firstLineId } : {}),
+    ...(req.lateResults ? { lateResults: req.lateResults } : {}),
   });
 }

@@ -28,6 +28,7 @@ import type { ToolOperationOutcome } from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import type { SteerQueue } from '../../tools/steer.ts';
+import type { ModelToolResult } from '../../tools/types.ts';
 import type { MediaRefused } from '../../turn-events.ts';
 import type {
   InteractionPart,
@@ -208,15 +209,15 @@ function carryReplyReads(state: StepExecutionState, history: readonly TurnHistor
 }
 
 /**
- * Those of `outcomes` the conversation does not hold yet, each once.
+ * Those of `outcomes` that `history` does not hold yet, each once.
  *
  * invariant: A history holds a late result once, however often the host gives it.
  */
 function unreadLateResults(
-  state: StepExecutionState,
+  history: readonly TurnHistoryMessage[],
   outcomes: readonly ToolOperationOutcome[],
 ): ToolOperationOutcome[] {
-  const read = new Set(state.currentHistory.flatMap(lateResultIds));
+  const read = new Set(history.flatMap(lateResultIds));
   return outcomes.filter(({ event }) => {
     const { operationId } = event.tool;
     if (!operationId) {
@@ -227,6 +228,39 @@ function unreadLateResults(
     read.add(operationId);
     return true;
   });
+}
+
+/** One late result as the model reads it, and what it read, for the reader's marks. */
+interface LateResultRead {
+  readBack: string;
+  result: ModelToolResult | undefined;
+}
+
+/**
+ * The text the model reads for `unread`: each result fenced as a tool's result, under its tool's
+ * name. A text turn and a live call land the same text.
+ */
+function lateResultsText(
+  unread: readonly ToolOperationOutcome[],
+  labels: Profile['labels'],
+): { text: string; operationIds: string[]; reads: LateResultRead[] } {
+  const blocks = unread.map(({ event, replay }) => {
+    const { name, operationId = '', readBack = '' } = event.tool;
+    const result = replay.modelResult;
+    const provenance = result?.provenance ?? { origin: 'local' as const, tool: name, depth: 1 };
+    const fenced =
+      readToolData(readBack).length > 0 ? readBack : wrapToolData(readBack, provenance);
+    return {
+      operationId,
+      read: { readBack, result },
+      text: `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}`,
+    };
+  });
+  return {
+    text: blocks.map((block) => block.text).join('\n\n'),
+    operationIds: blocks.map((block) => block.operationId),
+    reads: blocks.map((block) => block.read),
+  };
 }
 
 /**
@@ -240,24 +274,14 @@ function landLateResults(
   labels: Profile['labels'],
   stage: TurnInjectStage,
 ): { text: string; operationIds: string[]; inReply: boolean } {
-  const blocks = unread.map(({ event, replay }) => {
-    const { name, operationId = '', readBack = '' } = event.tool;
-    const result = replay.modelResult;
-    const provenance = result?.provenance ?? { origin: 'local' as const, tool: name, depth: 1 };
+  const { text, operationIds, reads } = lateResultsText(unread, labels);
+  for (const { readBack, result } of reads) {
     if (result?.provenance) {
       state.taint = recordTaint(state.taint, result.provenance, result.suspicious);
       addResultDestinations(state.destinations, result, result.provenance);
     }
     addSeenUrls(state.givenUrls.tools, readBack);
-    const fenced =
-      readToolData(readBack).length > 0 ? readBack : wrapToolData(readBack, provenance);
-    return {
-      operationId,
-      text: `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}`,
-    };
-  });
-  const text = blocks.map((block) => block.text).join('\n\n');
-  const operationIds = blocks.map((block) => block.operationId);
+  }
   // why: At the opening, a reply is under way when the person's message came first or an earlier run began it.
   const inReply =
     stage !== 'pre_turn' ||
@@ -340,6 +364,7 @@ export {
   appendUserInput,
   cutConversation,
   landLateResults,
+  lateResultsText,
   modelHistory,
   openTurnState,
   recordStepEvent,

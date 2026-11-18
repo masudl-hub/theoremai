@@ -665,7 +665,7 @@ The kernel validates protocol events before it releases them or executes client 
 | `citation` | `sources` (`title` / `uri` / `type` / `placeId?`) a provider or a tool cited. From a provider: Google `url_citation` / `place_citation` annotations and `google_maps_result` places, OpenRouter citations and `url_citation` annotations. From a tool: its `sources(output)` on a completed call, with the call's `callId` (see [Tool sources](#tool-sources)) |
 | `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); Live `voiceActivity` uses `voice_activity` (`raw`); session resumption uses `session_resumption` + `resumable`. `partial: true` marks a step the provider started and never finished (the stream ended first); a partial tool call never runs. |
 | `session` | Live control: `closing_soon` (optional `timeLeftMs`); `ended`, the provider's close after it warned of one — not an error: `ended { cause: 'go_away', code, closedAfterMs, errorKind? }` (`errorKind` when the code is not 1000), `timeLeftMs` (the last warning's window), `message` (the user's wording, labels `live.session_ended`) and the raw close as `errorInternal`; `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
-| `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md). With `released`, an inject dropped the reply past that many characters: `keptReply` cuts it there |
+| `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md). With `released`, an inject dropped the reply past that many characters: `keptReply` cuts it there. In a live call, `wake` is the id of the `wake()` that started the turn |
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Protocol → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
 | `compaction` | `timing: 'before'` ran the compactor: `outcome`, the `history` the turn used, `summary` when compacted, `failure` when not, `droppedMedia`, the meter's count and message counts (see [Compaction](#compaction)) |
@@ -1360,7 +1360,7 @@ A text turn asks it at three moments:
 | `post_tool` | The step that ended | A step's calls all settled, after the steers of that step. Not on a step that a gate held, that `end` ended, or that was stopped | The model reads them on its next step |
 | `before_end` | The step that answered | The model answered, after the host's injects and the steers. Not when the stage aborts | The answer joins turn history first, and the model takes another step |
 
-Mid-turn, the turn does not ask when the profile sets `allowSteering: false`, or when another step would pass `maxSteps`. The outcomes wait in your store for the next moment, or the next turn. An image, speech or live turn never asks.
+Mid-turn, the turn does not ask when the profile sets `allowSteering: false`, or when another step would pass `maxSteps`. The outcomes wait in your store for the next moment, or the next turn. An image or speech turn never asks. A live call asks `SessionRequest.lateResults` at the same three moments: see [Waking a live call](#waking-a-live-call).
 
 What lands at one moment is one role `user` message, after everything else that moment adds. The model reads each result as a tool result, and the reply counts it as a read ([How long the marks last](./guardrails.md#how-long-the-marks-last)). Each landing is a `late_results` event with its `stage` and `step`, so a history built from events holds the message where the turn put it. Its `inReply` is `false` only when the message opens a reply: at the opening, with no message from the person and no reply to go on with. After the person's message, mid-turn, or as a paused reply goes on, it is `true`. A retry keeps it, as it keeps the turn's tool calls. A transcript keeps it in a `late-results` block with its `operationIds` and `inReply`, and shows nothing for it.
 
@@ -1585,7 +1585,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 | `guardrails` | optional | Canary, sanitize, egress (live outbound gate) |
 | `inputs` | **no** | Turn file attachments — use `live.ingress` for realtime channels instead |
 | `outputs` | **no** | No structured JSON or SSE/buffered turn streaming on Gemini Live |
-| `turnBehaviour` | **no** | Use `live.sessionResumption` + `SessionRequest.providerState` |
+| `turnBehaviour` | `allowSteering` only | `allowSteering: false` stops mid-turn injects and late results. For resumption, use `live.sessionResumption` + `SessionRequest.providerState` |
 | `tools.t1Policy` / `tools.t2Loader` | **no** | Declarations are fixed after setup; the whole allow list is the session declaration set |
 
 ### Host profile (`type: 'host'`)
@@ -2073,6 +2073,31 @@ session ends:    keep each open line; no note follows
 - Text a stage injects is not a user line. It keeps its own history entry and gets no id.
 
 Without `lines`, lines get no ids and no notes. History still holds one entry per user line.
+
+### Waking a live call
+
+Use `wake()` and `SessionRequest.lateResults` when something must reach the model during a call while no one speaks, for example a reminder that the call has two minutes left. Your app stores what waits. The session reads it at a turn's moments and makes the model answer it.
+
+**What the model reads.** It reads two things, at the moments a text turn reads them:
+
+- What your `onStage` handler injects at `pre_turn`, `post_tool` and `before_end`. A named inject (`injectId`) that lands is in that stage's `injected` list. An inject lands whole or not at all: when the inbound check blocks one of its texts, nothing of it is sent, and it is not in `injected`.
+- What `SessionRequest.lateResults` gives: the background calls that settled after their turn. The source is the same `LateResultsSource` a text turn takes. The session asks it as a turn opens (`pre_turn`, after the stage), after each call settles and the model is sent its answer (`post_tool`), and once the model has answered (`before_end`, after the stage). The moment's `step` is the call's turn count, the step its stages get. Each landing is a `late_results` event, and a result lands once in the call: one its history holds is not sent again. With `allowSteering: false`, the session asks only at `pre_turn`. A source that throws is a `hook_failed` event, and the call goes on.
+
+Both go to the model as realtime text, so the model answers them. What lands at `before_end` opens the next turn: its `pre_turn` runs at once, so the model's answer has its own stages and its own end.
+
+**Waking.** `wake()` returns a `LiveWakeOutcome`:
+
+| `outcome` | When | What happens |
+| --- | --- | --- |
+| `folded` | The model is answering (it spoke, wrote or called since the last turn ended), or one of its calls is open | Nothing new starts. What waits lands at `stage`: `post_tool` while a call is open, else `before_end` |
+| `started` | Neither, and something landed at the turn's opening | A turn opens: `pre_turn` and the late results run, and the model answers what landed |
+| `nothing_landed` | Neither, and nothing landed at the turn's opening | The model is sent nothing and says nothing |
+
+`started` and `nothing_landed` carry `wake`, an id. Each `stage` event of the turn a wake started carries the same `wake`, up to its `post_turn`. A wake into a turn the person opened (their audio keeps it open through silence) runs that turn's `pre_turn` again, under the wake.
+
+`wake()` gives the model no words of its own. A wake on a closed session is a `request` error.
+
+**Marking an item told.** Mark it told once the model has spoken it: after the `post_turn` of the turn it landed in, when that turn's `done` is not `interrupted`. An item a blocked inject held is not in `injected`, so it stays waiting.
 
 ### Continue turn
 

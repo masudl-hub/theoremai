@@ -2206,7 +2206,7 @@ Deno.test('runSession refuses an inject live cannot write as text, whole, and ne
   );
   await session.close();
 });
-Deno.test('runSession before_end inject schedules realtime text and still emits done/post_turn', async () => {
+Deno.test('runSession before_end inject is sent, ends its turn, and opens the turn that answers it', async () => {
   clearProfiles();
   resetTools();
   const profile = defineProfile({
@@ -2257,7 +2257,7 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
   const liveMock = mock as unknown as MockLiveWebSocket;
   liveMock.deliver({ serverContent: { turnComplete: true } });
   const events = await eventsPromise;
-  assertEquals(stages, ['pre_turn', 'before_end', 'post_turn']);
+  assertEquals(stages, ['pre_turn', 'before_end', 'post_turn', 'pre_turn']);
   assertEquals(
     events.some((e) => e.type === 'done'),
     true,

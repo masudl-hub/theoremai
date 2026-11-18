@@ -1111,6 +1111,8 @@ export type TurnEvent =
        * {@linkcode keptReply} drops the rest.
        */
       released?: number;
+      /** In a live call, the id `LiveSession.wake` returned for the turn this stage belongs to. */
+      wake?: string;
     }
   /**
    * A tool call the model is still writing: the next piece of its arguments' JSON text, in order,
@@ -1339,6 +1341,7 @@ const TURN_EVENTS = {
       .min(1)
       .optional(),
     released: z.number().int().nonnegative().optional(),
+    wake: z.string().min(1).optional(),
   }),
   tool_draft: z.object({
     type: z.literal('tool_draft'),

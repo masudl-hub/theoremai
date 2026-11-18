@@ -1736,6 +1736,19 @@ export interface SessionRequest extends AgentRunRequest {
   /** Optional realtime parts sent immediately after setup. A call that sends them gets no `live.greeting`. */
   input?: InteractionPart[];
   /**
+   * Your function that gives the background tool calls that settled after their turn, as for a
+   * text turn's {@linkcode TurnRequest.lateResults}. The call asks it as each turn opens
+   * (`pre_turn`), after each of the model's calls settles (`post_tool`), and once the model has
+   * answered (`before_end`). The model reads each result as a tool result, once, and each landing
+   * is a late_results event. A landing at `before_end` opens the next turn, so the model answers
+   * what it read.
+   *
+   * @remarks `step` is the call's turn count, the step its stages get. Asked at `post_tool` and
+   * `before_end` only when the profile's `turnBehaviour.allowSteering` is not false. A throw is
+   * reported as hook_failed, and the call goes on without results.
+   */
+  lateResults?: LateResultsSource;
+  /**
    * Registry-resolved tool snapshot from the process that owns the tool registry
    * (`prepareTurnToolSnapshot`). When set, session setup declares `snapshot.wire`
    * instead of resolving tools locally, so a relay process without the registry
@@ -1790,6 +1803,17 @@ export type LiveExecuteToolResult = {
  * Open live session returned by `runSession`. It streams events until
  * `close()` and exposes realtime media ingress and staged tool execution.
  */
+/**
+ * What {@linkcode LiveSession.wake} did. `started`: a turn opened, and what landed at its
+ * `pre_turn` is what the model answers. `nothing_landed`: the turn's opening gave the model
+ * nothing to read, so it says nothing. `folded`: a turn was running, and what waits lands at its
+ * next `stage`: `post_tool` while one of the model's calls is open, `before_end` while it answers.
+ */
+export type LiveWakeOutcome =
+  | { outcome: 'started'; wake: string }
+  | { outcome: 'nothing_landed'; wake: string }
+  | { outcome: 'folded'; stage: 'post_tool' | 'before_end' };
+
 export interface LiveSession {
   readonly profileId: ProfileId;
   readonly canary: string;
@@ -1805,6 +1829,18 @@ export interface LiveSession {
    * the model sees it from its next turn on.
    */
   sendContext(context: TurnContext): Promise<void>;
+  /**
+   * Makes the model read what waits for it and answer, with no one speaking. While the model is
+   * answering or one of its calls is open, nothing new starts: what waits lands at that turn's next
+   * moment (`folded`). Otherwise a turn starts now: its `pre_turn` stage and `lateResults` run, and
+   * what lands there is what the model answers (`started`). When nothing lands, the model has
+   * nothing to answer and says nothing (`nothing_landed`).
+   *
+   * @remarks Gives the model no words of its own: what it reads comes from your `onStage` inject
+   * and `lateResults`. Each stage event of a turn a wake started carries the wake's id, so the
+   * host can tell which `injected` and which `post_turn` are that turn's.
+   */
+  wake(): Promise<LiveWakeOutcome>;
   /**
    * Run a call the model made through the registry, with stages; its events
    * join `events()`. A gate returns `gated` and answers the model nothing yet;

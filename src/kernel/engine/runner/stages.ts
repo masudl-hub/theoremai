@@ -216,7 +216,7 @@ export async function* unreadLateResultsAt(
     return [];
   }
   throwIfAborted(at.signal);
-  return unreadLateResults(state, given);
+  return unreadLateResults(state.currentHistory, given);
 }
 
 /** Lands `unread` in turn history with the `late_results` event that records where. */

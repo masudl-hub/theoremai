@@ -506,14 +506,16 @@ Same names. Cycle state `idle` | `open` on the session.
 
 | Stage | Trigger | Site |
 | --- | --- | --- |
-| `pre_turn` | First ingress opening a cycle: first `sendText` / `sendVideo` / `sendAudio` / initial `input` after `idle`. Continuous audio: first chunk after idle only. Input sent during a cycle an interrupt ends: when it ends | Before socket write |
-| `pre_tool` / `post_tool` | Inside `executeTool` | Session execute API |
-| `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; after the reply's final verdict; before yield `done` | `events()` outbound path |
+| `pre_turn` | First ingress opening a cycle: first `sendText` / `sendVideo` / `sendAudio` / initial `input` after `idle`. Continuous audio: first chunk after idle only. Input sent during a cycle an interrupt ends: when it ends. A `wake()` that starts a turn, also in a cycle input opened that the model has not answered. What landed at `before_end`: as that cycle ends | Before socket write |
+| `pre_tool` / `post_tool` | Inside `executeTool`. After each call settles and its answer is sent, the session asks `SessionRequest.lateResults` at `post_tool` | Session execute API |
+| `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; after the reply's final verdict; before yield `done`. Then `SessionRequest.lateResults`. An inject or late results that land open the next cycle after `post_turn` | `events()` outbound path |
 | `post_turn` | After that `done`; cycle → `idle` | Same |
 
 `generation_complete` is not a cycle boundary: the `done` goes to the host and the cycle stays open until the verdict on the reply. A reply the verdict withholds or refuses ends the cycle with `stop: { kind: 'filtered', native: 'egress' }`. A bare `interactionStatus: IDLE` after the reply's `turnComplete` ends nothing new: it sends no `done`.
 
 `sendContext` is not an ingress for this table: it opens no cycle, runs no `pre_turn`, and adds nothing to `StageContext.history`.
+
+A live inject lands whole or not at all: when the inbound check blocks one of its texts, none is sent and `injected` does not name it. Each `stage` event of a cycle a `wake()` started carries its `wake` id. See [Waking a live call](./kernel.md#waking-a-live-call).
 
 **Barge-in / empty audio:** interrupt ends the cycle with `before_end` /
 `interrupted` / `post_turn`, also after `generation_complete`. The `turnComplete`

@@ -593,3 +593,23 @@ Deno.test("an after-save step that throws is reported, and the reply's save stan
     ['user-text', 'text', 'turn-done'],
   );
 });
+
+Deno.test("a block's host values reach the page that reads the conversation", async () => {
+  const { core } = harness({
+    beforeSave: (_ctx, reply) =>
+      Promise.resolve({
+        blocks: reply.blocks.map((block, index) => ({ ...block, host: { row: `row-${index}` } })),
+        told: [],
+      }),
+  });
+  const { lines } = await say(core, 'hello');
+  const view = await core.read(at(), { ref: refOf(lines) });
+  assertEquals(
+    view.transcript.map((block) => [block.kind, block.host]),
+    [
+      ['user-text', undefined],
+      ['text', { row: 'row-0' }],
+      ['turn-done', { row: 'row-1' }],
+    ],
+  );
+});

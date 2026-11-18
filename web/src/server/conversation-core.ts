@@ -679,11 +679,6 @@ function replySaving<Item extends InboxItem>(
   held: HeldRun<Item> | undefined,
 ): ReplySaving {
   const { beforeSave, afterSave, compact, onError } = ctx.options;
-  const report = (err: unknown) => onError?.(err, at);
-  const reported =
-    <T>(step: (at: CoreContext, value: T) => Promise<void>) =>
-    (value: T) =>
-      step(at, value).catch(report);
   return {
     ...(beforeSave
       ? {
@@ -694,9 +689,9 @@ function replySaving<Item extends InboxItem>(
             }),
         }
       : {}),
-    ...(afterSave ? { after: reported(afterSave) } : {}),
-    ...(compact ? { compact: reported(compact) } : {}),
-    report,
+    ...(afterSave ? { after: (saved) => afterSave(at, saved) } : {}),
+    ...(compact ? { compact: (signal) => compact(at, signal) } : {}),
+    report: (err) => onError?.(err, at),
   };
 }
 

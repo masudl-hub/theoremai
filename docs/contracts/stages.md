@@ -273,7 +273,7 @@ it, and so does each transcript block made from that inject. A `host` that is
 not a JSON object refuses all the injects with an `inject_host_invalid`
 warning. Where
 the messages land in the conversation — not when the handler returns — the
-kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages }] }`
+kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages, host? }] }`
 naming the injects that landed at that stage, each with the messages it added as the model reads
 them (after the `injected` guardrails), and `released` when a draft
 dropped (see 7). An inject that never lands (a

@@ -1696,7 +1696,7 @@ On text turns the runner always yields `{ type: 'stage', stage }`:
 
 Inject applies only when `profileAllowsInject(profile)` (text + live when
 `allowSteering !== false`). Where a named inject lands, the runner yields
-`{ type: 'stage', stage, injected: [{ id, messages }] }` (see [stages.md](stages.md)).
+`{ type: 'stage', stage, injected: [{ id, messages, host? }] }` (see [stages.md](stages.md)).
 
 A text turn's opening input (`input.text`, attachments, voice) has one owner:
 turn history. It becomes the last user message of history when the turn opens,
@@ -2200,6 +2200,10 @@ for each media part of a completed tool call, where the call stands in the reply
 `fromTool: true`. Bytes keep `data` and `sent`. A reference keeps `uri` and `type` and is always
 `sent`. An address inside a tool's output never becomes a block. `historyFromTranscriptBlocks`
 ignores media blocks: the model reads a tool's media only in the turn that ran it.
+
+Every block can carry `host`, a JSON object of the host's own values, such as the id of the
+record that holds the block. No fold reads it, and `historyFromTranscriptBlocks` ignores it. A
+block that `foldTurnEvents` makes from a named inject carries that inject's `host`.
 
 The `observability` view is the resolved policy without functions: `record`,
 `sampleRate`, `include`, `scrub`, `resource`, `retainForDays`, `rotateAfterMiB`,

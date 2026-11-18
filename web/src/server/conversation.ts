@@ -382,7 +382,12 @@ async function saveReply(
       cause: CONFLICT,
     });
   }
-  await runner.saving?.after?.({ ended: saving.ended, told: reply.context.told });
+  try {
+    await runner.saving?.after?.({ ended: saving.ended, told: reply.context.told });
+  } catch (err) {
+    // invariant: The save is written; a step after it cannot fail the reply.
+    runner.saving?.report(err);
+  }
   return { ref: result.ref, revision: result.revision, conversation: reply.next };
 }
 
@@ -493,9 +498,9 @@ export type ShapedReply = {
 export type ReplySaving = {
   /** Shapes the reply before each save. */
   before?: (reply: ReplyToSave) => Promise<ShapedReply>;
-  /** Runs once a save is written. It reports what it throws, and throws nothing. */
+  /** Runs once a save is written. What it throws is reported, and the save stands. */
   after?: (saved: { ended: ReplyEnd; told: readonly string[] }) => Promise<void>;
-  /** The app's compaction, in place of the runner's. It reports what it throws, and throws nothing. */
+  /** The app's compaction, in place of the runner's. What it throws is reported. */
   compact?: (signal: { history: TurnHistoryMessage[]; tokens: number }) => Promise<void>;
   /** Reports an error the save does not throw. */
   report: (err: unknown) => void;
@@ -761,7 +766,11 @@ async function compactedAfter(
   if (!signal?.needed) return undefined;
   if (runner.saving?.compact) {
     // invariant: The app's compaction is its own write; this reply writes nothing more.
-    await runner.saving.compact({ history: signal.history, tokens: signal.tokens });
+    try {
+      await runner.saving.compact({ history: signal.history, tokens: signal.tokens });
+    } catch (err) {
+      runner.saving.report(err);
+    }
     return undefined;
   }
   const compacted = await runner.compact(signal.history, signal.tokens, runner.model);

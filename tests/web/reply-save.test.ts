@@ -1,9 +1,10 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import { defineProfile, type ProfileDefinition, type TurnEvent } from '../../mod.ts';
+import { defineProfile, type ProfileDefinition, type TurnEvent, toErrorEvent } from '../../mod.ts';
 import type { TranscriptBlock } from '../../src/interface/mod.ts';
 import { failureEvent } from '../../src/kernel/tools/events.ts';
 import { theoremStartRequestSchema } from '../../web/src/client/transport.ts';
 import {
+  answerReply,
   messageReply,
   type ReplyLine,
   type ReplyRunner,
@@ -359,6 +360,7 @@ Deno.test('a reply to a message whose hold lost the conversation tells nothing, 
   assertEquals(writes[0].context?.ended, 'lost');
   assertEquals(writes[0].context?.told, [], 'a lost reply tells nothing');
   assertEquals(writes[0].written, false, 'the memory store keeps no holds, so it refuses');
+  assertEquals(app.reported, [], 'a store that refuses a lost write decided; nothing is reported');
   assertEquals(app.after, []);
   assertEquals(
     lines.filter((line) => line.type === 'conversation' && !('posted' in line)),
@@ -522,4 +524,236 @@ Deno.test('a start request from a page carries no host values', () => {
     blocks: [{ id: 'b1', kind: 'user-text', text: 'hello', host: { row: 'forged' } }],
   });
   assertEquals(blocks, [{ id: 'b1', kind: 'user-text', text: 'hello' }]);
+});
+
+const CALL = { callId: 'call-1', operationId: 'call-1' };
+const SETTLED: TurnEvent = {
+  type: 'tool',
+  tool: {
+    name: 'lookup',
+    callId: 'call-1',
+    operationId: 'call-1',
+    at: 0,
+    phase: 'complete',
+    output: { finding: 'ok' },
+    readBack: '{"finding":"ok"}',
+  },
+};
+
+/** A conversation whose reply waits on its gate, saved with the block the app put beside it. */
+async function pausedBeside(store: TheoremConversationStore) {
+  const host = hostOf(store);
+  const link: TranscriptBlock = { id: 'row-2', kind: 'text', text: 'Sign in here.' };
+  const app = steps((reply) => ({ blocks: [...reply.blocks, link], told: [] }));
+  const lines = await linesOf(
+    messageReply({
+      host,
+      opened: NEW(),
+      message: message('hello'),
+      saved: [{ id: 'row-1', kind: 'user-text', text: 'hello' }],
+      runner: runner(GATE, { saving: app.saving }),
+    }),
+  );
+  const ref = lines.flatMap((line) => (line.type === 'conversation' ? [line.ref] : [])).at(-1);
+  assert(ref, 'the paused reply named its conversation');
+  return { host, ref };
+}
+
+Deno.test("an answered reply's save holds the paused reply's blocks once, and not the block the app put beside it", async () => {
+  const { store, writes } = recordingStore();
+  const { host, ref } = await pausedBeside(store);
+  const app = steps();
+  await linesOf(
+    answerReply({
+      host,
+      opened: await openConversation(host, ref, { kind: 'answer', call: CALL }),
+      call: CALL,
+      settling: (async function* () {
+        yield SETTLED;
+      })(),
+      runner: runner(ANSWER, { saving: app.saving }),
+    }),
+  );
+  assertEquals(app.seen.length, 1);
+  assertEquals(app.seen[0].ended, 'committed');
+  assertEquals(kinds(app.seen[0].blocks), ['tool', 'turn-done', 'text', 'turn-done']);
+  const write = writes.at(-1);
+  assertEquals(write?.context?.appended, app.seen[0].blocks);
+  assertEquals(
+    write?.next.transcript.map((block) => block.kind),
+    ['user-text', 'text', 'tool', 'turn-done', 'text', 'turn-done'],
+  );
+  assertEquals(
+    write?.next.transcript.filter((block) => block.id === 'row-2').length,
+    1,
+    'the block beside the pause is saved once',
+  );
+});
+
+Deno.test('an answer that does not settle saves the reply paused again, with the failure and no block', async () => {
+  const { store, writes } = recordingStore();
+  const { host, ref } = await pausedBeside(store);
+  const app = steps();
+  const failure = toErrorEvent(new Error('the-answer-broke'));
+  const lines = await linesOf(
+    answerReply({
+      host,
+      opened: await openConversation(host, ref, { kind: 'answer', call: CALL }),
+      call: CALL,
+      settling: (async function* () {
+        yield failure;
+      })(),
+      runner: runner(ANSWER, { saving: app.saving }),
+    }),
+  );
+  assertEquals(
+    app.seen.map((reply) => [reply.ended, reply.blocks, reply.failure]),
+    [['paused', [], failure]],
+  );
+  assertEquals(writes.at(-1)?.context?.ended, 'paused');
+  assertEquals(writes.at(-1)?.context?.appended, []);
+  assert(writes.at(-1)?.next.paused, 'the reply still waits on its gate');
+  assertEquals(lines.at(-1), failure);
+});
+
+Deno.test('a walk-away that does not settle saves the reply paused again, with the failure and no block', async () => {
+  const { store, writes } = recordingStore();
+  const { host, ref } = await pausedBeside(store);
+  const app = steps();
+  const failure = toErrorEvent(new Error('the-cancel-broke'));
+  const saved = writes.length;
+  const lines = await linesOf(
+    messageReply({
+      host,
+      opened: await openConversation(host, ref, { kind: 'message', abandon: [CALL] }),
+      message: message('never mind'),
+      saved: [{ id: 'row-3', kind: 'user-text', text: 'never mind' }],
+      walkAway: [
+        {
+          ...CALL,
+          events: (async function* () {
+            yield failure;
+          })(),
+        },
+      ],
+      runner: runner(ANSWER, { saving: app.saving }),
+    }),
+  );
+  assertEquals(
+    app.seen.map((reply) => [reply.ended, reply.blocks, reply.failure]),
+    [['paused', [], failure]],
+  );
+  assertEquals(writes.length, saved + 1);
+  assert(writes.at(-1)?.next.paused, 'the reply still waits on its gate');
+  assertEquals(lines.at(-1), failure);
+});
+
+Deno.test('a store that keeps holds takes a lost reply, and the run names no save', async () => {
+  const inner = createMemoryConversationStore();
+  const lost: { next: StoredConversation; context: WriteContext }[] = [];
+  const store: TheoremConversationStore = {
+    read: (sessionId, ref) => inner.read(sessionId, ref),
+    write(sessionId, ref, expectedRevision, next, context) {
+      if (context?.ended !== 'lost') return inner.write(sessionId, ref, expectedRevision, next);
+      lost.push({ next, context });
+      return inner.write(sessionId, ref, expectedRevision, next);
+    },
+  };
+  const app = steps((reply) => ({ blocks: reply.blocks, told: ['item-1'] }));
+  const lines = await linesOf(
+    messageReply({
+      host: hostOf(store),
+      opened: NEW(),
+      message: message('hello'),
+      saved: [{ id: 'row-1', kind: 'user-text', text: 'hello' }],
+      runner: runner(ANSWER, {
+        hold: 'hold-1',
+        reply: 'reply-1',
+        held: () => Promise.resolve(false),
+        saving: app.saving,
+      }),
+    }),
+  );
+  assertEquals(lost.length, 1);
+  assertEquals(lost[0].context.hold, 'hold-1');
+  assertEquals(lost[0].context.told, []);
+  assertEquals(kinds(lost[0].context.appended), ['user-text', 'text', 'turn-done']);
+  assertEquals(lost[0].next.transcript, lost[0].context.appended);
+  assertEquals(app.after, []);
+  assertEquals(app.reported, []);
+  assertEquals(
+    lines.filter((line) => line.type === 'conversation'),
+    [],
+    'a lost reply names no conversation: the hold that has it does',
+  );
+});
+
+Deno.test('a shaping step that throws on a stopped reply saves nothing, and the reply ends stopped', async () => {
+  const { store, writes } = recordingStore();
+  const app = steps(() => {
+    throw new Error('the-shaping-broke');
+  });
+  const stop = new AbortController();
+  stop.abort();
+  const lines = await linesOf(
+    messageReply({
+      host: hostOf(store),
+      opened: NEW(),
+      message: message('hello'),
+      saved: [{ id: 'row-1', kind: 'user-text', text: 'hello' }],
+      runner: runner(ANSWER, { saving: app.saving, signal: stop.signal }),
+    }),
+  );
+  assertEquals(writes.length, 0);
+  assertEquals(
+    app.reported.map((err) => (err instanceof Error ? err.message : '')),
+    ['the-shaping-broke'],
+  );
+  assertEquals(
+    lines.filter((line) => line.type === 'error'),
+    [],
+  );
+});
+
+Deno.test("a step after the save, or the app's compaction, that throws is reported, and the save stands", async () => {
+  const { store, writes } = recordingStore();
+  const app = steps();
+  await linesOf(
+    messageReply({
+      host: hostOf(store),
+      opened: NEW(),
+      message: message('hello'),
+      runner: runner(
+        [
+          { type: 'text', text: 'Done.' },
+          {
+            type: 'done',
+            stop: { kind: 'completed' },
+            compaction: {
+              needed: true,
+              meter: 'history',
+              tokens: 900,
+              unknownMedia: 0,
+              history: [],
+            },
+          },
+        ],
+        {
+          saving: {
+            ...app.saving,
+            after: () => Promise.reject(new Error('the-channel-is-down')),
+            compact: () => Promise.reject(new Error('the-compaction-broke')),
+          },
+        },
+      ),
+    }),
+  );
+  assertEquals(
+    app.reported.map((err) => (err instanceof Error ? err.message : '')),
+    ['the-channel-is-down', 'the-compaction-broke'],
+  );
+  assertEquals(
+    writes.filter((write) => write.context).map((write) => write.written),
+    [true],
+  );
 });

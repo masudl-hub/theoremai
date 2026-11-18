@@ -617,11 +617,13 @@ These rules apply:
 - `afterSave` runs after the store wrote the reply, while the run still holds the conversation. Use it to send the reply to a channel. When it throws, the core reports the error to `onError`, and the save stands.
 - With no `beforeSave`, `told` is empty and the blocks are saved as they are.
 
-A reply to a message can lose its hold while it runs: a newer message took the conversation over. The core then calls `beforeSave` with `ended: 'lost'`, and calls `write` with `ended: 'lost'` and an empty `told`. Your store keeps the blocks that the person saw and marks no item as told. `afterSave` does not run. The memory store and the sealed store refuse this write, because they keep no holds. With no `beforeSave`, or for a reply to no message, a lost reply writes nothing.
+A reply to a message can lose its hold while it runs: a newer message took the conversation over. The core then calls `beforeSave` with `ended: 'lost'`, and calls `write` with `ended: 'lost'` and an empty `told`. Your store keeps the blocks that the person saw and marks no item as told. `afterSave` does not run. The memory store and the sealed store refuse this write, because they keep no holds. A store that refuses it keeps nothing, and the core reports nothing. With no `beforeSave`, or for a reply to no message, a lost reply writes nothing.
 
-Set `compact` when your app compacts the history in its own run. After a reply's save, the core calls `compact(at, { history, tokens })` in place of its own compaction, and writes nothing more.
+Set `compact` when your app compacts the history in its own run. After a reply's save, the core calls `compact(at, { history, tokens })` in place of its own compaction, and writes nothing more. When it throws, the core reports the error to `onError`.
 
-A page cannot set `host` on a block. The core drops `host` from the blocks of a transcript that a page restores, and `theoremStartRequestSchema` drops it from the blocks of a start request.
+A block's `host` goes to the page with the block: in the conversation that the page reads, and on the `stage` line of an inject. Put nothing in it that the person must not read.
+
+A page cannot set `host` on a block. The core drops `host` from the blocks of a transcript that a page restores, and `theoremStartRequestSchema` drops it from the blocks of a start request. An app with no server keeps no `host`: its page restores the transcript on each message.
 
 ### Run the follow-up
 

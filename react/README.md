@@ -208,7 +208,7 @@ Each part of the look is a CSS custom property. Set it on any element above the 
   endpoint="/api/theorem"
   composerLayout="row"
   composerIcons={{ working: <LeafSpinner /> }}
-  labels={{ '@theorem.composer.pill.working_for': 'Thinking · {duration}' }}
+  labels={{ en: { '@theorem.composer.pill.working_for': 'Thinking · {duration}' } }}
   className="chat"
 />
 ```

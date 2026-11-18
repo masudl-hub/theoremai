@@ -195,7 +195,8 @@ Each part of the look is a CSS custom property. Set it on any element above the 
 | `--theorem-composer-padding` | The space inside the surface. | `var(--spacing-3)` |
 | `--theorem-composer-gap` | The space between the pill row, the tray and the surface. | `var(--spacing-2)` |
 | `--theorem-composer-inset` | How far the pill row and the tray sit in from the surface's sides. | `0px` |
-| `--theorem-composer-tray-radius` | The tray's corner radius. | the surface's radius less `var(--spacing-2)` |
+| `--theorem-composer-tray-radius` | The open tray's corner radius. | the surface's radius |
+| `--theorem-composer-tray-folded-radius` | The folded tray's corner radius. | half the folded tray's height, so its ends are round |
 | `--theorem-composer-tray-padding` | The space inside the tray. | `var(--spacing-3)` |
 | `--theorem-composer-pill-height` | The height of each pill. | `var(--size-element-lg)` |
 | `--theorem-composer-pill-radius` | The corner radius of each pill and of the stop button. | `var(--radius-full)` |

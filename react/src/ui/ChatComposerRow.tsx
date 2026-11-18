@@ -82,8 +82,14 @@ const SHADOW = knob('shadow', 'var(--shadow-low)');
 const PADDING = knob('padding', 'var(--spacing-3)');
 const GAP = knob('gap', 'var(--spacing-2)');
 const INSET = knob('inset', '0px');
-const TRAY_RADIUS = knob('tray-radius', `calc(${RADIUS} - var(--spacing-2))`);
+const TRAY_RADIUS = knob('tray-radius', RADIUS);
 const TRAY_PADDING = knob('tray-padding', 'var(--spacing-3)');
+const TRAY_HEADER_HEIGHT = 'var(--size-element-sm)';
+/** why: Half the folded height, so the folded tray is round at both ends. */
+const TRAY_FOLDED_RADIUS = knob(
+  'tray-folded-radius',
+  `calc(${TRAY_PADDING} + ${TRAY_HEADER_HEIGHT} / 2)`,
+);
 const PILL_HEIGHT = knob('pill-height', 'var(--size-element-lg)');
 const PILL_RADIUS = knob('pill-radius', 'var(--radius-full)');
 const PILL_FILL = knob('pill-fill', FILL);
@@ -116,15 +122,17 @@ const PILLS_MANY: CSSProperties = {
   maskImage: 'linear-gradient(to right, black calc(100% - var(--spacing-6)), transparent)',
 };
 /** The tray: a card of its own over the surface, a gap between them. */
-const TRAY: CSSProperties = {
+/** why: The radius moves with the height, so the tray's ends stay round as it folds. */
+const trayStyle = (open: boolean): CSSProperties => ({
   marginInline: INSET,
   border: 'none',
-  borderRadius: TRAY_RADIUS,
+  borderRadius: open ? TRAY_RADIUS : TRAY_FOLDED_RADIUS,
   background: FILL,
   boxShadow: SHADOW,
   padding: TRAY_PADDING,
-};
-const TRAY_HEADER: CSSProperties = { cursor: 'pointer' };
+  transition: 'border-radius var(--duration-medium) var(--ease-standard)',
+});
+const TRAY_HEADER: CSSProperties = { cursor: 'pointer', minHeight: TRAY_HEADER_HEIGHT };
 /** why: Folding animates the row's height to zero, so the tray closes in place. */
 const trayBody = (open: boolean): CSSProperties => ({
   display: 'grid',
@@ -241,7 +249,7 @@ function RowTray({ tray }: { tray: ComposerTray }) {
   const contentId = useId();
   const Chevron = isOpen ? IconChevronDown : IconChevronUp;
   return (
-    <Card elevation="none" className="theorem-composer-tray" data-open={isOpen} style={TRAY}>
+    <Card elevation="none" className="theorem-composer-tray" data-open={isOpen} style={trayStyle(isOpen)}>
       <HStack
         gap={2}
         vAlign="center"

@@ -12,15 +12,31 @@ import type {
   NormalizedTurnRequest,
   StageHandler,
   TurnRequest,
-  TurnWiring,
 } from '@theoremjs/agents';
 import {
   type CredentialSource,
   isSealedSource,
+  type JsonObject,
   type ToolBackgroundService,
   type ToolCredentialSource,
 } from '@theoremjs/agents/kernel';
 import { layeredToolCoordinator } from './tool-operations.ts';
+
+/**
+ * The app's refusal of a reply, in place of a turn: its own line is the reply, with no model run.
+ * `host` is the app's own values for the line's block.
+ */
+export type ReplyRefusal = { refuse: { text: string; host?: JsonObject } };
+
+/** The app's `prepare` for a turn the server runs: the turn, or its refusal of the reply. */
+export type AppPrepare = (
+  turn: NormalizedTurnRequest,
+) => TurnRequest | ReplyRefusal | Promise<TurnRequest | ReplyRefusal>;
+
+/** Whether `prepare` refused the reply. */
+export function isRefusal(prepared: TurnRequest | ReplyRefusal): prepared is ReplyRefusal {
+  return 'refuse' in prepared;
+}
 
 /** The fields a handler sets on every turn, which `prepare` cannot replace. */
 export type HandlerOwned = Pick<
@@ -45,14 +61,16 @@ export type HandlerTurnParts = {
 /**
  * The turn to run: `turn` through the application's `prepare`, with the handler's own fields
  * kept, its credentials and steering after the application's, and the application's tool record
- * and background service, when it gives them, joined with the session's.
+ * and background service, when it gives them, joined with the session's. The application's
+ * refusal is returned as it is.
  */
 export async function preparedTurn(
-  prepare: TurnWiring['prepare'],
+  prepare: AppPrepare | undefined,
   turn: NormalizedTurnRequest & HandlerOwned & HandlerTools,
   handler: HandlerTurnParts,
-): Promise<TurnRequest> {
+): Promise<TurnRequest | ReplyRefusal> {
   const app = prepare ? await prepare(turn) : turn;
+  if (isRefusal(app)) return app;
   const owned: HandlerOwned = {
     profile: turn.profile,
     ...(turn.pageExecution ? { pageExecution: turn.pageExecution } : {}),

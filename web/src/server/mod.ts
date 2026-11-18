@@ -150,3 +150,4 @@ export {
 export { tellEveryResult } from './tell-every-result.ts';
 export { sessionToolCoordinator } from './tool-operations.ts';
 export { kernelTurnInput, liveSessionOpen } from './turn-input.ts';
+export type { ReplyRefusal } from './turn-wiring.ts';

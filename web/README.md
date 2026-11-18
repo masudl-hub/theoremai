@@ -596,7 +596,7 @@ const core = createTheoremConversationCore({
 
 | Field | Meaning |
 | --- | --- |
-| `ended` | How the reply ended: `committed`, `failed`, `stopped`, `paused`, or `lost`. |
+| `ended` | How the reply ended: `committed`, `failed`, `stopped`, `paused`, `lost`, or `refused`. |
 | `blocks` | The blocks this save adds to what the store last wrote. They include a message that you passed in `saved`, and the blocks of a paused reply that this message walked away from. |
 | `failure` | The error event, when the reply failed. With `ended: 'paused'`, an answer or a walk-away did not settle, and the reply still waits. |
 | `landed` | The ids of the named injects and the steers that the model read in this reply. |
@@ -617,6 +617,26 @@ These rules apply:
 - When `beforeSave` throws on a reply that failed or stopped, the core reports the error to `onError`, saves nothing, and the run ends with the reply's own failure. On any other reply, the throw fails the reply.
 - `afterSave` runs after the store wrote the reply, while the run still holds the conversation. Use it to send the reply to a channel. When it throws, the core reports the error to `onError`, and the save stands.
 - With no `beforeSave`, `told` is empty and the blocks are saved as they are.
+
+### Refuse a reply
+
+To answer with a line of your own and run no model, return `{ refuse: { text, host? } }` from `prepare` in place of the turn. Use it for a limit that your app keeps, such as a daily limit or a paused plan.
+
+```ts
+const core = createTheoremConversationCore({
+  // ...
+  prepare: async (turn) =>
+    (await overLimit(turn.host)) ? { refuse: { text: 'You reached the limit for today.' } } : turn,
+});
+```
+
+- The run yields the line as the reply's text. The reply saves with `ended: 'refused'`, and has no error block and no usage.
+- `host` goes on the block of the line, as a `host` that `beforeSave` sets does.
+- `beforeSave` and `afterSave` run as for any reply. The items in `told` are marked as told. The items that the reply read and did not tell go back to the inbox.
+- A reply that goes on after an answered call, a wake, and a follow-up can be refused in the same way.
+- Do not refuse a turn that has `answersHeldCall`. An answered call has no reply to refuse, so the call fails with a `config` error and does not run.
+- To make a wake say nothing, do not refuse it. Return an empty `tell` from your inbox's `policy` for `opening: 'wake'`. The wake then runs no reply and saves nothing, and the conversation read does not say `wake: true`.
+- `createTheoremHandler` takes the same `prepare`. The page shows the line as the reply.
 
 A reply to a message can lose its hold while it runs: a newer message took the conversation over. The core then calls `beforeSave` with `ended: 'lost'`, and calls `write` with `ended: 'lost'` and an empty `told`. Your store keeps the blocks that the person saw and marks no item as told. `afterSave` does not run. The memory store and the sealed store refuse this write, because they keep no holds. A store that refuses it keeps nothing, and the core reports nothing. With no `beforeSave`, or for a reply to no message, a lost reply writes nothing.
 

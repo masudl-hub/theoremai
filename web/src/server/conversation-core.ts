@@ -93,7 +93,7 @@ import {
 import type { TheoremSessionState } from './session-store.ts';
 import { type SteerInbox, type SteerUnit, steerStage, stopOnRequest } from './steer-inbox.ts';
 import { sessionToolCoordinator } from './tool-operations.ts';
-import { preparedTurn, stagesInOrder } from './turn-wiring.ts';
+import { isRefusal, preparedTurn, type ReplyRefusal, stagesInOrder } from './turn-wiring.ts';
 
 export type ChatProfile = Exclude<Profile, { type: 'live' | 'decision' | 'host' | 'embedding' }>;
 
@@ -163,12 +163,14 @@ export type AppInbox<Item extends InboxItem = InboxItem> = {
 /**
  * The turn the app runs for one model run of a reply, as `TurnWiring.prepare` is. `run` is the
  * reply's hold of the app's `inbox`: the items it opened with, and `take` for those that arrive
- * as it runs. It is unset with no app inbox, and for the turn of an answered call.
+ * as it runs. It is unset with no app inbox, and for the turn of an answered call. A
+ * `ReplyRefusal` in place of the turn makes the app's line the reply, saved as `refused`, with no
+ * model run; the turn of an answered call cannot be refused.
  */
 export type ReplyPrepare<Item extends InboxItem = InboxItem> = (
   turn: NormalizedTurnRequest,
   run?: ReplyRun<Item>,
-) => TurnRequest | Promise<TurnRequest>;
+) => TurnRequest | ReplyRefusal | Promise<TurnRequest | ReplyRefusal>;
 
 /**
  * The app's own steps around each save of a reply. Each takes the run's context, as every option
@@ -604,6 +606,7 @@ async function* chatTurn<Item extends InboxItem>(
   signal: AbortSignal,
   stop: AbortController,
   held: HeldRun<Item> | undefined,
+  refused: (refusal: ReplyRefusal['refuse']) => void,
 ): AsyncGenerator<TurnEvent> {
   const state = await ctx.sessions.read(at.sessionId);
   const provider = await ctx.options.provider(at, turn.model);
@@ -649,6 +652,12 @@ async function* chatTurn<Item extends InboxItem>(
         announce: (service) => announced(ctx, at, service),
       },
     );
+    if (isRefusal(prepared)) {
+      refused(prepared.refuse);
+      yield { type: 'text', text: prepared.refuse.text };
+      yield { type: 'done', stop: { kind: 'completed' } };
+      return;
+    }
     const events = runTurn(prepared, provider);
     yield* recorded(ctx.sessions, at.sessionId, withAuthorizationUrls(ctx, at, events), {
       profileId: ctx.profile.id,
@@ -680,8 +689,13 @@ function chatRunner<Item extends InboxItem>(
   const key = generation.turnId ? inboxKey(at.sessionId, generation.turnId) : undefined;
   const stop = new AbortController();
   const signal = AbortSignal.any([at.signal, stop.signal, ...(held ? [held.run.signal] : [])]);
+  let refusal: ReplyRefusal['refuse'] | undefined;
   return {
-    run: (turn) => chatTurn(ctx, at, turn, key, signal, stop, held),
+    run: (turn) =>
+      chatTurn(ctx, at, turn, key, signal, stop, held, (refused) => {
+        refusal = refused;
+      }),
+    refused: () => refusal,
     async compact(history, tokens, model) {
       const provider = await ctx.options.provider(at, model);
       const compacted = await compactHistory(

@@ -119,7 +119,7 @@ export interface ConversationSnapshot {
  * `stopped`: the person stopped it. `paused`: it waits on gates. `lost`: its hold no longer has
  * the conversation, so it tells nothing.
  */
-export type ReplyEnd = 'committed' | 'failed' | 'stopped' | 'paused' | 'lost';
+export type ReplyEnd = 'committed' | 'failed' | 'stopped' | 'paused' | 'lost' | 'refused';
 
 /**
  * What a write that saves a reply says beside the conversation. A store that keeps the app's own

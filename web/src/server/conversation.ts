@@ -70,6 +70,7 @@ import {
   type WriteContext,
 } from './conversation-store.ts';
 import { kernelTurnInput } from './turn-input.ts';
+import type { ReplyRefusal } from './turn-wiring.ts';
 
 /** One walked-away call: its id, and the run that settles it (`invokeTool` with the abandoned resume). */
 export type WalkedAwayCall = { callId: string; events: AsyncIterable<TurnEvent> };
@@ -299,6 +300,17 @@ async function save(
   return { ref: result.ref, revision: result.revision, conversation: next };
 }
 
+/** A refused reply's blocks: the app's values go on the block of its line, the last text. */
+function refusalBlocks(
+  blocks: TranscriptBlock[],
+  refusal: ReplyRefusal['refuse'],
+): TranscriptBlock[] {
+  const { host } = refusal;
+  const line = blocks.findLastIndex((block) => block.kind === 'text');
+  if (host === undefined || line < 0) return blocks;
+  return blocks.map((block, index) => (index === line ? { ...block, host } : block));
+}
+
 /** The ids of the named injects that landed in `events`, in order. */
 function landedIn(events: readonly TurnEvent[]): string[] {
   return events.flatMap((event) =>
@@ -471,6 +483,11 @@ export type ReplyRunner = {
   hold?: string;
   /** The app's own steps around the save. */
   saving?: ReplySaving;
+  /**
+   * The app's refusal of the reply, once `run` ended on it: `run` then gave the line as its text
+   * and ran no model. The reply saves as `refused`.
+   */
+  refused?: () => ReplyRefusal['refuse'] | undefined;
 };
 
 /** A reply as the app's `before` step reads it. */
@@ -722,6 +739,7 @@ async function* runReply(
   }
   const settled = worked();
   const { events } = settled;
+  const refusal = runner.refused?.();
   if (!(await held())) {
     await lost(settled);
     return;
@@ -735,6 +753,9 @@ async function* runReply(
       await saveReply(host, opened, runner, { ended: 'failed', next, events, failure: errorEvent }),
     );
     yield errorEvent;
+  } else if (refusal) {
+    const next = committed(host, conversation, settled, (blocks) => refusalBlocks(blocks, refusal));
+    yield* refLine(await saveReply(host, opened, runner, { ended: 'refused', next, events }));
   } else if (gatedToolsFromEvents(events).length) {
     const next = pausedOn(conversation, settled, runner);
     yield* refLine(await saveReply(host, opened, runner, { ended: 'paused', next, events }));

@@ -206,6 +206,28 @@ Deno.test("a steer reaches the running reply itself, not the app's inbox", async
   assertEquals((await inbox.read(KEEPER)).items, []);
 });
 
+Deno.test("a page reads the app's refusal as the reply, with no failure", async () => {
+  const { run, read, steps, options } = app();
+  const transport = browserFor(
+    createTheoremHandler({
+      ...options,
+      prepare: () => ({ refuse: { text: 'You reached the limit for today.' } }),
+    }),
+  );
+  const lines = await run((onLine) => transport.turn({ input: { text: 'hello' } }, onLine));
+  assertEquals(
+    lines.flatMap((line) => (line.type === 'text' ? [line.text] : [])),
+    ['You reached the limit for today.'],
+  );
+  assertEquals(read.length, 0, 'the model ran');
+  assertEquals(steps, ['before:refused', 'after:refused:']);
+  const view = await transport.conversation({ conversation: refOf(lines) });
+  assertEquals(
+    view.transcript.map((block) => block.kind),
+    ['user-text', 'text', 'turn-done'],
+  );
+});
+
 Deno.test("a handler refuses the app's inbox beside a decider for the session's", () => {
   const { options } = app();
   assertThrows(

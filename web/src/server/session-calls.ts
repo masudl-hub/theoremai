@@ -70,7 +70,7 @@ import {
   type TheoremSessionStore,
 } from './session-store.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
-import { preparedTurn } from './turn-wiring.ts';
+import { type AppPrepare, isRefusal, preparedTurn } from './turn-wiring.ts';
 
 /** What a run reads in place of the request that started it. */
 export type CoreContext = {
@@ -90,7 +90,7 @@ export type CallsContext = {
   credentials: MutableStore<TheoremCredentials>;
   pageToolBroker: PageToolBroker;
   options: {
-    prepare?: TurnWiring['prepare'];
+    prepare?: AppPrepare;
     onStage?: StageHandler;
     pageToolTimeoutMs?: number;
     background?: (at: CoreContext) => ToolBackgroundService;
@@ -557,6 +557,13 @@ async function* invokeAnswered(
       announce: (service) => announced(ctx, at, service),
     },
   );
+  if (isRefusal(prepared)) {
+    // labels-exempt: builder config error; the user reads error.config
+    throw new TheoremError(
+      'config',
+      '`prepare` refused a turn that has `answersHeldCall`: an answered call has no reply to refuse',
+    );
+  }
   if (answer.typed) {
     // invariant: a sealed source keeps every key where the run cannot read it, so a key typed
     // here would be saved and never sent; the person enters it where the keys are kept.

@@ -94,6 +94,7 @@ import type { MutableStore, SessionStateStore } from './session-authority.ts';
 import { type CallsContext, type CoreContext, callEvents, sessionParts } from './session-calls.ts';
 import { type Session, theoremSession } from './session-identity.ts';
 import { kernelTurnInput } from './turn-input.ts';
+import type { AppPrepare } from './turn-wiring.ts';
 
 export { theoremSession, theoremSessionId } from './session-identity.ts';
 
@@ -331,7 +332,7 @@ type HandlerContext = {
   options: Omit<TheoremHandlerOptions, 'profile' | 'provider' | keyof ReplyWiring> &
     Partial<Pick<TheoremHandlerOptions, 'provider'>> & {
       /** The app's turn for a call that no reply runs: an answered call, a host's call. */
-      prepare?: TurnWiring['prepare'];
+      prepare?: AppPrepare;
     };
   profile: Profile;
   /** A chat's: none for a host profile, which takes no messages. */

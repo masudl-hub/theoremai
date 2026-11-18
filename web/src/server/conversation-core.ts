@@ -14,6 +14,7 @@ import {
   type LateResultItem,
   type LateResultsSource,
   labelText,
+  type NormalizedTurnRequest,
   type Profile,
   type ProfileDefinition,
   type ProviderHostOptions,
@@ -21,6 +22,7 @@ import {
   TheoremError,
   type TurnEvent,
   type TurnInput,
+  type TurnRequest,
 } from '@theoremjs/agents';
 import {
   type ConversationInbox,
@@ -151,11 +153,22 @@ export type AppInbox<Item extends InboxItem = InboxItem> = {
   leaseMs: number;
 };
 
+/**
+ * The turn the app runs for one model run of a reply, as `TurnWiring.prepare` is. `run` is the
+ * reply's hold of the app's `inbox`: the items it opened with, and `take` for those that arrive
+ * as it runs. It is unset with no app inbox, and for the turn of an answered call.
+ */
+export type ReplyPrepare<Item extends InboxItem = InboxItem> = (
+  turn: NormalizedTurnRequest,
+  run?: ReplyRun<Item>,
+) => TurnRequest | Promise<TurnRequest>;
+
 /** Everything a conversation's runs read from whoever serves them. */
 export type CoreState<Item extends InboxItem = InboxItem> = Omit<CallsContext, 'options'> & {
   chat: ChatContext;
   steer: SteerInbox;
-  options: CallsContext['options'] & {
+  options: Omit<CallsContext['options'], 'prepare'> & {
+    prepare?: ReplyPrepare<Item>;
     /**
      * The app's inbox, for the runs of one context. Unset, a reply holds the session's inbox of
      * ended background calls when `lateResultsDecider` is set, and holds nothing otherwise.
@@ -484,8 +497,10 @@ async function* chatTurn<Item extends InboxItem>(
       ctx.options.onStage,
       key ? steerStage(ctx.steer, key) : undefined,
     );
+    const { prepare } = ctx.options;
+    const run = held?.reads.from === 'app' ? held.reads.run : undefined;
     const prepared = await preparedTurn(
-      ctx.options.prepare,
+      prepare && ((request) => prepare(request, run)),
       {
         profile: ctx.profile.id,
         execution: sessionToolCoordinator(ctx.sessions, at.sessionId),

@@ -14,6 +14,7 @@ import {
   type ConversationCore,
   chatOf,
   createConversationCore,
+  type ReplyPrepare,
 } from './conversation-core.ts';
 import type { SettledOperation } from './conversation-inbox.ts';
 import type { TheoremHandlerOptions } from './handler.ts';
@@ -28,7 +29,6 @@ import { createMemorySteerInbox } from './steer-inbox.ts';
 export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> = Pick<
   TheoremHandlerOptions,
   | 'profile'
-  | 'prepare'
   | 'onStage'
   | 'sessionStore'
   | 'conversationStore'
@@ -44,6 +44,11 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
   | 'steerInbox'
   | 'clientEvents'
 > & {
+  /**
+   * The app's `TurnWiring.prepare`. With `inbox`, it is also given the reply's hold, so the turn
+   * it returns can tell the model the items the reply reads: at once, or from its `onStage`.
+   */
+  prepare?: ReplyPrepare<Item>;
   /** Host options for registered providers, or a factory for apps that pick keys per run. */
   provider:
     | ProviderHostOptions

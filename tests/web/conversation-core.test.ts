@@ -6,7 +6,7 @@ import {
   TheoremError,
   type TurnModel,
 } from '../../mod.ts';
-import { createMemoryInbox, type InboxItem } from '../../src/conversation/mod.ts';
+import { createMemoryInbox, type InboxItem, type ReplyRun } from '../../src/conversation/mod.ts';
 import {
   type ConversationCore,
   type CoreContext,
@@ -298,4 +298,41 @@ Deno.test('a message the app saved is refused with no app inbox', async () => {
     TheoremError,
   );
   assertEquals(error.kind, 'config');
+});
+
+Deno.test("the app's prepare is given the reply's hold, with the items the reply opened with", async () => {
+  const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
+  const runs: (ReplyRun<Note> | undefined)[] = [];
+  const { core } = harness({
+    prepare: (turn, run) => {
+      runs.push(run);
+      return turn;
+    },
+    inbox: () => ({
+      inbox,
+      conversation: KEEPER,
+      policy: (items, moment) => ({
+        tell: moment.opening === 'message' ? items.map((item) => item.id) : [],
+      }),
+      leaseMs: LEASE_MS,
+    }),
+  });
+  inbox.arrive(KEEPER, { id: 'note-1', kind: 'note', handovers: [] });
+  assertEquals((await say(core, 'hello')).end, { outcome: 'released' });
+  assertEquals(
+    runs.map((run) => run?.opened.map((item) => item.id)),
+    [['note-1']],
+  );
+});
+
+Deno.test("the app's prepare is given no hold when the app passes no inbox", async () => {
+  const runs: unknown[] = [];
+  const { core } = harness({
+    prepare: (turn, run) => {
+      runs.push(run);
+      return turn;
+    },
+  });
+  await say(core, 'hello');
+  assertEquals(runs, [undefined]);
 });

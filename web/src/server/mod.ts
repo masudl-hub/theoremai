@@ -49,6 +49,7 @@ export type {
   Generation,
   MessageArgs,
   Reply,
+  ReplyPrepare,
   RunEnd,
   WakeArgs,
 } from './conversation-core.ts';

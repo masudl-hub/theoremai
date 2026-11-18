@@ -534,11 +534,12 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `steer(at, { turnId, unit })` | Puts `unit` into a running turn. Returns `false` when the turn is not running. |
 | `stop(at, { turnId })` | Stops a running turn. Returns `false` when the turn is not running. |
 
-The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `prepare`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
+The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
 
 | Option | Use |
 | --- | --- |
 | `provider` | Required. The host options for registered providers, or `(at, model?)` that returns them. |
+| `prepare(turn, run?)` | Your `TurnWiring.prepare`. With `inbox`, `run` is the reply's hold of your inbox. |
 | `background(at)` | The service for tools with a `background` setting. |
 | `authorizeToolReplay(at, operation)` | Checks access before the core discloses a saved tool result. |
 | `authorizationUrl(challenge, at)` | The sign-in URL for an OAuth gate. |
@@ -559,7 +560,9 @@ Use `inbox` when messages and events arrive from more than one place, and one re
 | `policy` | Your `InboxPolicy`: which waiting items a reply is told, and which are given up. |
 | `leaseMs` | How long a hold keeps the conversation after it last renewed, in milliseconds. |
 
-Each run then holds `conversation` in your inbox while it runs. A run that finds the conversation held returns `held` and runs nothing. `read` answers `wake: true` when your policy tells a waiting item to a reply to no message.
+Each run then holds `conversation` in your inbox while it runs. Your `prepare` receives that hold as `run`, a `ReplyRun`. `run.opened` is the items the reply reads as it opens. `run.take` returns the items that arrive while the reply runs. To tell the model an item, add it to the turn that `prepare` returns, or inject it from that turn's `onStage`.
+
+A run that finds the conversation held returns `held` and runs nothing. `read` answers `wake: true` when your policy tells a waiting item to a reply to no message.
 
 ### Save the person's message in your own write
 

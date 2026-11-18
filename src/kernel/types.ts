@@ -355,17 +355,18 @@ export interface RunControls {
 /** Which of the profile's models a run uses, and how hard it thinks. */
 export interface ModelChoice {
   /**
-   * The model id the turn or session picks from the profile's models; refused unless the profile
-   * sets allowModelSelect.
+   * The model id the turn or session picks from the profile's models; one the profile does not
+   * declare is refused. The web handler refuses the page's pick unless the profile sets
+   * allowModelSelect.
    *
-   * @remarks Selected model id when `profile.allowModelSelect` is true.
+   * @remarks Any declared model id; `allowModelSelect` only governs the interface's pick.
    */
   model?: ModelId;
   /**
-   * The effort the turn or session picks from the model's efforts; refused unless the model sets
-   * allowEffortSelect.
+   * The effort the turn or session picks from the model's efforts; one the model does not declare
+   * is refused. The web handler refuses the page's pick unless the model sets allowEffortSelect.
    *
-   * @remarks Selected effort alias when the binding has `allowEffortSelect`.
+   * @remarks Any declared effort alias; `allowEffortSelect` only governs the interface's pick.
    */
   effort?: string;
 }
@@ -731,11 +732,14 @@ import type { MediaTurnBehaviourSpec, ProfileTurnBehaviourSpec, TurnContinueFrom
 /** The model fields every model-running profile shares. */
 export interface ProfileModelFields {
   providerContinuation?: ProviderContinuationPolicy;
-  /** Host-named models. Each key is a selectable model id when `allowModelSelect` is set. */
+  /** Host-named models. A request may name any key; the interface may pick one when `allowModelSelect` is set. */
   models: Record<ModelId, ModelBinding>;
   /** The model a turn runs when it names none; registration fills it with the only key when there is one. */
   defaultModel: ModelId;
-  /** Turn may pass `{ model: "<id>" }`; a name that is not a key of `models` is refused. */
+  /**
+   * The person may pick the model from the interface. The host's own request may name any key of
+   * `models` either way; a name that is not a key is refused.
+   */
   allowModelSelect?: boolean;
   /** Tool-loop ceiling. Omit = `DEFAULT_MAX_STEPS`; `1` = one-shot; `> 1` = hard cap. */
   maxSteps?: number;

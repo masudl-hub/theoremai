@@ -84,7 +84,7 @@ async function relay(
     const open = await openMessage(socket);
     session = await runSession(
       {
-        ...(await boundary.prepareLiveOpen(open)),
+        ...(await boundary.prepareLiveOpen(open, profile)),
         profile: profile.id,
         execution: boundary.toolExecution,
         pageExecution: boundary.pageExecution,

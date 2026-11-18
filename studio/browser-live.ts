@@ -83,8 +83,8 @@ class BrowserLiveSocket implements LiveSocket {
       const session = await scope.runSession(
         {
           ...(await (page
-            ? (await page.boundary).prepareLiveOpen(run.parseLiveOpenMessage(first))
-            : Promise.resolve(run.liveSessionOpen(run.parseLiveOpenMessage(first))))),
+            ? (await page.boundary).prepareLiveOpen(run.parseLiveOpenMessage(first), profile)
+            : Promise.resolve(run.liveSessionOpen(run.parseLiveOpenMessage(first), profile)))),
           profile: profile.id,
           metadata: traces.metadata,
           signal: runtime.signal,

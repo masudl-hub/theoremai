@@ -1,4 +1,5 @@
 import type { SessionRequest, TurnContext, TurnInput } from '@theoremjs/agents';
+import { refuseInterfacePick } from '@theoremjs/agents/interface';
 import type { LiveOpenMessage } from '../client/live-messages.ts';
 import type { TheoremTurnInput } from '../client/transport.ts';
 
@@ -20,10 +21,12 @@ export function kernelTurnInput(input: TheoremTurnInput, server?: unknown): Turn
 
 /**
  * What a live call's first message asks of the session, as `runSession` takes
- * it: the page's context is the client's, and `server` is the host's own.
+ * it: the page's context is the client's, and `server` is the host's own. A model
+ * or effort the page picks is refused unless `profile` lets the interface pick it.
  */
 export function liveSessionOpen(
   open: LiveOpenMessage,
+  profile: Parameters<typeof refuseInterfacePick>[0],
   server?: unknown,
 ): Pick<
   SessionRequest,
@@ -37,6 +40,7 @@ export function liveSessionOpen(
   | 'model'
   | 'effort'
 > {
+  refuseInterfacePick(profile, open);
   const context = turnContext(open.context, server);
   return {
     ...(open.history ? { history: open.history } : {}),

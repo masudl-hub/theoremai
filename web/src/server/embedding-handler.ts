@@ -11,6 +11,7 @@ import {
   z,
 } from '@theoremjs/agents';
 import type { ClientTurnOptions } from '@theoremjs/agents/host';
+import { refuseInterfacePick } from '@theoremjs/agents/interface';
 import { embeddingInterface } from '../client/embedding-transport.ts';
 import { readBody } from './handler.ts';
 import { singleActionHandler } from './single-action.ts';
@@ -67,6 +68,7 @@ export function createTheoremEmbeddingHandler(
     },
     async (request) => {
       const body = await readBody(request, embedBodySchema);
+      refuseInterfacePick(profile, { model: body.model });
       const provider =
         typeof options.provider === 'function'
           ? await options.provider({ request, model: body.model })

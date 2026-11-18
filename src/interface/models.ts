@@ -1,3 +1,4 @@
+import { TheoremError } from '../guardrails/error.ts';
 import type { ModelBinding, ModelId } from '../kernel/types.ts';
 import type { ComposerProfileInterface } from './types.ts';
 
@@ -92,4 +93,34 @@ export {
   interfaceModelOptions,
   MODEL_SELECT_MIN_MODELS,
   modelSelectEnabled,
+  refuseInterfacePick,
 };
+
+/**
+ * Refuses a model or effort the page picked when the profile lets no one pick it from the
+ * interface. The host's own code may still run any model and effort the profile declares.
+ * why: The page is the person's; allowModelSelect and allowEffortSelect are what they may change.
+ */
+function refuseInterfacePick(
+  // invariant: A host profile has no models, so every field here is optional.
+  profile: {
+    id: string;
+    models?: Record<ModelId, ModelBinding>;
+    defaultModel?: ModelId;
+    allowModelSelect?: boolean;
+  },
+  pick: { model?: string; effort?: string },
+): void {
+  if (pick.model !== undefined && !profile.allowModelSelect)
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} does not let the interface pick the model`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  if (pick.effort === undefined) return;
+  const modelId = pick.model ?? profile.defaultModel;
+  if (!(modelId && profile.models?.[modelId]?.allowEffortSelect))
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} does not let the interface pick the effort`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+}

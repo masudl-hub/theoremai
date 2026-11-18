@@ -853,6 +853,13 @@ Deno.test('the call after one that could not reconnect takes it up again; a refu
 });
 
 Deno.test('a relay reads the open message into the session request, with the host context as server', () => {
+  const pickable = {
+    id: 'pickable',
+    allowModelSelect: true,
+    models: {
+      free: { protocol: 'scripted', provider: 'scripted', apiId: 'free', allowEffortSelect: true },
+    },
+  };
   const open = parseLiveOpenMessage(
     JSON.stringify({
       type: 'open',
@@ -864,7 +871,7 @@ Deno.test('a relay reads the open message into the session request, with the hos
       host: { type: 'draft' },
     }),
   );
-  assertEquals(liveSessionOpen(open, { tier: 'pro' }), {
+  assertEquals(liveSessionOpen(open, pickable, { tier: 'pro' }), {
     inputOptions: { language: 'fr' },
     context: { client: { page: '/docs' }, server: { tier: 'pro' } },
     model: 'free',
@@ -872,7 +879,11 @@ Deno.test('a relay reads the open message into the session request, with the hos
     providerState: checkpointFixture,
     awayMs: 4200,
   });
-  assertEquals(liveSessionOpen(parseLiveOpenMessage('{"type":"open"}')), {});
+  assertEquals(liveSessionOpen(parseLiveOpenMessage('{"type":"open"}'), { id: 'fixed' }), {});
+  assertEquals(
+    assertThrows(() => liveSessionOpen(open, { id: 'fixed' }), TheoremError).kind,
+    'request',
+  );
   for (const bad of [
     '{not json',
     '{"type":"text","text":"hi"}',
@@ -912,7 +923,7 @@ Deno.test('a live reconnect sends portable history alongside its checkpoint and 
     const opened = parseLiveOpenMessage(JSON.stringify(live.sockets[1].sent[0]));
     assertEquals(opened.history, history);
     assertEquals(opened.resume?.providerState, providerState);
-    assertEquals(liveSessionOpen(opened).history, history);
+    assertEquals(liveSessionOpen(opened, { id: 'live' }).history, history);
   } finally {
     await client.disconnect();
     live.restore();

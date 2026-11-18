@@ -90,11 +90,8 @@ Deno.test('model, effort, and continuation refusals are request errors; a missin
     defaultModel: 'a',
     allowModelSelect: true,
   });
-  check(
-    say(turn('fixed', { model: 'm' })),
-    'request: Profile fixed does not allow model selection',
-    'model not allowed',
-  );
+  // The interface picker is the web edge's to refuse; the kernel runs any model the profile declares.
+  check(say(turn('fixed', { model: 'm' })), 'returned', 'a declared model, picker off');
   check(
     say(turn('select', { model: 'z' })),
     "request: Unknown model 'z' for select",
@@ -116,11 +113,7 @@ Deno.test('model, effort, and continuation refusals are request errors; a missin
   );
   const efforts = { lo: 'low', hi: 'high' };
   define('locked', { models: { m: { ...GEMINI, efforts, defaultEffort: 'lo' } } });
-  check(
-    say(turn('locked', { effort: 'hi' })),
-    "request: Profile locked model 'm' does not allow effort selection",
-    'effort not allowed',
-  );
+  check(say(turn('locked', { effort: 'hi' })), 'returned', 'a declared effort, picker off');
   define('open', {
     models: { m: { ...GEMINI, efforts, defaultEffort: 'lo', allowEffortSelect: true } },
   });

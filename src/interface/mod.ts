@@ -58,6 +58,7 @@ export {
   interfaceModelOptions,
   MODEL_SELECT_MIN_MODELS,
   modelSelectEnabled,
+  refuseInterfacePick,
 } from './models.ts';
 export type {
   ComposerPendingKind,

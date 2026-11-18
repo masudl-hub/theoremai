@@ -2,7 +2,6 @@ import {
   labelText,
   type PageToolExecution,
   type ProviderCheckpoint,
-  type SessionRequest,
   TheoremError,
   type ToolExecutionCoordinator,
   type TurnHistoryMessage,
@@ -45,15 +44,17 @@ export interface SessionBoundaryOptions {
   pageToolTimeoutMs?: number;
 }
 
-export type PreparedLiveOpen = Pick<
-  SessionRequest,
-  'history' | 'inputOptions' | 'context' | 'providerState' | 'awayMs' | 'path' | 'options'
->;
+export type PreparedLiveOpen = ReturnType<typeof liveSessionOpen>;
 
 export interface TheoremSessionBoundary {
   sessionId: string;
   setCookie?: string;
-  prepareLiveOpen(open: LiveOpenMessage, serverContext?: unknown): Promise<PreparedLiveOpen>;
+  /** Checks the page's open message against the profile the call opens on. */
+  prepareLiveOpen(
+    open: LiveOpenMessage,
+    profile: Parameters<typeof liveSessionOpen>[1],
+    serverContext?: unknown,
+  ): Promise<PreparedLiveOpen>;
   prepareProviderState(
     checkpoint: ProviderCheckpoint | undefined,
     history?: readonly TurnHistoryMessage[],
@@ -95,12 +96,12 @@ export async function createTheoremSessionBoundary(
     sessionId: id,
     ...(cookie?.setCookie ? { setCookie: cookie.setCookie } : {}),
     toolExecution: sessionToolCoordinator(store, id),
-    async prepareLiveOpen(raw, server) {
+    async prepareLiveOpen(raw, profile, server) {
       const open = checkRequest(liveOpenMessageSchema, raw, 'live open');
       if (open.stated && !options.pageStatesTurn) {
         throw new TheoremError('request', labelText('error.request'));
       }
-      const prepared = liveSessionOpen(open, server);
+      const prepared = liveSessionOpen(open, profile, server);
       const state = await store.read(id);
       const providerState = await requireOwnedCheckpoint(
         state.providerCheckpoints,

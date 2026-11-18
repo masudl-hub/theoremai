@@ -69,9 +69,7 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
 /** A request is honored only when selection is allowed; registration guarantees the default. */
 function pickModel(profile: ModelProfile, requested?: string): ModelId {
   if (requested) {
-    if (!profile.allowModelSelect) {
-      throw new TheoremError('request', `Profile ${profile.id} does not allow model selection`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
+    // why: allowModelSelect says whether people may pick from the interface; the host's code may run any model the profile declares.
     if (!profile.models[requested]) {
       throw new TheoremError('request', `Unknown model '${requested}' for ${profile.id}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
@@ -98,12 +96,7 @@ function resolveEffort(
   }
   const keys = Object.keys(efforts);
   if (requested) {
-    if (!binding.allowEffortSelect) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id} model '${modelId}' does not allow effort selection`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
+    // why: allowEffortSelect says whether people may pick from the interface; the host's code may run any effort the model declares.
     const level = efforts[requested];
     if (!level) {
       throw new TheoremError(

@@ -2267,6 +2267,51 @@ Deno.test("a turn's prepare sees a held call going on, and only a run's events r
   assertEquals(prepared.slice(2).includes(true), false);
 });
 
+/** Two models, `a` the default; the profile does not let the interface pick between them. */
+function twoModels(id: string): ProfileDefinition {
+  const stub = { protocol: 'scripted', provider: 'scripted' } as const;
+  return {
+    type: 'text',
+    id,
+    identity: { handle: 'helper', system: SYSTEM },
+    models: { a: { ...stub, apiId: 'model-a' }, b: { ...stub, apiId: 'model-b' } },
+    defaultModel: 'a',
+    tools: { allow: [] },
+    inputs: { text: true },
+    guardrails: { detect: 'ignore' },
+  };
+}
+Deno.test("the page may pick the model only when the profile lets the interface; the host's prepare always may", async () => {
+  const ran: string[] = [];
+  const recording: TurnModel = {
+    complete: (req) =>
+      (async function* () {
+        ran.push(req.apiId);
+        yield { type: 'text' as const, text: 'ok' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+  const page = transportFor(
+    handlerFor({
+      profile: twoModels('handler-pick-page'),
+      provider: () => fixtureHostOptions(recording),
+    }),
+  );
+  await assertRefused(
+    () => collect((onEvent) => page.turn({ input: { text: 'hi' }, model: 'b' }, onEvent)),
+    'error.request',
+  );
+  const host = transportFor(
+    handlerFor({
+      profile: twoModels('handler-pick-host'),
+      provider: () => fixtureHostOptions(recording),
+      prepare: (turn) => ({ ...turn, model: 'b' }),
+    }),
+  );
+  await collect((onEvent) => host.turn({ input: { text: 'hi' } }, onEvent));
+  assertEquals(ran, ['model-b']);
+});
+
 /** A profile whose prompt turns on the page's picks. */
 function linedProfile(id: string, allow: string[] = []): ProfileDefinition {
   return profile(id, allow, {

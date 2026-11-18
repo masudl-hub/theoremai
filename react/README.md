@@ -412,7 +412,7 @@ Three more values for `useLiveCall` come from the page. The profile declares eac
 
 `stated` is a fourth value, for a page you trust as yourself. It says the `path` and the `options` from `identity.options` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as an option does. `TheoremChat` takes the same prop, on each turn.
 
-`model` and `effort` pick the call's model when the profile sets `allowModelSelect`. They are read when the call starts.
+`model` and `effort` pick the call's model and effort. The host refuses them unless the profile sets `allowModelSelect` (and the binding `allowEffortSelect`). They are read when the call starts.
 
 ```tsx
 const call = useLiveCall({

@@ -39,8 +39,6 @@ function chooseModel(
   requested: string | undefined,
 ): [string, ModelBinding] {
   const modelId = requested ?? profile.defaultModel;
-  if (requested && !profile.allowModelSelect)
-    throw new TheoremError('request', `Profile ${profile.id} does not allow model selection`); // labels-exempt: developer contract error
   const binding = profile.models[modelId];
   if (!binding) throw new TheoremError('request', `Unknown model '${modelId}' for ${profile.id}`); // labels-exempt: developer contract error
   return [modelId, binding];

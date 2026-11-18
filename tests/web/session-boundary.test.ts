@@ -16,6 +16,8 @@ const checkpoint: ProviderCheckpoint = {
   data: { cursor: 'one' },
 };
 const request = new Request('https://boundary.test');
+/** The profile a call opens on; the page may not pick its model. */
+const live = { id: 'live' };
 
 Deno.test('live boundary refuses unowned or edited state and isolates authorized conversations', async () => {
   const store = createMemorySessionStore();
@@ -25,21 +27,24 @@ Deno.test('live boundary refuses unowned or edited state and isolates authorized
     sessionStore: store,
   });
   const open = { type: 'open' as const, resume: { providerState: checkpoint, awayMs: 10 } };
-  await assertRejects(() => first.prepareLiveOpen(open));
+  await assertRejects(() => first.prepareLiveOpen(open, live));
   await first.recordCheckpoint(checkpoint);
-  assertEquals((await first.prepareLiveOpen(open)).providerState, checkpoint);
+  assertEquals((await first.prepareLiveOpen(open, live)).providerState, checkpoint);
   await assertRejects(() =>
-    first.prepareLiveOpen({
-      ...open,
-      resume: { ...open.resume, providerState: { ...checkpoint, data: { cursor: 'edited' } } },
-    }),
+    first.prepareLiveOpen(
+      {
+        ...open,
+        resume: { ...open.resume, providerState: { ...checkpoint, data: { cursor: 'edited' } } },
+      },
+      live,
+    ),
   );
   const other = await createTheoremSessionBoundary({
     request,
     session: () => 'other',
     sessionStore: store,
   });
-  await assertRejects(() => other.prepareLiveOpen(open));
+  await assertRejects(() => other.prepareLiveOpen(open, live));
 });
 
 Deno.test('live context stays untrusted and system-role history never reaches setup', async () => {
@@ -57,6 +62,7 @@ Deno.test('live context stays untrusted and system-role history never reaches se
         { role: 'user', content: 'hello' },
       ],
     },
+    live,
     { principal: 'trusted' },
   );
   assertEquals(prepared.context, {
@@ -86,11 +92,18 @@ Deno.test('live checkpoints are deduplicated and the oldest drops when the sessi
   const next = { ...checkpoint, data: { cursor: 'two' } };
   await boundary.recordCheckpoint(next);
   await assertRejects(() =>
-    boundary.prepareLiveOpen({ type: 'open', resume: { providerState: checkpoint, awayMs: 0 } }),
+    boundary.prepareLiveOpen(
+      { type: 'open', resume: { providerState: checkpoint, awayMs: 0 } },
+      live,
+    ),
   );
   assertEquals(
-    (await boundary.prepareLiveOpen({ type: 'open', resume: { providerState: next, awayMs: 0 } }))
-      .providerState,
+    (
+      await boundary.prepareLiveOpen(
+        { type: 'open', resume: { providerState: next, awayMs: 0 } },
+        live,
+      )
+    ).providerState,
     next,
   );
 });
@@ -113,12 +126,12 @@ Deno.test('a resumed live connection cannot revive a running or uncertain operat
   const claim = await boundary.toolExecution.begin(identity);
   assert(claim.kind === 'acquired');
   const open = { type: 'open' as const, resume: { providerState: checkpoint, awayMs: 0 } };
-  await assertRejects(() => boundary.prepareLiveOpen(open));
+  await assertRejects(() => boundary.prepareLiveOpen(open, live));
   await boundary.toolExecution.markUncertain(
     { ...identity, claimToken: claim.claimToken },
     'worker_lost',
   );
-  await assertRejects(() => boundary.prepareLiveOpen(open));
+  await assertRejects(() => boundary.prepareLiveOpen(open, live));
   assertEquals((await store.load('uncertain'))?.state.operations.action.status, 'uncertain');
 });
 
@@ -156,14 +169,17 @@ Deno.test('settlement invalidates older native ownership even when the effect co
     },
   );
   const open = { type: 'open' as const, resume: { providerState: checkpoint, awayMs: 0 } };
-  await assertRejects(() => boundary.prepareLiveOpen(open));
+  await assertRejects(() => boundary.prepareLiveOpen(open, live));
   await boundary.recordCheckpoint({ ...checkpoint, data: { cursor: 'after-effect' } });
   assertEquals(
     (
-      await boundary.prepareLiveOpen({
-        type: 'open',
-        resume: { providerState: { ...checkpoint, data: { cursor: 'after-effect' } }, awayMs: 0 },
-      })
+      await boundary.prepareLiveOpen(
+        {
+          type: 'open',
+          resume: { providerState: { ...checkpoint, data: { cursor: 'after-effect' } }, awayMs: 0 },
+        },
+        live,
+      )
     ).providerState?.data,
     { cursor: 'after-effect' },
   );
@@ -177,7 +193,7 @@ Deno.test('a live call says which prompt lines it gets only on a page the host t
     sessionStore: createMemorySessionStore(),
   });
   const refused = await assertRejects(
-    () => refusing.prepareLiveOpen({ type: 'open', stated }),
+    () => refusing.prepareLiveOpen({ type: 'open', stated }, live),
     TheoremError,
   );
   assertEquals(refused.message, labelText('error.request'));
@@ -187,6 +203,32 @@ Deno.test('a live call says which prompt lines it gets only on a page the host t
     sessionStore: createMemorySessionStore(),
     pageStatesTurn: true,
   });
-  const prepared = await trusting.prepareLiveOpen({ type: 'open', stated });
+  const prepared = await trusting.prepareLiveOpen({ type: 'open', stated }, live);
   assertEquals({ path: prepared.path, options: prepared.options }, stated);
+});
+
+Deno.test("a live call's model or effort is the page's to pick only when the profile lets the interface", async () => {
+  const boundary = await createTheoremSessionBoundary({
+    request,
+    session: () => 'pick',
+    sessionStore: createMemorySessionStore(),
+  });
+  const binding = { protocol: 'scripted', provider: 'scripted', apiId: 'g' };
+  const efforts = { lo: 'low', hi: 'high' } as const;
+  const models = {
+    m: { ...binding, efforts },
+    n: { ...binding, efforts, allowEffortSelect: true },
+  };
+  const closed = { id: 'closed', models, defaultModel: 'm' };
+  const open = { id: 'open', models, defaultModel: 'm', allowModelSelect: true };
+  const refused = (profile: typeof closed, pick: object) =>
+    assertRejects(() => boundary.prepareLiveOpen({ type: 'open', ...pick }, profile), TheoremError);
+  assertEquals((await refused(closed, { model: 'm' })).kind, 'request');
+  assertEquals((await refused(closed, { effort: 'hi' })).kind, 'request');
+  assertEquals((await refused(open, { effort: 'hi' })).kind, 'request');
+  assertEquals(
+    (await boundary.prepareLiveOpen({ type: 'open', model: 'n', effort: 'hi' }, open)).effort,
+    'hi',
+  );
+  assertEquals((await boundary.prepareLiveOpen({ type: 'open' }, closed)).model, undefined);
 });

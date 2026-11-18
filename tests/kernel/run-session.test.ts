@@ -2491,16 +2491,17 @@ Deno.test('a live call sends the effort it picks', async () => {
   assertStringIncludes(setup, '"thinkingLevel":"high"');
 });
 
-Deno.test('a live call is refused a pick the profile does not allow, or a model it does not have', async () => {
+Deno.test('a live call runs any model the profile declares, and is refused one it does not have', async () => {
   clearProfiles();
   resetTools();
   registerTwoModelLive('session_live_closed', false);
   registerTwoModelLive('session_live_open', true);
-  await assertRejects(
-    () => setupOf({ profile: 'session_live_closed', model: 'free' }, { free: 'free-key' }),
-    TheoremError,
-    'does not allow model selection',
+  // The interface picker is the web edge's to refuse; the host's own request may name a declared model.
+  const setup = await setupOf(
+    { profile: 'session_live_closed', model: 'free' },
+    { free: 'free-key' },
   );
+  assertStringIncludes(setup, 'gemini-free-live');
   await assertRejects(
     () => setupOf({ profile: 'session_live_open', model: 'nope' }, { free: 'free-key' }),
     TheoremError,

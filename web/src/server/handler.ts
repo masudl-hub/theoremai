@@ -87,6 +87,7 @@ import {
   gatedToolsFromEvents,
   interfaceFromProfile,
   promotedToolIdsFromEvents,
+  refuseInterfacePick,
   type TranscriptBlock,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
@@ -1228,6 +1229,8 @@ function chatRunner(
   },
   held?: HeldRun,
 ): ReplyRunner {
+  // invariant: The page's pick is checked here, before prepare; a model prepare sets is the host's own.
+  refuseInterfacePick(ctx.profile, generation);
   const key = generation.turnId ? inboxKey(session.id, generation.turnId) : undefined;
   const stop = new AbortController();
   const signal = AbortSignal.any([request.signal, stop.signal, ...(held ? [held.run.signal] : [])]);

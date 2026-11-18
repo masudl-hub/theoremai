@@ -375,7 +375,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   models:
     'The trained AI systems that turn input into results. Each entry binds a local name to an upstream model and its call settings.',
   'models.*': 'One model: how to reach it and the settings sent with it.',
-  'models.*.allowEffortSelect': 'Lets a turn pick an effort; needs two or more efforts.',
+  'models.*.allowEffortSelect':
+    "Lets the person pick the effort from the interface; needs two or more efforts. The host's own code may run any effort the model declares.",
   'models.*.apiId':
     "The model's id as the provider lists it; sent on every call. The name this model has in the profile is its key in models.",
   'models.*.builtInTools':
@@ -396,7 +397,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     'Your function that decides when to compact, in place of compactAt and maxTokens. A throw is reported as hook_failed, and compactAt and maxTokens decide.',
   'models.*.defaultEffort': "The effort a turn gets when it doesn't pick one.",
   'models.*.efforts':
-    'Named thinking levels. A turn picks one when allowEffortSelect is on. A provider refuses a level its model does not take. Speech ignores them, and so may an image profile without includeText.',
+    'Named thinking levels. A turn may pick any of them; the interface may pick one only when allowEffortSelect is on. A provider refuses a level its model does not take. Speech ignores them, and so may an image profile without includeText.',
   'models.*.efforts.*': 'The thinking level sent to the provider for this name.',
   'models.*.fallbackKeySlot':
     "The key slot tried once after a rate limit or a busy model on the primary slot, instead of the provider's fallback. Must differ from the primary slot. Absent: the provider's fallback slot, if it has one.",
@@ -482,7 +483,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'outputs.validation.maxRetries':
     "How many times the model may rewrite a reply that fails your checks or the schema's required keys before it goes out as it is; under sse, an attempt that gets rewritten has already streamed. A rewrite of a blocked reply (guardrails.blockedReply) counts against this too.",
   'profile.allowModelSelect':
-    'Lets a turn name the model it runs on; a name the profile does not declare is refused.',
+    "Lets the person pick the model from the interface. The host's own code may run any model the profile declares, whether this is on or not; a name the profile does not declare is refused.",
   'profile.defaultModel': "The model a turn gets when it doesn't pick one.",
   'profile.id':
     'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
@@ -616,7 +617,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'runTurn.conversationId': 'Your conversation id, recorded on the trace.',
   'runTurn.credentials': 'Where an HTTP or MCP tool gets the credential for its auth slot.',
   'runTurn.effort':
-    "The effort the turn or session picks from the model's efforts; refused unless the model sets allowEffortSelect.",
+    "The effort the turn or session picks from the model's efforts; one the model does not declare is refused. The web handler refuses the page's pick unless the model sets allowEffortSelect.",
   'runTurn.execution':
     'Host-owned atomic tool claims and outcomes. Never sent to providers. A throw before the call runs fails the call. A throw after it ran keeps the result, marks the call uncertain and is reported as hook_failed. A TheoremError is its answer and ends the turn.',
   'runTurn.fetch':
@@ -646,7 +647,7 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'runTurn.links': 'Earlier traces this run follows: a resume, a continue, or a retry.',
   'runTurn.metadata': 'Your own values, kept on the trace; Theorem does not read them.',
   'runTurn.model':
-    "The model id the turn or session picks from the profile's models; refused unless the profile sets allowModelSelect.",
+    "The model id the turn or session picks from the profile's models; one the profile does not declare is refused. The web handler refuses the page's pick unless the profile sets allowModelSelect.",
   'runTurn.onAgentCall':
     'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
   'runTurn.onEvent':

@@ -133,7 +133,7 @@ const open = parseLiveOpenMessage(firstFrame);
 const session = await runSession(
   {
     profile,
-    ...await boundary.prepareLiveOpen(open, hostContext),
+    ...await boundary.prepareLiveOpen(open, profile, hostContext),
     execution: boundary.toolExecution,
     pageExecution: boundary.pageExecution,
   },
@@ -148,7 +148,8 @@ for await (const event of session.events()) {
 ```
 
 - `prepareLiveOpen` returns validated history, options, context, native state, and absence duration. It removes system-role history.
-- Its second argument supplies server context. Browser context stays under `client`.
+- Its second argument is the profile the call opens on. A model or effort the page picks is refused unless that profile sets `allowModelSelect` (or the binding's `allowEffortSelect`).
+- Its third argument supplies server context. Browser context stays under `client`.
 - Save checkpoint ownership before you send the event. If storage fails, close the session without advertising that checkpoint.
 - The boundary refuses native resumption while a saved operation is ready, running, or uncertain. It does not repeat the operation.
 - Without a session resolver, the boundary uses an anonymous cookie. Forward its `setCookie` value in the upgrade response.

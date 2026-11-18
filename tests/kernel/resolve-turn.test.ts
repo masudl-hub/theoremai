@@ -51,7 +51,7 @@ const turn = (id: string, extra: Partial<TurnRequest> = {}): TurnRequest => ({
   input: { text: 'hi' },
   ...extra,
 });
-Deno.test('a turn may name a model only when the profile allows selection and declares it', () => {
+Deno.test('a turn may name any model the profile declares, whether or not the picker is on', () => {
   clearProfiles();
   define('fixed');
   define('select', {
@@ -60,9 +60,9 @@ Deno.test('a turn may name a model only when the profile allows selection and de
     allowModelSelect: true,
   });
   check(
-    resolved(turn('fixed', { model: 'm' })),
-    'Profile fixed does not allow model selection',
-    'not allowed',
+    (resolved(turn('fixed', { model: 'm' })) as { apiId: string }).apiId,
+    'g',
+    'declared, picker off',
   );
   check(resolved(turn('select', { model: 'zzz' })), "Unknown model 'zzz' for select", 'unknown');
   check(
@@ -102,7 +102,7 @@ Deno.test('a turn may name a model only when the profile allows selection and de
     'the sole model',
   );
 });
-Deno.test('an effort is chosen by alias when the model allows it, else the default alias', () => {
+Deno.test('an effort is chosen by alias when the model declares it, else the default alias', () => {
   clearProfiles();
   define('none');
   define('lone', withModel({ efforts: { only: 'low' } }));
@@ -131,11 +131,7 @@ Deno.test('an effort is chosen by alias when the model allows it, else the defau
     "Unknown effort 'z' for pick model 'm'",
     'unknown alias',
   );
-  check(
-    resolved(turn('locked', { effort: 'a' })),
-    "Profile locked model 'm' does not allow effort selection",
-    'selection off',
-  );
+  check(thinking('locked', 'a'), 'low', 'declared, picker off');
   check(thinking('locked'), 'high', 'the default alias when locked');
 });
 Deno.test('a summaries flag becomes a mode, and left unset stays unset', () => {

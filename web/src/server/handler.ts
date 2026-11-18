@@ -1,5 +1,3 @@
-import { withPublicLabels } from '@theoremjs/agents/guardrails';
-import type { ConversationView } from '../client/transport.ts';
 import {
   checkPageToolTimeout,
   createMemoryPageToolBroker,
@@ -48,31 +46,19 @@ import {
  */
 
 import {
-  authorizeToolReplay,
-  compactHistory,
   defaultKernelScope,
   defineProfile,
-  type GateReference,
-  invokeTool,
-  jsonObjectSchema,
-  type LateResultItem,
-  type LateResultsSource,
   labelText,
   type Profile,
   type ProfileDefinition,
   type ProviderHostOptions,
   registerProfile,
-  runTurn,
   type StageHandler,
   TheoremError,
   type ToolGate,
-  type TurnEvent,
-  type TurnInput,
   type TurnWiring,
-  toolInvocationHash,
   type z,
 } from '@theoremjs/agents';
-import { type ReplyRun, type ReplyStart, runConversation } from '@theoremjs/agents/conversation';
 import {
   type ClientError,
   type ClientTurnOptions,
@@ -81,34 +67,10 @@ import {
   forClient,
   HTTP_NOT_FOUND,
 } from '@theoremjs/agents/host';
+import { clientProfileInterface } from '@theoremjs/agents/interface';
+import { resolveGateTtlMs, type ToolBackgroundService } from '@theoremjs/agents/kernel';
+import { hostInterface, theoremHostCallRequestSchema } from '../client/host-transport.ts';
 import {
-  type ComposerProfileInterface,
-  clientProfileInterface,
-  gatedToolsFromEvents,
-  interfaceFromProfile,
-  promotedToolIdsFromEvents,
-  refuseInterfacePick,
-  type TranscriptBlock,
-  toolSnapshotFromEvents,
-} from '@theoremjs/agents/interface';
-import {
-  type AnsweredGate,
-  answerGatedCall,
-  type GateAnswerRequest,
-  isSealedSource,
-  resolveGateTtlMs,
-  type ToolBackgroundService,
-  type ToolCredentialSource,
-} from '@theoremjs/agents/kernel';
-import {
-  hostInterface,
-  type TheoremHostCallRequest,
-  theoremHostCallRequestSchema,
-} from '../client/host-transport.ts';
-import {
-  type StatedTurn,
-  type TheoremInvokeRequest,
-  type TheoremRewound,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
   theoremNotifyRequestSchema,
@@ -118,31 +80,15 @@ import {
   theoremTurnRequestSchema,
   theoremWakeRequestSchema,
 } from '../client/transport.ts';
+import { postedMessage, type ReplyLine, statelessRefusal } from './conversation.ts';
 import {
-  answerReply,
-  type ConversationHost,
-  conversationView,
-  type IssuedWalkAway,
-  messageReply,
-  type OpenedConversation,
-  openConversation,
-  postedMessage,
-  type ReplyLine,
-  type ReplyRunner,
-  type ReplyTurn,
-  readerConversationHost,
-  requiredOperationId,
-  rewindConversation,
-  statelessRefusal,
-  waitingCalls,
-  wakeReply,
-} from './conversation.ts';
-import { detachedEnd, sessionConversationInbox } from './conversation-inbox.ts';
-import {
-  type StoredConversation,
-  type TheoremConversationStore,
-  unknownConversation,
-} from './conversation-store.ts';
+  type ChatContext,
+  type ConversationCore,
+  chatInterface,
+  createConversationCore,
+  unconversedAnswer,
+} from './conversation-core.ts';
+import type { TheoremConversationStore } from './conversation-store.ts';
 import {
   createMemoryCredentialStore,
   type TheoremCredentialStore,
@@ -154,6 +100,7 @@ import {
   type SessionStateStore,
   sessionStateStore,
 } from './session-authority.ts';
+import { type CallsContext, type CoreContext, callEvents } from './session-calls.ts';
 import { type Session, theoremSession } from './session-identity.ts';
 import { kernelTurnInput } from './turn-input.ts';
 
@@ -165,21 +112,11 @@ import { checkRequest } from './request-check.ts';
 import {
   createMemorySessionStore,
   DEFAULT_OPERATION_RETENTION_MS,
-  type PendingToolGate,
   type PerSessionStore,
   type SessionToolOperation,
-  type TheoremSessionState,
   type TheoremSessionStore,
 } from './session-store.ts';
-import {
-  createMemorySteerInbox,
-  type SteerInbox,
-  steerStage,
-  steerUnitOf,
-  stopOnRequest,
-} from './steer-inbox.ts';
-import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
-import { preparedTurn, stagesInOrder } from './turn-wiring.ts';
+import { createMemorySteerInbox, type SteerInbox, steerUnitOf } from './steer-inbox.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -420,21 +357,6 @@ function lockedStore<T>(
   };
 }
 
-/** A profile that takes messages. */
-type ChatProfile = Exclude<Profile, { type: 'live' | 'decision' | 'host' | 'embedding' }>;
-
-/** What a chat's requests read beside the handler's own. */
-type ChatContext = {
-  profile: ChatProfile;
-  /** Undefined when the profile keeps no conversation (`'stateless'`). */
-  conversations?: TheoremConversationStore;
-};
-
-/** The profile as the server reads a message against it, its tools as registered now. */
-function chatInterface(chat: ChatContext): ComposerProfileInterface {
-  return interfaceFromProfile(chat.profile, defaultKernelScope.tools);
-}
-
 /** Everything a request needs from the handler that serves it. */
 type HandlerContext = {
   /** A host's handler has no provider: it runs no model. */
@@ -509,407 +431,66 @@ function providerFor(
   return provider;
 }
 
-/** Steer inboxes are scoped to the session, so a turn id alone can't reach another user's turn. */
-function inboxKey(sessionId: string, turnId: string): string {
-  return `${sessionId}\u0000${turnId}`;
-}
-
-type OutcomeContext = {
-  profileId: string;
-  turnInput: TurnInput;
-  model?: string;
-  promoted?: string[];
-};
-
-/** The exact paused calls the user may now approve, when the stream stopped on gates. */
-function pendingGatesFrom(
-  events: TurnEvent[],
-  context: OutcomeContext,
-): { callId: string; gate: PendingToolGate }[] {
-  return gatedToolsFromEvents(events).map((gated) => ({
-    callId: gated.callId,
-    gate: {
-      profileId: context.profileId,
-      operationId: requiredOperationId(gated),
-      callId: gated.callId,
-      name: gated.name,
-      arguments: gated.arguments,
-      gate: {
-        kind: gated.gateKind,
-        permission: gated.permission,
-        ...(gated.auth ? { auth: gated.auth } : {}),
-      },
-      snapshot: toolSnapshotFromEvents(events),
-      promoted: [...new Set([...(context.promoted ?? []), ...promotedToolIdsFromEvents(events)])],
-      turnInput: context.turnInput,
-      model: context.model,
-      createdAt: Date.now(),
-    },
-  }));
-}
-
-/** When the stream paused on gates, record the exact calls the user may now approve. */
-async function recordOutcome(
-  sessions: MutableStore<TheoremSessionState>,
-  sessionId: string,
-  events: TurnEvent[],
-  context: OutcomeContext,
-): Promise<void> {
-  const pending = pendingGatesFrom(events, context);
-  if (!pending.length) return;
-  await sessions.mutate(sessionId, (state) => {
-    for (const { gate } of pending) {
-      const operation = state.operations[gate.operationId];
-      if (operation && operation.status !== 'ready')
-        throw new TheoremError(
-          'unavailable',
-          `Tool operation ${gate.operationId} is ${operation.status}, not ready, so its gate was not saved`, // labels-exempt: internal diagnostic; the user reads session.busy
-          { copy: { key: 'session.busy' } },
-        );
-      delete state.operations[gate.operationId];
-      Object.defineProperty(state.gates, gate.operationId, {
-        value: gate,
-        writable: true,
-        enumerable: true,
-        configurable: true,
-      });
-    }
-  });
-}
-
-async function* recorded(
-  sessions: MutableStore<TheoremSessionState>,
-  sessionId: string,
-  events: AsyncIterable<TurnEvent>,
-  context: OutcomeContext,
-  seed: TurnEvent[] = [],
-): AsyncGenerator<TurnEvent> {
-  const seen: TurnEvent[] = [...seed];
-  for await (const event of events) {
-    seen.push(event);
-    if (event.type === 'done' || event.type === 'provider_checkpoint')
-      await recordOutcome(sessions, sessionId, seen, context);
-    yield event;
-  }
-}
-
-/** Save one credential, leaving the session's others as they are. */
-function saveCredential(
-  ctx: HandlerContext,
-  sessionId: string,
-  slot: string,
-  credential: TheoremCredentials[string],
-): Promise<void> {
-  return ctx.credentials.mutate(sessionId, (saved) => {
-    saved[slot] = credential;
-  });
-}
-
-/**
- * The session's credentials as a call reads them: one slot when a tool needs it,
- * saved the moment the kernel sets one, so a rotated refresh token is never lost
- * to a closed stream.
- */
-function sessionCredentials(ctx: HandlerContext, sessionId: string): ToolCredentialSource {
+/** What a run reads in place of `request`. */
+function contextOf(ctx: HandlerContext, request: Request, sessionId: string): CoreContext {
   return {
-    get: async (slot) => (await ctx.credentials.read(sessionId))[slot],
-    set: (slot, credential) => saveCredential(ctx, sessionId, slot, credential),
-    delete: (slot) =>
-      ctx.credentials.mutate(sessionId, (saved) => {
-        delete saved[slot];
-      }),
-  };
-}
-
-/** An OAuth gate given the host's sign-in URL. */
-async function withAuthorizationUrl(
-  ctx: HandlerContext,
-  request: Request,
-  sessionId: string,
-  event: TurnEvent,
-): Promise<TurnEvent> {
-  if (event.type !== 'tool' || event.tool.phase !== 'gate') return event;
-  const { tool } = event;
-  const gate = tool.gate.kind === 'auth' ? tool.gate : undefined;
-  if (gate?.authChallenge.authType !== 'oauth2' || !ctx.options.authorizationUrl) return event;
-  const challenge = gate.authChallenge;
-  const authorizationUrl = await ctx.options.authorizationUrl(challenge, { request, sessionId });
-  return {
-    ...event,
-    tool: { ...tool, gate: { ...gate, authChallenge: { ...challenge, authorizationUrl } } },
-  };
-}
-
-/** Every OAuth gate in the stream, given the host's sign-in URL. */
-async function* withAuthorizationUrls(
-  ctx: HandlerContext,
-  request: Request,
-  sessionId: string,
-  events: AsyncIterable<TurnEvent>,
-): AsyncGenerator<TurnEvent> {
-  for await (const event of events)
-    yield await withAuthorizationUrl(ctx, request, sessionId, event);
-}
-
-/** The session's paused call, answered and taken out: each answer settles it once, as the model asked it. */
-type AnsweredCall = { callId: string; pending: PendingToolGate; answer: AnsweredGate };
-
-function answerPendingGate(
-  state: TheoremSessionState,
-  request: GateAnswerRequest & GateReference,
-  profileId: string,
-): AnsweredCall {
-  const operation = Object.hasOwn(state.operations, request.operationId)
-    ? state.operations[request.operationId]
-    : undefined;
-  if (
-    operation?.status === 'ready' &&
-    operation.profileId === profileId &&
-    operation.pending.callId === request.callId
-  ) {
-    const accepted = answerGatedCall(
-      request,
-      {
-        name: operation.pending.name,
-        arguments: operation.pending.arguments,
-        permission: operation.pending.gate.permission,
-        gateKind: operation.pending.gate.kind,
-        ...(operation.pending.gate.kind === 'auth' && operation.pending.gate.auth
-          ? { auth: operation.pending.gate.auth }
-          : {}),
-      },
-      operation.answer.sessionPermissions,
-    );
-    const { typed: _typed, ...plain } = accepted;
-    if (!sameAcceptedAnswer(plain, operation.answer))
-      throw new TheoremError('request', labelText('error.request'));
-    return {
-      callId: request.callId,
-      pending: operation.pending,
-      answer: { ...operation.answer, ...(accepted.typed ? { typed: accepted.typed } : {}) },
-    };
-  }
-  const pending = Object.hasOwn(state.gates, request.operationId)
-    ? state.gates[request.operationId]
-    : undefined;
-  if (!pending || pending.profileId !== profileId || pending.callId !== request.callId) {
-    throw new TheoremError('request', labelText('session.gate_expired'), {
-      copy: { key: 'session.gate_expired' },
-    });
-  }
-  // why: A refused answer (a refused secret, an edit without an approval) throws here and leaves the gate pending.
-  const answer = answerGatedCall(
-    request,
-    {
-      name: pending.name,
-      arguments: pending.arguments,
-      permission: pending.gate.permission,
-      gateKind: pending.gate.kind,
-      ...(pending.gate.kind === 'auth' && pending.gate.auth ? { auth: pending.gate.auth } : {}),
-    },
-    state.permissions,
-  );
-  delete state.gates[request.operationId];
-  const { typed: _typed, ...accepted } = answer;
-  state.operations[request.operationId] = {
-    status: 'ready',
-    profileId,
-    pending,
-    answer: accepted,
-    readyAt: Date.now(),
-  };
-  state.permissions = answer.sessionPermissions;
-  return { callId: request.callId, pending, answer };
-}
-
-/** A call a message walks away from: taken from its gate now, or settled by an earlier request its client never heard. */
-type WalkedCall =
-  | AnsweredCall
-  | { callId: string; settled: Extract<SessionToolOperation, { status: 'settled' }> };
-
-function walkedCallOf(
-  state: TheoremSessionState,
-  reference: GateReference,
-  profileId: string,
-  paused: TurnEvent[],
-): WalkedCall {
-  const settled = Object.hasOwn(state.operations, reference.operationId)
-    ? state.operations[reference.operationId]
-    : undefined;
-  // why: A gate that lapsed is gone from the session while the reply still waits on its call. The call is only ever cancelled here, so the next message is never refused for it.
-  if (!settled && !Object.hasOwn(state.gates, reference.operationId)) {
-    const lapsed = pendingGatesFrom(paused, { profileId, turnInput: {} }).find(
-      ({ callId }) => callId === reference.callId,
-    );
-    if (lapsed) state.gates[reference.operationId] = lapsed.gate;
-  }
-  return settled?.status === 'settled' &&
-    settled.callId === reference.callId &&
-    settled.profileId === profileId
-    ? { callId: reference.callId, settled }
-    : answerPendingGate(state, { ...reference, decision: 'abandon' }, profileId);
-}
-
-/**
- * Take the calls a message or a rewind walks away from out of the session,
- * answered `abandon`: every one of them, or none when one is neither waiting
- * nor settled. Each comes back with the run that settles it.
- */
-async function takeWalkedAway(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  abandon: readonly GateReference[],
-  conversation: StoredConversation,
-): Promise<IssuedWalkAway[]> {
-  const paused = conversation.paused?.events ?? [];
-  // why: A throw leaves the session unsaved, so no call is taken unless all are.
-  const calls = await ctx.sessions.mutate(session.id, (state) =>
-    abandon.map((reference) => ({
-      reference,
-      call: walkedCallOf(state, reference, ctx.profile.id, paused),
-    })),
-  );
-  return calls.map(({ reference, call }) => ({
-    ...reference,
-    events:
-      'settled' in call
-        ? replayOperation(ctx, request, call.settled)
-        : settleAnswered(ctx, request, session, call),
-  }));
-}
-
-async function* settleAnswered(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  answered: AnsweredCall,
-): AsyncGenerator<TurnEvent> {
-  yield* invokeAnswered(ctx, request, session.id, answered);
-}
-
-async function* invokeAnswered(
-  ctx: HandlerContext,
-  request: Request,
-  sessionId: string,
-  { callId, pending, answer }: AnsweredCall,
-): AsyncGenerator<TurnEvent> {
-  const host = await ctx.options.host?.(request);
-  // why: The held call goes on with what the application set for its turn: its context, stage handler and credentials.
-  const prepared = await preparedTurn(
-    ctx.options.prepare,
-    {
-      profile: ctx.profile.id,
-      execution: sessionToolCoordinator(ctx.sessions, sessionId),
-      ...backgroundWiring(ctx, request, sessionId),
-      input: pending.turnInput ?? {},
-      host,
-      signal: request.signal,
-      answersHeldCall: true,
-    },
-    {
-      credentials: sessionCredentials(ctx, sessionId),
-      ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),
-      announce: (service) => announced(ctx, request, sessionId, service),
-    },
-  );
-  if (answer.typed) {
-    // invariant: a sealed source keeps every key where the run cannot read it, so a key typed
-    // here would be saved and never sent; the person enters it where the keys are kept.
-    if (prepared.credentials && isSealedSource(prepared.credentials)) {
-      throw new TheoremError(
-        'request',
-        `call ${callId} runs with a sealed credential source, which takes no typed secret`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    await saveCredential(ctx, sessionId, answer.typed.slot, answer.typed.credential);
-  }
-  yield* invokeTool({
-    profile: ctx.profile.id,
-    ...(prepared.execution ? { execution: prepared.execution } : {}),
-    ...(prepared.background ? { background: prepared.background } : {}),
-    pageExecution: sessionPageDispatch(
-      ctx.sessions,
-      sessionId,
-      ctx.pageToolBroker,
-      ctx.options.pageToolTimeoutMs,
-    ).execution,
-    name: pending.name,
-    callId,
-    operationId: pending.operationId,
-    input: answer.input,
-    resume: answer.resume,
-    // why: An approval that names no answer is the page saying it has none, so the call is not held again.
-    ...(pending.gate.kind === 'page' && answer.resume.granted
-      ? { page: answer.page ?? { unanswered: true } }
-      : {}),
-    sessionPermissions: answer.sessionPermissions,
-    credentials: prepared.credentials,
-    ...(prepared.onStage ? { onStage: prepared.onStage } : {}),
-    turnInput: pending.turnInput,
-    snapshot: pending.snapshot,
-    promoted: pending.promoted,
-    model: pending.model,
+    sessionId,
     signal: request.signal,
-    host: prepared.host,
-  });
-}
-
-/** The host's service for a call in this session, for a request that runs a tool. */
-function backgroundWiring(
-  ctx: HandlerContext,
-  request: Request,
-  sessionId: string,
-): { background?: ToolBackgroundService } {
-  const service = ctx.options.background?.({ request, sessionId });
-  return service ? { background: announced(ctx, request, sessionId, service) } : {};
-}
-
-/**
- * `service`, telling the session's open pages when each of its calls ends, and the decider's
- * `ended`, with the wake and the notify it may use.
- */
-function announced(
-  ctx: HandlerContext,
-  request: Request,
-  sessionId: string,
-  service: ToolBackgroundService,
-): ToolBackgroundService {
-  const { notifier, lateResultsDecider } = ctx.options;
-  const ended = lateResultsDecider?.ended?.bind(lateResultsDecider);
-  if (!notifier && !ended) return service;
-  const notify = async () => {
-    await notifier?.publish(sessionId);
-  };
-  return {
-    detached(call) {
-      service.detached(call);
-      void call.done
-        .then(async () => {
-          await notify();
-          if (!ended) return;
-          const { operations } = await ctx.sessions.read(sessionId);
-          const { operationId, callId, toolId } = call;
-          const operation = Object.hasOwn(operations, operationId)
-            ? operations[operationId]
-            : undefined;
-          const outcome = detachedEnd(
-            { operationId, callId, name: toolId, at: Date.now() },
-            operation,
-            ctx.profile.labels,
-          );
-          if (!outcome) return;
-          await ended({
-            host: await ctx.options.host?.(request),
-            result: { operationId, outcome },
-            wake: (conversation) => serverWake(ctx, request, sessionId, conversation),
-            notify,
-          });
-        })
-        .catch((err: unknown) => ctx.options.onError?.(err, { request }));
+    // why: The app's `host` is asked each time a run reads it, so a route that reads none asks none.
+    get host() {
+      return ctx.options.host?.(request);
     },
-    event: (event, call) => service.event(event, call),
   };
+}
+
+/** The session's calls as `request` runs them: each of the app's callbacks is given `request`. */
+function callsOf(ctx: HandlerContext, request: Request): CallsContext {
+  const { options } = ctx;
+  const { background, authorizeToolReplay, authorizationUrl } = options;
+  return {
+    profile: ctx.profile,
+    sessions: ctx.sessions,
+    credentials: ctx.credentials,
+    pageToolBroker: ctx.pageToolBroker,
+    options: {
+      prepare: options.prepare,
+      onStage: options.onStage,
+      pageToolTimeoutMs: options.pageToolTimeoutMs,
+      notifier: options.notifier,
+      lateResultsDecider: options.lateResultsDecider,
+      ...(background
+        ? { background: (at) => background({ request, sessionId: at.sessionId }) }
+        : {}),
+      ...(authorizeToolReplay
+        ? { authorizeToolReplay: (_at, operation) => authorizeToolReplay({ request, operation }) }
+        : {}),
+      ...(authorizationUrl
+        ? {
+            authorizationUrl: (challenge, at) =>
+              authorizationUrl(challenge, { request, sessionId: at.sessionId }),
+          }
+        : {}),
+      onError: (err) => options.onError?.(err, { request }),
+      wake: (at, ref) => serverWake(ctx, request, at.sessionId, ref),
+    },
+  };
+}
+
+/** The chat's conversation core as `request` runs it. */
+function coreOf(ctx: HandlerContext, chat: ChatContext, request: Request): ConversationCore {
+  const calls = callsOf(ctx, request);
+  return createConversationCore({
+    ...calls,
+    chat,
+    inbox: ctx.inbox,
+    options: {
+      ...calls.options,
+      provider: (_at, model) => providerFor(ctx, request, model),
+      conversationLeaseMs: ctx.options.conversationLeaseMs,
+      notifyRetryMs: ctx.options.notifyRetryMs,
+      clientEvents: ctx.options.clientEvents,
+    },
+  });
 }
 
 /**
@@ -924,350 +505,31 @@ async function serverWake(
   ref: string,
 ): Promise<void> {
   const request = new Request(started.url, { headers: started.headers });
-  const session = { id: sessionId };
-  const host = conversationHost(ctx, session);
-  if (!host) throw statelessRefusal('wake');
-  const retry = (leasedUntil: number) => {
-    setTimeout(
-      () => {
-        serverWake(ctx, started, sessionId, ref).catch((err: unknown) =>
-          ctx.options.onError?.(err, { request }),
-        );
-      },
-      Math.max(0, leasedUntil - Date.now()),
-    );
-  };
-  const lines = await wakeLines(ctx, request, session, host, ref, {}, { retry });
-  for await (const line of lines) {
-    if (line.type === 'error') {
-      // labels-exempt: internal diagnostic for the decider's wake; no page reads it
-      throw new TheoremError(line.errorKind, line.errorInternal ?? line.error ?? 'the wake failed');
-    }
-  }
-}
-
-/** A settled call's answer, streamed again. */
-async function* once(event: TurnEvent, labels?: Profile['labels']): AsyncGenerator<TurnEvent> {
-  yield withPublicLabels(event, labels);
-}
-
-/** Whether this request may read a settled call's result: the host's `authorizeToolReplay`. */
-async function replayAllowed(
-  ctx: HandlerContext,
-  request: Request,
-  operation: Extract<SessionToolOperation, { status: 'settled' }>,
-): Promise<boolean> {
-  const { authorizeToolReplay } = ctx.options;
-  return !authorizeToolReplay || (await authorizeToolReplay({ request, operation }));
-}
-
-const DEFAULT_CONVERSATION_LEASE_MS = 60_000;
-
-/**
- * The chat's inbox as this request reads it: the chat as this request last wrote it, and the
- * results this request may read. `seen` follows each line's ref, because a store's ref can change
- * with each write.
- */
-function chatInbox(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  host: ConversationHost,
-  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
-) {
-  let ref = opened.ref;
-  const leaseMs = ctx.options.conversationLeaseMs ?? DEFAULT_CONVERSATION_LEASE_MS;
-  const inbox = sessionConversationInbox({
-    sessions: ctx.sessions,
-    sessionId: session.id,
-    leaseMs,
-    conversation: async (key) => {
-      const conversation =
-        ref === null ? opened.conversation : (await host.store.read(session.id, ref))?.conversation;
-      return conversation?.id === key ? conversation : undefined;
-    },
-    readable: (operation) => replayAllowed(ctx, request, operation),
-    labels: ctx.profile.labels,
-  });
-  return {
-    inbox,
-    key: opened.conversation.id,
-    leaseMs,
-    seen(line: ReplyLine) {
-      if (line.type === 'conversation') ref = line.ref;
-    },
-    get ref() {
-      return ref;
-    },
-  };
-}
-
-/** The values `produce` sends, as it sends them, then its end or what it threw. */
-async function* sent<T>(produce: (send: (value: T) => void) => Promise<void>): AsyncGenerator<T> {
-  const queue: T[] = [];
-  let ended: { failed: false } | { failed: true; failure: unknown } | undefined;
-  let wake = () => {};
-  produce((value) => {
-    queue.push(value);
-    wake();
-  }).then(
-    () => {
-      ended = { failed: false };
-      wake();
-    },
-    (failure: unknown) => {
-      ended = { failed: true, failure };
-      wake();
-    },
-  );
+  if (!ctx.chat) throw statelessRefusal('wake');
+  const core = coreOf(ctx, ctx.chat, request);
+  const lines = await core.wake(contextOf(ctx, request, sessionId), { ref, again: true });
   for (;;) {
-    if (queue.length > 0) {
-      yield queue.splice(0, 1)[0];
-      continue;
-    }
-    if (ended?.failed) throw ended.failure;
-    if (ended) return;
-    await new Promise<void>((resolve) => {
-      wake = resolve;
-    });
-  }
-}
-
-/** A reply under a hold of the chat: the run, and the renewal each save checks first. */
-type HeldRun = { run: ReplyRun<LateResultItem>; renew: () => Promise<boolean> };
-
-/** What a held reply does once its hold ends with results waiting, or finds the chat held. */
-type HeldFollow = {
-  /** A server's wake: it runs the next reply itself, and tries again when the chat is held. */
-  retry?: (leasedUntil: number) => void;
-};
-
-/**
- * Runs a reply under a hold of the chat, and streams its lines. The reply reads the late results
- * the decider's policy tells it. Without a decider no reply reads one, and no hold is taken.
- * invariant: One hold has a chat at a time, and lets it go only once nothing waits that may be told.
- * A page's reply that leaves results waiting lets the chat go, so the page wakes for them; a
- * server's wake runs the next reply under its hold.
- */
-function heldLines(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  host: ConversationHost,
-  opened: Pick<OpenedConversation, 'ref' | 'conversation'>,
-  start: Exclude<ReplyStart, { opening: 'follow_up' }>,
-  reply: (held: HeldRun | undefined, ref: () => string | null) => AsyncIterable<ReplyLine>,
-  follow: HeldFollow = {},
-): AsyncIterable<ReplyLine> {
-  const decider = ctx.options.lateResultsDecider;
-  if (!decider) return reply(undefined, () => opened.ref);
-  const chat = chatInbox(ctx, request, session, host, opened);
-  const ref = () => chat.ref;
-  return sent<ReplyLine>(async (send) => {
-    const whose = await ctx.options.host?.(request);
-    const runOnce = (begin: ReplyStart, lines: (held: HeldRun) => AsyncIterable<ReplyLine>) =>
-      runConversation({
-        conversation: chat.key,
-        inbox: chat.inbox,
-        policy: (items, moment) => decider.policy(items, { ...moment, host: whose }),
-        start: begin,
-        newId: () => crypto.randomUUID(),
-        renewEveryMs: chat.leaseMs / 3,
-        reply: async (run) => {
-          const renew = () => chat.inbox.renew(chat.key, run.hold);
-          for await (const line of lines({ run, renew })) {
-            chat.seen(line);
-            send(line);
-          }
-        },
-        gaveUp: (items) => {
-          ctx.options.onError?.(
-            // labels-exempt: internal diagnostic; no reader sees a given-up result
-            new TheoremError('unavailable', 'The late-results policy gave up results', {
-              cause: { code: 'late_results_given_up', operationIds: items.map((item) => item.id) },
-            }),
-            { request },
+    const next = await lines.next();
+    if (next.done) {
+      if (next.value.outcome !== 'held') return;
+      setTimeout(
+        () => {
+          serverWake(ctx, started, sessionId, ref).catch((err: unknown) =>
+            ctx.options.onError?.(err, { request }),
           );
         },
-      });
-    let run = await runOnce(start, (held) => reply(held, ref));
-    let failure = run.outcome === 'held' ? undefined : run.failure;
-    while (run.outcome === 'continue') {
-      const paused = await isPaused(host, session, chat.ref, opened.conversation);
-      if (follow.retry === undefined || paused) {
-        await letGo(chat.inbox, chat.key, run.hold);
-        break;
-      }
-      run = await runOnce({ opening: 'follow_up', hold: run.hold }, (held) =>
-        wakeReplyLines(ctx, request, session, host, chat.ref, {}, held),
+        Math.max(0, next.value.leasedUntil - Date.now()),
       );
-      if (run.outcome !== 'held' && run.failure !== undefined) failure ??= run.failure;
+      return;
     }
-    if (run.outcome === 'held') follow.retry?.(run.leasedUntil);
-    if (failure !== undefined) throw failure;
-  });
-}
-
-/** Whether the chat waits on gates: a wake leaves it to the answer that goes on. */
-async function isPaused(
-  host: ConversationHost,
-  session: Session,
-  ref: string | null,
-  fallback: StoredConversation,
-): Promise<boolean> {
-  const conversation =
-    ref === null ? fallback : (await host.store.read(session.id, ref))?.conversation;
-  return conversation?.paused !== undefined;
-}
-
-/** Lets the chat go under `hold`, reading again each time a result arrives first. */
-async function letGo(
-  inbox: ReturnType<typeof chatInbox>['inbox'],
-  key: string,
-  hold: string,
-): Promise<void> {
-  for (;;) {
-    const { version } = await inbox.read(key);
-    if ((await inbox.release(key, hold, version)) !== 'moved') return;
-  }
-}
-
-/** The late results a reply's model reads: what it opened with, then what each later moment hands it. */
-function lateSource(run: ReplyRun<LateResultItem>): LateResultsSource {
-  let opening = true;
-  return async ({ stage, step }) => {
-    if (opening && stage === 'pre_turn') {
-      opening = false;
-      return run.opened.map((item) => item.outcome);
-    }
-    return (await run.take({ stage, step })).map((item) => item.outcome);
-  };
-}
-
-/** One model run of a chat's reply, its gates recorded in the session as they pause. */
-async function* chatTurn(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  turn: ReplyTurn,
-  key: string | undefined,
-  signal: AbortSignal,
-  stop: AbortController,
-  late: ReplyRun<LateResultItem> | undefined,
-): AsyncGenerator<TurnEvent> {
-  const state = await ctx.sessions.read(session.id);
-  const provider = await providerFor(ctx, request, turn.model);
-  const host = await ctx.options.host?.(request);
-  if (key) {
-    await ctx.inbox.open(key);
-    stopOnRequest(ctx.inbox, key, stop);
-  }
-  try {
-    const onStage = stagesInOrder(
-      ctx.options.onStage,
-      key ? steerStage(ctx.inbox, key) : undefined,
-    );
-    const prepared = await preparedTurn(
-      ctx.options.prepare,
-      {
-        profile: ctx.profile.id,
-        execution: sessionToolCoordinator(ctx.sessions, session.id),
-        ...backgroundWiring(ctx, request, session.id),
-        pageExecution: sessionPageDispatch(
-          ctx.sessions,
-          session.id,
-          ctx.pageToolBroker,
-          ctx.options.pageToolTimeoutMs,
-        ).execution,
-        input: turn.input,
-        ...(late ? { lateResults: lateSource(late) } : {}),
-        ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
-        ...(turn.providerState ? { providerState: turn.providerState } : {}),
-        sessionPermissions: state.permissions,
-        signal,
-        host,
-        ...(turn.model ? { model: turn.model } : {}),
-        ...(turn.effort ? { effort: turn.effort } : {}),
-        ...turn.carried,
-        ...turn.stated,
-      },
-      {
-        credentials: sessionCredentials(ctx, session.id),
-        ...(onStage ? { onStage } : {}),
-        announce: (service) => announced(ctx, request, session.id, service),
-      },
-    );
-    const events = runTurn(prepared, provider);
-    yield* recorded(
-      ctx.sessions,
-      session.id,
-      withAuthorizationUrls(ctx, request, session.id, events),
-      {
-        profileId: ctx.profile.id,
-        turnInput: turn.input,
-        model: turn.model,
-      },
-    );
-  } finally {
-    if (key) await ctx.inbox.close(key);
-  }
-}
-
-/**
- * How this request runs the model for a reply: its generation, its abort (the request's, a stop,
- * or its hold losing the chat), and the chat's hold it saves under.
- */
-function chatRunner(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  generation: {
-    model?: string;
-    effort?: string;
-    turnId?: string;
-    stated?: StatedTurn;
-  },
-  held?: HeldRun,
-): ReplyRunner {
-  // invariant: The page's pick is checked here, before prepare; a model prepare sets is the host's own.
-  refuseInterfacePick(ctx.profile, generation);
-  const key = generation.turnId ? inboxKey(session.id, generation.turnId) : undefined;
-  const stop = new AbortController();
-  const signal = AbortSignal.any([request.signal, stop.signal, ...(held ? [held.run.signal] : [])]);
-  return {
-    run: (turn) => chatTurn(ctx, request, session, turn, key, signal, stop, held?.run),
-    async compact(history, tokens, model) {
-      const provider = await providerFor(ctx, request, model);
-      const compacted = await compactHistory(
-        {
-          profile: ctx.profile.id,
-          history,
-          tokens,
-          signal,
-          ...(model ? { model } : {}),
-        },
-        provider,
+    if (next.value.type === 'error') {
+      // labels-exempt: internal diagnostic for the decider's wake; no page reads it
+      throw new TheoremError(
+        next.value.errorKind,
+        next.value.errorInternal ?? next.value.error ?? 'the wake failed',
       );
-      return compacted?.history;
-    },
-    ...(generation.model ? { model: generation.model } : {}),
-    ...(generation.effort ? { effort: generation.effort } : {}),
-    ...(generation.stated ? { stated: generation.stated } : {}),
-    signal,
-    ...(held ? { reply: held.run.reply, held: held.renew } : {}),
-  };
-}
-
-/** The chat's conversation as this session's runs read and write it; undefined when the profile keeps none. */
-function conversationHost(ctx: HandlerContext, session: Session): ConversationHost | undefined {
-  const store = ctx.chat?.conversations;
-  if (!ctx.chat || !store) return undefined;
-  return readerConversationHost({
-    sessionId: session.id,
-    store,
-    profile: { outputs: ctx.chat.profile.outputs, labels: ctx.profile.labels },
-    clientEvents: ctx.options.clientEvents,
-  });
+    }
+  }
 }
 
 /** The person's message: a new reply, run against the conversation the host keeps. */
@@ -1286,45 +548,19 @@ async function turn(
     body.input,
     await ctx.options.context?.(request),
   );
-  const host = conversationHost(ctx, session);
-  if (!host) {
-    if (body.conversation !== undefined) throw statelessRefusal('continue');
-    // labels-exempt: internal diagnostic; the user reads error.request
-    if (body.abandon) throw statelessRefusal('walk away from');
-    const runner = chatRunner(ctx, request, session, body);
-    return eventStream(ctx, request, () =>
-      runner.run({
-        input: message.input,
-        model: body.model,
-        effort: body.effort,
-        ...(body.stated ? { stated: body.stated } : {}),
-      }),
-    );
-  }
-  const opened = await openConversation(host, body.conversation, {
-    kind: 'message',
+  const lines = await coreOf(ctx, chat, request).message(contextOf(ctx, request, session.id), {
+    ref: body.conversation,
+    message,
+    generation: body,
     ...(body.abandon ? { abandon: body.abandon } : {}),
   });
-  // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
-  const walkAway = body.abandon
-    ? await takeWalkedAway(ctx, request, session, body.abandon, opened.conversation)
-    : undefined;
-  return eventStream(ctx, request, () =>
-    heldLines(ctx, request, session, host, opened, { opening: 'message', takeOver: true }, (held) =>
-      messageReply({
-        host,
-        opened,
-        message,
-        ...(walkAway ? { walkAway } : {}),
-        runner: chatRunner(ctx, request, session, body, held),
-      }),
-    ),
-  );
+  return eventStream(ctx, request, () => lines);
 }
 
 /** The conversation as the browser draws it. */
 async function conversation(
   ctx: HandlerContext,
+  chat: ChatContext,
   request: Request,
   session: Session,
 ): Promise<Response> {
@@ -1333,79 +569,30 @@ async function conversation(
     theoremConversationRequestSchema,
     ctx.options.maxRequestBytes,
   );
-  const host = conversationHost(ctx, session);
-  if (!host) throw statelessRefusal('read');
-  const opened = await openConversation(host, body.conversation, { kind: 'read' });
-  return jsonResponse(
-    200,
-    await currentView(ctx, request, session, host, body.conversation, opened.conversation),
-  );
+  const view = await coreOf(ctx, chat, request).read(contextOf(ctx, request, session.id), {
+    ref: body.conversation,
+  });
+  return jsonResponse(200, view);
 }
 
 /**
  * A reply to no message, for results that ended since the model last ran. It runs under a hold of
  * the chat, so two pages that wake at once run it once, and reads what the decider's policy tells.
  */
-async function wake(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+async function wake(
+  ctx: HandlerContext,
+  chat: ChatContext,
+  request: Request,
+  session: Session,
+): Promise<Response> {
   const body = await readBody(request, theoremWakeRequestSchema, ctx.options.maxRequestBytes);
   const input = kernelTurnInput(body.input ?? {}, await ctx.options.context?.(request));
-  const host = conversationHost(ctx, session);
-  if (!host) throw statelessRefusal('wake');
-  const lines = await wakeLines(ctx, request, session, host, body.conversation, body, {}, input);
+  const lines = await coreOf(ctx, chat, request).wake(contextOf(ctx, request, session.id), {
+    ref: body.conversation,
+    generation: body,
+    input,
+  });
   return eventStream(ctx, request, () => lines);
-}
-
-/**
- * The wake's reply under a hold of the chat; nothing when no decider tells a result, or while a
- * reply waits on gates: the answer that goes on reads what waits.
- */
-async function wakeLines(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  host: ConversationHost,
-  ref: string,
-  generation: { model?: string; effort?: string; turnId?: string },
-  follow: HeldFollow,
-  input?: Pick<TurnInput, 'options' | 'context'>,
-): Promise<AsyncIterable<ReplyLine>> {
-  const opened = await openConversation(host, ref, { kind: 'read' });
-  if (!ctx.options.lateResultsDecider || opened.conversation.paused) return noLines();
-  return heldLines(
-    ctx,
-    request,
-    session,
-    host,
-    opened,
-    { opening: 'wake' },
-    (held, current) =>
-      wakeReplyLines(ctx, request, session, host, current(), generation, held, input),
-    follow,
-  );
-}
-
-/** No reply lines. */
-async function* noLines(): AsyncGenerator<ReplyLine> {}
-
-/**
- * A reply to no message under `held`, on the chat as it stands now. The page that woke draws it;
- * any other page open on the session reads it once it ends.
- */
-async function* wakeReplyLines(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  host: ConversationHost,
-  ref: string | null,
-  generation: { model?: string; effort?: string; turnId?: string },
-  held: HeldRun | undefined,
-  input?: Pick<TurnInput, 'options' | 'context'>,
-): AsyncGenerator<ReplyLine> {
-  if (ref === null) return;
-  const opened = await openConversation(host, ref, { kind: 'read' });
-  const runner = chatRunner(ctx, request, session, generation, held);
-  yield* wakeReply({ host, opened, runner, ...(input ? { input } : {}) });
-  ctx.options.notifier?.publish(session.id);
 }
 
 const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
@@ -1450,180 +637,31 @@ async function notify(
   return new Response(stream, { headers: NDJSON_HEADERS });
 }
 
-/**
- * why: The transcript keeps a detached call as the turn left it. The session holds what became of
- * it, so a call that has ended does not read as running.
- */
-async function currentView(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  host: ConversationHost,
-  ref: string,
-  conversation: StoredConversation,
-): Promise<ConversationView> {
-  const view = conversationView(host, conversation);
-  if (!view.transcript.some(isDetachedBlock)) return view;
-  const { operations } = await ctx.sessions.read(session.id);
-  const transcript = await Promise.all(
-    view.transcript.map((block) =>
-      isDetachedBlock(block) ? lateBlock(ctx, request, block, operations, host) : block,
-    ),
-  );
-  const { notifier, notifyRetryMs } = ctx.options;
-  return {
-    ...view,
-    transcript,
-    ...(notifier && transcript.some(isDetachedBlock)
-      ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
-      : {}),
-    ...((await wakeDue(ctx, request, session, host, ref, conversation))
-      ? { wake: true as const }
-      : {}),
-  };
-}
-
-/**
- * Whether the page wakes the chat now: the decider's policy tells a waiting result to a reply to no
- * message. Never while a reply waits on gates: the answer that goes on reads what waits.
- */
-async function wakeDue(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  host: ConversationHost,
-  ref: string,
-  conversation: StoredConversation,
-): Promise<boolean> {
-  const decider = ctx.options.lateResultsDecider;
-  if (!decider || conversation.paused) return false;
-  const chat = chatInbox(ctx, request, session, host, { ref, conversation });
-  const { items } = await chat.inbox.read(chat.key);
-  if (items.length === 0) return false;
-  const { tell } = await decider.policy(items, {
-    stage: 'pre_turn',
-    step: 0,
-    opening: 'wake',
-    host: await ctx.options.host?.(request),
-  });
-  return tell.length > 0;
-}
-
-type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
-
-function isDetachedBlock(block: TranscriptBlock): block is ToolBlock {
-  return block.kind === 'tool' && block.tool.state?.phase === 'background';
-}
-
-/** A detached call's block as its operation stands. One the session no longer holds has no known end. */
-async function lateBlock(
-  ctx: HandlerContext,
-  request: Request,
-  block: ToolBlock,
-  operations: TheoremSessionState['operations'],
-  host: ConversationHost,
-): Promise<ToolBlock> {
-  const { tool } = block;
-  const id = tool.operationId;
-  const operation = id && Object.hasOwn(operations, id) ? operations[id] : undefined;
-  if (operation?.status === 'running' || operation?.status === 'background') return block;
-  const { labels } = ctx.profile;
-  if (
-    operation?.status === 'settled' &&
-    ctx.options.authorizeToolReplay &&
-    !(await ctx.options.authorizeToolReplay({ request, operation }))
-  ) {
-    const message = labelText('error.blocked', {}, labels);
-    const failure = { code: 'outcome_withheld', kind: 'blocked', message } as const;
-    const { name, callId } = tool;
-    const at = operation.settledAt;
-    return {
-      ...block,
-      tool: {
-        ...tool,
-        state: { name, callId, at, phase: 'error', failure, readBack: message },
-        endedAt: at,
-      },
-    };
-  }
-  if (operation?.status === 'settled') {
-    const settled = host.forReader(operation.outcome.event);
-    if (settled.type !== 'tool') return block;
-    const { tool: state } = settled;
-    if (!('phase' in state) || (state.phase !== 'complete' && state.phase !== 'error'))
-      return block;
-    return { ...block, tool: { ...tool, state, endedAt: operation.settledAt } };
-  }
-  const { name, callId } = tool;
-  const unresolved = detachedEnd(
-    { operationId: id ?? '', callId, name, at: tool.state?.at ?? Date.now() },
-    operation,
-    labels,
-  );
-  if (!unresolved) return block;
-  const { operationId: _id, ...state } = unresolved.event.tool;
-  return { ...block, tool: { ...tool, state, endedAt: state.at } };
-}
-
 /** The conversation cut after one block; a reply that waits on gates is walked away from first. */
-async function rewind(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+async function rewind(
+  ctx: HandlerContext,
+  chat: ChatContext,
+  request: Request,
+  session: Session,
+): Promise<Response> {
   const body = await readBody(request, theoremRewindRequestSchema, ctx.options.maxRequestBytes);
-  const host = conversationHost(ctx, session);
-  if (!host) throw statelessRefusal('rewind');
-  const opened = await openConversation(host, body.conversation, { kind: 'rewind', at: body.at });
-  const waiting = waitingCalls(opened.conversation);
-  const walkAway = waiting.length
-    ? await takeWalkedAway(ctx, request, session, waiting, opened.conversation)
-    : undefined;
-  const next = await rewindConversation({
-    host,
-    opened,
+  const rewound = await coreOf(ctx, chat, request).rewind(contextOf(ctx, request, session.id), {
+    ref: body.conversation,
     at: body.at,
-    ...(walkAway ? { walkAway } : {}),
   });
-  if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
-  const rewound: TheoremRewound = {
-    conversation: next.ref,
-    view: await currentView(ctx, request, session, host, next.ref, next.conversation),
-  };
   return jsonResponse(200, rewound);
 }
 
-async function* invokeEvents(
+async function steer(
   ctx: HandlerContext,
+  chat: ChatContext,
   request: Request,
   session: Session,
-  answered: AnsweredCall,
-): AsyncGenerator<TurnEvent> {
-  const events = settleAnswered(ctx, request, session, answered);
-  const { pending, answer } = answered;
-  yield* recorded(
-    ctx.sessions,
-    session.id,
-    withAuthorizationUrls(ctx, request, session.id, events),
-    {
-      profileId: ctx.profile.id,
-      turnInput: pending.turnInput,
-      model: pending.model,
-      promoted: pending.promoted,
-    },
-    [
-      {
-        type: 'tool',
-        tool: {
-          name: pending.name,
-          callId: pending.callId,
-          operationId: pending.operationId,
-          arguments: jsonObjectSchema.parse(answer.input),
-        },
-      },
-    ],
-  );
-}
-
-async function steer(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+): Promise<Response> {
   const body = await readBody(request, theoremSteerRequestSchema, ctx.options.maxRequestBytes);
-  if (!(await ctx.inbox.enqueue(inboxKey(session.id, body.turnId), steerUnitOf(body)))) {
+  const core = coreOf(ctx, chat, request);
+  const at = contextOf(ctx, request, session.id);
+  if (!(await core.steer(at, { turnId: body.turnId, unit: steerUnitOf(body) }))) {
     // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {
       copy: { key: 'session.turn_ended' },
@@ -1633,64 +671,21 @@ async function steer(ctx: HandlerContext, request: Request, session: Session): P
 }
 
 /** Stops a running turn where it stands; its stream goes on to save and send what the reply left. */
-async function stop(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+async function stop(
+  ctx: HandlerContext,
+  chat: ChatContext,
+  request: Request,
+  session: Session,
+): Promise<Response> {
   const body = await readBody(request, theoremStopRequestSchema, ctx.options.maxRequestBytes);
-  if (!(await ctx.inbox.stop(inboxKey(session.id, body.turnId)))) {
+  const core = coreOf(ctx, chat, request);
+  if (!(await core.stop(contextOf(ctx, request, session.id), { turnId: body.turnId }))) {
     // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {
       copy: { key: 'session.turn_ended' },
     });
   }
   return jsonResponse(200, { ok: true });
-}
-
-/** One call of one of a host's tools, run as the page asked it; a gate it pauses on waits in the session. */
-async function* callEvents(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  body: TheoremHostCallRequest,
-): AsyncGenerator<TurnEvent> {
-  const state = await ctx.sessions.read(session.id);
-  const host = await ctx.options.host?.(request);
-  const events = invokeTool({
-    profile: ctx.profile.id,
-    execution: sessionToolCoordinator(ctx.sessions, session.id),
-    ...backgroundWiring(ctx, request, session.id),
-    pageExecution: sessionPageDispatch(
-      ctx.sessions,
-      session.id,
-      ctx.pageToolBroker,
-      ctx.options.pageToolTimeoutMs,
-    ).execution,
-    name: body.name,
-    input: body.input,
-    sessionPermissions: state.permissions,
-    credentials: sessionCredentials(ctx, session.id),
-    ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),
-    signal: request.signal,
-    host,
-  });
-  yield* recorded(
-    ctx.sessions,
-    session.id,
-    withAuthorizationUrls(ctx, request, session.id, events),
-    {
-      profileId: ctx.profile.id,
-      turnInput: {},
-    },
-  );
-}
-
-function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest & GateReference {
-  return {
-    callId: body.gateId,
-    operationId: body.operationId,
-    decision: body.decision,
-    input: body.input,
-    secret: body.secret,
-    page: body.page,
-  };
 }
 
 /** A route this profile doesn't serve. */
@@ -1701,36 +696,6 @@ function refused(ctx: HandlerContext): Response {
   });
 }
 
-async function* replayOperation(
-  ctx: HandlerContext,
-  request: Request,
-  operation: Extract<SessionToolOperation, { status: 'settled' | 'background' }>,
-): AsyncGenerator<TurnEvent> {
-  const tool = defaultKernelScope.tools.get(operation.toolId);
-  if (
-    operation.profileId !== ctx.profile.id ||
-    !tool ||
-    tool.type === 'builtin' ||
-    !('tools' in ctx.profile) ||
-    !ctx.profile.tools?.allow.includes(operation.toolId) ||
-    (operation.status === 'settled' &&
-      ctx.options.authorizeToolReplay &&
-      !(await ctx.options.authorizeToolReplay({ request, operation })))
-  )
-    throw new TheoremError('blocked', labelText('error.blocked'));
-  authorizeToolReplay({
-    tools: defaultKernelScope.tools,
-    profile: ctx.profile,
-    name: operation.toolId,
-    resume: undefined,
-    ...(operation.status === 'settled' ? { outcome: operation.outcome } : {}),
-  });
-  yield* once(
-    operation.status === 'settled' ? operation.outcome.event : operation.reply.event,
-    ctx.profile.labels,
-  );
-}
-
 /**
  * The user's answer to a paused call. In a kept conversation the reply goes on
  * in the same stream once no call waits; otherwise the stream is the call's.
@@ -1739,86 +704,11 @@ async function invoke(ctx: HandlerContext, request: Request, session: Session): 
   const body = await readBody(request, theoremInvokeRequestSchema, ctx.options.maxRequestBytes);
   if (body.page && 'output' in body.page)
     throw new TheoremError('request', labelText('error.request'));
-  const host = conversationHost(ctx, session);
-  if (!host) {
-    if (body.conversation !== undefined) throw statelessRefusal('continue');
-    return eventStream(ctx, request, await settlingOf(ctx, request, session, body));
-  }
-  if (body.conversation === undefined) throw unknownConversation();
-  const call = { callId: body.gateId, operationId: body.operationId };
-  const opened = await openConversation(host, body.conversation, { kind: 'answer', call });
-  const settling = await settlingOf(ctx, request, session, body);
-  const paused = opened.conversation.paused?.reply;
-  return eventStream(ctx, request, () =>
-    heldLines(ctx, request, session, host, opened, { opening: 'message', takeOver: true }, (held) =>
-      answered(held, paused, () =>
-        answerReply({
-          host,
-          opened,
-          call,
-          settling: settling(),
-          runner: chatRunner(ctx, request, session, body, held),
-        }),
-      ),
-    ),
-  );
-}
-
-/** The answer's reply, handed first what the paused reply read, so it tells them as it goes on. */
-async function* answered(
-  held: HeldRun | undefined,
-  paused: string | undefined,
-  reply: () => AsyncIterable<ReplyLine>,
-): AsyncGenerator<ReplyLine> {
-  if (held && paused) await held.run.resume(paused);
-  yield* reply();
-}
-
-/** The answered call's events: its saved outcome again, or the call run as answered. */
-async function settlingOf(
-  ctx: HandlerContext,
-  request: Request,
-  session: Session,
-  body: TheoremInvokeRequest,
-): Promise<() => AsyncIterable<TurnEvent>> {
-  const saved = await ctx.sessions.read(session.id);
-  const operation = Object.hasOwn(saved.operations, body.operationId)
-    ? saved.operations[body.operationId]
-    : undefined;
-  if (
-    operation &&
-    operation.status !== 'ready' &&
-    operation.callId === body.gateId &&
-    operation.profileId === ctx.profile.id &&
-    (operation.status === 'running' || operation.status === 'uncertain')
-  ) {
-    throw new TheoremError(
-      'conflict',
-      `The tool operation is ${operation.status}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      { copy: { key: 'tool.execution_uncertain' } },
-    );
-  }
-  if (
-    (operation?.status === 'settled' || operation?.status === 'background') &&
-    operation.profileId === ctx.profile.id &&
-    operation.callId === body.gateId
-  ) {
-    if (
-      body.input !== undefined &&
-      (!operation.invocation ||
-        (await toolInvocationHash(body.input)) !==
-          (await toolInvocationHash(operation.invocation.accepted.input)))
-    )
-      throw new TheoremError('request', labelText('error.request'), {
-        copy: { key: 'error.request' },
-      });
-    return () => replayOperation(ctx, request, operation);
-  }
-  // why: Take the answered call before streaming, so a stale answer is a reply status, not a stream error.
-  const answered = await ctx.sessions.mutate(session.id, (state) =>
-    answerPendingGate(state, answerRequest(body), ctx.profile.id),
-  );
-  return () => invokeEvents(ctx, request, session, answered);
+  const at = contextOf(ctx, request, session.id);
+  const lines = ctx.chat
+    ? await coreOf(ctx, ctx.chat, request).answer(at, body)
+    : await unconversedAnswer(callsOf(ctx, request), at, body);
+  return eventStream(ctx, request, () => lines);
 }
 
 async function hostRoute(
@@ -1831,7 +721,9 @@ async function hostRoute(
     return jsonResponse(200, { interface: hostInterface(ctx.profile, hostTool) });
   if (request.method === 'POST' && target === 'call') {
     const body = await readBody(request, theoremHostCallRequestSchema, ctx.options.maxRequestBytes);
-    return eventStream(ctx, request, () => callEvents(ctx, request, session, body));
+    return eventStream(ctx, request, () =>
+      callEvents(callsOf(ctx, request), contextOf(ctx, request, session.id), body),
+    );
   }
   if (request.method === 'POST' && target === 'invoke') return invoke(ctx, request, session);
   return refused(ctx);
@@ -1860,16 +752,16 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   if (request.method !== 'POST' || target === '' || target === 'call') return refused(ctx);
   if (target === 'turn') return turn(ctx, chat, request, session);
   if (target === 'invoke') return invoke(ctx, request, session);
-  if (target === 'conversation') return conversation(ctx, request, session);
+  if (target === 'conversation') return conversation(ctx, chat, request, session);
   if (target === 'notify') {
     const { notifier } = ctx.options;
     if (!notifier || !chat.conversations) return refused(ctx);
     return notify(ctx, request, session, notifier);
   }
-  if (target === 'rewind') return rewind(ctx, request, session);
-  if (target === 'wake') return wake(ctx, request, session);
-  if (target === 'stop') return stop(ctx, request, session);
-  return steer(ctx, request, session);
+  if (target === 'rewind') return rewind(ctx, chat, request, session);
+  if (target === 'wake') return wake(ctx, chat, request, session);
+  if (target === 'stop') return stop(ctx, chat, request, session);
+  return steer(ctx, chat, request, session);
 }
 
 export function createTheoremHandler(

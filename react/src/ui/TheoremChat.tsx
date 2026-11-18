@@ -29,6 +29,7 @@ import { parseAspectRatio } from '../client/image-output.ts';
 import {
   type SendTextOptions,
   type SentTurn,
+  type TheoremChatState,
   type UseTheoremChatOptions,
   useTheoremChat,
 } from '../hooks/use-theorem-chat.ts';
@@ -228,11 +229,9 @@ type ChatBodyProps = Omit<
   iface: ComposerProfileInterface;
 };
 
-type TheoremChatModel = ReturnType<typeof useTheoremChat>;
-
 export type TheoremChatComposerProps = {
   /** The chat it writes to (`useTheoremChat`). */
-  chat: TheoremChatModel;
+  chat: TheoremChatState;
   /** The profile's interface (`useTheoremInterface`). */
   iface: ComposerProfileInterface;
   placeholder?: string;
@@ -310,7 +309,7 @@ export function TheoremChatComposer({
 }
 
 /** The handle `chatRef` gets: send, stop, focus and the controller. */
-function useChatHandle(chatRef: ChatBodyProps['chatRef'], chat: TheoremChatModel) {
+function useChatHandle(chatRef: ChatBodyProps['chatRef'], chat: TheoremChatState) {
   const { sendText, handleStop, controller } = chat;
   const inputRef = useRef<ChatComposerInputHandle | null>(null);
   useImperativeHandle(
@@ -499,7 +498,7 @@ function ChatThread({
   usage,
 }: DockedComposer &
   Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage'> & {
-    chat: TheoremChatModel;
+    chat: TheoremChatState;
     iface: ComposerProfileInterface;
     handle: string;
   }) {
@@ -547,7 +546,7 @@ export type TheoremChatTranscriptProps = Omit<
   | 'labels'
 > & {
   /** The chat it shows (`useTheoremChat`). */
-  chat: TheoremChatModel;
+  chat: TheoremChatState;
   /** The profile's interface (`useTheoremInterface`). */
   iface: ComposerProfileInterface;
   /** The name over each reply. Default: the profile's handle. */

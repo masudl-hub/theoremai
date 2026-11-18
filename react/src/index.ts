@@ -18,6 +18,7 @@ export {
 export {
   type SendTextOptions,
   type SentTurn,
+  type TheoremChatState,
   type UseTheoremChatOptions,
   useTheoremChat,
 } from './hooks/use-theorem-chat.ts';

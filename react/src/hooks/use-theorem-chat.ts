@@ -88,3 +88,6 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     controller: chat,
   };
 }
+
+/** What `useTheoremChat` returns: the chat's state and its actions. */
+export type TheoremChatState = ReturnType<typeof useTheoremChat>;

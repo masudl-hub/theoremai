@@ -547,7 +547,7 @@ function MyChat() {
 
 ### Place the pieces yourself
 
-`TheoremChat` is built from two pieces in `/ui` that you can place apart: `TheoremChatComposer` and `TheoremChatTranscript`. Each takes the `chat` from `useTheoremChat` and the `iface` from `useTheoremInterface`. You decide where each one sits and when each one shows. Theorem moves neither of them.
+`TheoremChat` is built from two pieces in `/ui` that you can place apart: `TheoremChatComposer` and `TheoremChatTranscript`. Each takes the `chat` from `useTheoremChat` (its type is `TheoremChatState`) and the `iface` from `useTheoremInterface`. You decide where each one sits and when each one shows. Theorem moves neither of them.
 
 ```tsx
 import { TheoremChatComposer, TheoremChatTranscript } from '@theoremjs/react/ui';

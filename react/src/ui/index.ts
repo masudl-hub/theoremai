@@ -93,6 +93,7 @@ export {
 export { TheoremDecision, type TheoremDecisionProps } from './TheoremDecision.tsx';
 export { TheoremEmbedding, type TheoremEmbeddingProps } from './TheoremEmbedding.tsx';
 export { TheoremHost, type TheoremHostProps } from './TheoremHost.tsx';
+export { TheoremSurface, type TheoremSurfaceProps } from './TheoremSurface.tsx';
 export {
   ApprovalCard,
   type ApprovalCardProps,

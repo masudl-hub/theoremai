@@ -7,8 +7,13 @@ import { replyKey, type TranscriptTurnGroup, type TurnSpan } from '../client/tra
  * read the same one, so they show the same time.
  */
 export type TurnClock = {
+  /** When the turn with this key was first seen. */
   timeOf: (key: string) => number;
-  spans: ReadonlyMap<string, TurnSpan>;
+  /**
+   * When the reply to `prompt` started, its approval waits skipped; `undefined` until it runs in
+   * this session. A prompt split by a divider still finds its turn.
+   */
+  replyStart: (prompt: TranscriptTurnGroup) => number | undefined;
 };
 
 /** First-seen time per group key, so timestamps don't jump while streaming. */
@@ -59,11 +64,26 @@ export function useTurnClock(
   groups: readonly TranscriptTurnGroup[],
   streaming: boolean,
 ): TurnClock {
+  // why: Every block's id is seen now, so a transcript that groups with dividers finds its times.
   const timeOf = useFirstSeen(
-    groups.map((group, index) => (group.kind === 'user' ? group.key : replyKey(groups, index))),
+    groups.flatMap((group, index) => [
+      group.kind === 'user' ? group.key : replyKey(groups, index),
+      ...group.blocks.flatMap((block) =>
+        group.kind === 'user' ? [block.id, `${block.id}:reply`] : [block.id],
+      ),
+    ]),
   );
   const spans = useTurnSpans(streaming, groups.findLast((group) => group.kind === 'user')?.key);
-  return { timeOf, spans };
+  const turnKey = new Map<string, string>();
+  for (const group of groups) {
+    if (group.kind === 'user') for (const block of group.blocks) turnKey.set(block.id, group.key);
+  }
+  const replyStart = (prompt: TranscriptTurnGroup) => {
+    const key = turnKey.get(prompt.blocks[0]?.id ?? '') ?? prompt.key;
+    const span = spans.get(key);
+    return span ? timeOf(key) + span.pausedMs : undefined;
+  };
+  return { timeOf, replyStart };
 }
 
 /** When the reply in progress started, its approval waits skipped; `undefined` when none runs. */
@@ -74,7 +94,5 @@ export function liveTurnStart(
 ): number | undefined {
   if (!streaming) return undefined;
   const prompt = groups.findLast((group) => group.kind === 'user');
-  if (!prompt) return undefined;
-  const span = clock.spans.get(prompt.key);
-  return span ? clock.timeOf(prompt.key) + span.pausedMs : undefined;
+  return prompt ? clock.replyStart(prompt) : undefined;
 }

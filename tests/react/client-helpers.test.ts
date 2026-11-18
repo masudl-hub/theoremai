@@ -930,30 +930,29 @@ Deno.test('assistantTurnTiming keys replies by their prompt; a stopped reply rea
   });
   // Block ids restart every reply, so both replies' groups carry the same key.
   const groups = [user('u1'), reply('turn-1', 2), user('u2'), reply('turn-1')];
-  const timeOf = (key: string) => (key === 'u1' ? 10 : 20);
-  // u2 paused 3 on an approval before it streamed again.
-  const spans = new Map([['u2', { pausedMs: 3 }]]);
+  // u2 started at 20 and paused 3 on an approval before it streamed again.
+  const replyStart = (prompt: TranscriptTurnGroup) => (prompt.key === 'u2' ? 23 : undefined);
   assertEquals(replyKey(groups, 1), 'u1:reply');
   assertEquals(replyKey(groups, 3), 'u2:reply');
-  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, timeOf, spans }), {
+  assertEquals(assistantTurnTiming({ groups, index: 1, streaming: true, replyStart }), {
     key: 'u1:reply',
     live: false,
     workedMs: 2,
     endedAt: 15,
   });
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, timeOf, spans }), {
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: true, replyStart }), {
     key: 'u2:reply',
     live: true,
     startedAt: 23,
   });
   // Stopped without a stamp (a host that doesn't stamp, a failed run): untimed.
-  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, timeOf, spans }), {
+  assertEquals(assistantTurnTiming({ groups, index: 3, streaming: false, replyStart }), {
     key: 'u2:reply',
     live: false,
   });
   // The stamp needs no span: it survives a remount or a reload of saved blocks.
   assertEquals(
-    assistantTurnTiming({ groups, index: 1, streaming: false, timeOf, spans: new Map() }),
+    assistantTurnTiming({ groups, index: 1, streaming: false, replyStart: () => undefined }),
     {
       key: 'u1:reply',
       live: false,
@@ -962,7 +961,7 @@ Deno.test('assistantTurnTiming keys replies by their prompt; a stopped reply rea
     },
   );
   assertEquals(
-    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, timeOf, spans }),
+    assistantTurnTiming({ groups: [reply('a0')], index: 0, streaming: false, replyStart }),
     {
       key: 'a0',
       live: false,

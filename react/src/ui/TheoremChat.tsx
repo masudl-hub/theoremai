@@ -42,7 +42,7 @@ import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SidePanelHeader } from './SidePanel.tsx';
-import { SurfaceProviders } from './surface-providers.tsx';
+import { TheoremSurface } from './TheoremSurface.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import type { ResolveMedia, ToolMediaShown } from './tool-media.tsx';
 
@@ -637,7 +637,7 @@ export function TheoremChat({
     [transport, endpoint],
   );
   return (
-    <SurfaceProviders
+    <TheoremSurface
       theme={theme}
       mode={mode}
       labels={labels}
@@ -646,6 +646,6 @@ export function TheoremChat({
       resolveMedia={resolveMedia}
     >
       <ChatForTransport {...rest} transport={resolved} />
-    </SurfaceProviders>
+    </TheoremSurface>
   );
 }

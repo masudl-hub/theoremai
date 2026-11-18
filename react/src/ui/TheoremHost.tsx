@@ -46,7 +46,7 @@ import { useLabels } from './labels-provider.tsx';
 import { IconMcp } from './mcp-icon.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SchemaFields } from './SchemaFields.tsx';
-import { SurfaceProviders } from './surface-providers.tsx';
+import { TheoremSurface } from './TheoremSurface.tsx';
 import { ApprovalCard, AuthChallengeCard } from './ToolGateCard.tsx';
 import { ToolResult } from './ToolResult.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
@@ -607,7 +607,7 @@ export function TheoremHost({
     [transport, endpoint],
   );
   return (
-    <SurfaceProviders
+    <TheoremSurface
       theme={theme}
       mode={mode}
       labels={labels}
@@ -616,6 +616,6 @@ export function TheoremHost({
       resolveMedia={resolveMedia}
     >
       <HostForTransport {...rest} transport={resolved} />
-    </SurfaceProviders>
+    </TheoremSurface>
   );
 }

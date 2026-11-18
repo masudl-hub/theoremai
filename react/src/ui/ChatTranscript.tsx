@@ -1171,7 +1171,7 @@ function ChatTranscriptBody({
     [blocks, dividers],
   );
   const own = useTurnClock(groups, streaming);
-  const { timeOf, spans } = clock ?? own;
+  const { timeOf, replyStart } = clock ?? own;
   const pendingPrompt = streaming ? pendingPromptOf(groups) : undefined;
   const listRef = useRef<HTMLDivElement>(null);
   useDisclosureMotion(listRef);
@@ -1209,8 +1209,7 @@ function ChatTranscriptBody({
       groups,
       index,
       streaming,
-      timeOf,
-      spans,
+      replyStart,
     });
     // why: A reply is dated when it last stopped: a reply that just finished reads "now".
     const at = endedAt ?? timeOf(key);
@@ -1250,7 +1249,7 @@ function ChatTranscriptBody({
         blocks={[]}
         streaming
         at={timeOf(pendingPrompt.key)}
-        startedAt={timeOf(pendingPrompt.key)}
+        startedAt={replyStart(pendingPrompt) ?? timeOf(pendingPrompt.key)}
       />,
     );
   }

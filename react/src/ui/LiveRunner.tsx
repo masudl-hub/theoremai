@@ -37,8 +37,8 @@ import {
   SidePanelToggle,
   useSidePanel,
 } from './SidePanel.tsx';
-import { SurfaceProviders } from './surface-providers.tsx';
 import { DEFAULT_CHAT_MAX_WIDTH, type TheoremChatProps } from './TheoremChat.tsx';
+import { TheoremSurface } from './TheoremSurface.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 
 /** `media` and `resolveMedia` are the chat's: the captions show a tool's media as the chat does. */
@@ -85,7 +85,7 @@ export function LiveRunner({
   ...props
 }: LiveRunnerProps) {
   return (
-    <SurfaceProviders
+    <TheoremSurface
       theme={theme}
       mode={mode}
       labels={labels}
@@ -94,7 +94,7 @@ export function LiveRunner({
       resolveMedia={resolveMedia}
     >
       <LiveRunnerBody {...props} />
-    </SurfaceProviders>
+    </TheoremSurface>
   );
 }
 

@@ -347,8 +347,8 @@ export function assistantTurnTiming(args: {
   groups: readonly TranscriptTurnGroup[];
   index: number;
   streaming: boolean;
-  timeOf: (key: string) => number;
-  spans: ReadonlyMap<string, TurnSpan>;
+  /** When the reply to a prompt started, its approval waits skipped (`TurnClock.replyStart`). */
+  replyStart: (prompt: TranscriptTurnGroup) => number | undefined;
 }): AssistantTurnTiming {
   const key = replyKey(args.groups, args.index);
   const live = args.streaming && args.index === args.groups.length - 1;
@@ -359,9 +359,8 @@ export function assistantTurnTiming(args: {
       : { key, live };
   }
   const prompt = args.groups[args.index - 1];
-  const span = prompt?.kind === 'user' ? args.spans.get(prompt.key) : undefined;
-  if (!prompt || !span) return { key, live };
-  return { key, live, startedAt: args.timeOf(prompt.key) + span.pausedMs };
+  const startedAt = prompt?.kind === 'user' ? args.replyStart(prompt) : undefined;
+  return startedAt === undefined ? { key, live } : { key, live, startedAt };
 }
 
 export function toolCallLabel(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): string {

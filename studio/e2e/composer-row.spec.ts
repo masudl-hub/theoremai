@@ -9,6 +9,11 @@ async function openRow(page: Page, agent = 'desk') {
   await open(page, agent);
 }
 
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 const pill = (page: Page, name: string) =>
   page.locator('.astryx-token', { hasText: name }).locator('visible=true').last();
 const sendButton = (page: Page) =>
@@ -119,17 +124,11 @@ test('a staged file opens the drawer under the row, and the field stays in reach
   page,
 }) => {
   await openRow(page);
-  await page
-    .locator('input[type=file]')
-    .last()
-    .setInputFiles({
-      name: 'pixel.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-        'base64',
-      ),
-    });
+  await page.locator('input[type=file]').last().setInputFiles({
+    name: 'pixel.png',
+    mimeType: 'image/png',
+    buffer: PIXEL,
+  });
   await expect(page.getByRole('button', { name: 'Collapse attached' })).toBeVisible();
   // why: A click lands only on what is on top, so the drawer must not cover the field or send.
   await composer(page).click();
@@ -154,4 +153,25 @@ test('the working pill and the reply status count from the same start', async ({
     .toBe(true);
   await release(page, 'rowclock');
   await expect(page.getByText('Fake reply on full to "first [hold rowclock]"')).toBeVisible();
+});
+
+test('the page sets the tray radius, open and folded, through its CSS properties', async ({
+  page,
+}) => {
+  await openRow(page);
+  await page.addStyleTag({
+    content:
+      ':root { --theorem-composer-tray-radius: 7px; --theorem-composer-tray-folded-radius: 3px; }',
+  });
+  await page
+    .locator('input[type=file]')
+    .last()
+    .setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PIXEL });
+  const tray = page.locator('.theorem-composer-tray').locator('visible=true').last();
+  const radius = () => tray.evaluate((element) => getComputedStyle(element).borderTopLeftRadius);
+  await expect.poll(radius).toBe('7px');
+  await page.getByRole('button', { name: 'Collapse attached' }).click();
+  await expect.poll(radius).toBe('3px');
+  await page.getByRole('button', { name: 'Expand attached' }).click();
+  await expect.poll(radius).toBe('7px');
 });

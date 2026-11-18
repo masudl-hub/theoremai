@@ -6,8 +6,23 @@ import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
 import { type ResolveMedia, ToolMediaProvider, type ToolMediaShown } from './tool-media.tsx';
 
-/** The theme, labels, Markdown plugins, and tool media a chat or a host page draws with. */
-export function SurfaceProviders({
+/** What `TheoremSurface` takes: each is the `TheoremChat` prop of the same name. */
+export type TheoremSurfaceProps = {
+  theme?: DefinedTheme;
+  mode?: 'system' | 'light' | 'dark';
+  labels?: TheoremLabels;
+  detectCodeLanguage?: boolean;
+  media?: ToolMediaShown;
+  resolveMedia?: ResolveMedia;
+  children: ReactNode;
+};
+
+/**
+ * The theme, labels, Markdown plugins, and tool media a chat or a host page draws with. Wrap
+ * `TheoremChatComposer` and `TheoremChatTranscript` in it when you place them yourself; it takes
+ * what `TheoremChat` takes for each.
+ */
+export function TheoremSurface({
   theme,
   mode,
   labels,
@@ -15,15 +30,7 @@ export function SurfaceProviders({
   media,
   resolveMedia,
   children,
-}: {
-  theme: DefinedTheme | undefined;
-  mode: 'system' | 'light' | 'dark' | undefined;
-  labels: TheoremLabels | undefined;
-  detectCodeLanguage: boolean | undefined;
-  media: ToolMediaShown | undefined;
-  resolveMedia: ResolveMedia | undefined;
-  children: ReactNode;
-}) {
+}: TheoremSurfaceProps) {
   return (
     <TheoremThemeProvider theme={theme} mode={mode}>
       <TheoremLabelsProvider labels={labels}>

@@ -1,10 +1,16 @@
 import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
-import { defaultKernelScope, type ProfileDefinition, type TurnModel } from '../../mod.ts';
+import {
+  defaultKernelScope,
+  type ProfileDefinition,
+  TheoremError,
+  type TurnModel,
+} from '../../mod.ts';
 import { createMemoryInbox, type InboxItem } from '../../src/conversation/mod.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
 import {
   type ChatLine,
   createHttpTransport,
+  TheoremStreamError,
   type TheoremTransport,
 } from '../../web/src/client/transport.ts';
 import {
@@ -73,7 +79,11 @@ const landsAs = (id: string) => [itemId(id), rowId(id)];
  * A handler whose app saves each message itself: the message waits as an item in the app's inbox,
  * and joins the transcript with the reply that reads it.
  */
-function app(script: Script = {}, more: Partial<TheoremHandlerOptions<Sent>> = {}) {
+function app(
+  script: Script = {},
+  more: Partial<TheoremHandlerOptions<Sent>> = {},
+  marks: 'marks told' | 'never marks told' = 'marks told',
+) {
   const runs = { count: 0 };
   const texts = new Map<string, string>();
   const intakes: string[] = [];
@@ -85,7 +95,7 @@ function app(script: Script = {}, more: Partial<TheoremHandlerOptions<Sent>> = {
     ...memory,
     write: async (sessionId, at, expected, next, context) => {
       const result = await memory.write(sessionId, at, expected, next, context);
-      if (result.written && context?.hold && context.reply) {
+      if (marks === 'marks told' && result.written && context?.hold && context.reply) {
         inbox.settle(KEEPER, context.hold, context.reply, context.told);
       }
       return result;
@@ -457,4 +467,31 @@ Deno.test('a steer the app saves lands in the running reply when the app takes i
     [itemId('m1')],
   );
   assertEquals(inbox.states(KEEPER).get(itemId('m2')), 'told');
+});
+
+Deno.test("a store that never marks a reply's told items fails the follow-up, and lets the conversation go", async () => {
+  const errors: unknown[] = [];
+  const { transport, run, runs, inbox } = app(
+    {},
+    { onContinue: () => 'here', onError: (err) => errors.push(err) },
+    'never marks told',
+  );
+  await assertRejects(
+    () =>
+      run((onLine) =>
+        transport.turn({ id: 'm1', turnId: 'turn-1', input: { text: 'first' } }, onLine),
+      ),
+    TheoremStreamError,
+  );
+  assertEquals(runs.count, 1, 'a follow-up told the same message again');
+  assertEquals(
+    errors.map((err) => (err instanceof TheoremError ? [err.kind, err.message] : err)),
+    [
+      [
+        'config',
+        "the reply's save did not mark its `told` items in the inbox: the store's `write` marks them",
+      ],
+    ],
+  );
+  assertEquals((await inbox.open(KEEPER, 'next')).outcome, 'opened', 'the conversation is held');
 });

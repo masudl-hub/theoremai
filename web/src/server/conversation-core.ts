@@ -361,6 +361,8 @@ type HeldRun<Item extends InboxItem> = {
   run: Pick<ReplyRun, 'hold' | 'reply' | 'signal' | 'resume'>;
   renew: () => Promise<boolean>;
   reads: { from: 'session'; late: LateResultsSource } | { from: 'app'; run: ReplyRun<Item> };
+  /** Records the ids of the items the reply's save marked as told. */
+  told: (ids: readonly string[]) => void;
 };
 
 /** The inbox a chat's replies hold, as one context runs under it. */
@@ -391,9 +393,16 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
   chat: { ref: () => string | null; seen: (line: ReplyLine) => void },
 ): Holding<Item> {
   const { inbox, key, policy } = kept;
+  const letGo = async (hold: string) => {
+    for (;;) {
+      const { version } = await inbox.read(key);
+      if ((await inbox.release(key, hold, version)) !== 'moved') return;
+    }
+  };
   return {
-    run: (start, lines, send) =>
-      runConversation({
+    run: async (start, lines, send) => {
+      const told = new Set<string>();
+      const run = await runConversation({
         conversation: key,
         inbox,
         policy,
@@ -401,7 +410,14 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
         newId: () => crypto.randomUUID(),
         renewEveryMs: kept.leaseMs / 3,
         reply: async (run) => {
-          const held = { run, renew: () => inbox.renew(key, run.hold), reads: kept.reads(run) };
+          const held = {
+            run,
+            renew: () => inbox.renew(key, run.hold),
+            reads: kept.reads(run),
+            told: (ids: readonly string[]) => {
+              for (const id of ids) told.add(id);
+            },
+          };
           const ref = chat.ref();
           // why: The page moves a message it shows as waiting into the reply that reads it, as the reply starts.
           if (run.opened.length > 0 && ref !== null) {
@@ -413,13 +429,19 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
           }
         },
         gaveUp: kept.gaveUp,
-      }),
-    async letGo(hold) {
-      for (;;) {
-        const { version } = await inbox.read(key);
-        if ((await inbox.release(key, hold, version)) !== 'moved') return;
-      }
+      });
+      if (run.outcome !== 'continue' || told.size === 0) return run;
+      // why: A follow-up would tell these items again, and each follow-up after it, with no end.
+      const { items } = await inbox.read(key);
+      if (!items.some((item) => told.has(item.id))) return run;
+      await letGo(run.hold);
+      throw new TheoremError(
+        'config',
+        // labels-exempt: builder config error; onError receives it and the user reads error.config
+        "the reply's save did not mark its `told` items in the inbox: the store's `write` marks them",
+      );
     },
+    letGo,
     async due() {
       const { items } = await inbox.read(key);
       if (items.length === 0) return false;
@@ -742,7 +764,10 @@ function replySaving<Item extends InboxItem>(
             }),
         }
       : {}),
-    ...(afterSave ? { after: (saved) => afterSave(at, saved) } : {}),
+    after: async (saved) => {
+      held?.told(saved.told);
+      await afterSave?.(at, saved);
+    },
     ...(compact ? { compact: (signal) => compact(at, signal) } : {}),
     report: (err) => onError?.(err, at),
   };

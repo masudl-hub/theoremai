@@ -637,7 +637,7 @@ On `/steer`, the handler does not put the message into the running turn. The rep
 
 A reply that opens with items from your inbox sends a `conversation` line with `opened`, the ids of those items. The page uses it to move a saved message from the pending list into the transcript.
 
-Your store marks the items in `told` in its `write`. An item that is never marked is told again by each follow-up.
+Your store marks the items in `told` in its `write`. If an item in `told` still waits when the run ends `continue`, the run lets the conversation go and fails with a `config` error, because each follow-up would tell that item again. `onError` receives the error.
 
 ### Shape the save that ends a reply
 

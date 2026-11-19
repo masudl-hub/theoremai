@@ -358,7 +358,7 @@ true satisfies Equals<z.infer<typeof theoremWakeRequest>, TheoremWakeRequest>;
 /** A `/wake` body as `createTheoremHandler` reads it. */
 export const theoremWakeRequestSchema: z.ZodType<TheoremWakeRequest> = theoremWakeRequest;
 
-/** Listen for the ends of this session's background calls: a `/notify` body. */
+/** Listen for changes to this session: a background call ended, or the app saved a reply. A `/notify` body. */
 export type TheoremNotifyRequest = Record<string, never>;
 const theoremNotifyRequest = z.strictObject({});
 /** A `/notify` body as `createTheoremHandler` reads it. */

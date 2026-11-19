@@ -915,22 +915,25 @@ async function currentView<Item extends InboxItem>(
   // why: a session's late results come from detached calls only; an app's items come from anywhere
   if (!detached && !ctx.options.inbox) return view;
   const wake = (await wakeDue(ctx, at, host, ref, conversation)) ? { wake: true as const } : {};
-  if (!detached) return { ...view, ...wake };
+  if (!detached) return { ...view, ...notifyOffer(ctx), ...wake };
   const { operations } = await ctx.sessions.read(at.sessionId);
   const transcript = await Promise.all(
     view.transcript.map((block) =>
       isDetachedBlock(block) ? lateBlock(ctx, at, block, operations, host) : block,
     ),
   );
+  // why: an app's inbox saves replies the page did not ask for, so its page always listens
+  const listens = ctx.options.inbox !== undefined || transcript.some(isDetachedBlock);
+  return { ...view, transcript, ...(listens ? notifyOffer(ctx) : {}), ...wake };
+}
+
+/** The view's offer to listen on `/notify`: none without a notifier. */
+function notifyOffer<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+): Pick<ConversationView, 'notify'> {
   const { notifier, notifyRetryMs } = ctx.options;
-  return {
-    ...view,
-    transcript,
-    ...(notifier && transcript.some(isDetachedBlock)
-      ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
-      : {}),
-    ...wake,
-  };
+  if (!notifier) return {};
+  return { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } };
 }
 
 /**

@@ -14,6 +14,7 @@ import {
 } from '../../web/src/client/transport.ts';
 import {
   createMemoryConversationStore,
+  createMemoryNotifier,
   createTheoremHandler,
   type TheoremHandlerOptions,
   tellEveryResult,
@@ -102,7 +103,7 @@ function refOf(lines: readonly ChatLine[]): string {
 }
 
 /** A handler whose replies run under the app's own inbox, and what its save steps were given. */
-function app(script: Script = {}) {
+function app(script: Script = {}, more: Partial<TheoremHandlerOptions<Note>> = {}) {
   const read: string[][] = [];
   const steps: string[] = [];
   const hosts: unknown[] = [];
@@ -133,6 +134,7 @@ function app(script: Script = {}) {
       steps.push(`after:${saved.ended}:${saved.told.join(',')}`);
       hosts.push(await at.host);
     },
+    ...more,
   };
   const transport = browserFor(createTheoremHandler(options));
   const run = async (send: (onLine: (line: ChatLine) => void) => Promise<void> | undefined) => {
@@ -166,6 +168,23 @@ Deno.test("an answered call's reply saves through the app's steps too", async ()
     transport.invoke({ ...gate, conversation: refOf(paused), decision: 'approve' }, onLine),
   );
   assertEquals(steps, ['before:committed', 'after:committed:']);
+});
+
+Deno.test("a page listens on the app's notifier with no call running, and not without one", async () => {
+  const on = app({}, { notifier: createMemoryNotifier(), notifyRetryMs: 25 });
+  const heard = await on.run((onLine) => on.transport.turn({ input: { text: 'hello' } }, onLine));
+  const view = await on.transport.conversation({ conversation: refOf(heard) });
+  assertEquals(
+    view.transcript.filter((block) => block.kind === 'tool'),
+    [],
+  );
+  assertEquals(view.notify, { retryMs: 25 });
+  const off = app();
+  const quiet = await off.run((onLine) => off.transport.turn({ input: { text: 'hello' } }, onLine));
+  assertEquals(
+    (await off.transport.conversation({ conversation: refOf(quiet) })).notify,
+    undefined,
+  );
 });
 
 Deno.test("a page's wake tells an item that waits in the app's inbox", async () => {

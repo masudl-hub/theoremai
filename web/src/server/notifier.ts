@@ -1,6 +1,7 @@
 /**
- * Where a session's open pages hear that a background call ended. The line carries no content: a
- * page that hears it reads the conversation, so one read decides what a reader sees.
+ * Where a session's open pages hear that a background call ended or the app saved a reply. The line
+ * carries no content: a page that hears it reads the conversation, so one read decides what a
+ * reader sees.
  *
  * @module
  */

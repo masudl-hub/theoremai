@@ -13,8 +13,9 @@ import { type PageToolBroker, pageToolResultSchema, sessionPageDispatch } from '
  * - `POST <base>/stop`    → stop a running turn where it stands
  * - `POST <base>/page-result` → the page's result for a tool the turn ran in the page
  * - `POST <base>/conversation` → the transcript and the paused reply, to draw
- * - `POST <base>/notify`  → NDJSON that stays open: one line now, and one each time a background
- *                            call in this session ends. Set `notifier` to serve it
+ * - `POST <base>/notify`  → NDJSON that stays open: one line now, and one for each `publish` under
+ *                            this session: a background call ended, or the app saved a reply.
+ *                            Set `notifier` to serve it
  * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
  * - `POST <base>/wake`    → NDJSON for a reply to no message: the model takes up the results of
  *                            background calls that ended since it last ran. Empty when none waits
@@ -194,7 +195,8 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
   /**
    * Tells an open page that a background call ended, so it redraws with no turn or reload. Unset,
    * the page reads the end on its next turn or reload. A sweep that marks a call itself calls
-   * `publish` too. `createMemoryNotifier` for one instance.
+   * `publish` too. With `inbox`, the page always listens, and the app calls `publish` for each
+   * reply it saves away from the page. `createMemoryNotifier` for one instance.
    */
   notifier?: TheoremNotifier;
   /**

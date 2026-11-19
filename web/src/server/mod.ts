@@ -8,6 +8,7 @@
 
 export { theoremHostCallRequestSchema } from '../client/host-transport.ts';
 export type { LiveClientMessage, LiveOpenMessage } from '../client/live-messages.ts';
+export { transcriptBlockSchema } from '../client/transcript-schema.ts';
 export {
   type StatedTurn,
   theoremConversationRequestSchema,

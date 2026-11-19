@@ -159,6 +159,22 @@ export type AppInbox<Item extends InboxItem = InboxItem> = {
   policy: InboxPolicy<Item>;
   /** How long a hold keeps the conversation after it last renewed, in milliseconds. */
   leaseMs: number;
+  /**
+   * The app's stop for a reply under a hold, kept where every server of the app reads it. Set,
+   * `stop` asks it and no turn id is read. Unset, a stop reaches a turn by its id, in `steerInbox`.
+   */
+  stop?: HoldStop;
+};
+
+/** A stop for the reply that holds a conversation, whichever server, channel or wake runs it. */
+export type HoldStop = {
+  /** Asks the reply that holds `conversation` now to stop. False when no reply holds it. */
+  ask(conversation: string): Promise<boolean>;
+  /**
+   * Settles `true` once it took a stop asked for `hold`, and `false` once `over` aborts: the reply
+   * ended. A stop is taken once, so the follow-up under the same hold does not read it.
+   */
+  taken(conversation: string, hold: string, over: AbortSignal): Promise<boolean>;
 };
 
 /**
@@ -363,6 +379,8 @@ type HeldRun<Item extends InboxItem> = {
   reads: { from: 'session'; late: LateResultsSource } | { from: 'app'; run: ReplyRun<Item> };
   /** Records the ids of the items the reply's save marked as told. */
   told: (ids: readonly string[]) => void;
+  /** The app's stop for this hold. Unset, a stop reaches the turn by its id. */
+  stopped?: (over: AbortSignal) => Promise<boolean>;
 };
 
 /** The inbox a chat's replies hold, as one context runs under it. */
@@ -389,10 +407,11 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
     policy: InboxPolicy<Kept>;
     reads: (run: ReplyRun<Kept>) => HeldRun<Item>['reads'];
     gaveUp: (items: readonly Kept[]) => void;
+    stop?: HoldStop;
   },
   chat: { ref: () => string | null; seen: (line: ReplyLine) => void },
 ): Holding<Item> {
-  const { inbox, key, policy } = kept;
+  const { inbox, key, policy, stop } = kept;
   const letGo = async (hold: string) => {
     for (;;) {
       const { version } = await inbox.read(key);
@@ -417,6 +436,7 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
             told: (ids: readonly string[]) => {
               for (const id of ids) told.add(id);
             },
+            ...(stop ? { stopped: (over: AbortSignal) => stop.taken(key, run.hold, over) } : {}),
           };
           const ref = chat.ref();
           // why: The page moves a message it shows as waiting into the reply that reads it, as the reply starts.
@@ -495,6 +515,7 @@ function appHolding<Item extends InboxItem>(
       policy: app.policy,
       reads: (run) => ({ from: 'app', run }),
       gaveUp: gaveUp(ctx, at, 'inbox_items_given_up'),
+      ...(app.stop ? { stop: app.stop } : {}),
     },
     chatRef(ref),
   );
@@ -639,8 +660,16 @@ async function* chatTurn<Item extends InboxItem>(
   const state = await ctx.sessions.read(at.sessionId);
   const provider = await ctx.options.provider(at, turn.model);
   const host = await at.host;
-  if (key) {
-    await ctx.steer.open(key);
+  const over = new AbortController();
+  if (key) await ctx.steer.open(key);
+  if (held?.stopped) {
+    held.stopped(over.signal).then(
+      (stopped) => {
+        if (stopped) stop.abort();
+      },
+      (err) => ctx.options.onError?.(err, at),
+    );
+  } else if (key) {
     stopOnRequest(ctx.steer, key, stop);
   }
   try {
@@ -693,6 +722,7 @@ async function* chatTurn<Item extends InboxItem>(
       model: turn.model,
     });
   } finally {
+    over.abort();
     if (key) await ctx.steer.close(key);
   }
 }
@@ -1250,7 +1280,10 @@ export type ConversationCore = {
   rewind(at: CoreContext, args: { ref: string; at: number }): Promise<TheoremRewound>;
   /** Puts `unit` into a running turn. False when the turn is not running. */
   steer(at: CoreContext, args: { turnId: string; unit: SteerUnit }): Promise<boolean>;
-  /** Stops a running turn where it stands. False when the turn is not running. */
+  /**
+   * Stops a running turn where it stands. False when the turn is not running. Where the app's
+   * `inbox` has a `stop`, it stops the reply that holds the conversation, and reads no `turnId`.
+   */
   stop(at: CoreContext, args: { turnId: string }): Promise<boolean>;
 };
 
@@ -1272,6 +1305,10 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
     rewind: (at, args) => rewind(state, at, args),
     steer: (at, { turnId, unit }) =>
       Promise.resolve(state.steer.enqueue(inboxKey(at.sessionId, turnId), unit)),
-    stop: (at, { turnId }) => Promise.resolve(state.steer.stop(inboxKey(at.sessionId, turnId))),
+    stop: (at, { turnId }) => {
+      const app = state.options.inbox?.(at);
+      if (app?.stop) return app.stop.ask(app.conversation);
+      return Promise.resolve(state.steer.stop(inboxKey(at.sessionId, turnId)));
+    },
   };
 }

@@ -552,7 +552,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `read(at, { ref })` | Returns the conversation as a page draws it. |
 | `rewind(at, { ref, at })` | Cuts the conversation after transcript block `at`. |
 | `steer(at, { turnId, unit })` | Puts `unit` into a running turn. Returns `false` when the turn is not running. |
-| `stop(at, { turnId })` | Stops a running turn. Returns `false` when the turn is not running. |
+| `stop(at, { turnId })` | Stops a running turn. Returns `false` when the turn is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and `turnId` is not read. |
 
 The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
 
@@ -580,6 +580,7 @@ Use `inbox` when messages and events arrive from more than one place, and one re
 | `conversation` | The name of the conversation in your inbox. |
 | `policy` | Your `InboxPolicy`: which waiting items a reply is told, and which are given up. |
 | `leaseMs` | How long a hold keeps the conversation after it last renewed, in milliseconds. |
+| `stop` | Optional. Your `HoldStop`: a stop for the reply that holds the conversation. See [Stop a reply from any server](#stop-a-reply-from-any-server). |
 
 Each run then holds `conversation` in your inbox while it runs. Your `prepare` receives that hold as `run`, a `ReplyRun`. `run.opened` is the items the reply reads as it opens. `run.take` returns the items that arrive while the reply runs. To tell the model an item, add it to the turn that `prepare` returns, or inject it from that turn's `onStage`.
 
@@ -636,6 +637,22 @@ On `/turn`, the stream opens with a `conversation` line that has `posted` and `l
 On `/steer`, the handler does not put the message into the running turn. The reply that holds the conversation reads the message from your inbox: in the same reply when your `prepare` takes it with `run.take`, or in a follow-up. The response is `{ ok: true, saved: { conversation, landsAs } }`. When the steer's save took the conversation, no reply was running. The handler then asks `onContinue`. For `'taken'`, your app runs the reply with `followUp`. Otherwise the handler lets the conversation go, and the page's wake runs the reply. Your `policy` must tell the message to a reply at `opening: 'wake'`.
 
 A reply that opens with items from your inbox sends a `conversation` line with `opened`, the ids of those items. The page uses it to move a saved message from the pending list into the transcript.
+
+### Stop a reply from any server
+
+Without `stop` in your `inbox`, a stop reaches a turn by its `turnId` in `steerInbox`. That reaches only a reply that a page turn started. Set `stop` to keep the stop in your own store. A stop then reaches the reply that holds the conversation, on any server, and from any channel or wake.
+
+```ts
+const stop: HoldStop = {
+  ask: async (conversation) => false,
+  taken: async (conversation, hold, over) => false,
+};
+```
+
+- `ask` records a stop for the hold that has `conversation` now. Return `false` when no hold has it. `<base>/stop` and the core's `stop` call it.
+- `taken` settles `true` when a stop was asked for `hold`, and removes that stop in the same step. It settles `false` when `over` aborts, which is the end of the reply. Each model run of a reply under a hold calls it.
+
+A stop is for one reply. The follow-up keeps the hold, and because `taken` removed the stop, the follow-up runs to its end. A stop that `ask` records after a newer hold took the conversation names the newer hold, so read the hold and write the stop in one statement.
 
 Your store marks the items in `told` in its `write`. If an item in `told` still waits when the run ends `continue`, the run lets the conversation go and fails with a `config` error, because each follow-up would tell that item again. `onError` receives the error.
 

@@ -52,6 +52,7 @@ export type {
   ConversationCore,
   FollowUpArgs,
   Generation,
+  HoldStop,
   MessageArgs,
   Reply,
   ReplyPrepare,

@@ -1017,6 +1017,18 @@ function compileTools(
   };
 }
 
+/** Max characters must be a whole number, and it limits text, so Text must be on. */
+function checkTextLimit(inputs: InputsDraft, report: Report): void {
+  if (inputs.maxTextChars !== null && !inputs.text) {
+    report(
+      'inputs',
+      'Max characters limits text, so turn Text on or the limit off.',
+      'maxTextChars',
+    );
+  }
+  checkWhole(report, 'inputs', 'maxTextChars', 'Max characters', inputs.maxTextChars, 1);
+}
+
 function compileInputs(
   inputs: InputsDraft,
   options: ProfileOptions | undefined,
@@ -1052,14 +1064,7 @@ function compileInputs(
       report('inputs', `${label} is required with attachments or voice.`, field);
     }
   }
-  if (inputs.maxTextChars !== null && !inputs.text) {
-    report(
-      'inputs',
-      'Max characters limits text, so turn Text on or the limit off.',
-      'maxTextChars',
-    );
-  }
-  checkWhole(report, 'inputs', 'maxTextChars', 'Max characters', inputs.maxTextChars, 1);
+  checkTextLimit(inputs, report);
   checkWhole(report, 'inputs', 'maxFiles', 'Max files', inputs.maxFiles, 1);
   checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
   checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);

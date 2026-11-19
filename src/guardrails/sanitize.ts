@@ -157,13 +157,13 @@ interface SanitizedTurnRequest {
  * data, so it is read at its own boundary. `identity.system` never reaches this
  * path and stays verbatim.
  */
-function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
-  // invariant: The length limit counts the person's text as sent, so it runs here, on the request a host built, before any reader rewrites it.
-  assertTurnText(profile, req.input?.text);
-  return sanitizeRequest(req, profile);
-}
-
-function sanitizeRequest(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
+function sanitizeTurnRequestWithEvents(
+  req: TurnRequest,
+  profile: Profile,
+  checkText = true,
+): SanitizedTurnRequest {
+  // invariant: The length limit counts the person's text as sent, so it runs before any reader rewrites it, and once.
+  if (checkText) assertTurnText(profile, req.input?.text);
   const { detect } = resolveGuardrailPolicy(profile.guardrails);
   const at = recordOf(REQUEST_BOUNDARIES, (boundary) => boundaryReader(boundary, detect));
   const input = req.input ?? {};
@@ -219,7 +219,7 @@ function sanitizeRequest(req: TurnRequest, profile: Profile): SanitizedTurnReque
 /** The turn request with its input cleaned under the profile's guardrails. Throws when a match blocks it. */
 function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
   // why: This runs on a request already sanitized or built by the kernel, whose text a redaction may have lengthened; the length limit was checked on the raw text.
-  const { request, refusal } = sanitizeRequest(req, profile);
+  const { request, refusal } = sanitizeTurnRequestWithEvents(req, profile, false);
   if (refusal) throw refusal;
   return request;
 }

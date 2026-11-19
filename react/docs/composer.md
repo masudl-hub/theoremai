@@ -38,3 +38,5 @@ the turn, not replaced by the default.
 Pending rows show attachment / voice previews, text, **Queue** (stash → queue),
 and **Send now**. Clicking the text restores the full draft (text + files + voice)
 into the composer; if the composer already had a payload, that payload is re-stashed.
+A row the host saved itself (`saved`, with `intake` on `createTheoremHandler`) shows
+"Sent" (`@theorem.composer.pending.saved`) and no actions: the page cannot change it.

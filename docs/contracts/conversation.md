@@ -7,7 +7,7 @@ The layer has no HTTP and no transcript. The app gives two things:
 - **The inbox** (`ConversationInbox`): the app's storage for each conversation's lock and its untold items.
 - **The policy** (`InboxPolicy`): the app's rule for what the model may be told now, such as quiet hours or a cap.
 
-`runConversation` runs each reply under a **hold**: a lease on the conversation that one reply (or a chain of replies) has. The web handler in `@theoremjs/web/server` is one caller. Its inbox keeps the lock in the session store (`web/src/server/conversation-inbox.ts`).
+`runConversation` runs each reply under a **hold**: a lease on the conversation that one reply (or a chain of replies) has. The web handler in `@theoremjs/web/server` is one caller. An app that passes `inbox` to the handler or to `createTheoremConversationCore` gives its own inbox and policy (`AppInbox`). Without it, and with `lateResultsDecider`, the handler's own inbox keeps the lock in the session store (`web/src/server/conversation-inbox.ts`).
 
 ## Export
 

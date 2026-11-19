@@ -17,6 +17,7 @@ import {
   createMemoryConversationStore,
   createTheoremHandler,
   emptyConversation,
+  type HoldStop,
   type MessageIntake,
   type TheoremConversationStore,
   type TheoremHandlerOptions,
@@ -82,7 +83,10 @@ const landsAs = (id: string) => [itemId(id), rowId(id)];
 function app(
   script: Script = {},
   more: Partial<TheoremHandlerOptions<Sent>> = {},
-  marks: 'marks told' | 'never marks told' = 'marks told',
+  {
+    marks = 'marks told',
+    stop,
+  }: { marks?: 'marks told' | 'never marks told'; stop?: HoldStop } = {},
 ) {
   const runs = { count: 0 };
   const texts = new Map<string, string>();
@@ -110,6 +114,7 @@ function app(
       conversation: KEEPER,
       policy: (items) => ({ tell: items.map((item) => item.id) }),
       leaseMs: LEASE_MS,
+      ...(stop ? { stop } : {}),
     }),
     intake: async (at, sent): Promise<MessageIntake> => {
       intakes.push(sent.id);
@@ -474,7 +479,7 @@ Deno.test("a store that never marks a reply's told items fails the follow-up, an
   const { transport, run, runs, inbox } = app(
     {},
     { onContinue: () => 'here', onError: (err) => errors.push(err) },
-    'never marks told',
+    { marks: 'never marks told' },
   );
   await assertRejects(
     () =>
@@ -494,4 +499,67 @@ Deno.test("a store that never marks a reply's told items fails the follow-up, an
     ],
   );
   assertEquals((await inbox.open(KEEPER, 'next')).outcome, 'opened', 'the conversation is held');
+});
+
+Deno.test('an item that arrives again under an id a reply told is new: the follow-up tells it', async () => {
+  const errors: unknown[] = [];
+  let again = true;
+  const made = app(
+    {},
+    {
+      onContinue: () => 'here',
+      onError: (err) => errors.push(err),
+      afterSave: () => {
+        if (again) made.inbox.arrive(KEEPER, { id: itemId('m1'), kind: 'message', handovers: [] });
+        again = false;
+        return Promise.resolve();
+      },
+    },
+  );
+  await made.run((onLine) =>
+    made.transport.turn({ id: 'm1', turnId: 'turn-1', input: { text: 'first' } }, onLine),
+  );
+  assertEquals(errors, []);
+  assertEquals(made.runs.count, 2, 'no follow-up told the item that arrived again');
+});
+
+Deno.test("a page's stop reaches the reply under the hold the app's save took", async () => {
+  const { script, free } = gate();
+  let asked: string | undefined;
+  let hear = () => {};
+  const heard: string[] = [];
+  const stop: HoldStop = {
+    ask: () => {
+      asked = 'hold:m1';
+      hear();
+      return Promise.resolve(true);
+    },
+    stopped: (_conversation, hold, over) => {
+      heard.push(hold);
+      return new Promise((resolve) => {
+        hear = () => {
+          if (asked === hold) resolve(true);
+        };
+        over.addEventListener('abort', () => resolve(false));
+        hear();
+      });
+    },
+    clear: () => {
+      asked = undefined;
+      return Promise.resolve();
+    },
+  };
+  const { transport, run, runs, refOf } = app(script, {}, { stop });
+  const turn = run((onLine) =>
+    transport.turn({ id: 'm1', turnId: 'turn-1', input: { text: 'first' } }, onLine),
+  );
+  await waitFor(() => runs.count === 1);
+  await transport.stop({ turnId: 'a-turn-the-host-never-ran' });
+  await turn;
+  free();
+  assertEquals(heard, ['hold:m1']);
+  assertEquals(asked, undefined, 'the stop outlived its reply');
+  const view = await transport.conversation({ conversation: refOf() });
+  const last = view.transcript.at(-1);
+  assertEquals(last?.kind === 'turn-done' ? last.stop?.kind : undefined, 'cancelled');
 });

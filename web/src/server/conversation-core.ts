@@ -170,11 +170,13 @@ export type AppInbox<Item extends InboxItem = InboxItem> = {
 export type HoldStop = {
   /** Asks the reply that holds `conversation` now to stop. False when no reply holds it. */
   ask(conversation: string): Promise<boolean>;
+  /** Settles `true` once a stop is asked for `hold`, and `false` once `over` aborts: the run ended. */
+  stopped(conversation: string, hold: string, over: AbortSignal): Promise<boolean>;
   /**
-   * Settles `true` once it took a stop asked for `hold`, and `false` once `over` aborts: the reply
-   * ended. A stop is taken once, so the follow-up under the same hold does not read it.
+   * Removes a stop asked for `hold`. Called as each model run under the hold ends, so a stop that
+   * came too late for one reply does not stop the follow-up under the same hold.
    */
-  taken(conversation: string, hold: string, over: AbortSignal): Promise<boolean>;
+  clear(conversation: string, hold: string): Promise<void>;
 };
 
 /**
@@ -380,7 +382,7 @@ type HeldRun<Item extends InboxItem> = {
   /** Records the ids of the items the reply's save marked as told. */
   told: (ids: readonly string[]) => void;
   /** The app's stop for this hold. Unset, a stop reaches the turn by its id. */
-  stopped?: (over: AbortSignal) => Promise<boolean>;
+  stop?: { stopped: (over: AbortSignal) => Promise<boolean>; clear: () => Promise<void> };
 };
 
 /** The inbox a chat's replies hold, as one context runs under it. */
@@ -436,7 +438,14 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
             told: (ids: readonly string[]) => {
               for (const id of ids) told.add(id);
             },
-            ...(stop ? { stopped: (over: AbortSignal) => stop.taken(key, run.hold, over) } : {}),
+            ...(stop
+              ? {
+                  stop: {
+                    stopped: (over: AbortSignal) => stop.stopped(key, run.hold, over),
+                    clear: () => stop.clear(key, run.hold),
+                  },
+                }
+              : {}),
           };
           const ref = chat.ref();
           // why: The page moves a message it shows as waiting into the reply that reads it, as the reply starts.
@@ -453,7 +462,10 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
       if (run.outcome !== 'continue' || told.size === 0) return run;
       // why: A follow-up would tell these items again, and each follow-up after it, with no end.
       const { items } = await inbox.read(key);
-      if (!items.some((item) => told.has(item.id))) return run;
+      // why: An item that arrived again under a told id has no handover of this hold, and is new.
+      const unmarked = (item: Kept) =>
+        told.has(item.id) && item.handovers.some((handover) => handover.hold === run.hold);
+      if (!items.some(unmarked)) return run;
       await letGo(run.hold);
       throw new TheoremError(
         'config',
@@ -662,8 +674,8 @@ async function* chatTurn<Item extends InboxItem>(
   const host = await at.host;
   const over = new AbortController();
   if (key) await ctx.steer.open(key);
-  if (held?.stopped) {
-    held.stopped(over.signal).then(
+  if (held?.stop) {
+    held.stop.stopped(over.signal).then(
       (stopped) => {
         if (stopped) stop.abort();
       },
@@ -723,6 +735,8 @@ async function* chatTurn<Item extends InboxItem>(
     });
   } finally {
     over.abort();
+    // why: A stop that stays set would stop the follow-up, which keeps this hold.
+    await held?.stop?.clear().catch((err) => ctx.options.onError?.(err, at));
     if (key) await ctx.steer.close(key);
   }
 }

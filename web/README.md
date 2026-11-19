@@ -638,6 +638,8 @@ On `/steer`, the handler does not put the message into the running turn. The rep
 
 A reply that opens with items from your inbox sends a `conversation` line with `opened`, the ids of those items. The page uses it to move a saved message from the pending list into the transcript.
 
+Your store marks the items in `told` in its `write`. If an item in `told` that the reply was handed still waits when the run ends `continue`, the run lets the conversation go and fails with a `config` error, because each follow-up would tell that item again. `onError` receives the error.
+
 ### Stop a reply from any server
 
 Without `stop` in your `inbox`, a stop reaches a turn by its `turnId` in `steerInbox`. That reaches only a reply that a page turn started. Set `stop` to keep the stop in your own store. A stop then reaches the reply that holds the conversation, on any server, and from any channel or wake.
@@ -645,16 +647,16 @@ Without `stop` in your `inbox`, a stop reaches a turn by its `turnId` in `steerI
 ```ts
 const stop: HoldStop = {
   ask: async (conversation) => false,
-  taken: async (conversation, hold, over) => false,
+  stopped: async (conversation, hold, over) => false,
+  clear: async (conversation, hold) => {},
 };
 ```
 
-- `ask` records a stop for the hold that has `conversation` now. Return `false` when no hold has it. `<base>/stop` and the core's `stop` call it.
-- `taken` settles `true` when a stop was asked for `hold`, and removes that stop in the same step. It settles `false` when `over` aborts, which is the end of the reply. Each model run of a reply under a hold calls it.
+- `ask` records a stop for the hold that has `conversation` now. Return `false` when no hold has it. `<base>/stop` and the core's `stop` call it, and `turnId` is not read. Read the hold and write the stop in one statement, or a stop can name a hold that no longer runs.
+- `stopped` settles `true` when a stop is asked for `hold`. It settles `false` when `over` aborts, which is the end of the model run. Each model run of a reply under a hold calls it.
+- `clear` removes a stop asked for `hold`. The core calls it as each model run ends.
 
-A stop is for one reply. The follow-up keeps the hold, and because `taken` removed the stop, the follow-up runs to its end. A stop that `ask` records after a newer hold took the conversation names the newer hold, so read the hold and write the stop in one statement.
-
-Your store marks the items in `told` in its `write`. If an item in `told` still waits when the run ends `continue`, the run lets the conversation go and fails with a `config` error, because each follow-up would tell that item again. `onError` receives the error.
+A stop is for the reply that holds the conversation when the stop arrives. The follow-up keeps the hold. Because the core clears the stop as the reply ends, a stop that came too late for the reply does not stop the follow-up.
 
 ### Shape the save that ends a reply
 

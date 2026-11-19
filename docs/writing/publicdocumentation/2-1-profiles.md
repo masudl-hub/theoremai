@@ -163,7 +163,7 @@ inputs: {
 }
 ```
 
-Set `maxTextChars` to refuse a message whose text is longer. The kernel counts the text as sent and refuses a longer message with the `text.too_long` label before the model runs; `TheoremChat` refuses it before it sends, and keeps the message in the composer. Unset, there is no limit.
+Set `maxTextChars` to refuse a message whose text is longer. The kernel refuses a longer message with the `text.too_long` label before the model runs. It counts the text as sent. `TheoremChat` refuses it before it sends, and keeps the message in the composer. Unset, there is no limit.
 
 In addition to text and attachments, profiles can restrict audio input via `voice.accept`, offer the person a choice using `options`, and permit host-injected background context via `context.from` and `context.maxChars`.
 

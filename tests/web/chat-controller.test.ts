@@ -153,6 +153,14 @@ Deno.test('a message over maxTextChars is refused before sending, stays in the c
   await sent;
 });
 
+Deno.test('a text edit clears a length refusal and leaves a refusal for the files', () => {
+  const chat = createChatController({ transport: heldHost().transport, iface: limitedInterface() });
+  const file = { code: 'too_many_files', params: { maxFiles: 1 } } as const;
+  chat.setIssues([{ code: 'text_too_long', params: { maxTextChars: 10 } }, file]);
+  chat.setDraftText('a');
+  assertEquals(chat.getState().issues, [file]);
+});
+
 Deno.test('a long message is refused while a reply streams, not queued or steered', async () => {
   const host = heldHost();
   const chat = createChatController({ transport: host.transport, iface: limitedInterface() });

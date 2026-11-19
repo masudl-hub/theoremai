@@ -565,11 +565,12 @@ class Chat implements ChatController {
     const next = typeof value === 'function' ? value(this.#state.draftText) : value;
     if (next === this.#state.draftText) return;
     const { failure } = this.#state;
-    // why: A refusal of the message (its text too long, or its files) is about what was typed; editing the text answers it.
+    const issues = this.#state.issues.filter((issue) => issue.code !== 'text_too_long');
+    // why: Editing the text answers a refusal for its length; a refusal for the files stays until they change.
     this.#set({
       draftText: next,
-      issues: [],
-      ...(failure?.errorKind === 'input' ? { failure: null } : {}),
+      issues,
+      ...(failure?.errorKind === 'input' && issues.length === 0 ? { failure: null } : {}),
     });
   };
   setPendingFiles = (value: ChatUpdate<File[]>): void => this.#apply('pendingFiles', value);

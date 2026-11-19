@@ -709,6 +709,14 @@ Deno.test('prepareUserTurn returns validation issues without building blocks', (
   if (prepared.ok) return;
   assertEquals(prepared.issues[0]?.code, 'mime_not_allowed');
 });
+Deno.test('prepareUserTurn refuses a long text before any block is built', () => {
+  const inputs = inputsFromSpec({ text: true, maxTextChars: 5 });
+  const prepared = prepareUserTurn(inputs, { text: 'abcdef' });
+  assertFalse(prepared.ok);
+  if (prepared.ok) return;
+  assertEquals(prepared.issues, [{ code: 'text_too_long', params: { maxTextChars: 5 } }]);
+  assertEquals(prepareUserTurn(inputs, { text: 'abcde' }).ok, true);
+});
 Deno.test('interfaceFromProfile maps image profile facets', () => {
   const image = defineProfile({
     id: 'interface.image.base',

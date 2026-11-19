@@ -144,7 +144,7 @@ export function chatOf(
 }
 
 /** The profile as the server reads a message against it, its tools as registered now. */
-export function chatInterface(chat: ChatContext): ComposerProfileInterface {
+function chatInterface(chat: ChatContext): ComposerProfileInterface {
   return interfaceFromProfile(chat.profile, defaultKernelScope.tools);
 }
 

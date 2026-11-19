@@ -124,12 +124,15 @@ function app(script: Script = {}, more: Partial<TheoremHandlerOptions<Sent>> = {
       };
     },
     beforeSave: (_at, reply) => {
-      const told = reply.held?.opened.map((item) => item.id) ?? [];
+      const told = [
+        ...(reply.held?.opened.map((item) => item.id) ?? []),
+        ...reply.landed.filter((id) => id.startsWith('message:')),
+      ];
       const shown = new Set(reply.blocks.map((block) => block.id));
       // The messages the reply read join the transcript before it, as the app's rows would.
       const read = told.flatMap((id) => {
         const sentId = id.slice('message:'.length);
-        return shown.has(rowId(sentId))
+        return shown.has(rowId(sentId)) || reply.landed.includes(id)
           ? []
           : [{ id: rowId(sentId), kind: 'user-text' as const, text: texts.get(sentId) ?? '' }];
       });
@@ -412,4 +415,46 @@ Deno.test('a saved message whose reply cannot start lets the conversation go', a
   assertEquals(conversationLines(lines).length, 1, 'the page did not learn the message was saved');
   assertEquals(runs.count, 0);
   assertEquals((await inbox.open(KEEPER, 'next')).outcome, 'opened', 'the hold was kept');
+});
+
+Deno.test('a steer the app saves lands in the running reply when the app takes it from its inbox', async () => {
+  const { script, free } = gate();
+  const fixture = app(script, {
+    prepare: (turn, run) => ({
+      ...turn,
+      onStage: async ({ stage, step }) => {
+        if (!run || stage !== 'before_end') return {};
+        const taken = await run.take({ stage, step });
+        return {
+          injects: taken.map((item) => ({
+            id: item.id,
+            messages: [{ role: 'user' as const, content: 'second' }],
+          })),
+        };
+      },
+    }),
+  });
+  const { transport, run, runs, inbox, refOf } = fixture;
+  const turn = run((onLine) =>
+    transport.turn({ id: 'm1', turnId: 'turn-1', input: { text: 'first' } }, onLine),
+  );
+  await waitFor(() => runs.count === 1);
+  await transport.steer({
+    turnId: 'turn-1',
+    id: 'm2',
+    conversation: refOf(),
+    input: { text: 'second' },
+  });
+  free();
+  const lines = await turn;
+  assertEquals(
+    lines.flatMap((line) => (line.type === 'stage' ? (line.injected ?? []) : [])).map((i) => i.id),
+    [itemId('m2')],
+  );
+  assertEquals(runs.count, 2, 'the model did not read the steer in the same reply');
+  assertEquals(
+    conversationLines(lines).flatMap((line) => line.opened ?? []),
+    [itemId('m1')],
+  );
+  assertEquals(inbox.states(KEEPER).get(itemId('m2')), 'told');
 });

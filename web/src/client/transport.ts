@@ -267,8 +267,6 @@ true satisfies Equals<z.infer<typeof theoremSavedMessage>, TheoremSavedMessage>;
 export type TheoremSteerReply = { saved?: TheoremSavedMessage };
 const theoremSteerReply = z.object({ saved: theoremSavedMessage.optional() });
 true satisfies Equals<z.infer<typeof theoremSteerReply>, TheoremSteerReply>;
-/** A `/steer` reply as the page reads it. */
-export const theoremSteerReplySchema: z.ZodType<TheoremSteerReply> = theoremSteerReply;
 
 /** Stop an in-flight turn where it stands; its stream ends with what the reply left. */
 export type TheoremStopRequest = { turnId: string };
@@ -777,7 +775,7 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
     rewind: (body, signal) => fetchRewound(`${base}/rewind`, body, { ...options, signal }),
     pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     steer: async (body) =>
-      theoremSteerReplySchema.parse(await fetchJson(`${base}/steer`, { body }, options)),
+      theoremSteerReply.parse(await fetchJson(`${base}/steer`, { body }, options)),
     stop: (body) => postJson(`${base}/stop`, body, options),
   };
 }

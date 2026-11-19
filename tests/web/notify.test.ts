@@ -7,6 +7,7 @@ import {
   type TurnModel,
   z,
 } from '../../mod.ts';
+import { createMemoryInbox } from '../../src/conversation/mod.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
 import { createHttpTransport, type TheoremTransport } from '../../web/src/client/transport.ts';
 import {
@@ -173,6 +174,29 @@ Deno.test('the page learns of the end only after the store holds it', async () =
     assertEquals(read, ['complete']);
     stop.abort();
     await push?.catch(() => {});
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test("a view on an app's inbox asks for the push after its call ends too", async () => {
+  const inbox = createMemoryInbox({ leaseMs: 60_000 });
+  const on = harness({
+    notifier: createMemoryNotifier(),
+    inbox: () => ({
+      inbox,
+      conversation: 'one-person',
+      policy: () => ({ tell: [] }),
+      leaseMs: 60_000,
+    }),
+  });
+  try {
+    const ref = await startTurn(on.transport);
+    on.release();
+    await on.handles[0].done;
+    const view = await on.transport.conversation({ conversation: ref });
+    assertEquals(phases(view), ['complete']);
+    assertEquals(view.notify, {});
   } finally {
     held.free();
   }

@@ -7,6 +7,7 @@ import {
   type TurnModel,
 } from '../../mod.ts';
 import { createMemoryInbox, type InboxItem } from '../../src/conversation/mod.ts';
+import { createChatController } from '../../web/src/client/chat.ts';
 import {
   type ChatLine,
   createHttpTransport,
@@ -185,6 +186,89 @@ Deno.test("a page listens on the app's notifier with no call running, and not wi
     (await off.transport.conversation({ conversation: refOf(quiet) })).notify,
     undefined,
   );
+});
+
+/** Waits for `check`, or fails after two seconds. */
+function waitFor(check: () => boolean): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const tick = () => {
+      if (check()) return resolve();
+      if (Date.now() - started > 2000) return reject(new Error('the wait ran out'));
+      setTimeout(tick, 1);
+    };
+    tick();
+  });
+}
+
+const said = (chat: ReturnType<typeof createChatController>) =>
+  chat
+    .getState()
+    .blocks.flatMap((block) =>
+      block.kind === 'user-text' || block.kind === 'text' ? [block.text] : [],
+    );
+
+/** An app that tells its notifier after each save, and two open pages on one person's chat, said hello on. */
+async function twoPages(script: Script = {}) {
+  const notifier = createMemoryNotifier();
+  const session = { id: '' };
+  const on = app(script, {
+    notifier,
+    afterSave: async (at) => {
+      session.id = at.sessionId;
+      await notifier.publish(at.sessionId);
+    },
+  });
+  const reads = { count: 0 };
+  const conversation = on.transport.conversation.bind(on.transport);
+  on.transport.conversation = (request, signal) => {
+    reads.count += 1;
+    return conversation(request, signal);
+  };
+  const iface = await on.transport.describe();
+  assert(iface.type === 'text');
+  const held = { ref: '' };
+  const first = createChatController({
+    iface,
+    transport: on.transport,
+    onConversationChange: (ref) => {
+      held.ref = ref ?? '';
+    },
+  });
+  await first.sendText('hello');
+  // why: The second page opens the conversation the first one holds, as a second tab does.
+  const second = createChatController({ iface, transport: on.transport, conversation: held.ref });
+  return { ...on, notifier, session, reads, first, second };
+}
+
+Deno.test('an open page redraws with a reply the app saved for another page, and stops reading', async () => {
+  const { first, second, reads } = await twoPages();
+  const leave = first.subscribe(() => {});
+  await second.sendText('and the fern?');
+  await waitFor(() => said(first).includes('and the fern?'));
+  assertEquals(said(first), ['hello', 'Sure.', 'and the fern?', 'Sure.']);
+  const settled = reads.count;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertEquals(reads.count, settled, 'the page kept reading with nothing new');
+  leave();
+});
+
+Deno.test("a save the app tells while a page's own reply runs leaves that reply whole", async () => {
+  const script: Script = {};
+  const { first, read, notifier, session } = await twoPages(script);
+  const leave = first.subscribe(() => {});
+  let free = () => {};
+  script.until = new Promise<void>((resolve) => {
+    free = resolve;
+  });
+  const running = first.sendText('and the fern?');
+  await waitFor(() => read.length === 2);
+  await notifier.publish(session.id);
+  free();
+  await running;
+  assertEquals(first.getState().failure, null);
+  assertEquals(said(first), ['hello', 'Sure.', 'and the fern?', 'Sure.']);
+  leave();
 });
 
 Deno.test("a page's wake tells an item that waits in the app's inbox", async () => {

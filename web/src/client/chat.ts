@@ -21,6 +21,7 @@ import {
   type InterfaceTurnSession,
   moveComposerPendingWithinKind,
   orderComposerPendingMessages,
+  prepareUserTurn,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
   removeLandedSteers,
@@ -30,7 +31,6 @@ import {
   type UserTurnDraft,
   userDraftHasPayload,
   userDraftToSteerInject,
-  validateProfileInputs,
 } from '@theoremjs/agents/interface';
 import { composerHasPayload } from './composer-primary.ts';
 import { composerFieldsFromDraft } from './decode-composer-draft.ts';
@@ -621,7 +621,8 @@ class Chat implements ChatController {
       const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
       message = createComposerPendingMessage({ kind, draft });
       const { iface } = this.#options;
-      const checked = kind !== 'stash' && iface ? validateProfileInputs(iface.inputs, draft) : null;
+      const checked =
+        kind !== 'stash' && iface ? prepareUserTurn(iface.inputs, draft, iface.guardrails) : null;
       if (checked && !checked.ok) {
         // why: A message the profile refuses is never queued or steered; it stays in the composer as typed.
         this.#set({

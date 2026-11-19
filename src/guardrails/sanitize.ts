@@ -157,13 +157,7 @@ interface SanitizedTurnRequest {
  * data, so it is read at its own boundary. `identity.system` never reaches this
  * path and stays verbatim.
  */
-function sanitizeTurnRequestWithEvents(
-  req: TurnRequest,
-  profile: Profile,
-  checkText = true,
-): SanitizedTurnRequest {
-  // invariant: The length limit counts the person's text as sent, so it runs before any reader rewrites it, and once.
-  if (checkText) assertTurnText(profile, req.input?.text);
+function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
   const { detect } = resolveGuardrailPolicy(profile.guardrails);
   const at = recordOf(REQUEST_BOUNDARIES, (boundary) => boundaryReader(boundary, detect));
   const input = req.input ?? {};
@@ -216,16 +210,27 @@ function sanitizeTurnRequestWithEvents(
   };
 }
 
+/**
+ * A request a host built, taken in: refused when its text is over the profile's `inputs.maxTextChars`,
+ * then read as `sanitizeTurnRequestWithEvents` reads it. The limit counts the text as the host sent it.
+ * A request the kernel built or already read goes to `sanitizeTurnRequestWithEvents` instead, so a
+ * redaction that lengthened its text is not counted again.
+ */
+function admitTurnRequest(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
+  assertTurnText(profile, req.input?.text);
+  return sanitizeTurnRequestWithEvents(req, profile);
+}
+
 /** The turn request with its input cleaned under the profile's guardrails. Throws when a match blocks it. */
 function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
-  // why: This runs on a request already sanitized or built by the kernel, whose text a redaction may have lengthened; the length limit was checked on the raw text.
-  const { request, refusal } = sanitizeTurnRequestWithEvents(req, profile, false);
+  const { request, refusal } = sanitizeTurnRequestWithEvents(req, profile);
   if (refusal) throw refusal;
   return request;
 }
 
 export type { SanitizedTurnRequest };
 export {
+  admitTurnRequest,
   contextText,
   requestRefused,
   sanitizeContext,

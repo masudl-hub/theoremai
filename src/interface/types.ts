@@ -80,7 +80,7 @@ export type ProfileObservabilityView = Pick<
 /** Resolved `inputs` — `ProfileInputsSpec` plus `acceptAttr` for file pickers. */
 export interface ProfileInputsInterface {
   text: boolean;
-  /** The longest text, in characters as JavaScript counts them, one message may send. */
+  /** The longest text, in characters as JavaScript counts them, one message may send, counted as the agent receives it, after the page's redaction. */
   maxTextChars?: number;
   attachments: { accept: string[]; acceptAttr: string } | null;
   voice: { accept: string[] } | null;

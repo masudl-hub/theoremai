@@ -46,6 +46,7 @@ import type {
   StatedTurn,
   TheoremInvokeRequest,
   TheoremRewound,
+  TheoremSteerRequest,
   TheoremTurnInput,
 } from '../client/transport.ts';
 import {
@@ -92,7 +93,7 @@ import {
   withAuthorizationUrls,
 } from './session-calls.ts';
 import type { TheoremSessionState } from './session-store.ts';
-import { type SteerInbox, type SteerUnit, steerStage, stopOnRequest } from './steer-inbox.ts';
+import { type SteerInbox, steerStage, steerUnitOf, stopOnRequest } from './steer-inbox.ts';
 import { sessionToolCoordinator } from './tool-operations.ts';
 import { isRefusal, preparedTurn, type ReplyRefusal, stagesInOrder } from './turn-wiring.ts';
 
@@ -1295,10 +1296,15 @@ export type ConversationCore = {
   read(at: CoreContext, args: { ref: string }): Promise<ConversationView>;
   /** The conversation cut after block `at`; a reply that waits on gates is walked away from first. */
   rewind(at: CoreContext, args: { ref: string; at: number }): Promise<TheoremRewound>;
-  /** Puts `unit` into a running turn. False when the turn is not running. */
-  steer(at: CoreContext, args: { turnId: string; unit: SteerUnit }): Promise<boolean>;
-  /** Throws what `message` throws for a steer's input that the profile does not take, such as text over its limit. */
-  checkSteer(input: TheoremTurnInput): void;
+  /**
+   * Puts a steer into a running turn, as the one user message the model reads. Throws what
+   * `message` throws for an input the profile does not take, such as text over its limit, and
+   * puts nothing in. False when the turn is not running.
+   */
+  steer(
+    at: CoreContext,
+    args: { turnId: string } & Pick<TheoremSteerRequest, 'id' | 'input'>,
+  ): Promise<boolean>;
   /**
    * Stops a running turn where it stands. False when the turn is not running. Where the app's
    * `inbox` has a `stop`, it stops the reply that holds the conversation, and reads no `turnId`.
@@ -1322,11 +1328,10 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
     release: (at, args) => release(state, at, args),
     read: (at, args) => read(state, at, args),
     rewind: (at, args) => rewind(state, at, args),
-    checkSteer: (input) => {
-      postedMessage(chatInterface(state.chat), input);
+    steer: async (at, { turnId, ...steer }) => {
+      postedMessage(chatInterface(state.chat), steer.input);
+      return await state.steer.enqueue(inboxKey(at.sessionId, turnId), steerUnitOf(steer));
     },
-    steer: (at, { turnId, unit }) =>
-      Promise.resolve(state.steer.enqueue(inboxKey(at.sessionId, turnId), unit)),
     stop: (at, { turnId }) => {
       const app = state.options.inbox?.(at);
       if (app?.stop) return app.stop.ask(app.conversation);

@@ -51,11 +51,12 @@ function prepareUserTurn(
   draft: UserTurnDraft,
   guardrails?: ProfileGuardrailsView,
 ): PrepareUserTurnResult {
-  const validation = validateProfileInputs(inputs, draft);
+  const safe = sanitizeUserDraft(draft, guardrails);
+  // invariant: The length limit counts the text as the agent receives it, after the page's redaction; the files are checked as they are.
+  const validation = validateProfileInputs(inputs, { ...draft, text: safe.text });
   if (!validation.ok) {
     return { ok: false, issues: validation.issues };
   }
-  const safe = sanitizeUserDraft(draft, guardrails);
   return { ok: true, draft: safe, blocks: buildUserTurnBlocks(safe) };
 }
 

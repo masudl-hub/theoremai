@@ -5,6 +5,7 @@ import { compactHistoryInRegistry, runTurnInRegistry } from './engine/runner/mod
 import { type RunSessionOptions, runSessionInRegistry } from './engine/session/mod.ts';
 import type { ProviderHostOptions } from './protocols/runtime.ts';
 import { resolveRegisteredTurnModel } from './provider-dispatch.ts';
+import { assertTurnText } from './registry/attachments.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
 import { invokeTool, invokeToolStep, startInvoke, startInvokeStep } from './tools/invoke.ts';
@@ -103,7 +104,11 @@ function createKernelScope(): KernelScope {
     runTool: (request, sinkOverride) => settledCall(startInvoke(registry, request, sinkOverride)),
     runToolStep: ({ onEvent, ...request }, sinkOverride) =>
       settledCalls(startInvokeStep(registry, request, sinkOverride), onEvent),
-    resolveTurn: (req) => resolveTurnInRegistry(registry, req),
+    resolveTurn: (req) => {
+      // invariant: A host's request is refused here for its text's length; the runner reads a request it built through `resolveTurnInRegistry` itself.
+      assertTurnText(registry.profiles.get(req.profile), req.input?.text);
+      return resolveTurnInRegistry(registry, req);
+    },
     projectProfile: (id) => projectProfileInRegistry(registry, id),
     runDecision: (request, options) => runDecisionInRegistry(registry, request, options),
     runEmbedding: (request, options = {}) => runEmbeddingInRegistry(registry, request, options),

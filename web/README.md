@@ -551,8 +551,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `release(at, { ref, hold })` | Lets the conversation go under that hold, with no follow-up. |
 | `read(at, { ref })` | Returns the conversation as a page draws it. |
 | `rewind(at, { ref, at })` | Cuts the conversation after transcript block `at`. |
-| `steer(at, { turnId, unit })` | Puts `unit` into a running turn. Returns `false` when the turn is not running. It does not check the unit's text. Call `checkSteer` first. |
-| `checkSteer(input)` | Throws what `message` throws for a steer's `input` that the profile does not take, such as text over `inputs.maxTextChars`. `createTheoremHandler` calls it before `steer`. |
+| `steer(at, { turnId, id, input })` | Puts `input` into a running turn. Returns `false` when the turn is not running. Throws what `message` throws for an `input` the profile does not take, such as text over `inputs.maxTextChars`. |
 | `stop(at, { turnId })` | Stops a running turn. Returns `false` when the turn is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and `turnId` is not read. |
 
 The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:

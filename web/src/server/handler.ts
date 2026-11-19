@@ -107,7 +107,7 @@ import { jsonResponse } from './json-response.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
 import { checkRequest } from './request-check.ts';
 import type { SessionToolOperation, TheoremSessionStore } from './session-store.ts';
-import { createMemorySteerInbox, type SteerInbox, steerUnitOf } from './steer-inbox.ts';
+import { createMemorySteerInbox, type SteerInbox } from './steer-inbox.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -774,8 +774,7 @@ async function steer(
     const saved: TheoremSavedMessage = { conversation: taken.ref, landsAs: [...taken.landsAs] };
     return jsonResponse(200, { ok: true, saved });
   }
-  core.checkSteer(body.input);
-  if (!(await core.steer(at, { turnId: body.turnId, unit: steerUnitOf(body) }))) {
+  if (!(await core.steer(at, { turnId: body.turnId, id: body.id, input: body.input }))) {
     // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {
       copy: { key: 'session.turn_ended' },

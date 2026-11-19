@@ -14,7 +14,7 @@ import {
 } from '../../../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../../../guardrails/events.ts';
 import { labelText } from '../../../guardrails/labels.ts';
-import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
+import { admitTurnRequest } from '../../../guardrails/sanitize.ts';
 import { resolveTraceWriter } from '../../../observability/policy.ts';
 import { resolveObservabilityPolicy } from '../../../observability/resolve-policy.ts';
 import { writeTrace } from '../../../observability/trace.ts';
@@ -760,10 +760,7 @@ async function* runTurnInRegistry(
 async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<TurnEvent> {
   assertBackgroundCoordinator(ctx.req.background, ctx.req.execution);
   const checkStart = performance.now();
-  const sanitized = sanitizeTurnRequestWithEvents(
-    ctx.req,
-    ctx.registry.profiles.get(ctx.req.profile),
-  );
+  const sanitized = admitTurnRequest(ctx.req, ctx.registry.profiles.get(ctx.req.profile));
   const checkMs = performance.now() - checkStart;
   ctx.safe = sanitized.request;
   const hits = sanitized.events.filter((event) => event.type === 'guardrail');

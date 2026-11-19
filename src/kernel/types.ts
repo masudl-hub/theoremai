@@ -793,7 +793,8 @@ export interface ProfileInputsSpec {
   text?: boolean;
   /**
    * The longest text, in characters (as JavaScript counts them, like an HTML maxlength), one
-   * message may send; a longer message is refused with text.too_long.
+   * message may send, counted as the agent receives it, after the page's redaction; a longer
+   * message is refused with text.too_long.
    */
   maxTextChars?: number;
   /** Lets turns send files. */

@@ -38,7 +38,7 @@ import {
   processLiveOutboundBatch,
 } from '../../../guardrails/live-outbound-gate.ts';
 import type { ResolveHost } from '../../../guardrails/network.ts';
-import { sanitizeTurnRequestWithEvents } from '../../../guardrails/sanitize.ts';
+import { admitTurnRequest } from '../../../guardrails/sanitize.ts';
 import { lateResultsMessage } from '../../../guardrails/tool-fence.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TurnTaint } from '../../../guardrails/types.ts';
@@ -1836,7 +1836,7 @@ async function openTracedSession(
     request: safe,
     events: requestEvents,
     refusal,
-  } = sanitizeTurnRequestWithEvents(turnReq, registry.profiles.get(turnReq.profile));
+  } = admitTurnRequest(turnReq, registry.profiles.get(turnReq.profile));
   if (refusal) throw refusal;
   throwIfAborted(safe.signal);
 

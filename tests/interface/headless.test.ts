@@ -269,6 +269,17 @@ Deno.test('validateProfileInputs accepts resolved inputs', () => {
   const file = { name: 'shot.png', mimeType: 'image/png', sizeBytes: 1024 };
   assertEquals(validateProfileInputs(iface.inputs, { attachments: [file] }).ok, true);
 });
+Deno.test('validateProfileInputs refuses a draft longer than maxTextChars, with no files', () => {
+  const inputs = inputsFromSpec({ text: true, maxTextChars: 5 });
+  assertEquals(validateProfileInputs(inputs, { text: 'abcde' }).ok, true);
+  const result = validateProfileInputs(inputs, { text: 'abcdef' });
+  assertFalse(result.ok);
+  assertEquals(result.issues, [{ code: 'text_too_long', params: { maxTextChars: 5 } }]);
+  assertEquals(
+    validateProfileInputs({ ...inputs, maxTextChars: undefined }, { text: 'abcdef' }).ok,
+    true,
+  );
+});
 Deno.test('validateProfileInputs rejects disallowed MIME', () => {
   const attachment = ATTACHMENT_PROFILE as TextProfile;
   const iface = composerIface(attachment);

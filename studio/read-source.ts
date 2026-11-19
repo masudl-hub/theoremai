@@ -1203,6 +1203,7 @@ function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
   const context = record(inputs.context);
   return {
     text: inputs.text !== false,
+    maxTextChars: whole(inputs.maxTextChars),
     attachmentsAccept: strings(record(inputs.attachments)?.accept),
     voiceAccept: strings(record(inputs.voice)?.accept),
     maxFiles: whole(inputs.maxFiles),

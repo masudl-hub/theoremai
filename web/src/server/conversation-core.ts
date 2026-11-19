@@ -1297,6 +1297,8 @@ export type ConversationCore = {
   rewind(at: CoreContext, args: { ref: string; at: number }): Promise<TheoremRewound>;
   /** Puts `unit` into a running turn. False when the turn is not running. */
   steer(at: CoreContext, args: { turnId: string; unit: SteerUnit }): Promise<boolean>;
+  /** Throws what `message` throws for a steer's input that the profile does not take, such as text over its limit. */
+  checkSteer(input: TheoremTurnInput): void;
   /**
    * Stops a running turn where it stands. False when the turn is not running. Where the app's
    * `inbox` has a `stop`, it stops the reply that holds the conversation, and reads no `turnId`.
@@ -1320,6 +1322,9 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
     release: (at, args) => release(state, at, args),
     read: (at, args) => read(state, at, args),
     rewind: (at, args) => rewind(state, at, args),
+    checkSteer: (input) => {
+      postedMessage(chatInterface(state.chat), input);
+    },
     steer: (at, { turnId, unit }) =>
       Promise.resolve(state.steer.enqueue(inboxKey(at.sessionId, turnId), unit)),
     stop: (at, { turnId }) => {

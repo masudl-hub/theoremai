@@ -208,6 +208,8 @@ export interface ToolSpecDraft extends StudioToolSpecSeed {
 
 export interface InputsDraft {
   text: boolean;
+  /** The longest text, in characters, one message may send; null sets no limit. */
+  maxTextChars: number | null;
   attachmentsAccept: string[];
   voiceAccept: string[];
   maxFiles: number | null;
@@ -815,6 +817,7 @@ export function createBlankDraft(): StudioDraft {
     toolSpecs: [],
     inputs: {
       text: true,
+      maxTextChars: null,
       attachmentsAccept: [],
       voiceAccept: [],
       maxFiles: null,

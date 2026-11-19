@@ -16,7 +16,7 @@ import type {
 } from '../types.ts';
 import { base64ToBytes, bytesToBase64 } from '../util/base64.ts';
 import { mimeEssence } from '../util/mime.ts';
-import { mediaKindForMime, mimeAllowed, profileAccept } from './catalog.ts';
+import { mediaKindForMime, mimeAllowed, profileAccept, profileInputs } from './catalog.ts';
 
 const B64_PAD = 2;
 const B64_WORD = 4;
@@ -318,6 +318,8 @@ export interface AttachmentFacts {
 
 /** An absent `accept` list means the channel takes nothing. */
 export interface AttachmentRules {
+  /** The longest text, in `.length` units, one message may send; unset is no limit. */
+  maxTextChars?: number;
   attachments?: string[];
   voice?: string[];
   limits?: MediaLimits;
@@ -362,20 +364,24 @@ function limitIssues(files: AttachmentFacts[], limits: MediaLimits): AttachmentV
   return issues;
 }
 
-/** The one attachment check: the kernel throws on it at ingress and the headless interface runs it before a send. */
+/** The one input check, a message's text and its files: the kernel throws on it at ingress and the headless interface runs it before a send. */
 function attachmentIssues(
   rules: AttachmentRules,
   files: AttachmentFacts[],
   clips: AttachmentFacts[],
+  text?: string,
 ): AttachmentValidationIssue[] {
   const issues: AttachmentValidationIssue[] = [];
+  if (text !== undefined && rules.maxTextChars !== undefined && text.length > rules.maxTextChars) {
+    issues.push({ code: 'text_too_long', params: { maxTextChars: rules.maxTextChars } });
+  }
   if (files.length > 0 && !rules.attachments) {
     issues.push({ code: 'attachments_not_accepted', params: { channel: 'attachment' } });
   }
   if (clips.length > 0 && !rules.voice) {
     issues.push({ code: 'voice_not_accepted', params: { channel: 'voice' } });
   }
-  if (issues.length > 0) return issues;
+  if (issues.some((issue) => issue.code !== 'text_too_long')) return issues;
   if (files.length === 0 && clips.length === 0) return issues;
   if (rules.attachments) issues.push(...mimeIssues(rules.attachments, files, 'attachment'));
   if (rules.voice) issues.push(...mimeIssues(rules.voice, clips, 'voice'));
@@ -384,6 +390,7 @@ function attachmentIssues(
 }
 
 const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LabelKey> = {
+  text_too_long: 'text.too_long',
   mime_not_allowed: 'attachments.mime_not_allowed',
   too_many_files: 'attachments.too_many_files',
   too_many_of_kind: 'attachments.too_many_of_kind',
@@ -456,6 +463,13 @@ function assertTurnAttachments(
   if (issues.length > 0) throw attachmentsRefused(issues);
 }
 
+/** Refuses a message whose text is longer than the profile's `inputs.maxTextChars`; counts the text as sent. */
+function assertTurnText(profile: Profile, text: string | undefined): void {
+  const maxTextChars = profileInputs(profile)?.maxTextChars;
+  const issues = attachmentIssues({ maxTextChars }, [], [], text);
+  if (issues.length > 0) throw attachmentsRefused(issues);
+}
+
 function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T, reader: BoundaryReader): T {
   if (isTurnMediaRef(blob)) {
     return blob;
@@ -498,6 +512,7 @@ function sanitizeTurnBlobs(
 
 export {
   assertTurnAttachments,
+  assertTurnText,
   attachmentIssueCopy,
   attachmentIssues,
   attachmentIssueText,

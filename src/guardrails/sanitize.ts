@@ -1,4 +1,4 @@
-import { sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
+import { assertTurnText, sanitizeTurnBlobs } from '../kernel/registry/attachments.ts';
 import { CONTEXT_SENDERS, type ContextSender } from '../kernel/schema.ts';
 import { mapSystemPrompt } from '../kernel/system-parts.ts';
 import type {
@@ -158,6 +158,12 @@ interface SanitizedTurnRequest {
  * path and stays verbatim.
  */
 function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
+  // invariant: The length limit counts the person's text as sent, so it runs here, on the request a host built, before any reader rewrites it.
+  assertTurnText(profile, req.input?.text);
+  return sanitizeRequest(req, profile);
+}
+
+function sanitizeRequest(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
   const { detect } = resolveGuardrailPolicy(profile.guardrails);
   const at = recordOf(REQUEST_BOUNDARIES, (boundary) => boundaryReader(boundary, detect));
   const input = req.input ?? {};
@@ -212,7 +218,8 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
 
 /** The turn request with its input cleaned under the profile's guardrails. Throws when a match blocks it. */
 function sanitizeTurnRequest(req: TurnRequest, profile: Profile): NormalizedTurnRequest {
-  const { request, refusal } = sanitizeTurnRequestWithEvents(req, profile);
+  // why: This runs on a request already sanitized or built by the kernel, whose text a redaction may have lengthened; the length limit was checked on the raw text.
+  const { request, refusal } = sanitizeRequest(req, profile);
   if (refusal) throw refusal;
   return request;
 }

@@ -2208,6 +2208,9 @@ function AcceptRow({
   );
 }
 
+/** The length a message's text starts with when its limit is switched on. */
+const TEXT_MAX_CHARS_START = 4000;
+
 function InputAcceptsSection({
   inputs,
   set,
@@ -2228,6 +2231,32 @@ function InputAcceptsSection({
               set({ text });
             }}
           />
+          <SwitchRow
+            label="Limit length"
+            path="inputs.maxTextChars"
+            field="maxTextChars"
+            value={inputs.maxTextChars !== null}
+            isDisabled={!inputs.text}
+            onChange={(limited) => {
+              // why: The kernel has no default length; switching on starts one to edit.
+              set({ maxTextChars: limited ? TEXT_MAX_CHARS_START : null });
+            }}
+          />
+          {inputs.maxTextChars !== null && (
+            <NumberRow
+              label="Max characters"
+              path="inputs.maxTextChars"
+              units="characters"
+              field="maxTextChars"
+              isRequired
+              value={inputs.maxTextChars}
+              min={1}
+              isIntegerOnly
+              onChange={(maxTextChars) => {
+                set({ maxTextChars });
+              }}
+            />
+          )}
           <AcceptRow
             label="Attachments"
             path="inputs.attachments.accept"
@@ -6633,6 +6662,7 @@ const LABEL_TITLES: Partial<Record<LabelKey, string>> = {
   'attachments.mime_not_allowed': 'File type not allowed',
   'attachments.limits_unconfigured': 'Files turned off',
   'quota.exhausted': 'Limit reached',
+  'text.too_long': 'Text too long',
 };
 
 /** `rate_limit` → "Rate limit". */
@@ -6647,16 +6677,16 @@ function labelTitle(key: LabelKey): string {
 function labelPlaceholder(draft: StudioDraft, key: LabelKey): string {
   const { inputs, guardrails } = draft;
   const text = labelDefault(key, {
+    maxTextChars: inputs.maxTextChars ?? Number.NaN,
     maxFiles: inputs.maxFiles ?? '{maxFiles}',
     maxBytes: inputs.maxBytes ?? Number.NaN,
     maxTurnBytes: inputs.maxTurnBytes ?? Number.NaN,
     perDay: guardrails.quotaPerDay ?? '{perDay}',
   });
   // A size the draft leaves unset formats as NaN: show the placeholder the template takes instead.
-  return text.replace(
-    'NaN MB',
-    key === 'attachments.turn_too_large' ? '{maxTurnBytes}' : '{maxBytes}',
-  );
+  return text
+    .replace('NaN MB', key === 'attachments.turn_too_large' ? '{maxTurnBytes}' : '{maxBytes}')
+    .replace('NaN characters', '{maxTextChars} characters');
 }
 
 /**

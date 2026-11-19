@@ -125,6 +125,49 @@ Deno.test('a chat starts with the text, files, voice notes and set-aside message
   );
 });
 
+/** The text interface with a ten-character message limit. */
+function limitedInterface(): ComposerProfileInterface {
+  const iface = textInterface();
+  return { ...iface, inputs: { ...iface.inputs, maxTextChars: 10 } };
+}
+
+Deno.test('a message over maxTextChars is refused before sending, stays in the composer, and clears on an edit', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: limitedInterface() });
+  chat.setDraftText('x'.repeat(11));
+  await chat.submit();
+  await settle();
+  assertEquals(host.turns.length, 0);
+  const refused = chat.getState();
+  assertEquals(refused.draftText, 'x'.repeat(11));
+  assertEquals(refused.issues, [{ code: 'text_too_long', params: { maxTextChars: 10 } }]);
+  assertEquals(refused.failure?.errorKind, 'input');
+  assertEquals(refused.phase, 'idle');
+  chat.setDraftText('x'.repeat(10));
+  assertEquals(chat.getState().issues, []);
+  assertEquals(chat.getState().failure, null);
+  const sent = chat.submit();
+  await settle();
+  assertEquals(textOf(host.turns[0].request), 'x'.repeat(10));
+  reply(host.turns[0], 'ok');
+  await sent;
+});
+
+Deno.test('a long message is refused while a reply streams, not queued or steered', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: limitedInterface() });
+  chat.setDraftText('first');
+  const first = chat.submit();
+  await settle();
+  chat.setDraftText('y'.repeat(11));
+  await chat.submit();
+  assertEquals(chat.getState().pendingMessages, []);
+  assertEquals(host.steers.length, 0);
+  assertEquals(chat.getState().draftText, 'y'.repeat(11));
+  reply(host.turns[0], 'ok');
+  await first;
+});
+
 Deno.test('a draft sent at idle joins the transcript with its reply, and the composer empties', async () => {
   const host = heldHost();
   const chat = createChatController({ transport: host.transport, iface: textInterface() });

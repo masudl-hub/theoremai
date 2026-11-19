@@ -83,12 +83,14 @@ A `Profile` binds:
 | `identity` | `handle`, optional `options` and `system` — absent on `host`; `handle` only on `speech` and `decision`. `system` is a string or a list of lines. See [Prompt lines](#prompt-lines). |
 | `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect`, and `maxSteps` except on `live` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
-| `inputs` | Text / attachments / voice / options / context / per-mime limits — present on `text`, `image`; `live` takes `options` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.options` entry is `{ label?, choices: { value, description? }[] }`; optional `label` / `description` are UI-only. See [Prompt lines](#prompt-lines) |
+| `inputs` | Text / `maxTextChars` / attachments / voice / options / context / per-mime limits — present on `text`, `image`; `live` takes `options` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.options` entry is `{ label?, choices: { value, description? }[] }`; optional `label` / `description` are UI-only. See [Prompt lines](#prompt-lines) |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `atStepLimit` on **text**; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; an inject's `released` drops the draft the user never got, and a bad one warns `inject_released_invalid`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
 | `guardrails` | Quota, detect, blockedReply, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (a detector above `ignore` at `live_reply`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
+
+`inputs.maxTextChars` caps the text of one message. It counts as JavaScript counts `.length`, like an HTML `maxlength`, and it counts the text as the host sent it, before any guard rewrites it. A longer message is refused with `text.too_long` before the model runs, and a message of exactly that length passes. The check runs on every entry that carries a person's text, whether or not the message has files: a new turn, a continued turn, a session open, and a steer. It is the same check the interface runs before a send (`attachmentIssues` with the text, `assertTurnText` in the kernel). Unset, there is no limit. It does not bound `transcript` or `stated`.
 
 Closed unions (`thinking`, stop kinds, turn stages,
 MIME maps, …) live as `as const` arrays in `src/kernel/schema.ts`. Types are
@@ -2123,6 +2125,7 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - Each key in `models` is a host-named model id with a full `ModelBinding`.
 - Profiles with attachments or voice set `maxFiles`, `maxBytes`, `maxTurnBytes`;
   those and every `limitsByMime` value are positive integers.
+- `inputs.maxTextChars`, when set, is a positive integer, and `inputs.text` is not `false`.
 - Credential slots resolve from model overrides, then the provider registration's defaults.
   The kernel reads the credential from the vault when an operation runs.
 - Each `efforts` level is one of `THINKING_LEVELS`. Which of those a model

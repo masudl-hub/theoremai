@@ -316,6 +316,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     'The most files and voice clips one turn or embedding request may send, counted together.',
   'inputs.maxStateBytes':
     'The largest state, in bytes, a decision call may send; larger state is refused before it leaves your process.',
+  'inputs.maxTextChars':
+    'The longest text, in characters (as JavaScript counts them, like an HTML maxlength), one message may send; a longer message is refused with text.too_long.',
   'inputs.maxTurnBytes':
     'The most bytes one turn or embedding request may send inline across all its files and clips.',
   'inputs.options':

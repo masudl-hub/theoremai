@@ -479,6 +479,7 @@ function exampleTextDraft(
     ...tools,
     inputs: {
       text: inputs.text,
+      maxTextChars: null,
       attachmentsAccept: [...inputs.attachmentsAccept],
       voiceAccept: [...inputs.voiceAccept],
       maxFiles: inputs.maxFiles,

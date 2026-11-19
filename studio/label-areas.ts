@@ -26,6 +26,12 @@ export const LABEL_AREAS = [
     audience: 'visitor',
   },
   {
+    prefix: 'text',
+    title: 'Text',
+    note: "When a message's text is too long.",
+    audience: 'visitor',
+  },
+  {
     prefix: 'voice',
     title: 'Voice',
     note: "When a voice note can't be recorded or used.",

@@ -1356,6 +1356,26 @@ function assertContextSpec(profile: ModelProfile): void {
   }
 }
 
+function assertTextLimit(profile: ModelProfile): void {
+  const inputs = profileInputs(profile);
+  const limit = inputs?.maxTextChars;
+  if (limit === undefined) {
+    return;
+  }
+  if (!(Number.isInteger(limit) && limit > 0)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: inputs.maxTextChars must be a positive integer`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (inputs?.text === false) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: inputs.maxTextChars limits text, so it needs inputs.text on`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 function assertMediaLimits(profileId: string, inputs: MimeInputs | undefined): void {
   if (!inputs) {
     return;
@@ -1424,6 +1444,7 @@ function createProfileRegistry(
       assertModelBuiltInTools(tools, profile);
       assertMediaLimits(profile.id, profileInputs(profile));
       assertContextSpec(profile);
+      assertTextLimit(profile);
       assertStructuredSchemas(schemas, profile);
       for (const [modelId, binding] of Object.entries(profile.models)) {
         if (binding.compaction) {

@@ -317,6 +317,28 @@ Deno.test('attachments or voice need every input limit, each an issue on its fie
     },
   });
 });
+Deno.test('Max characters compiles only when set, needs Text on, and must be a positive whole number', () => {
+  const draft = createExampleDraft();
+  const inputsOf = (maxTextChars: number | null, text = true) =>
+    compileStudio({ ...draft, inputs: { ...draft.inputs, text, maxTextChars } }, ON_OWN_KEYS);
+  const off = inputsOf(null);
+  assert(off.ok);
+  assert(off.profile.type === 'text' && off.profile.inputs?.maxTextChars === undefined);
+  const on = inputsOf(4000);
+  assert(on.ok);
+  assert(on.profile.type === 'text' && on.profile.inputs?.maxTextChars === 4000);
+  for (const bad of [0, 1.5]) {
+    const refused = inputsOf(bad);
+    assert(!refused.ok);
+    assertEquals(
+      refused.issues.map(({ nodeId, field }) => ({ nodeId, field })),
+      [{ nodeId: 'inputs', field: 'maxTextChars' }],
+    );
+  }
+  const contradiction = inputsOf(4000, false);
+  assert(!contradiction.ok);
+  assertEquals(contradiction.issues[0]?.field, 'maxTextChars');
+});
 Deno.test('summaries compile on, off, or left to the provider', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;

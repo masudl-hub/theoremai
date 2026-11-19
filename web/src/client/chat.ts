@@ -1,4 +1,5 @@
 import {
+  attachmentsRefused,
   type GateReference,
   type ProfileOptions,
   TheoremError,
@@ -29,6 +30,7 @@ import {
   type UserTurnDraft,
   userDraftHasPayload,
   userDraftToSteerInject,
+  validateProfileInputs,
 } from '@theoremjs/agents/interface';
 import { composerHasPayload } from './composer-primary.ts';
 import { composerFieldsFromDraft } from './decode-composer-draft.ts';
@@ -559,7 +561,17 @@ class Chat implements ChatController {
     if (Object.keys(patch).length > 0) this.#set(patch);
   };
 
-  setDraftText = (value: ChatUpdate<string>): void => this.#apply('draftText', value);
+  setDraftText = (value: ChatUpdate<string>): void => {
+    const next = typeof value === 'function' ? value(this.#state.draftText) : value;
+    if (next === this.#state.draftText) return;
+    const { failure } = this.#state;
+    // why: A refusal of the message (its text too long, or its files) is about what was typed; editing the text answers it.
+    this.#set({
+      draftText: next,
+      issues: [],
+      ...(failure?.errorKind === 'input' ? { failure: null } : {}),
+    });
+  };
   setPendingFiles = (value: ChatUpdate<File[]>): void => this.#apply('pendingFiles', value);
   setPendingVoice = (value: ChatUpdate<File[]>): void => this.#apply('pendingVoice', value);
   setPendingMessages = (value: ChatUpdate<ComposerPendingMessage[]>): void =>
@@ -607,6 +619,16 @@ class Chat implements ChatController {
     try {
       const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
       message = createComposerPendingMessage({ kind, draft });
+      const { iface } = this.#options;
+      const checked = kind !== 'stash' && iface ? validateProfileInputs(iface.inputs, draft) : null;
+      if (checked && !checked.ok) {
+        // why: A message the profile refuses is never queued or steered; it stays in the composer as typed.
+        this.#set({
+          issues: checked.issues,
+          failure: clientFailure(attachmentsRefused(checked.issues), iface?.labels),
+        });
+        return;
+      }
     } catch (err) {
       this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
       return;

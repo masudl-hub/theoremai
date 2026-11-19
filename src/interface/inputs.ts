@@ -28,6 +28,7 @@ function inputsFromSpec(inputs: ProfileInputsSpec | null | undefined): ProfileIn
 
   return {
     text: inputs?.text !== false,
+    maxTextChars: inputs?.maxTextChars,
     attachments: accept?.length ? { accept, acceptAttr: attachmentAcceptAttr(accept) } : null,
     voice: voiceAccept?.length ? { accept: voiceAccept } : null,
     maxFiles: inputs?.maxFiles,
@@ -42,6 +43,7 @@ function inputsFromSpec(inputs: ProfileInputsSpec | null | undefined): ProfileIn
 function toProfileInputsSpec(inputs: ProfileInputsInterface): ProfileInputsSpec {
   return {
     text: inputs.text,
+    maxTextChars: inputs.maxTextChars,
     attachments: inputs.attachments ? { accept: inputs.attachments.accept } : undefined,
     voice: inputs.voice ? { accept: inputs.voice.accept } : undefined,
     maxFiles: inputs.maxFiles,
@@ -53,21 +55,23 @@ function toProfileInputsSpec(inputs: ProfileInputsInterface): ProfileInputsSpec 
   };
 }
 
-/** Validate staged files against resolved profile `inputs`: the kernel's one attachment check. */
+/** Validate a draft's text and staged files against resolved profile `inputs`: the kernel's one input check. */
 function validateProfileInputs(
   inputs: ProfileInputsInterface,
-  draft: Pick<UserTurnDraft, 'attachments' | 'voice'>,
+  draft: Pick<UserTurnDraft, 'text' | 'attachments' | 'voice'>,
 ): AttachmentValidationResult {
   const facts = (files: PendingAttachment[] | undefined) =>
     (files ?? []).map(({ name, mimeType, sizeBytes }) => ({ name, mimeType, sizeBytes }));
   const issues = attachmentIssues(
     {
+      maxTextChars: inputs.maxTextChars,
       attachments: inputs.attachments?.accept,
       voice: inputs.voice?.accept,
       limits: resolveMediaLimits(toProfileInputsSpec(inputs)),
     },
     facts(draft.attachments),
     facts(draft.voice),
+    draft.text,
   );
   return { ok: issues.length === 0, issues };
 }

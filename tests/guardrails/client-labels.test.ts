@@ -61,3 +61,19 @@ Deno.test('a size limit reads in the unit that fits it, never 0.0 MB', () => {
   assertEquals(text(4 * 1024 * 1024).endsWith('4 MB or smaller.'), true);
   assertEquals(text(1.5 * 1024 * 1024).endsWith('1.5 MB or smaller.'), true);
 });
+
+Deno.test('text.too_long is a client label, worded with thousands separators, and a profile may reword it', () => {
+  assertEquals(
+    CLIENT_LABEL_KEYS.some((key) => key === 'text.too_long'),
+    true,
+  );
+  const issue = { code: 'text_too_long', params: { maxTextChars: 40000 } } as const;
+  assertEquals(
+    attachmentIssueText(issue),
+    'Sorry, that message is too long. Please keep it under 40,000 characters.',
+  );
+  assertEquals(
+    attachmentIssueText(issue, { 'text.too_long': 'Max {maxTextChars}.' }),
+    'Max 40000.',
+  );
+});

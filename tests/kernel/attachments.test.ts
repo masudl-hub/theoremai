@@ -283,6 +283,7 @@ Deno.test('an issue becomes copy with its params, its file name, and its labels 
     ['turn_too_large', 'attachments.turn_too_large'],
     ['attachments_not_accepted', 'attachments.not_accepted'],
     ['voice_not_accepted', 'attachments.not_accepted'],
+    ['text_too_long', 'text.too_long'],
   ] as const) {
     check(attachmentIssueCopy({ code }).key, key, code);
   }

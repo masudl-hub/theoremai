@@ -399,12 +399,14 @@ export interface MediaLimits {
 /** The input kinds a profile accepts, with their limits. */
 export interface MimeInputs extends Partial<MediaLimits> {
   text?: boolean;
+  maxTextChars?: number;
   attachments?: { accept: string[] };
   voice?: { accept: string[] };
 }
 
-/** Why an attachment was refused. */
+/** Why a message's input was refused: its files, or the length of its text. */
 export type AttachmentValidationCode =
+  | 'text_too_long'
   | 'mime_not_allowed'
   | 'too_many_files'
   | 'too_many_of_kind'
@@ -419,6 +421,7 @@ export type AttachmentValidationCode =
  * codes + params only; the wording is the labels' `attachments.*` lines.
  */
 export interface AttachmentValidationParams {
+  maxTextChars?: number;
   maxFiles?: number;
   maxBytes?: number;
   maxTurnBytes?: number;
@@ -428,7 +431,7 @@ export interface AttachmentValidationParams {
   channel?: 'attachment' | 'voice';
 }
 
-/** One reason a turn's files were refused; `fileName` names the file when the problem is one file's. */
+/** One reason a message's input was refused, a file's or its text's; `fileName` names the file when the problem is one file's. */
 export interface AttachmentValidationIssue {
   code: AttachmentValidationCode;
   params?: AttachmentValidationParams;
@@ -788,6 +791,11 @@ export type ProfileOptions = Readonly<Record<string, OptionDecl>>;
 export interface ProfileInputsSpec {
   /** Whether a turn may send text. */
   text?: boolean;
+  /**
+   * The longest text, in characters (as JavaScript counts them, like an HTML maxlength), one
+   * message may send; a longer message is refused with text.too_long.
+   */
+  maxTextChars?: number;
   /** Lets turns send files. */
   attachments?: {
     /**

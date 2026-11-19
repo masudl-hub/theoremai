@@ -161,6 +161,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: [...TURN_INPUT_TYPES, 'transcription', 'embedding'],
     reason: TURN_INPUT_REASON,
   },
+  'inputs.maxTextChars': {
+    profileTypes: TURN_INPUT_TYPES,
+    reason: TURN_INPUT_REASON,
+  },
   'inputs.attachments': {
     profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
     reason: TURN_INPUT_REASON,

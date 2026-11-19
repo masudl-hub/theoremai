@@ -864,6 +864,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     VOICE_ACCEPT_MIMES,
     'Common audio types; any MIME type can be listed.',
   ),
+  'inputs.maxTextChars': field('number'),
   'inputs.maxFiles': field('number'),
   'inputs.maxBytes': field('number'),
   'inputs.maxTurnBytes': field('number'),

@@ -139,6 +139,7 @@ const profileOptions = z.record(
 
 const inputs = z.object({
   text: z.boolean(),
+  maxTextChars: z.number().optional(),
   attachments: z.object({ accept: z.array(z.string()), acceptAttr: z.string() }).nullable(),
   voice: z.object({ accept: z.array(z.string()) }).nullable(),
   maxFiles: z.number().optional(),

@@ -774,6 +774,7 @@ async function steer(
     const saved: TheoremSavedMessage = { conversation: taken.ref, landsAs: [...taken.landsAs] };
     return jsonResponse(200, { ok: true, saved });
   }
+  core.checkSteer(body.input);
   if (!(await core.steer(at, { turnId: body.turnId, unit: steerUnitOf(body) }))) {
     // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {

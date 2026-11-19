@@ -80,6 +80,8 @@ export type ProfileObservabilityView = Pick<
 /** Resolved `inputs` — `ProfileInputsSpec` plus `acceptAttr` for file pickers. */
 export interface ProfileInputsInterface {
   text: boolean;
+  /** The longest text, in characters as JavaScript counts them, one message may send. */
+  maxTextChars?: number;
   attachments: { accept: string[]; acceptAttr: string } | null;
   voice: { accept: string[] } | null;
   maxFiles?: number;
@@ -395,7 +397,7 @@ export interface PendingAttachment {
   data?: string;
 }
 
-/** Whether the pending attachments pass the profile's limits, and the issues if not. */
+/** Whether the draft's text and pending attachments pass the profile's limits, and the issues if not. */
 export interface AttachmentValidationResult {
   ok: boolean;
   issues: AttachmentValidationIssue[];

@@ -79,6 +79,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'models.*.compaction.meter': { unset: 'history', value: 'history' },
   inputs: { required: 'on every type that takes it but live', unset: 'No options or context' },
   'inputs.text': { unset: 'Accepted', value: true },
+  'inputs.maxTextChars': { unset: 'No limit' },
   'inputs.attachments.accept': { unset: 'No attachments' },
   'inputs.voice.accept': { unset: 'No voice' },
   'inputs.maxFiles': { required: 'when attachments or voice is set' },

@@ -44,6 +44,25 @@ Deno.test('the concierge file reads back into the same file', () => {
   roundTrip(createExampleDraft());
 });
 
+Deno.test('a Max characters limit reads back from the file, and an absent one stays off', () => {
+  const draft = createExampleDraft();
+  const limited = { ...draft, inputs: { ...draft.inputs, text: true, maxTextChars: 4000 } };
+  roundTrip(limited);
+  const compiled = compileStudio(limited, ON_OWN_KEYS);
+  assert(compiled.ok);
+  const read = readStudioSource(studioSource(compiled), draft);
+  assert(read.ok);
+  assertEquals(read.draft.inputs.maxTextChars, 4000);
+  const plain = compileStudio(
+    { ...draft, inputs: { ...draft.inputs, maxTextChars: null } },
+    ON_OWN_KEYS,
+  );
+  assert(plain.ok);
+  const back = readStudioSource(studioSource(plain), limited);
+  assert(back.ok);
+  assertEquals(back.draft.inputs.maxTextChars, null);
+});
+
 Deno.test('a list label reads back from the file as a line each', () => {
   const draft = createExampleDraft();
   const list = 'when name is Paris: Finding the capital\n+ Finding {name}\nFinding a place';

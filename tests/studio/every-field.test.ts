@@ -185,6 +185,18 @@ const PROFILES = [
     inputs: {},
     tools: { allow: [] },
   } as never),
+  // why: Only a profile that limits message length reaches inputs.maxTextChars.
+  defineProfile({
+    type: 'text',
+    id: 'every-limited',
+    identity: { handle: 'limited' },
+    models: {
+      main: { protocol: 'geminiInteractions', provider: 'gemini', apiId: 'gemini-3.5-flash' },
+    },
+    defaultModel: 'main',
+    inputs: { maxTextChars: 4000 },
+    tools: { allow: [] },
+  }),
   // Every message a profile can word, on a profile that turns on nothing a message belongs to.
   defineProfile({
     type: 'text',

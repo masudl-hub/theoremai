@@ -2385,3 +2385,55 @@ Deno.test('a reply paused on a gate keeps its prompt lines when it goes on', asy
   assertEquals(seen.length, 2);
   assertEquals(seen[1]?.system?.includes('Paid line.'), true);
 });
+
+/** A text profile that takes messages of 10 characters or fewer. */
+function limited(id: string): ProfileDefinition {
+  const base = profile(id);
+  return { ...base, inputs: { text: true, maxTextChars: 10 } } as ProfileDefinition;
+}
+const TOO_LONG = labelDefault('text.too_long', { maxTextChars: 10 });
+
+Deno.test('a message over inputs.maxTextChars is refused before the model, and a steer with it', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let modelCalls = 0;
+  const handler = handlerFor({
+    profile: limited('handler-text-limit'),
+    provider: () =>
+      fixtureHostOptions({
+        complete: () =>
+          (async function* () {
+            modelCalls += 1;
+            await gate;
+            yield { type: 'text' as const, text: 'ok' };
+            yield { type: 'done' as const, stop: { kind: 'completed' } };
+          })(),
+      }),
+  });
+  const transport = transportFor(handler);
+  const tooLong = await assertRejects(
+    () => collect((onEvent) => transport.turn({ input: { text: 'x'.repeat(11) } }, onEvent)),
+    TheoremStreamError,
+  );
+  assertEquals(tooLong.publicMessage, TOO_LONG);
+  assertEquals(modelCalls, 0);
+  const turn = collect((onEvent) =>
+    transport.turn({ input: { text: 'x'.repeat(10) }, turnId: 'turn-limit' }, onEvent),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const steered = await assertRejects(
+    () =>
+      transport.steer({
+        turnId: 'turn-limit',
+        id: 'steer-long',
+        input: { text: 'y'.repeat(11) },
+      }),
+    TheoremStreamError,
+  );
+  assertEquals(steered.publicMessage, TOO_LONG);
+  await transport.steer({ turnId: 'turn-limit', id: 'steer-ok', input: { text: 'y'.repeat(10) } });
+  release();
+  await turn;
+});

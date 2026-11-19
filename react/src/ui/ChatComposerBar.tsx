@@ -203,7 +203,7 @@ const SEND_ICON: Record<ComposerMenuAction, typeof IconX> = {
   stash: IconArchive,
 };
 
-function PendingRow(props: {
+type PendingRowProps = {
   message: ComposerPendingMessage;
   moves: { up: boolean; down: boolean };
   onMove: ChatComposerBarProps['onPendingMove'];
@@ -211,16 +211,11 @@ function PendingRow(props: {
   onQueue: ChatComposerBarProps['onPendingQueue'];
   onRestore: ChatComposerBarProps['onPendingRestore'];
   onSendNow: ChatComposerBarProps['onPendingSendNow'];
-}) {
+};
+
+function PendingRow(props: PendingRowProps) {
   const { message } = props;
   const t = useLabels();
-  const icon = (Glyph: typeof IconX) => <Glyph size={14} />;
-  const edit = t('@theorem.composer.pending.edit');
-  const queue = t('@theorem.composer.pending.queue_action');
-  const sendNow = t('@theorem.composer.pending.send_now');
-  const moveUp = t('@theorem.composer.pending.move_up');
-  const moveDown = t('@theorem.composer.pending.move_down');
-  const remove = t('@theorem.composer.pending.remove');
   // why: The host saved the message, so the page has no action left on it.
   const state = message.saved ? 'saved' : message.kind;
   const Kind = message.saved ? IconSend : SEND_ICON[message.kind];
@@ -240,64 +235,78 @@ function PendingRow(props: {
           {composerPendingPreview(message)}
         </Text>
       </StackItem>
-      {message.saved ? null : (
-        <HStack gap={0.5}>
-          <IconButton
-            label={edit}
-            tooltip={edit}
-            size="sm"
-            variant="ghost"
-            icon={icon(IconPencil)}
-            onClick={() => props.onRestore(message.id)}
-          />
-          {message.kind === 'stash' ? (
-            <IconButton
-              label={queue}
-              tooltip={queue}
-              size="sm"
-              variant="ghost"
-              icon={icon(IconCornerDownLeft)}
-              onClick={() => props.onQueue(message.id)}
-            />
-          ) : null}
-          <IconButton
-            label={sendNow}
-            tooltip={sendNow}
-            size="sm"
-            variant="ghost"
-            icon={icon(IconSend)}
-            onClick={() => props.onSendNow(message.id)}
-          />
-          {props.moves.up ? (
-            <IconButton
-              label={moveUp}
-              tooltip={moveUp}
-              size="sm"
-              variant="ghost"
-              icon={icon(IconArrowUp)}
-              onClick={() => props.onMove(message.id, 'up')}
-            />
-          ) : null}
-          {props.moves.down ? (
-            <IconButton
-              label={moveDown}
-              tooltip={moveDown}
-              size="sm"
-              variant="ghost"
-              icon={icon(IconArrowDown)}
-              onClick={() => props.onMove(message.id, 'down')}
-            />
-          ) : null}
-          <IconButton
-            label={remove}
-            tooltip={remove}
-            size="sm"
-            variant="ghost"
-            icon={icon(IconX)}
-            onClick={() => props.onRemove(message.id)}
-          />
-        </HStack>
-      )}
+      {message.saved ? null : <PendingActions {...props} />}
+    </HStack>
+  );
+}
+
+/** A waiting message's actions. A message the host saved has none. */
+function PendingActions(props: PendingRowProps) {
+  const { message } = props;
+  const t = useLabels();
+  const icon = (Glyph: typeof IconX) => <Glyph size={14} />;
+  const edit = t('@theorem.composer.pending.edit');
+  const queue = t('@theorem.composer.pending.queue_action');
+  const sendNow = t('@theorem.composer.pending.send_now');
+  const moveUp = t('@theorem.composer.pending.move_up');
+  const moveDown = t('@theorem.composer.pending.move_down');
+  const remove = t('@theorem.composer.pending.remove');
+  return (
+    <HStack gap={0.5}>
+      <IconButton
+        label={edit}
+        tooltip={edit}
+        size="sm"
+        variant="ghost"
+        icon={icon(IconPencil)}
+        onClick={() => props.onRestore(message.id)}
+      />
+      {message.kind === 'stash' ? (
+        <IconButton
+          label={queue}
+          tooltip={queue}
+          size="sm"
+          variant="ghost"
+          icon={icon(IconCornerDownLeft)}
+          onClick={() => props.onQueue(message.id)}
+        />
+      ) : null}
+      <IconButton
+        label={sendNow}
+        tooltip={sendNow}
+        size="sm"
+        variant="ghost"
+        icon={icon(IconSend)}
+        onClick={() => props.onSendNow(message.id)}
+      />
+      {props.moves.up ? (
+        <IconButton
+          label={moveUp}
+          tooltip={moveUp}
+          size="sm"
+          variant="ghost"
+          icon={icon(IconArrowUp)}
+          onClick={() => props.onMove(message.id, 'up')}
+        />
+      ) : null}
+      {props.moves.down ? (
+        <IconButton
+          label={moveDown}
+          tooltip={moveDown}
+          size="sm"
+          variant="ghost"
+          icon={icon(IconArrowDown)}
+          onClick={() => props.onMove(message.id, 'down')}
+        />
+      ) : null}
+      <IconButton
+        label={remove}
+        tooltip={remove}
+        size="sm"
+        variant="ghost"
+        icon={icon(IconX)}
+        onClick={() => props.onRemove(message.id)}
+      />
     </HStack>
   );
 }

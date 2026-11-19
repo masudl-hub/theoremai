@@ -93,21 +93,29 @@ export type CallsContext = {
     prepare?: AppPrepare;
     onStage?: StageHandler;
     pageToolTimeoutMs?: number;
-    background?: (at: CoreContext) => ToolBackgroundService;
     notifier?: TheoremNotifier;
     lateResultsDecider?: TurnWiring['lateResultsDecider'];
-    authorizeToolReplay?: (
-      at: CoreContext,
-      operation: SettledOperation,
-    ) => boolean | Promise<boolean>;
-    authorizationUrl?: (
-      challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
-      at: CoreContext,
-    ) => string | Promise<string>;
-    onError?: (err: unknown, at: CoreContext) => void;
     /** The decider's wake, with no page: a reply to no message on a run of its own. */
     wake: (at: CoreContext, ref: string) => Promise<void>;
-  };
+  } & CallHooks;
+};
+
+/** The app's own steps that a session's tool calls run, each for the session of `at`. */
+export type CallHooks = {
+  /** The service for tools with a `background` setting, for the session of `at`. */
+  background?: (at: CoreContext) => ToolBackgroundService;
+  /** Check current resource access before disclosing a saved tool result. Read-only. */
+  authorizeToolReplay?: (
+    at: CoreContext,
+    operation: SettledOperation,
+  ) => boolean | Promise<boolean>;
+  /** The sign-in URL for an OAuth gate. */
+  authorizationUrl?: (
+    challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
+    at: CoreContext,
+  ) => string | Promise<string>;
+  /** Called with any error a run reports and does not throw. */
+  onError?: (err: unknown, at: CoreContext) => void;
 };
 
 /** The stores and limits a session's calls run on; each is the handler option of the same name. */
@@ -160,7 +168,8 @@ export function sessionParts(
   };
 }
 
-type OutcomeContext = {
+/** What a turn's saved outcome records beside its events. */
+export type OutcomeContext = {
   profileId: string;
   turnInput: TurnInput;
   model?: string;

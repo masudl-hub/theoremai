@@ -6,18 +6,16 @@
  * @module
  */
 
-import { type ProviderHostOptions, TheoremError, type ToolGate } from '@theoremjs/agents';
+import { type ProviderHostOptions, TheoremError } from '@theoremjs/agents';
 import type { InboxItem } from '@theoremjs/agents/conversation';
-import type { ToolBackgroundService } from '@theoremjs/agents/kernel';
 import {
   type ConversationCore,
   chatOf,
   createConversationCore,
   type ReplyWiring,
 } from './conversation-core.ts';
-import type { SettledOperation } from './conversation-inbox.ts';
 import type { TheoremHandlerOptions } from './handler.ts';
-import { type CoreContext, sessionParts } from './session-calls.ts';
+import { type CallHooks, type CoreContext, sessionParts } from './session-calls.ts';
 import { createMemorySteerInbox } from './steer-inbox.ts';
 
 /**
@@ -48,26 +46,12 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
     provider:
       | ProviderHostOptions
       | ((at: CoreContext, model?: string) => ProviderHostOptions | Promise<ProviderHostOptions>);
-    /** The service for tools with a `background` setting, for the session of `at`. */
-    background?: (at: CoreContext) => ToolBackgroundService;
-    /** Check current resource access before disclosing a saved tool result. Read-only. */
-    authorizeToolReplay?: (
-      at: CoreContext,
-      operation: SettledOperation,
-    ) => boolean | Promise<boolean>;
-    /** The sign-in URL for an OAuth gate. */
-    authorizationUrl?: (
-      challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
-      at: CoreContext,
-    ) => string | Promise<string>;
-    /** Called with any error a run reports and does not throw. */
-    onError?: (err: unknown, at: CoreContext) => void;
     /**
      * The `lateResultsDecider`'s wake: start a reply to no message for the conversation under
      * `ref`, such as by a queued call to `wake`. Required with `lateResultsDecider`.
      */
     wake?: (at: CoreContext, ref: string) => Promise<void>;
-  };
+  } & CallHooks;
 
 /** Creates the conversation core for `options.profile`. */
 export function createTheoremConversationCore<Item extends InboxItem = InboxItem>(

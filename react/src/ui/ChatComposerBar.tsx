@@ -221,12 +221,14 @@ function PendingRow(props: {
   const moveUp = t('@theorem.composer.pending.move_up');
   const moveDown = t('@theorem.composer.pending.move_down');
   const remove = t('@theorem.composer.pending.remove');
-  const Kind = SEND_ICON[message.kind];
+  // why: The host saved the message, so the page has no action left on it.
+  const state = message.saved ? 'saved' : message.kind;
+  const Kind = message.saved ? IconSend : SEND_ICON[message.kind];
   return (
     <HStack gap={1} align="center" width="100%">
-      <HoverTip content={t(`@theorem.composer.pending.${message.kind}.description`)}>
+      <HoverTip content={t(`@theorem.composer.pending.${state}.description`)}>
         <Token
-          label={t(`@theorem.composer.pending.${message.kind}`)}
+          label={t(`@theorem.composer.pending.${state}`)}
           isLabelHidden
           color={message.kind === 'steer' ? 'blue' : 'default'}
           icon={<Kind size={14} />}
@@ -238,62 +240,64 @@ function PendingRow(props: {
           {composerPendingPreview(message)}
         </Text>
       </StackItem>
-      <HStack gap={0.5}>
-        <IconButton
-          label={edit}
-          tooltip={edit}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconPencil)}
-          onClick={() => props.onRestore(message.id)}
-        />
-        {message.kind === 'stash' ? (
+      {message.saved ? null : (
+        <HStack gap={0.5}>
           <IconButton
-            label={queue}
-            tooltip={queue}
+            label={edit}
+            tooltip={edit}
             size="sm"
             variant="ghost"
-            icon={icon(IconCornerDownLeft)}
-            onClick={() => props.onQueue(message.id)}
+            icon={icon(IconPencil)}
+            onClick={() => props.onRestore(message.id)}
           />
-        ) : null}
-        <IconButton
-          label={sendNow}
-          tooltip={sendNow}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconSend)}
-          onClick={() => props.onSendNow(message.id)}
-        />
-        {props.moves.up ? (
+          {message.kind === 'stash' ? (
+            <IconButton
+              label={queue}
+              tooltip={queue}
+              size="sm"
+              variant="ghost"
+              icon={icon(IconCornerDownLeft)}
+              onClick={() => props.onQueue(message.id)}
+            />
+          ) : null}
           <IconButton
-            label={moveUp}
-            tooltip={moveUp}
+            label={sendNow}
+            tooltip={sendNow}
             size="sm"
             variant="ghost"
-            icon={icon(IconArrowUp)}
-            onClick={() => props.onMove(message.id, 'up')}
+            icon={icon(IconSend)}
+            onClick={() => props.onSendNow(message.id)}
           />
-        ) : null}
-        {props.moves.down ? (
+          {props.moves.up ? (
+            <IconButton
+              label={moveUp}
+              tooltip={moveUp}
+              size="sm"
+              variant="ghost"
+              icon={icon(IconArrowUp)}
+              onClick={() => props.onMove(message.id, 'up')}
+            />
+          ) : null}
+          {props.moves.down ? (
+            <IconButton
+              label={moveDown}
+              tooltip={moveDown}
+              size="sm"
+              variant="ghost"
+              icon={icon(IconArrowDown)}
+              onClick={() => props.onMove(message.id, 'down')}
+            />
+          ) : null}
           <IconButton
-            label={moveDown}
-            tooltip={moveDown}
+            label={remove}
+            tooltip={remove}
             size="sm"
             variant="ghost"
-            icon={icon(IconArrowDown)}
-            onClick={() => props.onMove(message.id, 'down')}
+            icon={icon(IconX)}
+            onClick={() => props.onRemove(message.id)}
           />
-        ) : null}
-        <IconButton
-          label={remove}
-          tooltip={remove}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconX)}
-          onClick={() => props.onRemove(message.id)}
-        />
-      </HStack>
+        </HStack>
+      )}
     </HStack>
   );
 }

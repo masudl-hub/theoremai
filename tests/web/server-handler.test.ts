@@ -405,14 +405,14 @@ Deno.test("steer reaches only this session's running turn, and only while it run
       transportFor(handler).steer({
         turnId: 'turn-1',
         id: 'steer-hijack',
-        inject: [{ role: 'user', content: 'hijack' }],
+        input: { text: 'hijack' },
       }),
     'session.turn_ended',
   );
   await transport.steer({
     turnId: 'turn-1',
     id: 'steer-1',
-    inject: [{ role: 'user', content: 'steered' }],
+    input: { text: 'steered' },
   });
   release();
   const events = await turn;
@@ -428,7 +428,7 @@ Deno.test("steer reaches only this session's running turn, and only while it run
       transport.steer({
         turnId: 'turn-1',
         id: 'steer-late',
-        inject: [{ role: 'user', content: 'late' }],
+        input: { text: 'late' },
       }),
     'session.turn_ended',
   );
@@ -475,8 +475,8 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
     ['invoke', { gateId: 'g', decision: 'approve', secret: 7 }],
     ['turn', { input: { text: 'hi' }, turnId: '   ' }],
     ['turn', { input: { text: 7 } }],
-    ['steer', { turnId: 't', id: 's', inject: [] }],
-    ['steer', { turnId: ' ', id: 's', inject: [{ role: 'user', content: 'x' }] }],
+    ['steer', { turnId: 't', id: 's', input: {} }],
+    ['steer', { turnId: ' ', id: 's', input: { text: 'x' } }],
   ];
   for (const [path, body] of malformed) {
     const response = await handler(

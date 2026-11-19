@@ -195,7 +195,7 @@ Deno.test("a steer reaches the running reply itself, not the app's inbox", async
   await transport.steer({
     turnId: 'turn-1',
     id: 'steer-1',
-    inject: [{ role: 'user', content: 'steered' }],
+    input: { text: 'steered' },
   });
   free();
   const lines = await turn;

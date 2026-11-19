@@ -61,10 +61,13 @@ import {
   forClient,
   HTTP_NOT_FOUND,
 } from '@theoremjs/agents/host';
-import { clientProfileInterface } from '@theoremjs/agents/interface';
+import { clientProfileInterface, type TranscriptBlock } from '@theoremjs/agents/interface';
 import type { ToolBackgroundService } from '@theoremjs/agents/kernel';
 import { hostInterface, theoremHostCallRequestSchema } from '../client/host-transport.ts';
 import {
+  type ConversationLine,
+  type TheoremSavedMessage,
+  type TheoremTurnInput,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
   theoremNotifyRequestSchema,
@@ -82,6 +85,7 @@ import {
   chatOf,
   createConversationCore,
   followedUp,
+  type MessageArgs,
   oneInbox,
   type Reply,
   type ReplyWiring,
@@ -225,6 +229,16 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
     at: { request: Request; sessionId: string },
   ) => 'here' | 'taken' | Promise<'here' | 'taken'>;
   /**
+   * Your app's own save of a person's message, for `/turn` and `/steer`. It saves the message
+   * under `sent.id` one time, and in the same write takes the conversation in your `inbox` when
+   * no reply holds it. `sent.ref` is the page's ref of the conversation, when it has one. Needs
+   * `inbox`. With it, a steer does not go to `steerInbox`.
+   */
+  intake?: (
+    at: CoreContext,
+    sent: { id: string; ref?: string; message: TheoremTurnInput },
+  ) => Promise<MessageIntake>;
+  /**
    * Tool credentials by session. Your OAuth callback route saves the token here
    * under the same session id; every turn reads from here. Default: in-process
    * memory — pass the same instance to your callback route.
@@ -252,6 +266,27 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
    */
   onError?: (err: unknown, ctx: { request: Request }) => void;
 };
+
+/**
+ * What `intake` did with a person's message. `ref` is the conversation that now holds it.
+ * `landsAs` is each id a reply names the message by when it reads it: the id of its inject on a
+ * `stage` line, the id of its inbox item, and the id of each of its blocks in the conversation.
+ *
+ * - `opened`: the save took the conversation under `hold`. The handler runs the reply, and
+ *   `blocks` is the message as the app saved it.
+ * - `saved`: no reply runs for this request. Another reply holds the conversation and reads the
+ *   message, or the app saved this id before, or the app answered the message with a line of its
+ *   own.
+ */
+export type MessageIntake =
+  | {
+      outcome: 'opened';
+      ref: string;
+      landsAs: readonly string[];
+      hold: string;
+      blocks: readonly TranscriptBlock[];
+    }
+  | { outcome: 'saved'; ref: string; landsAs: readonly string[] };
 
 /** A host profile runs no model, and takes no turns to steer. */
 export type TheoremHostHandlerOptions = Omit<
@@ -545,14 +580,76 @@ async function turn(
   const context = await ctx.options.context?.(request);
   const core = coreOf(ctx, chat, request);
   const at = contextOf(ctx, request, session.id);
-  const reply = await core.message(at, {
+  const message: MessageArgs = {
     ref: body.conversation,
     input: body.input,
     ...(context === undefined ? {} : { context }),
     generation: body,
     ...(body.abandon ? { abandon: body.abandon } : {}),
-  });
+  };
+  if (ctx.options.intake) {
+    if (body.id === undefined) {
+      // labels-exempt: internal diagnostic; the user reads error.request
+      throw new TheoremError('request', 'a message needs an `id` where the host saves it itself');
+    }
+    const taken = await savedMessage(ctx.options.intake, core, at, { id: body.id, message });
+    return eventStream(ctx, request, () =>
+      taken.outcome === 'saved'
+        ? lines([savedLine(taken)])
+        : openedRun(ctx, request, core, at, taken, message),
+    );
+  }
+  const reply = await core.message(at, message);
   return eventStream(ctx, request, () => pageRun(ctx, request, core, at, reply));
+}
+
+/**
+ * The app's save of a message, after the checks that can refuse it.
+ * invariant: Nothing refuses a message the app has saved, so the page never takes a saved message back.
+ */
+async function savedMessage(
+  intake: NonNullable<TheoremHandlerOptions['intake']>,
+  core: ConversationCore,
+  at: CoreContext,
+  sent: { id: string; message: Pick<MessageArgs, 'ref' | 'input' | 'context' | 'abandon'> },
+): Promise<MessageIntake> {
+  await core.checkMessage(at, sent.message);
+  const { ref, input } = sent.message;
+  return intake(at, { id: sent.id, ...(ref === undefined ? {} : { ref }), message: input });
+}
+
+/** The line that tells the page the app saved its message, and how a reply names it. */
+function savedLine(taken: MessageIntake): ConversationLine {
+  return { type: 'conversation', ref: taken.ref, posted: true, landsAs: [...taken.landsAs] };
+}
+
+async function* lines(values: readonly ReplyLine[]): AsyncGenerator<ReplyLine> {
+  yield* values;
+}
+
+/**
+ * The reply to a message whose save took the conversation. The saved line goes first: whatever
+ * the reply does after it, the message stays saved.
+ */
+async function* openedRun(
+  ctx: HandlerContext,
+  request: Request,
+  core: ConversationCore,
+  at: CoreContext,
+  taken: Extract<MessageIntake, { outcome: 'opened' }>,
+  message: MessageArgs,
+): AsyncGenerator<ReplyLine> {
+  const { ref, hold, blocks } = taken;
+  yield savedLine(taken);
+  let reply: Reply;
+  try {
+    reply = await core.message(at, { ...message, ref, saved: { hold, blocks } });
+  } catch (err) {
+    // why: No reply took the hold, so the handler lets the conversation go for the next one.
+    await core.release(at, { ref, hold });
+    throw err;
+  }
+  yield* pageRun(ctx, request, core, at, reply);
 }
 
 /** The conversation as the browser draws it. */
@@ -657,6 +754,24 @@ async function steer(
   const body = await readBody(request, theoremSteerRequestSchema, ctx.options.maxRequestBytes);
   const core = coreOf(ctx, chat, request);
   const at = contextOf(ctx, request, session.id);
+  if (ctx.options.intake) {
+    const message = {
+      ...(body.conversation === undefined ? {} : { ref: body.conversation }),
+      input: body.input,
+    };
+    const taken = await savedMessage(ctx.options.intake, core, at, { id: body.id, message });
+    if (taken.outcome === 'opened') {
+      const run = { ref: taken.ref, hold: taken.hold };
+      const { onContinue } = ctx.options;
+      const who = onContinue
+        ? await onContinue(run, { request, sessionId: at.sessionId })
+        : 'let_go';
+      // why: A steer has no stream for a reply, so `here` is the page's own wake.
+      if (who !== 'taken') await core.release(at, run);
+    }
+    const saved: TheoremSavedMessage = { conversation: taken.ref, landsAs: [...taken.landsAs] };
+    return jsonResponse(200, { ok: true, saved });
+  }
   if (!(await core.steer(at, { turnId: body.turnId, unit: steerUnitOf(body) }))) {
     // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {
@@ -768,6 +883,10 @@ export function createTheoremHandler<Item extends InboxItem = InboxItem>(
 ): (request: Request) => Promise<Response> {
   const chat = chatOf('createTheoremHandler', options.profile, options.conversationStore);
   oneInbox(options);
+  if (options.intake && !options.inbox) {
+    // labels-exempt: builder config error at setup; no user sees it
+    throw new TheoremError('config', 'createTheoremHandler needs `inbox` with `intake`');
+  }
   const { prepare, inbox, beforeSave, afterSave, compact } = options;
   return serve('createTheoremHandler', chat.profile, options, {
     steerInbox: options.steerInbox,

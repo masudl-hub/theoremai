@@ -89,8 +89,11 @@ function gateReplay(
 /** The calls a paused reply waits on that a message walks away from. */
 export type WalkAway = { calls: readonly GatedToolContext[] };
 
-/** Where a request goes on from: the ref of the conversation the host keeps, and the run's id for steers. */
-export type RunScope = { conversation?: string; turnId?: string };
+/**
+ * Where a request goes on from: the ref of the conversation the host keeps, the run's id for
+ * steers, and the id of the message a turn sends.
+ */
+export type RunScope = { conversation?: string; turnId?: string; id?: string };
 
 function scopeFields(scope: RunScope): RunScope {
   return {
@@ -111,6 +114,7 @@ export function buildTurnRequest(
   }));
   return {
     ...scopeFields(options),
+    ...(options.id ? { id: options.id } : {}),
     ...generationFields(iface, session),
     input,
     ...(abandon.length ? { abandon } : {}),

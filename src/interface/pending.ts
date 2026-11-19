@@ -1,5 +1,7 @@
 // invariant: `steer` injects at `onStage` boundaries of the same run; `queue` sends after the run fully ends
 // (not on tool pause); `stash` never auto-sends. `send_now` is an action, not a pending kind.
+// invariant: a message with `saved` is the host's. The page never sends it again, and no action changes it;
+// it leaves the list when a reply reads it.
 
 import type { TurnEvent } from '../kernel/types.ts';
 import type { UserTurnDraft } from './types.ts';
@@ -16,6 +18,11 @@ export interface ComposerPendingMessage {
   draft: UserTurnDraft;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Set once the host saved the message itself: a reply reads it later. `landsAs` is each id a
+   * reply names the message by.
+   */
+  saved?: { landsAs: readonly string[] };
 }
 
 /** What `createComposerPendingMessage` takes: the kind and the draft. */
@@ -92,8 +99,9 @@ function convertSteersToFrontQueued(
   messages: readonly ComposerPendingMessage[],
   now: number = Date.now(),
 ): ComposerPendingMessage[] {
+  const saved = messages.filter((m) => m.saved !== undefined);
   const steers = messages
-    .filter((m) => m.kind === 'steer')
+    .filter((m) => m.kind === 'steer' && m.saved === undefined)
     .map((m) => ({
       ...m,
       kind: 'queue' as const,
@@ -101,7 +109,35 @@ function convertSteersToFrontQueued(
     }));
   const queues = messages.filter((m) => m.kind === 'queue');
   const stashes = messages.filter((m) => m.kind === 'stash');
-  return [...steers, ...queues, ...stashes];
+  return [...saved, ...steers, ...queues, ...stashes];
+}
+
+/**
+ * The messages with this id marked as saved by the host. It shows with the steers: a reply reads
+ * it, and the page does not send it.
+ */
+function saveComposerPendingMessage(
+  messages: readonly ComposerPendingMessage[],
+  id: string,
+  landsAs: readonly string[],
+  now: number = Date.now(),
+): ComposerPendingMessage[] {
+  return orderComposerPendingMessages(
+    messages.map((m) =>
+      m.id === id ? { ...m, kind: 'steer' as const, saved: { landsAs }, updatedAt: now } : m,
+    ),
+  );
+}
+
+/** Takes out the saved messages that a reply named by one of `ids`. */
+function takeSavedComposerPending(
+  messages: readonly ComposerPendingMessage[],
+  ids: readonly string[],
+): { landed: ComposerPendingMessage[]; remaining: ComposerPendingMessage[] } {
+  const named = new Set(ids);
+  const lands = (m: ComposerPendingMessage) =>
+    m.saved?.landsAs.some((id) => named.has(id)) === true;
+  return { landed: messages.filter(lands), remaining: messages.filter((m) => !lands(m)) };
 }
 
 /**
@@ -113,16 +149,19 @@ function removeLandedSteers(
   event: TurnEvent,
 ): ComposerPendingMessage[] {
   if (event.type !== 'stage' || !event.injected?.length) return [...messages];
-  const landed = new Set(event.injected.map((steer) => steer.id));
-  return messages.filter((m) => !(m.kind === 'steer' && landed.has(m.id)));
+  const ids = event.injected.map((steer) => steer.id);
+  const landed = new Set(ids);
+  return takeSavedComposerPending(messages, ids).remaining.filter(
+    (m) => !(m.kind === 'steer' && landed.has(m.id)),
+  );
 }
 
-/** The messages without the one with this id. */
+/** The messages without the one with this id. A message the host saved stays. */
 function removeComposerPendingMessage(
   messages: readonly ComposerPendingMessage[],
   id: string,
 ): ComposerPendingMessage[] {
-  return messages.filter((m) => m.id !== id);
+  return messages.filter((m) => m.id !== id || m.saved !== undefined);
 }
 
 /** The messages with this id's draft replaced; throws when the new draft is empty. */
@@ -136,7 +175,7 @@ function updateComposerPendingDraft(
     throw new Error('Composer pending message requires a non-empty draft'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return messages.map((m) =>
-    m.id === id
+    m.id === id && m.saved === undefined
       ? {
           ...m,
           draft: cloneUserTurnDraft(draft),
@@ -153,14 +192,14 @@ function moveComposerPendingWithinKind(
   direction: 'up' | 'down',
 ): ComposerPendingMessage[] {
   const message = messages.find((m) => m.id === id);
-  if (!message) return [...messages];
+  if (!message || message.saved !== undefined) return [...messages];
 
   const sameKind = messages.filter((m) => m.kind === message.kind);
   const currentIndex = sameKind.findIndex((m) => m.id === id);
   if (currentIndex < 0) return orderComposerPendingMessages(messages);
 
   const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-  if (nextIndex < 0 || nextIndex >= sameKind.length) {
+  if (nextIndex < 0 || nextIndex >= sameKind.length || sameKind[nextIndex]?.saved !== undefined) {
     return orderComposerPendingMessages(messages);
   }
 
@@ -186,9 +225,11 @@ function composerPendingMoves(
   id: string,
 ): { up: boolean; down: boolean } {
   const message = messages.find((m) => m.id === id);
-  const sameKind = message ? messages.filter((m) => m.kind === message.kind) : [];
+  if (!message || message.saved !== undefined) return { up: false, down: false };
+  const sameKind = messages.filter((m) => m.kind === message.kind);
   const index = sameKind.findIndex((m) => m.id === id);
-  return { up: index > 0, down: index >= 0 && index < sameKind.length - 1 };
+  const movable = (at: number) => sameKind[at] !== undefined && sameKind[at].saved === undefined;
+  return { up: movable(index - 1), down: movable(index + 1) };
 }
 
 /** One steer per safe boundary: call once per `onStage` inject site. */
@@ -196,7 +237,7 @@ function consumeNextComposerSteer(messages: readonly ComposerPendingMessage[]): 
   message: ComposerPendingMessage | null;
   remaining: ComposerPendingMessage[];
 } {
-  const message = messages.find((m) => m.kind === 'steer') ?? null;
+  const message = messages.find((m) => m.kind === 'steer' && m.saved === undefined) ?? null;
   if (!message) return { message: null, remaining: [...messages] };
   return {
     message,
@@ -225,7 +266,7 @@ function promoteComposerPendingKind(
   now: number = Date.now(),
 ): ComposerPendingMessage[] {
   const updated = messages.map((m) =>
-    m.id === id
+    m.id === id && m.saved === undefined
       ? {
           ...m,
           kind,
@@ -249,6 +290,8 @@ export {
   promoteComposerPendingKind,
   removeComposerPendingMessage,
   removeLandedSteers,
+  saveComposerPendingMessage,
+  takeSavedComposerPending,
   updateComposerPendingDraft,
   userDraftHasPayload,
 };

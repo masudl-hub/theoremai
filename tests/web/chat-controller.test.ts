@@ -62,7 +62,7 @@ function heldHost() {
       }),
     steer: (request) => {
       steers.push(request);
-      return Promise.resolve();
+      return Promise.resolve({});
     },
     // The host stops the turn where it stands: its stream ends cancelled.
     stop: (request) => {
@@ -157,12 +157,12 @@ Deno.test("a steer goes to the running turn by its id, and shows where the turn'
   assertEquals(host.steers.length, 1);
   assertEquals(host.steers[0].turnId, host.turns[0].request.turnId);
   assertEquals(host.steers[0].id, steer.id);
-  assert(host.steers[0].inject.length > 0);
+  assertEquals(host.steers[0].input, { text: 'Also the fern' });
   host.turns[0].line({ type: 'text', text: 'Looking' });
   host.turns[0].line({
     type: 'stage',
     stage: 'post_tool',
-    injected: [{ id: steer.id, messages: host.steers[0].inject }],
+    injected: [{ id: steer.id, messages: [{ role: 'user', content: 'Also the fern' }] }],
   });
   assertEquals(chat.getState().pendingMessages, []);
   reply(host.turns[0], 'Noted');

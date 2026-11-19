@@ -545,6 +545,8 @@ function MyChat() {
 
 `handlePendingMove(id, direction)` moves a pending message among those of its kind. `ChatComposerBar` draws a move only when `composerPendingMoves` from `@theoremjs/agents/interface` says the message can go that way: a message alone in its kind has none.
 
+A pending message with `saved` set is one the host saved itself (`intake` on `createTheoremHandler`). `ChatComposerBar` draws it with the label `@theorem.composer.pending.saved`, "Sent", and no actions, because the page cannot change it. It leaves the list when a reply reads it.
+
 ### Place the pieces yourself
 
 `TheoremChat` is built from two pieces in `/ui` that you can place apart: `TheoremChatComposer` and `TheoremChatTranscript`. Each takes the `chat` from `useTheoremChat` (its type is `TheoremChatState`) and the `iface` from `useTheoremInterface`. You decide where each one sits and when each one shows. Theorem moves neither of them.

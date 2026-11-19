@@ -216,7 +216,7 @@ The methods for the composer depend on the phase:
 | Method | What it does |
 | --- | --- |
 | `submit()` | At `idle`, sends the draft. Otherwise, queues it. |
-| `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`, and joins the transcript there, between the reply before it and the reply after. A steer the turn never takes waits at the front of the queue. |
+| `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`, and joins the transcript there, between the reply before it and the reply after. A steer the turn never takes waits at the front of the queue. When the host saves the steer itself (`intake`), the steer stays in `pendingMessages` with `saved` set, and the page does not send it again. See [Messages the host saved](#messages-the-host-saved). |
 | `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
 | `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
 | `pend(message)` | Steers, queues, or stashes a message you made with `createComposerPendingMessage`, as `enqueue` does the draft. A message queued on an idle chat sends at once. A composer shared by several chats gives each the same message, so its id names it in all of them. |
@@ -227,6 +227,19 @@ The methods for the composer depend on the phase:
 | `decide(action)`, `authenticate(secret?)` | Answer the gate that the reply waits on. |
 | `branch(index)` | Cuts the conversation after transcript block `index`. |
 | `sendText(text, options?)` | Sends a message from your code. `options` can add `files`, `voice`, a `model` and its `effort`. The model becomes the chat's pick, as if chosen in the composer. An `effort` without a `model` applies to the chat's current model. A model the profile does not have is refused by the turn, not replaced by the default. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
+
+### Messages the host saved
+
+A host with `intake` saves each message before a reply runs. When another reply holds the conversation, the host saves the message and runs nothing. The controller then keeps the message in `pendingMessages`, as kind `steer`, with `saved: { landsAs }`. `landsAs` is the ids a reply names the message by when it reads it.
+
+- The page cannot edit, move, send, or remove a saved message. The host has it.
+- The message leaves `pendingMessages` when a reply reads it, and joins the transcript before that reply.
+- The message also leaves when a conversation read shows one of its blocks.
+- `saveComposerPendingMessage` and `takeSavedComposerPending` from `@theoremjs/agents/interface` make these two changes for a controller of your own.
+
+With `intake`, each `/turn` and each `/steer` carries an `id`: the pending message's id, or a new one. The host saves a message one time for each `id`, so a request sent twice saves one message.
+
+After a wake that fails, that the person stops, or that runs nothing, the page does not wake again by itself. The next conversation read can ask for a wake.
 
 The controller uses these methods of the transport: `turn`, `invoke` (to answer a gate), `steer`, `stop`, `conversation`, and `rewind`. `conversation` and `rewind` are called only for a profile whose host keeps the conversation. `pageResult` is called when the reply hands a tool to the page.
 
@@ -269,7 +282,7 @@ const transport = withPageToolDispatch(
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. The handler asks it one time for each run, when the run first reads it. |
 | `prepare` | Your app's own turn, from the one the handler builds (`TurnWiring.prepare` from `@theoremjs/agents`). Set what your app sets per turn, such as `system`, `credentials`, `onStage`, `onEvent` and `onAgentCall`; read your app data as `turn.host`. The handler keeps its profile and its abort. Your `onStage` runs before the handler's steering, and your `credentials` are read before the session's. An `execution` you return decides each call, and the session still records the same call; a `background` you return takes the place of the `background` option. A call held at a gate runs on, once answered, with the `host`, `onStage`, `credentials`, `execution` and `background` you give for that call's turn; that turn has `answersHeldCall`, and its `onEvent` is not called, because no new turn runs. |
-| `inbox`, `beforeSave`, `afterSave`, `compact` | Your app's own inbox and your steps around each save, as [the conversation core](#run-replies-with-no-page-request) takes them. Each is given the request's context: its `host` is what `host` returned for the request, so `await at.host`. With `inbox`, every reply the page starts runs under a hold of your conversation, and a wake tells the items that wait in it. A steer still reaches the running reply itself, and does not arrive in your inbox. Do not set `inbox` with `lateResultsDecider`. |
+| `inbox`, `beforeSave`, `afterSave`, `compact` | Your app's own inbox and your steps around each save, as [the conversation core](#run-replies-with-no-page-request) takes them. Each is given the request's context: its `host` is what `host` returned for the request, so `await at.host`. With `inbox`, every reply the page starts runs under a hold of your conversation, and a wake tells the items that wait in it. A steer still reaches the running reply itself, and does not arrive in your inbox, unless you set `intake`. Do not set `inbox` with `lateResultsDecider`. |
 | `onStage` | The server's own stage handler, on every call the handler runs, a host profile's included: after your app's (`prepare`), before steering. For a rule the server adds to whatever the app says, such as a question before each tool that writes. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
 | `pageStatesTurn` | Let the page say which prompt lines a turn gets, through `stated` on a turn or a live call. Set it only for a page you trust as yourself, such as a builder's own tool. Without it, a request with `stated` is refused. |
@@ -278,6 +291,7 @@ const transport = withPageToolDispatch(
 | `lateResultsDecider` | Who tells the model that a background call ended: `TurnWiring.lateResultsDecider`. Set it on your `TurnWiring`, and the studio uses it too. Unset, no page wakes the chat and no reply reads a late result. `tellEveryResult` tells each result to the first reply that runs, and gives up a result two replies read without telling. See [the background section](#share-session-authority). |
 | `conversationLeaseMs` | How long a reply keeps its chat after it last renewed, in milliseconds. A running reply renews every third of it. A wake that finds another reply running tries again once this runs out. Default: `60000`. |
 | `onContinue` | Who runs the next reply when a reply ends with items that wait and may be told now. Return `'here'`, and the handler runs it in the same response. Return `'taken'`, and your app runs it with the conversation core's `followUp`. Unset, the handler lets the chat go, and the page wakes it. |
+| `intake` | Your app's own save of each message the page sends, on `/turn` and `/steer`. Set it when a message must be in your database before any reply runs. Needs `inbox`. See [Save a page's message in your own write](#save-a-pages-message-in-your-own-write). |
 | `notifier`, `notifyRetryMs` | Tell an open page that a background call ended, and how long the page waits to reopen a cut stream. Unset, the page reads the end on its next turn or reload. See [the background section](#share-session-authority). |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
@@ -530,6 +544,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | Method | Use |
 | --- | --- |
 | `message(at, { ref?, input, context?, generation?, abandon?, saved? })` | Posts the person's message and runs the reply. |
+| `checkMessage(at, { ref?, input, context?, abandon? })` | Throws what `message` throws before it runs anything, and changes nothing. Call it before your app saves a message itself. |
 | `answer(at, body)` | Answers a call that a paused reply waits on. |
 | `wake(at, { ref })` | Runs a reply to no message, for items that arrived since the model last ran. |
 | `followUp(at, { ref, hold })` | Runs the next reply to no message, under the hold of a run that ended `continue`. |
@@ -579,6 +594,50 @@ await core.message(at, { ref, input, saved: { hold, blocks } });
 ```
 
 `hold` is the hold your write took. `blocks` is the message as your app saved it, as transcript blocks. The core then posts nothing. The reply runs under `hold`, and the save that ends the reply writes `blocks` with the reply. When another run holds the conversation, the run returns `held` and writes nothing. `saved` needs `inbox`.
+
+### Save a page's message in your own write
+
+Use `intake` on `createTheoremHandler` when the page's messages must be in your database before any reply runs. Then a message that arrives during a reply is not lost when the reply fails, and a message from the page waits in the same inbox as a message from any other channel.
+
+```ts
+createTheoremHandler({
+  profile,
+  provider,
+  conversationStore,
+  inbox,
+  intake: async (at, sent) => {
+    const saved = await saveMessage(at.sessionId, sent.id, sent.ref, sent.message);
+    return saved.hold === undefined
+      ? { outcome: 'saved', ref: saved.ref, landsAs: saved.ids }
+      : { outcome: 'opened', ref: saved.ref, landsAs: saved.ids, hold: saved.hold, blocks: saved.blocks };
+  },
+});
+```
+
+The save that `intake` calls in this example is your function. In one write, it does three things:
+
+1. It saves the message under `sent.id`. A second call with the same `sent.id` saves nothing new.
+2. It puts the message in your inbox as an item.
+3. It takes the conversation under a hold, when no reply holds it.
+
+`intake` returns a `MessageIntake`:
+
+| Field | Use |
+| --- | --- |
+| `outcome` | `'opened'` when your write took the conversation. `'saved'` when another reply holds it, or when the message was saved before. |
+| `ref` | The conversation that holds the message. Your `conversationStore` must be able to read it. |
+| `landsAs` | Each id a reply names the message by: the id of its inbox item, of its inject on a `stage` line, and of each of its blocks. |
+| `hold`, `blocks` | With `opened`: the hold your write took, and the message as transcript blocks. The handler passes them to `message` as `saved`. |
+
+The handler checks the message before it calls `intake`, with the core's `checkMessage`. A message with no `id`, with content the profile does not take, or to a conversation the session cannot read is refused, and `intake` is not called.
+
+On `/turn`, the stream opens with a `conversation` line that has `posted` and `landsAs`. With `opened`, the reply follows on the same stream. With `saved`, the stream ends there.
+
+On `/steer`, the handler does not put the message into the running turn. The reply that holds the conversation reads the message from your inbox: in the same reply when your `prepare` takes it with `run.take`, or in a follow-up. The response is `{ ok: true, saved: { conversation, landsAs } }`. When the steer's save took the conversation, no reply was running. The handler then asks `onContinue`. For `'taken'`, your app runs the reply with `followUp`. Otherwise the handler lets the conversation go, and the page's wake runs the reply. Your `policy` must tell the message to a reply at `opening: 'wake'`.
+
+A reply that opens with items from your inbox sends a `conversation` line with `opened`, the ids of those items. The page uses it to move a saved message from the pending list into the transcript.
+
+Your store marks the items in `told` in its `write`. An item that is never marked is told again by each follow-up.
 
 ### Shape the save that ends a reply
 

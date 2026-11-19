@@ -182,6 +182,15 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Steering: the agent reads it at its next step.',
     description: 'Tooltip on a waiting steering message.',
   },
+  '@theorem.composer.pending.saved': {
+    defaultMessage: 'Sent',
+    description:
+      'Name of a waiting message the host has saved, read by screen readers on its icon.',
+  },
+  '@theorem.composer.pending.saved.description': {
+    defaultMessage: 'Sent: the agent reads it with its next reply.',
+    description: 'Tooltip on a waiting message the host has saved.',
+  },
   '@theorem.composer.pending.queue': {
     defaultMessage: 'Queued',
     description: 'Name of a waiting queued message, read by screen readers on its icon.',

@@ -79,6 +79,8 @@ export {
   promoteComposerPendingKind,
   removeComposerPendingMessage,
   removeLandedSteers,
+  saveComposerPendingMessage,
+  takeSavedComposerPending,
   updateComposerPendingDraft,
   userDraftHasPayload,
 } from './pending.ts';

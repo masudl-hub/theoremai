@@ -84,9 +84,10 @@ export type StreamInterfaceTurnBaseArgs = {
   /**
    * Fires once the message posts, with the blocks the transcript gains: a
    * walked-away reply's settled blocks, then the message's own (with media
-   * preview data). Walking away, it posts once the host has it.
+   * preview data). Walking away, it posts once the host has it. `own` is how many of the blocks,
+   * at the end, are the message's.
    */
-  onUserBlocks: (blocks: TranscriptBlock[]) => void;
+  onUserBlocks: (blocks: TranscriptBlock[], own: number) => void;
   signal?: AbortSignal;
   /**
    * Send while the reply waits on gates: the message walks away from every
@@ -157,12 +158,15 @@ async function streamPreparedTurn(
   // why: Walking away, the stream settles the paused reply first; once the message posts, the events are the new reply's.
   const events: TurnEvent[] = walking ? [...paused] : [];
   let posted = !keeps;
-  if (!walking) args.onUserBlocks(userBlocks);
+  if (!walking) args.onUserBlocks(userBlocks, userBlocks.length);
   const onConversation = (line: ConversationLine) => {
     if (!line.posted) return;
     posted = true;
     if (walking) {
-      args.onUserBlocks([...foldAssistantTurn(args.iface, events), ...userBlocks]);
+      args.onUserBlocks(
+        [...foldAssistantTurn(args.iface, events), ...userBlocks],
+        userBlocks.length,
+      );
       events.length = 0;
     }
   };
@@ -207,7 +211,7 @@ async function streamPreparedTurn(
   return { session: args.session, events, posted };
 }
 
-function extractInlineEncodedAttachments(
+export function extractInlineEncodedAttachments(
   attachments?: readonly { name: string; mimeType: string; data?: unknown }[],
 ): Array<{ name: string; mimeType: string; data: string }> | undefined {
   const filtered = attachments

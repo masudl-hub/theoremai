@@ -101,6 +101,7 @@ export {
 export {
   createTheoremHandler,
   createTheoremHostHandler,
+  type MessageIntake,
   readBody,
   type TheoremHandlerOptions,
   type TheoremHostHandlerOptions,

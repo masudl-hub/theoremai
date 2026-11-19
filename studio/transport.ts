@@ -212,7 +212,7 @@ export function createStudioTransport(
       ),
     rewind: (request, signal) =>
       fetchRewound('/api/studio/rewind', { ...compiled, ...request }, { ...options, signal }),
-    async steer({ turnId, id, inject }) {
+    async steer({ turnId, id, input }) {
       const inbox = inboxes.get(turnId);
       if (!inbox) {
         // labels-exempt: internal diagnostic; the user reads session.turn_ended
@@ -221,7 +221,8 @@ export function createStudioTransport(
         });
       }
       // The server's inbox is the turn it steers, so the body is a `TheoremSteerRequest`.
-      await postJson('/api/studio/turn/steer', { turnId: inbox, id, inject }, options);
+      await postJson('/api/studio/turn/steer', { turnId: inbox, id, input }, options);
+      return {};
     },
     async stop({ turnId }) {
       const inbox = inboxes.get(turnId);

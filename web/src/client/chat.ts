@@ -23,7 +23,9 @@ import {
   promoteComposerPendingKind,
   removeComposerPendingMessage,
   removeLandedSteers,
+  saveComposerPendingMessage,
   type TranscriptBlock,
+  takeSavedComposerPending,
   type UserTurnDraft,
   userDraftHasPayload,
   userDraftToSteerInject,
@@ -37,6 +39,7 @@ import { type PageTools, warnPageToolMismatch } from './live/live-page-tool.ts';
 import { withPageToolDispatch } from './page-dispatch.ts';
 import { sessionAfter, stampWorked, stoppedReply } from './run-commit.ts';
 import {
+  extractInlineEncodedAttachments,
   keepsConversation,
   type RunOutcome,
   resumeInterfaceTool,
@@ -49,9 +52,11 @@ import type { AnsweringGate, ToolDecisionAction, ToolGateResolution } from './to
 import {
   type ChatLine,
   type ChatLineSink,
+  type ClientTurnEvent,
   type ConversationView,
   isUnknownConversation,
   type StatedTurn,
+  type TheoremSteerRequest,
   type TheoremTransport,
   type TheoremTurnRequest,
   type TheoremWakeRequest,
@@ -262,10 +267,13 @@ type RunOptions = {
   /** The run is a turn of its own, which the visitor can stop and steer. A gate's answer is not. */
   turn?: boolean;
   /** The run sends a message: one that never posts goes back in the composer with its failure. */
-  message?: { restore(): Promise<void> };
+  message?: SentMessage;
   /** The run wakes the conversation: it shows as streaming only once the host's reply begins. */
   wake?: true;
 };
+
+/** The message a run sends: its id, its draft, and how it goes back in the composer. */
+type SentMessage = { id: string; draft(): Promise<UserTurnDraft>; restore(): Promise<void> };
 
 const DELIVERY_ORDER: readonly MessageDelivery[] = ['sending', 'sent', 'delivered', 'read'];
 
@@ -358,8 +366,19 @@ function nextFrame(run: () => void): () => void {
   return () => clearTimeout(id);
 }
 
-function newTurnId(): string {
+function newId(): string {
   return crypto.randomUUID();
+}
+
+/** A pending message's draft as the input a steer sends. */
+function steerInput(draft: UserTurnDraft): TheoremSteerRequest['input'] {
+  const attachments = extractInlineEncodedAttachments(draft.attachments);
+  const voice = extractInlineEncodedAttachments(draft.voice);
+  return {
+    ...(draft.text?.trim() ? { text: draft.text } : {}),
+    ...(attachments ? { attachments } : {}),
+    ...(voice ? { voice } : {}),
+  };
 }
 
 class Chat implements ChatController {
@@ -398,6 +417,12 @@ class Chat implements ChatController {
   #listening: AbortController | null = null;
   /** The last view said results wait that no reply has read: the chat wakes once it is idle. */
   #wakeDue = false;
+  /** The ids a reply names the run's message by, once the host said it saved the message itself. */
+  #savedAs: readonly string[] | null = null;
+  /** How many blocks, at the end of the transcript, are the message the run posted. */
+  #ownPosted = 0;
+  /** The run in flight has streamed an event of its reply. */
+  #streamed = false;
   #reading: Promise<void> | null = null;
   #readAgain = false;
 
@@ -601,17 +626,34 @@ class Chat implements ChatController {
       this.#steerAfterTurnEnded();
       return;
     }
-    const inject = userDraftToSteerInject(message.draft);
-    if (inject.length === 0) return;
+    const input = steerInput(message.draft);
+    if (Object.keys(input).length === 0) return;
+    const conversation = this.#conversation;
     try {
-      await this.#options.transport.steer({ turnId, id: message.id, inject });
+      const { saved } = await this.#options.transport.steer({
+        turnId,
+        id: message.id,
+        input,
+        ...(conversation === undefined ? {} : { conversation }),
+      });
+      if (!saved) return;
+      this.#set({
+        pendingMessages: saveComposerPendingMessage(
+          this.#state.pendingMessages,
+          message.id,
+          saved.landsAs,
+        ),
+      });
+      this.#adopt(saved.conversation);
+      // why: A run in flight reads the conversation once it ends, after this save. With none, the chat reads now, and wakes for the message.
+      if (!this.#busy) await this.refresh();
     } catch (err) {
       this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
     }
   };
 
   sendNow = async (source?: ComposerPendingMessage): Promise<void> => {
-    if (!this.#options.iface) return;
+    if (!this.#options.iface || source?.saved) return;
     const draft = source ? source.draft : await this.#composerDraft();
     if (!draft) return;
     if (this.#busy) {
@@ -622,6 +664,7 @@ class Chat implements ChatController {
     this.#drainArmed = false;
     // why: Sent while the reply waits on gates, the message walks away from them in its own request.
     await this.#sendDraft(draft, {
+      id: source?.id ?? newId(),
       walkAway: this.#state.session.gatedTool !== null,
       // why: The sent message leaves the queue, or the composer it came from.
       onPosted: () =>
@@ -648,7 +691,7 @@ class Chat implements ChatController {
 
   restorePending = async (id: string): Promise<void> => {
     const message = this.#state.pendingMessages.find((m) => m.id === id);
-    if (!message) return;
+    if (!message || message.saved) return;
     try {
       await this.#restore(composerFieldsFromDraft(message.draft));
       this.#set({
@@ -845,7 +888,10 @@ class Chat implements ChatController {
   #draw(view: ConversationView, session: InterfaceTurnSession, events: readonly TurnEvent[]): void {
     const shown = [...this.#state.blocks, ...this.#state.streamBlocks];
     const blocks = keepIds(shown, view.transcript);
+    const drawn = [...view.transcript, ...(view.paused?.blocks ?? [])].map((block) => block.id);
     this.#set({
+      // why: A saved message the conversation now shows is no longer waiting.
+      pendingMessages: takeSavedComposerPending(this.#state.pendingMessages, drawn).remaining,
       blocks,
       streamBlocks: keepIds(shown.slice(blocks.length), view.paused?.blocks ?? []),
       // why: A reply at rest leaves the run's own events (tokens, an ask); a paused one, the host's.
@@ -927,6 +973,7 @@ class Chat implements ChatController {
     this.#draining = true;
     // why: The message leaves the queue once it posts; one that never starts stays queued.
     void this.#sendDraft(message.draft, {
+      id: message.id,
       onPosted: () =>
         this.#set({
           pendingMessages: removeComposerPendingMessage(this.#state.pendingMessages, message.id),
@@ -991,7 +1038,8 @@ class Chat implements ChatController {
   }
 
   /** The message posted: it joins the transcript, and the reply starts streaming. */
-  #posted(blocks: TranscriptBlock[], patch: Partial<ChatState>): void {
+  #posted(blocks: TranscriptBlock[], own: number, patch: Partial<ChatState>): void {
+    this.#ownPosted = own;
     this.#setDelivery({ status: 'sending' });
     this.#set({
       blocks: [...this.#state.blocks, ...blocks],
@@ -1015,15 +1063,27 @@ class Chat implements ChatController {
           scope,
           view,
           transcript: this.#state.blocks,
-          onUserBlocks: (blocks) => this.#posted(blocks, this.#clearedComposer()),
+          onUserBlocks: (blocks, own) => this.#posted(blocks, own, this.#clearedComposer()),
         }),
-      { turn: true, message: { restore: () => this.#restore(fields) } },
+      {
+        turn: true,
+        message: {
+          id: newId(),
+          draft: () =>
+            encodeComposerDraft({
+              text: fields.text,
+              pendingFiles: fields.files,
+              pendingVoice: fields.voice,
+            }),
+          restore: () => this.#restore(fields),
+        },
+      },
     );
   }
 
   #sendDraft(
     draft: UserTurnDraft,
-    options: { walkAway?: boolean; onPosted(): void },
+    options: { id: string; walkAway?: boolean; onPosted(): void },
   ): Promise<void> {
     return this.#runTurn(
       ({ iface, view, transport, scope, signal }) =>
@@ -1037,12 +1097,19 @@ class Chat implements ChatController {
           view,
           transcript: this.#state.blocks,
           walkAway: options.walkAway === true,
-          onUserBlocks: (blocks) => {
-            this.#posted(blocks, { streamBlocks: [] });
+          onUserBlocks: (blocks, own) => {
+            this.#posted(blocks, own, { streamBlocks: [] });
             options.onPosted();
           },
         }),
-      { turn: true, message: { restore: () => this.#restore(composerFieldsFromDraft(draft)) } },
+      {
+        turn: true,
+        message: {
+          id: options.id,
+          draft: () => Promise.resolve(draft),
+          restore: () => this.#restore(composerFieldsFromDraft(draft)),
+        },
+      },
     );
   }
 
@@ -1108,6 +1175,7 @@ class Chat implements ChatController {
       (onLine: ChatLineSink): ChatLineSink =>
       (line) => {
         this.#took(line);
+        if (line.type === 'conversation' && line.opened) this.#opened(line.opened, onLine);
         onLine(line);
       };
     return {
@@ -1166,8 +1234,42 @@ class Chat implements ChatController {
     ) {
       this.#setDelivery({ status: reached });
     }
-    if (line.type === 'conversation') this.#adopt(line.ref);
-    else this.#options.onTurnEvent?.(line);
+    if (line.type === 'conversation') {
+      this.#adopt(line.ref);
+      if (line.landsAs) this.#savedAs = line.landsAs;
+      return;
+    }
+    this.#streamed = true;
+    this.#options.onTurnEvent?.(line);
+  }
+
+  /**
+   * A reply opened with messages the host saved before: they leave the pending list and join the
+   * transcript where the reply reads them. That is before the message this run posted, when the
+   * reply has streamed nothing.
+   */
+  #opened(ids: readonly string[], onLine: ChatLineSink): void {
+    const { iface } = this.#options;
+    const { landed, remaining } = takeSavedComposerPending(this.#state.pendingMessages, ids);
+    if (!iface || landed.length === 0) return;
+    this.#set({ pendingMessages: remaining });
+    const read: ClientTurnEvent = {
+      type: 'stage',
+      stage: 'pre_turn',
+      injected: landed.map((m) => ({ id: m.id, messages: userDraftToSteerInject(m.draft) })),
+    };
+    if (this.#streamed || this.#ownPosted === 0) {
+      onLine(read);
+      return;
+    }
+    const at = this.#state.blocks.length - this.#ownPosted;
+    this.#set({
+      blocks: [
+        ...this.#state.blocks.slice(0, at),
+        ...foldAssistantTurn(iface, [read]),
+        ...this.#state.blocks.slice(at),
+      ],
+    });
   }
 
   #streamFrame(partial: TranscriptBlock[]): void {
@@ -1196,12 +1298,15 @@ class Chat implements ChatController {
     const { message } = options;
     const priorDelivery = this.#delivery;
     const abort = options.turn ? new AbortController() : null;
-    const turnId = options.turn ? newTurnId() : undefined;
+    const turnId = options.turn ? newId() : undefined;
     this.#busy = true;
     this.#abort = abort;
     this.#turnId = turnId ?? null;
     this.#stopped = false;
     this.#drainArmed = false;
+    this.#savedAs = null;
+    this.#ownPosted = 0;
+    this.#streamed = false;
     // why: A message streams once it posts, so the previous reply never shows as streaming before it.
     // A wake shows only once the host's reply begins; one with nothing to wake for shows nothing.
     if (!options.wake) this.#set({ failure: null, ...(message ? {} : { streaming: true }) });
@@ -1215,7 +1320,7 @@ class Chat implements ChatController {
         const outcome = await run({
           iface,
           transport: this.#runTransport(),
-          scope: { conversation: this.#conversation, turnId },
+          scope: { conversation: this.#conversation, turnId, id: message?.id },
           signal: abort?.signal,
           view: {
             blocks: (partial) => this.#streamFrame(partial),
@@ -1232,7 +1337,7 @@ class Chat implements ChatController {
         if (unposted && this.#delivery !== priorDelivery) await this.#takeBack(start, message);
         let waits: boolean;
         if (keepsConversation(iface)) {
-          waits = await this.#settleHosted(outcome, start);
+          waits = await this.#settleHosted(outcome, start, options);
         } else if (unposted) {
           this.#showFailure(outcome.failure);
           waits = this.#state.session.gatedTool !== null;
@@ -1290,7 +1395,11 @@ class Chat implements ChatController {
    * in the composer unless the host's transcript closed on it. Returns whether the reply waits
    * on gates.
    */
-  async #settleHosted(outcome: RunOutcome, start: RunStart): Promise<boolean> {
+  async #settleHosted(
+    outcome: RunOutcome,
+    start: RunStart,
+    { message, wake }: RunOptions,
+  ): Promise<boolean> {
     const { failure } = outcome;
     if (failure) this.#setDelivery(null);
     const ref = this.#conversation;
@@ -1300,11 +1409,33 @@ class Chat implements ChatController {
       return this.#state.session.gatedTool !== null;
     }
     const view = await this.#options.transport.conversation({ conversation: ref });
+    const savedAs = this.#savedAs;
+    if (message && savedAs && !view.transcript.some((block) => savedAs.includes(block.id))) {
+      await this.#keepSaved(message, savedAs);
+    }
     this.#draw(view, outcome.session, outcome.events);
+    // why: The page does not repeat a run that failed or was stopped, or a wake the host ran nothing for (another reply holds the conversation). The next read can wake.
+    if (failure || (wake && !this.#streamed)) this.#wakeDue = false;
     if (!view.transcript.slice(start.blocks.length).some((b) => b.kind === 'error')) {
       this.#showFailure(failure);
     }
     return view.paused !== undefined;
+  }
+
+  /** The host saved the message and no reply has read it: it waits with the pending messages. */
+  async #keepSaved(message: SentMessage, landsAs: readonly string[]): Promise<void> {
+    this.#setDelivery(null);
+    const waiting = createComposerPendingMessage({
+      kind: 'steer',
+      draft: await message.draft(),
+      id: message.id,
+    });
+    this.#set({
+      pendingMessages: orderComposerPendingMessages([
+        ...this.#state.pendingMessages,
+        { ...waiting, saved: { landsAs } },
+      ]),
+    });
   }
 
   /**

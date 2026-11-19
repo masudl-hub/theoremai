@@ -25,11 +25,9 @@ import {
   TheoremError,
   TURN_EVENT_SCHEMAS,
   type TurnEvent,
-  type TurnHistoryMessage,
   type TurnToolSnapshot,
   throwIfAborted,
   turnEventSchema,
-  turnHistoryMessageSchema,
   turnToolSnapshotSchema,
   z,
 } from '@theoremjs/agents';
@@ -144,6 +142,11 @@ export type TheoremTurnRequest = {
   stated?: StatedTurn;
   /** Client-generated id so mid-turn steers can find this turn's inbox. */
   turnId?: string;
+  /**
+   * The client's id for this message. A message keeps its id when the page sends it again, so a
+   * host that saves messages itself (`intake`) saves it one time.
+   */
+  id?: string;
   /** invariant: Both issued IDs identify each paused action that this message abandons. */
   abandon?: GateReference[];
   /** The tools the person allowed for the page, for a host without a session (the studio). */
@@ -163,6 +166,7 @@ const theoremTurnRequest = z.object({
   effort: z.string().optional(),
   stated: statedTurn.optional(),
   turnId: clientId.optional(),
+  id: clientId.optional(),
   abandon: z.array(gateReferenceSchema).min(1).optional(),
   replay: theoremReplay.pick({ sessionPermissions: true }).optional(),
   transcript: z.array(transcriptBlockSchema).optional(),
@@ -224,21 +228,47 @@ true satisfies Equals<z.infer<typeof theoremInvokeRequest>, TheoremInvokeRequest
 /** An `/invoke` body as `createTheoremHandler` reads it. */
 export const theoremInvokeRequestSchema: z.ZodType<TheoremInvokeRequest> = theoremInvokeRequest;
 
-/** Inject user messages into an in-flight turn. */
+/** The person's message for an in-flight turn. */
 export type TheoremSteerRequest = {
   turnId: string;
   /** The client's id for this steer; the turn's `stage` event names it in `injected` once it lands. */
   id: string;
-  inject: TurnHistoryMessage[];
+  /** The message, as a `/turn` posts one. The host makes the user message the model reads. */
+  input: Pick<TheoremTurnInput, 'text' | 'attachments' | 'voice'>;
+  /** The ref of the conversation the turn replies in, when the page has one. */
+  conversation?: string;
 };
 const theoremSteerRequest = z.object({
   turnId: clientId,
   id: clientId,
-  inject: z.array(turnHistoryMessageSchema).min(1),
+  input: theoremTurnInput.pick({ text: true, attachments: true, voice: true }),
+  conversation: z.string().min(1).optional(),
 });
 true satisfies Equals<z.infer<typeof theoremSteerRequest>, TheoremSteerRequest>;
 /** A `/steer` body as `createTheoremHandler` reads it. */
 export const theoremSteerRequestSchema: z.ZodType<TheoremSteerRequest> = theoremSteerRequest;
+
+/**
+ * A message the host saved itself (`intake`), with no reply to it on this request. `landsAs` is
+ * each id a reply names the message by when it reads it: an inject's id on a `stage` line, an id
+ * in a `conversation` line's `opened`, or a block's id in the conversation.
+ */
+export type TheoremSavedMessage = { conversation: string; landsAs: string[] };
+const theoremSavedMessage = z.object({
+  conversation: z.string().min(1),
+  landsAs: z.array(z.string().min(1)).min(1),
+});
+true satisfies Equals<z.infer<typeof theoremSavedMessage>, TheoremSavedMessage>;
+
+/**
+ * What the host did with a steer. With `saved`, the host keeps the message; without it, the steer
+ * waits in the running turn, and the page sends it again when the turn ends without it.
+ */
+export type TheoremSteerReply = { saved?: TheoremSavedMessage };
+const theoremSteerReply = z.object({ saved: theoremSavedMessage.optional() });
+true satisfies Equals<z.infer<typeof theoremSteerReply>, TheoremSteerReply>;
+/** A `/steer` reply as the page reads it. */
+export const theoremSteerReplySchema: z.ZodType<TheoremSteerReply> = theoremSteerReply;
 
 /** Stop an in-flight turn where it stands; its stream ends with what the reply left. */
 export type TheoremStopRequest = { turnId: string };
@@ -251,13 +281,23 @@ export const theoremStopRequestSchema: z.ZodType<TheoremStopRequest> = theoremSt
  * The ref the store issued for the conversation a run wrote: the client sends
  * it with its next request. It comes before the run's error, which ends the stream.
  * `posted` marks the write that holds the person's new message: a run that
- * fails before it leaves the message unsent.
+ * fails before it leaves the message unsent. `landsAs` says the host saved the message itself
+ * (`intake`), and is each id a reply names it by (see `TheoremSavedMessage`). `opened` is the id
+ * of each item that waited for the model and that the reply starting here reads first.
  */
-export type ConversationLine = { type: 'conversation'; ref: string; posted?: true };
+export type ConversationLine = {
+  type: 'conversation';
+  ref: string;
+  posted?: true;
+  landsAs?: string[];
+  opened?: string[];
+};
 const conversationLine = z.object({
   type: z.literal('conversation'),
   ref: z.string().min(1),
   posted: z.literal(true).optional(),
+  landsAs: z.array(z.string().min(1)).min(1).optional(),
+  opened: z.array(z.string().min(1)).min(1).optional(),
 });
 true satisfies Equals<z.infer<typeof conversationLine>, ConversationLine>;
 
@@ -371,7 +411,7 @@ export interface TheoremTransport {
   describe(signal?: AbortSignal): Promise<ProfileInterface>;
   turn(request: TheoremTurnRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   invoke(request: TheoremInvokeRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
-  steer(request: TheoremSteerRequest): Promise<void>;
+  steer(request: TheoremSteerRequest): Promise<TheoremSteerReply>;
   /** Stops the turn; refused (`session.turn_ended`) when this host is not running it. */
   stop(request: TheoremStopRequest): Promise<void>;
   /** The conversation under `ref`, as the host shows it. */
@@ -736,7 +776,8 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
       ),
     rewind: (body, signal) => fetchRewound(`${base}/rewind`, body, { ...options, signal }),
     pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
-    steer: (body) => postJson(`${base}/steer`, body, options),
+    steer: async (body) =>
+      theoremSteerReplySchema.parse(await fetchJson(`${base}/steer`, { body }, options)),
     stop: (body) => postJson(`${base}/stop`, body, options),
   };
 }

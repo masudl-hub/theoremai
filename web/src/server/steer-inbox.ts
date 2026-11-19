@@ -7,6 +7,7 @@
  */
 
 import { type StageHandler, TheoremError, type TurnHistoryMessage } from '@theoremjs/agents';
+import { appendUserDraftToHistory } from '@theoremjs/agents/interface';
 import type { TheoremSteerRequest } from '../client/transport.ts';
 
 /** One steer: the client's id for it, reported back in `stage.injected` once it lands. */
@@ -16,14 +17,18 @@ export type SteerUnit = { id: string; messages: TurnHistoryMessage[] };
 const STEER_STAGES: ReadonlySet<string> = new Set(['pre_turn', 'post_tool', 'before_end']);
 
 /**
- * A steer as a client posts it (a checked `TheoremSteerRequest`): its user
- * messages. Other roles are dropped — a client never injects system,
- * assistant or tool turns — and a steer with no user message is refused.
+ * A steer as a client posts it (a checked `TheoremSteerRequest`): its message as the one user
+ * message the model reads. A steer with no text and no file is refused.
  */
-export function steerUnitOf(steer: Pick<TheoremSteerRequest, 'id' | 'inject'>): SteerUnit {
-  const messages = steer.inject.filter((message) => message.role === 'user');
+export function steerUnitOf(steer: Pick<TheoremSteerRequest, 'id' | 'input'>): SteerUnit {
+  const { text, attachments, voice } = steer.input;
+  const messages = appendUserDraftToHistory(
+    [],
+    { ...(text === undefined ? {} : { text }) },
+    { ...(attachments ? { attachments } : {}), ...(voice ? { voice } : {}) },
+  );
   // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-  if (!messages.length) throw new TheoremError('request', 'inject must contain user messages');
+  if (!messages.length) throw new TheoremError('request', 'a steer needs text or a file');
   return { id: steer.id, messages };
 }
 

@@ -259,6 +259,7 @@ export function createBrowserStudioTransport(
           copy: { key: 'session.turn_ended' },
         }); // labels-exempt: internal diagnostic
       }
+      return {};
     },
     async stop({ turnId }) {
       const inbox = inboxes.get(turnId);

@@ -55,6 +55,7 @@ import {
   messageReply,
   type OpenedConversation,
   openConversation,
+  type PostedMessage,
   postedMessage,
   type ReplyLine,
   type ReplyRunner,
@@ -401,6 +402,11 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
         renewEveryMs: kept.leaseMs / 3,
         reply: async (run) => {
           const held = { run, renew: () => inbox.renew(key, run.hold), reads: kept.reads(run) };
+          const ref = chat.ref();
+          // why: The page moves a message it shows as waiting into the reply that reads it, as the reply starts.
+          if (run.opened.length > 0 && ref !== null) {
+            send({ type: 'conversation', ref, opened: run.opened.map((item) => item.id) });
+          }
           for await (const line of lines(held)) {
             chat.seen(line);
             send(line);
@@ -945,6 +951,34 @@ async function* answered<Item extends InboxItem>(
   yield* reply();
 }
 
+/**
+ * The message as the profile accepts it, and the conversation it posts to, when the host keeps
+ * one. Refuses a message the profile does not take, a conversation the host does not have, and a
+ * walk-away that does not name the calls the paused reply waits on. Changes nothing.
+ */
+async function messageOpened<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  args: Pick<MessageArgs, 'ref' | 'input' | 'context' | 'abandon'>,
+): Promise<{
+  posted: PostedMessage;
+  kept?: { host: ConversationHost; opened: OpenedConversation };
+}> {
+  const posted = postedMessage(chatInterface(ctx.chat), args.input, args.context);
+  const host = conversationHost(ctx, at);
+  if (!host) {
+    if (args.ref !== undefined) throw statelessRefusal('continue');
+    // labels-exempt: internal diagnostic; the user reads error.request
+    if (args.abandon) throw statelessRefusal('walk away from');
+    return { posted };
+  }
+  const opened = await openConversation(host, args.ref, {
+    kind: 'message',
+    ...(args.abandon ? { abandon: args.abandon } : {}),
+  });
+  return { posted, kept: { host, opened } };
+}
+
 /** The person's message: a new reply, run against the conversation the app keeps. */
 async function message<Item extends InboxItem>(
   ctx: CoreState<Item>,
@@ -959,12 +993,8 @@ async function message<Item extends InboxItem>(
       "a `saved` message needs `inbox`: its hold is in the app's inbox",
     );
   }
-  const posted = postedMessage(chatInterface(ctx.chat), args.input, args.context);
-  const host = conversationHost(ctx, at);
-  if (!host) {
-    if (args.ref !== undefined) throw statelessRefusal('continue');
-    // labels-exempt: internal diagnostic; the user reads error.request
-    if (args.abandon) throw statelessRefusal('walk away from');
+  const { posted, kept } = await messageOpened(ctx, at, args);
+  if (!kept) {
     const runner = chatRunner(ctx, at, generation);
     return unheld(
       runner.run({
@@ -975,10 +1005,7 @@ async function message<Item extends InboxItem>(
       }),
     );
   }
-  const opened = await openConversation(host, args.ref, {
-    kind: 'message',
-    ...(args.abandon ? { abandon: args.abandon } : {}),
-  });
+  const { host, opened } = kept;
   // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
   const walkAway = args.abandon
     ? await takeWalkedAway(ctx, at, args.abandon, opened.conversation)
@@ -1173,6 +1200,14 @@ export type FollowUpArgs = {
 export type ConversationCore = {
   /** The person's message: it posts, and its reply runs. */
   message(at: CoreContext, args: MessageArgs): Promise<Reply>;
+  /**
+   * Throws what `message` throws for `args` before it runs anything, and changes nothing: for an
+   * app that saves the message itself, to call before that save.
+   */
+  checkMessage(
+    at: CoreContext,
+    args: Pick<MessageArgs, 'ref' | 'input' | 'context' | 'abandon'>,
+  ): Promise<void>;
   /** The person's answer to a paused call; the reply goes on once no call waits. */
   answer(at: CoreContext, body: TheoremInvokeRequest): Promise<Reply>;
   /** A reply to no message, for items that arrived since the model last ran. */
@@ -1182,7 +1217,7 @@ export type ConversationCore = {
    * another session than that run's, when the app's `inbox` names the same conversation for both.
    */
   followUp(at: CoreContext, args: FollowUpArgs): Promise<Reply>;
-  /** Lets the conversation go under the hold of a run that ended `continue`, with no follow-up. */
+  /** Lets the conversation go under `hold`, with no reply: after a run that ended `continue`, or a hold the app took itself. */
   release(at: CoreContext, args: { ref: string; hold: string }): Promise<void>;
   /** The conversation as a page draws it. */
   read(at: CoreContext, args: { ref: string }): Promise<ConversationView>;
@@ -1201,6 +1236,9 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
   oneInbox(state.options);
   return {
     message: (at, args) => message(state, at, args),
+    checkMessage: async (at, args) => {
+      await messageOpened(state, at, args);
+    },
     answer: (at, body) => answer(state, at, body),
     wake: (at, args) => wake(state, at, args),
     followUp: (at, args) => followUp(state, at, args),

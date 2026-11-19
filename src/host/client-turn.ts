@@ -8,7 +8,7 @@ import { projectGuardrailTurnEvent } from '../guardrails/events.ts';
 import type { LabelOverrides } from '../guardrails/labels.ts';
 import type { TurnEvent } from '../kernel/types.ts';
 
-/** Options for `forClient` and `clientError`: who reads the copy, and whether evidence keeps its provider-native payload. */
+/** Options for `forClient` and `clientError`: who reads the copy, whether evidence keeps its provider-native payload, and the app's own rule for the copy. */
 export interface ClientTurnOptions {
   /** Keep provider-native payloads on `evidence` events. Default: false; parsed fields remain. */
   includeEvidenceRaw?: boolean;
@@ -20,6 +20,12 @@ export interface ClientTurnOptions {
    * diagnostics stay. Never for a page visitors reach.
    */
   reader?: 'visitor' | 'builder';
+  /**
+   * The app's own rule for what a reader may have, run on each copy after Theorem's rules. Use it
+   * for what only the app knows is not the reader's, such as a field of a tool's payload. It
+   * returns the event to send.
+   */
+  redact?: (event: TurnEvent) => TurnEvent;
 }
 
 /**
@@ -46,7 +52,10 @@ function builderWording(event: TurnEvent): TurnEvent {
     event.tool.failure.error !== undefined
   ) {
     const { failure } = event.tool;
-    return { ...event, tool: { ...event.tool, failure: { ...failure, error: failure.message } } };
+    return {
+      ...event,
+      tool: { ...event.tool, failure: { ...failure, error: failure.message } },
+    };
   }
   return event;
 }
@@ -134,7 +143,8 @@ function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
   }
   // invariant: Clients never receive matched substrings, even if the host opted into guardrailMatchPreview.
   out = projectGuardrailTurnEvent(out, false);
-  return out;
+  // invariant: The app's rule runs last, so it reads the copy and never restores what Theorem removed.
+  return options?.redact ? options.redact(out) : out;
 }
 
 /** `forClient` over a list of events. */
@@ -143,7 +153,11 @@ function forClientEvents(events: TurnEvent[], options?: ClientTurnOptions): Turn
 }
 
 /** A failure's wording and kind as a client reads them: the body of an error reply or line. */
-type ClientError = { error: string; errorKind: ErrorKind; errorCopy?: ErrorCopies };
+type ClientError = {
+  error: string;
+  errorKind: ErrorKind;
+  errorCopy?: ErrorCopies;
+};
 
 /**
  * A caught failure as its reader may have it, by the same rule as `forClient`: the profile's

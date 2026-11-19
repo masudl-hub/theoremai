@@ -17,7 +17,11 @@ Deno.test('forClient strips errorInternal from error events', () => {
 });
 
 Deno.test('forClient leaves error events without errorInternal unchanged', () => {
-  const event: TurnEvent = { type: 'error', errorKind: 'internal', error: 'Something went wrong.' };
+  const event: TurnEvent = {
+    type: 'error',
+    errorKind: 'internal',
+    error: 'Something went wrong.',
+  };
   assertEquals(forClient(event), event);
 });
 
@@ -66,7 +70,12 @@ Deno.test('forClient strips evidence.raw by default', () => {
   };
   assertEquals(forClient(event), {
     type: 'evidence',
-    evidence: { provider: 'google', kind: 'code_execution_call', id: 'step-1', code: 'print(1)' },
+    evidence: {
+      provider: 'google',
+      kind: 'code_execution_call',
+      id: 'step-1',
+      code: 'print(1)',
+    },
   });
 });
 
@@ -74,7 +83,12 @@ Deno.test('forClient keeps evidence.raw when includeEvidenceRaw is true', () => 
   const raw = { type: 'url_context_result' };
   const event: TurnEvent = {
     type: 'evidence',
-    evidence: { provider: 'google', kind: 'provider_step', step: 'url_context_result', raw },
+    evidence: {
+      provider: 'google',
+      kind: 'provider_step',
+      step: 'url_context_result',
+      raw,
+    },
   };
   assertEquals(
     firstOf([forClient(event, { includeEvidenceRaw: true })], 'evidence')?.evidence.raw,
@@ -84,12 +98,18 @@ Deno.test('forClient keeps evidence.raw when includeEvidenceRaw is true', () => 
 
 Deno.test('forClient passes through text, media, citations, and grounding unchanged', () => {
   const text: TurnEvent = { type: 'text', text: 'hello' };
-  const media: TurnEvent = { type: 'media', media: { mimeType: 'image/png', data: 'abc' } };
+  const media: TurnEvent = {
+    type: 'media',
+    media: { mimeType: 'image/png', data: 'abc' },
+  };
   const citation: TurnEvent = {
     type: 'citation',
     sources: [{ title: 'Example', uri: 'https://example.com', type: 'web' }],
   };
-  const grounding: TurnEvent = { type: 'grounding', grounding: { searchHtml: '<div></div>' } };
+  const grounding: TurnEvent = {
+    type: 'grounding',
+    grounding: { searchHtml: '<div></div>' },
+  };
   assertEquals(forClient(text), text);
   assertEquals(forClient(media), media);
   assertEquals(forClient(citation), citation);
@@ -216,4 +236,59 @@ Deno.test("forClient strips a called agent's diagnostics from its call's progres
   assertEquals(visitor.includes('Sorry, the model is busy.'), true);
   const builder = JSON.stringify(forClient(event, { reader: 'builder' }));
   assertEquals(builder.includes('HTTP 503: busy'), true);
+});
+
+Deno.test("forClient runs the app's redact last, on the copy Theorem already stripped", () => {
+  const seen: TurnEvent[] = [];
+  const event: TurnEvent = {
+    type: 'tool',
+    tool: {
+      name: 'save_plant',
+      callId: 'c1',
+      phase: 'complete',
+      at: 1,
+      output: { cost: 3, name: 'fern' },
+    },
+    errorInternal: 'raw reason',
+  };
+  const copy = forClient(event, {
+    redact: (read) => {
+      seen.push(read);
+      if (read.type !== 'tool' || read.tool.phase !== 'complete') return read;
+      return { ...read, tool: { ...read.tool, output: { name: 'fern' } } };
+    },
+  });
+  assertEquals(Object.hasOwn(seen[0] ?? {}, 'errorInternal'), false);
+  assertEquals(JSON.stringify(copy).includes('cost'), false);
+  assertEquals(JSON.stringify(copy).includes('fern'), true);
+});
+
+Deno.test("forClient runs the app's redact on a called agent's event too", () => {
+  const nested: TurnEvent = {
+    type: 'tool',
+    tool: {
+      name: 'look_up',
+      callId: 'c2',
+      phase: 'complete',
+      at: 1,
+      output: { cost: 3 },
+    },
+  };
+  const event: TurnEvent = {
+    type: 'tool',
+    tool: {
+      name: 'ask_researcher',
+      callId: 'c1',
+      phase: 'progress',
+      at: 1,
+      data: { agent: 'researcher', event: nested },
+    },
+  };
+  const copy = forClient(event, {
+    redact: (read) =>
+      read.type === 'tool' && read.tool.phase === 'complete'
+        ? { ...read, tool: { ...read.tool, output: {} } }
+        : read,
+  });
+  assertEquals(JSON.stringify(copy).includes('cost'), false);
 });

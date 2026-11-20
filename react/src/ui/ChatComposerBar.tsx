@@ -772,12 +772,15 @@ function ComposerTextInput({
   handleRef,
   menuActions,
   onMenuAction,
+  onFiles,
   field,
 }: {
   editorRef: React.Ref<HTMLDivElement>;
   handleRef: ChatComposerBarProps['inputRef'];
   menuActions: readonly ComposerMenuAction[];
   onMenuAction: (action: ComposerMenuAction) => void;
+  /** Files pasted or dropped on the field, when the profile takes attachments. */
+  onFiles: ((files: File[]) => void) | undefined;
   field?: {
     value: string;
     onChange: (text: string) => void;
@@ -789,6 +792,7 @@ function ComposerTextInput({
     <ChatComposerInput
       ref={editorRef}
       handleRef={handleRef}
+      onFiles={onFiles}
       {...(field
         ? {
             value: field.value,
@@ -936,6 +940,8 @@ function useComposerParts(props: ChatComposerBarProps) {
         handleRef={props.inputRef}
         menuActions={actions.menuActions}
         onMenuAction={props.onMenuAction}
+        // why: A pasted or dropped file goes through the same staging and limits as the attach button.
+        onFiles={inputs.attachments ? stageFiles : undefined}
         // why: The row draws its own surface, outside Astryx's ChatComposer, so the field takes its value here.
         field={
           props.layout === 'row'

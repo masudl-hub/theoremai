@@ -126,6 +126,11 @@ export type TheoremChatProps = {
    * on an agent tool's call row what the agent it ran used. Off by default.
    */
   usage?: boolean;
+  /**
+   * Show a tool call's detail when its row is opened: what it ran with, the calls its agent made,
+   * and what came back. On by default. Off, each call is its labelled row only.
+   */
+  toolDetail?: boolean;
   className?: string;
   style?: React.CSSProperties;
   /**
@@ -347,6 +352,7 @@ function ChatBody({
   scrollRef,
   trace,
   usage,
+  toolDetail,
   className,
   style,
   conversation,
@@ -426,6 +432,7 @@ function ChatBody({
                 density={density}
                 scrollRef={scrollRef}
                 usage={usage}
+                toolDetail={toolDetail}
               />
             )}
           </LayoutContent>
@@ -496,8 +503,9 @@ function ChatThread({
   density,
   scrollRef,
   usage,
+  toolDetail,
 }: DockedComposer &
-  Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage'> & {
+  Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage' | 'toolDetail'> & {
     chat: TheoremChatState;
     iface: ComposerProfileInterface;
     handle: string;
@@ -525,7 +533,13 @@ function ChatThread({
         }
       >
         <ChatColumn maxWidth={maxWidth}>
-          <TheoremChatTranscript chat={chat} iface={iface} handle={handle} usage={usage} />
+          <TheoremChatTranscript
+            chat={chat}
+            iface={iface}
+            handle={handle}
+            usage={usage}
+            toolDetail={toolDetail}
+          />
         </ChatColumn>
       </ChatLayout>
     </VStack>

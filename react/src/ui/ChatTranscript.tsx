@@ -115,6 +115,12 @@ export type ChatTranscriptProps = {
    */
   usage?: boolean;
   /**
+   * Show a tool call's detail when its row is opened: what it ran with, the calls its agent made,
+   * and what came back. On by default. Off, each call is its labelled row only, for a chat whose
+   * people should not read a tool's arguments and results.
+   */
+  toolDetail?: boolean;
+  /**
    * Where body kinds sit in a reply. Default puts `citation` last (Sources under
    * the prose). Pass `{}` to keep stream order for inline citations.
    */
@@ -125,6 +131,17 @@ export type ChatTranscriptProps = {
 
 /** Whether the transcript shows usage (`ChatTranscriptProps.usage`). */
 const ShowUsage = createContext(false);
+
+/** Whether a tool call's row opens on its detail (`ChatTranscriptProps.toolDetail`). */
+const ShowToolDetail = createContext(true);
+
+/** What a tool call's row shows beside its label. */
+type ToolRowShows = { usage: boolean; detail: boolean };
+
+/** What the transcript's props say a tool call's row shows. */
+function useToolRowShows(): ToolRowShows {
+  return { usage: useContext(ShowUsage), detail: useContext(ShowToolDetail) };
+}
 
 /** Image-profile display: `ratio` is the profile's pinned aspect ratio, if any. */
 export type ImageOutput = { ratio?: number };
@@ -734,16 +751,14 @@ function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): 
 /** The calls an agent tool's agent made, each a call row of its own. */
 function ToolSteps({ steps }: { steps: readonly ToolBlock['tool'][] }) {
   const t = useLabels();
-  const showUsage = useContext(ShowUsage);
+  const shows = useToolRowShows();
   return (
     <VStack gap={2}>
       <Text type="supporting" color="secondary">
         {t('@theorem.transcript.tool_steps')}
       </Text>
       <ToolCalls
-        calls={steps.map((step) =>
-          toolCallItem(t, step.operationId ?? step.callId, step, showUsage),
-        )}
+        calls={steps.map((step) => toolCallItem(t, step.operationId ?? step.callId, step, shows))}
       />
     </VStack>
   );
@@ -761,8 +776,8 @@ type SettledTool = Extract<
 >;
 
 /** What the agent an agent tool ran used, after the call's name. Only agent tools report it. */
-function toolUsageStats(state: SettledTool, showUsage: boolean): { stats?: ReactNode } {
-  return showUsage && state.tokens ? { stats: <Usage tokens={state.tokens} /> } : {};
+function toolUsageStats(state: SettledTool, shows: ToolRowShows): { stats?: ReactNode } {
+  return shows.usage && state.tokens ? { stats: <Usage tokens={state.tokens} /> } : {};
 }
 
 // why: The row already reads the failure's message, and `error` is the person's wording of the
@@ -775,11 +790,21 @@ function failureDetail(failure: ToolFailure): Omit<ToolFailure, 'message' | 'err
   };
 }
 
+/** A call's detail as its row takes it: none when the transcript shows no tool detail. */
+function rowDetail(
+  t: LabelText,
+  tool: ToolBlock['tool'],
+  shows: ToolRowShows,
+  result?: ReactNode,
+): { resultDetail?: ReactNode } {
+  return shows.detail ? { resultDetail: toolDetail(t, tool, result) } : {};
+}
+
 function toolCallItem(
   t: LabelText,
   id: string,
   tool: ToolBlock['tool'],
-  showUsage: boolean,
+  shows: ToolRowShows,
 ): ChatToolCallItem {
   const base = { key: id, name: toolCallLabel(tool) };
   const { state } = tool;
@@ -789,11 +814,12 @@ function toolCallItem(
         ...base,
         status: 'error',
         target: state.failure.message,
-        ...toolUsageStats(state, showUsage),
+        ...toolUsageStats(state, shows),
         errorMessage: state.failure.message,
-        resultDetail: toolDetail(
+        ...rowDetail(
           t,
           tool,
+          shows,
           <ShapedData
             value={failureDetail(state.failure)}
             title={t('@theorem.transcript.tool_error')}
@@ -805,10 +831,11 @@ function toolCallItem(
         ...base,
         status: 'complete',
         ...toolDuration(t, tool),
-        ...toolUsageStats(state, showUsage),
-        resultDetail: toolDetail(
+        ...toolUsageStats(state, shows),
+        ...rowDetail(
           t,
           tool,
+          shows,
           state.output === undefined ? undefined : (
             <ShapedData value={state.output} title={t('@theorem.transcript.tool_output')} />
           ),
@@ -816,16 +843,16 @@ function toolCallItem(
       };
     case 'running':
     case 'background':
-      return { ...base, status: 'running', resultDetail: toolDetail(t, tool) };
+      return { ...base, status: 'running', ...rowDetail(t, tool, shows) };
     default:
-      return { ...base, status: 'pending', resultDetail: toolDetail(t, tool) };
+      return { ...base, status: 'pending', ...rowDetail(t, tool, shows) };
   }
 }
 
 function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
   const t = useLabels();
-  const showUsage = useContext(ShowUsage);
-  return <ToolCalls calls={[toolCallItem(t, tool.name, tool, showUsage)]} />;
+  const shows = useToolRowShows();
+  return <ToolCalls calls={[toolCallItem(t, tool.name, tool, shows)]} />;
 }
 
 /**
@@ -854,7 +881,7 @@ const THOUGHT_TEXT = {
 
 function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
   const t = useLabels();
-  const showUsage = useContext(ShowUsage);
+  const shows = useToolRowShows();
   const rows: ReactNode[] = [];
   let tools: ChatToolCallItem[] = [];
   const flush = () => {
@@ -864,7 +891,7 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
   };
   for (const [i, item] of items.entries()) {
     if (item.kind === 'tool') {
-      tools.push(toolCallItem(t, item.id, item.block.tool, showUsage));
+      tools.push(toolCallItem(t, item.id, item.block.tool, shows));
       continue;
     }
     flush();
@@ -1145,7 +1172,9 @@ export function ChatTranscript(props: ChatTranscriptProps) {
   return (
     <TheoremLabelsProvider>
       <ShowUsage.Provider value={props.usage === true}>
-        <ChatTranscriptBody {...props} />
+        <ShowToolDetail.Provider value={props.toolDetail !== false}>
+          <ChatTranscriptBody {...props} />
+        </ShowToolDetail.Provider>
       </ShowUsage.Provider>
     </TheoremLabelsProvider>
   );

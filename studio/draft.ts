@@ -199,6 +199,8 @@ export interface ToolsDraft {
   t2Loader: string;
   /** True: a step's calls run side by side. False omits it: one at a time. */
   parallel: boolean;
+  /** True omits it: the people in the chat read each call's input and output. False: its labelled row only. */
+  showData: boolean;
 }
 
 /** One custom tool: compiles to `registerTool` plus a `tools.allow` entry. */
@@ -813,7 +815,7 @@ export function createBlankDraft(): StudioDraft {
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],
     providers: [...STUDIO_PROVIDERS],
-    tools: { t2Loader: '', parallel: false },
+    tools: { t2Loader: '', parallel: false, showData: true },
     toolSpecs: [],
     inputs: {
       text: true,

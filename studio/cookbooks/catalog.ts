@@ -581,7 +581,7 @@ function createResearchCompactorDraft(): StudioDraft {
       system:
         'Summarise the research so far. Keep every source URL, every exact quote, and every open lead.',
     },
-    { tools: { t2Loader: '', parallel: false }, toolSpecs: [] },
+    { tools: { t2Loader: '', parallel: false, showData: true }, toolSpecs: [] },
   );
 }
 
@@ -652,7 +652,10 @@ export function createResearchScoutDraft(): StudioDraft {
         researchOption('reader', 'Reader', ['anyone', 'reviewer', 'student']),
       ],
     },
-    { tools: { t2Loader: '', parallel: true }, toolSpecs: exampleTools(DEMO_RESEARCH_TOOLS) },
+    {
+      tools: { t2Loader: '', parallel: true, showData: true },
+      toolSpecs: exampleTools(DEMO_RESEARCH_TOOLS),
+    },
   );
   return {
     ...base,
@@ -873,7 +876,7 @@ export function createExampleDraft(): StudioDraft {
       system: DEMO_CONCIERGE_SYSTEM,
     },
     {
-      tools: { t2Loader: 'discover_tools', parallel: false },
+      tools: { t2Loader: 'discover_tools', parallel: false, showData: true },
       toolSpecs: exampleTools(DEMO_CONCIERGE_TOOLS),
     },
   );
@@ -926,7 +929,10 @@ function architectDraft(): StudioDraft {
       handle: 'architect',
       system: DEMO_ARCHITECT_SYSTEM,
     },
-    { tools: { t2Loader: '', parallel: false }, toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS) },
+    {
+      tools: { t2Loader: '', parallel: false, showData: true },
+      toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS),
+    },
   );
 }
 

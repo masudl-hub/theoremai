@@ -815,6 +815,7 @@ What the loop leaves to you:
 - The session. Every read and write names it, and the store refuses a ref from another session.
 - Gates. A profile whose tools wait for approval needs a session store that issues each gate and checks its answer. `createTheoremHandler` keeps one. With your own server, check the answer, run the call with `invokeTool`, and pass its events to `answerReply`.
 - Walking away. A message to a reply that waits on gates must name exactly `waitingCalls(conversation)` as `abandon`, and pass each call's cancelled run as `walkAway`.
+- Tool data. When `profileShowsToolData(profile)` is `false`, give the page each line through `eventWithoutToolData` and each block of a view through `blockWithoutToolData`. All three come from `@theoremjs/agents/interface`. Drop a line or a block that either one returns as `undefined`. Do not apply them to what you save: the model's history is rebuilt from the saved transcript.
 
 On the browser side, `@theoremjs/web/client` reads what your server sends:
 

@@ -115,11 +115,11 @@ export type ChatTranscriptProps = {
    */
   usage?: boolean;
   /**
-   * Show a tool call's detail when its row is opened: what it ran with, the calls its agent made,
-   * and what came back. On by default. Off, each call is its labelled row only, for a chat whose
-   * people should not read a tool's arguments and results.
+   * The profile's `tools.showData` (`iface.tools.showData`): whether a tool call's row opens on its
+   * detail, what it ran with, the calls its agent made, and what came back. On by default. Off, each
+   * call is its labelled row only, and an approval shows no input: the server sent none.
    */
-  toolDetail?: boolean;
+  showToolData?: boolean;
   /**
    * Where body kinds sit in a reply. Default puts `citation` last (Sources under
    * the prose). Pass `{}` to keep stream order for inline citations.
@@ -132,15 +132,15 @@ export type ChatTranscriptProps = {
 /** Whether the transcript shows usage (`ChatTranscriptProps.usage`). */
 const ShowUsage = createContext(false);
 
-/** Whether a tool call's row opens on its detail (`ChatTranscriptProps.toolDetail`). */
-const ShowToolDetail = createContext(true);
+/** Whether a tool call's row opens on its detail (`ChatTranscriptProps.showToolData`). */
+const ShowToolData = createContext(true);
 
 /** What a tool call's row shows beside its label. */
 type ToolRowShows = { usage: boolean; detail: boolean };
 
 /** What the transcript's props say a tool call's row shows. */
 function useToolRowShows(): ToolRowShows {
-  return { usage: useContext(ShowUsage), detail: useContext(ShowToolDetail) };
+  return { usage: useContext(ShowUsage), detail: useContext(ShowToolData) };
 }
 
 /** Image-profile display: `ratio` is the profile's pinned aspect ratio, if any. */
@@ -932,6 +932,7 @@ function GateCard({
   handlers: BlockHandlers;
 }) {
   const { tool } = block;
+  const shows = useToolRowShows();
   const gate = personGate(tool);
   if (!gate) return null;
   const index = handlers.indexOf(block);
@@ -951,7 +952,8 @@ function GateCard({
       gate={gate}
       toolName={tool.name}
       agent={handle}
-      input={tool.arguments}
+      // why: Under `showToolData: false` the person approves the call by its request label alone.
+      {...(shows.detail ? { input: tool.arguments } : {})}
       decided={answer === 'auth' ? null : answer}
       onDecision={(action) => handlers.onToolDecision?.(index, action)}
     />
@@ -1172,9 +1174,9 @@ export function ChatTranscript(props: ChatTranscriptProps) {
   return (
     <TheoremLabelsProvider>
       <ShowUsage.Provider value={props.usage === true}>
-        <ShowToolDetail.Provider value={props.toolDetail !== false}>
+        <ShowToolData.Provider value={props.showToolData !== false}>
           <ChatTranscriptBody {...props} />
-        </ShowToolDetail.Provider>
+        </ShowToolData.Provider>
       </ShowUsage.Provider>
     </TheoremLabelsProvider>
   );

@@ -163,6 +163,7 @@ const tools = z.object({
   page: z.array(z.string()),
   t2Loader: z.string().optional(),
   parallel: z.boolean().optional(),
+  showData: z.boolean().optional(),
 });
 
 const common = {

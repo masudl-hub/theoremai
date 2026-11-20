@@ -10,6 +10,7 @@ import type { ToolRegistry } from '../kernel/tools/registry.ts';
 import {
   profileToolAllow,
   profileToolsParallel,
+  profileToolsShowData,
   profileToolsSpec,
 } from '../kernel/tools/resolve.ts';
 import type { LiveProfile, ModelProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
@@ -113,11 +114,13 @@ function toolsView(projected: ProjectedProfile, profile?: ModelProfile): Profile
   if (profile) {
     const spec = profileToolsSpec(profile);
     const parallel = profileToolsParallel(profile);
+    const showData = profileToolsShowData(profile);
     return {
       allow: [...profileToolAllow(profile)],
       page,
       ...(spec?.t2Loader ? { t2Loader: spec.t2Loader } : {}),
       ...(parallel !== undefined ? { parallel } : {}),
+      ...(showData !== undefined ? { showData } : {}),
     };
   }
   const allow = projected.tools

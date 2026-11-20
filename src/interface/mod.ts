@@ -104,6 +104,12 @@ export { stopText, WORDED_STOP_KINDS } from './stop.ts';
 export type { SettledToolCallEvent } from './tool-calls.ts';
 export { argumentsSoFar, settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
 export {
+  blockWithoutToolData,
+  eventWithoutToolData,
+  interfaceShowsToolData,
+  profileShowsToolData,
+} from './tool-data.ts';
+export {
   promotedToolIdsFromEvents,
   type ReplyCarried,
   replyCarriedFromEvents,

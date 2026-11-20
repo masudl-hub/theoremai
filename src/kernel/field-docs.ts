@@ -703,6 +703,8 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
     "Your registered tools this agent may use; the provider's own tools go on the model's builtInTools instead.",
   'tools.parallel':
     'true: the calls of one step run side by side, and a call whose pre_tool answers waitFor starts its body once those calls settle. Left out or false: they run one at a time, in the order the model made them. A step is the calls the model makes together in a turn, or the calls a host runs through invokeToolStep.',
+  'tools.showData':
+    'false: the people in the chat see each tool call as its labelled row only. What it ran with and what it returned never reach them, an approval included: they approve the call by its `labels.request`. Left out or true: they can read both. Media a call sends them stays either way.',
   'tools.t1Policy':
     'Your function that picks, at the start of each turn, which T2 tools to load up front; the rest wait for tools.t2Loader. A throw loads none up front, reported as hook_failed.',
   'tools.t2Loader':

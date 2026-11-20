@@ -567,7 +567,7 @@ function Dock({ chat, iface }) {
 }
 ```
 
-`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `toolDetail`, and `bodyKindPlacement`. Set `toolDetail={false}` when the people in the chat must not read what a tool ran with and what it returned: each call then shows only its labelled row. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, and `resolveMedia`.
+`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, and `bodyKindPlacement`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, and `resolveMedia`.
 
 The two pieces read one clock: `chat.turnClock`. So the working pill of the composer and the status line of the transcript show the same time. `chat.workingSince` is when the reply in progress started, less its waits for approval. `chat.shownBlocks` is what the transcript shows: `chat.blocks`, then `chat.streamBlocks`.
 

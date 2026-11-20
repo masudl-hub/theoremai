@@ -8,6 +8,7 @@ import { VStack } from '@astryxdesign/core/VStack';
 import {
   type ComposerPendingMessage,
   type ComposerProfileInterface,
+  interfaceShowsToolData,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
 import type { ChatController, PageTools, StatedTurn } from '@theoremjs/web/client';
@@ -126,11 +127,6 @@ export type TheoremChatProps = {
    * on an agent tool's call row what the agent it ran used. Off by default.
    */
   usage?: boolean;
-  /**
-   * Show a tool call's detail when its row is opened: what it ran with, the calls its agent made,
-   * and what came back. On by default. Off, each call is its labelled row only.
-   */
-  toolDetail?: boolean;
   className?: string;
   style?: React.CSSProperties;
   /**
@@ -352,7 +348,6 @@ function ChatBody({
   scrollRef,
   trace,
   usage,
-  toolDetail,
   className,
   style,
   conversation,
@@ -432,7 +427,6 @@ function ChatBody({
                 density={density}
                 scrollRef={scrollRef}
                 usage={usage}
-                toolDetail={toolDetail}
               />
             )}
           </LayoutContent>
@@ -503,9 +497,8 @@ function ChatThread({
   density,
   scrollRef,
   usage,
-  toolDetail,
 }: DockedComposer &
-  Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage' | 'toolDetail'> & {
+  Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage'> & {
     chat: TheoremChatState;
     iface: ComposerProfileInterface;
     handle: string;
@@ -533,13 +526,7 @@ function ChatThread({
         }
       >
         <ChatColumn maxWidth={maxWidth}>
-          <TheoremChatTranscript
-            chat={chat}
-            iface={iface}
-            handle={handle}
-            usage={usage}
-            toolDetail={toolDetail}
-          />
+          <TheoremChatTranscript chat={chat} iface={iface} handle={handle} usage={usage} />
         </ChatColumn>
       </ChatLayout>
     </VStack>
@@ -558,6 +545,7 @@ export type TheoremChatTranscriptProps = Omit<
   | 'onAuthenticated'
   | 'imageOutput'
   | 'labels'
+  | 'showToolData'
 > & {
   /** The chat it shows (`useTheoremChat`). */
   chat: TheoremChatState;
@@ -589,6 +577,7 @@ export function TheoremChatTranscript({
       answering={chat.answering}
       clock={chat.turnClock}
       labels={iface.labels}
+      showToolData={interfaceShowsToolData(iface)}
       imageOutput={
         iface.type === 'image' ? { ratio: parseAspectRatio(iface.image.aspectRatio) } : undefined
       }

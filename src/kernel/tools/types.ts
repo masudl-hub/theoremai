@@ -891,6 +891,15 @@ export interface ProfileToolsSpec {
    * model made them.
    */
   parallel?: boolean;
+  /**
+   * false: the people in the chat see each tool call as its labelled row only. What it ran with and
+   * what it returned never reach them, an approval included: they approve the call by its
+   * `labels.request`. Left out or true: they can read both. Media a call sends them stays either way.
+   *
+   * @remarks `false`: the server sends a page no tool call's input or output, and the interface says
+   * so (`tools.showData`). Media a call sends the person, and references, still reach them.
+   */
+  showData?: boolean;
 }
 
 /** Live declarations cannot be added mid-session, so every allowed tool is wired at setup as if T0. */

@@ -97,7 +97,10 @@ export interface ProfileInputsInterface {
  * A tool's definition (handler, schemas, endpoint, headers) stays on the host; `t1Policy` too.
  * `page` names the tools the page answers (`answeredBy: 'page'`): the page needs a function for each.
  */
-export type ProfileToolsView = Pick<ProfileToolsSpec, 'allow' | 't2Loader' | 'parallel'> & {
+export type ProfileToolsView = Pick<
+  ProfileToolsSpec,
+  'allow' | 't2Loader' | 'parallel' | 'showData'
+> & {
   page: string[];
 };
 

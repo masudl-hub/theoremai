@@ -5648,6 +5648,19 @@ function ToolsEditor({
           />
         </InspectorSection>
       )}
+      {draftAllows(draft, 'tools.showData') && (
+        <InspectorSection path="tools.showData">
+          <SwitchRow
+            label="Show tool data"
+            path="tools.showData"
+            field="showData"
+            value={draft.tools.showData}
+            onChange={(showData) => {
+              set({ showData });
+            }}
+          />
+        </InspectorSection>
+      )}
     </>,
   );
 }

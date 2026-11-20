@@ -7,6 +7,7 @@ import {
   type ProfileDefinition,
   type ProfileIdentity,
   registerTool,
+  type TextProfileDefinition,
   TheoremError,
   type TurnEvent,
   type TurnHistoryMessage,
@@ -51,7 +52,7 @@ function profile(
   id: string,
   allow: string[] = [],
   identity: ProfileIdentity = { handle: 'helper', system: SYSTEM },
-): ProfileDefinition {
+): TextProfileDefinition {
   return {
     type: 'text',
     id,
@@ -2499,4 +2500,28 @@ Deno.test('the page, the web server and the kernel count the same redacted text'
     })();
     assertEquals(kernel, takes, `kernel: ${text} / ${limit}`);
   }
+});
+
+Deno.test("a profile that hides tool data sends the page none of a call's input or output; an approval still runs the model's call", async () => {
+  ran.length = 0;
+  const handler = handlerFor({
+    profile: {
+      ...profile('hides-tool-data'),
+      tools: { allow: ['handler_delete'], showData: false },
+    },
+    provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'fern-photo')),
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
+  const gate = pausedGate(turn);
+  const approved = await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(ran, ['fern-photo']);
+  assertEquals(toolPhases(approved, 'handler_delete').at(-1), 'complete');
+  const sent = JSON.stringify([turn, approved, await transcriptOf(transport)]);
+  assertEquals(sent.includes('fern-photo'), false);
 });

@@ -62,11 +62,18 @@ import {
   forClient,
   HTTP_NOT_FOUND,
 } from '@theoremjs/agents/host';
-import { clientProfileInterface, type TranscriptBlock } from '@theoremjs/agents/interface';
+import {
+  blockWithoutToolData,
+  clientProfileInterface,
+  eventWithoutToolData,
+  profileShowsToolData,
+  type TranscriptBlock,
+} from '@theoremjs/agents/interface';
 import type { ToolBackgroundService } from '@theoremjs/agents/kernel';
 import { hostInterface, theoremHostCallRequestSchema } from '../client/host-transport.ts';
 import {
   type ConversationLine,
+  type ConversationView,
   type TheoremSavedMessage,
   type TheoremTurnInput,
   theoremConversationRequestSchema,
@@ -400,6 +407,33 @@ function caughtError(ctx: HandlerContext, err: unknown, request: Request): Clien
   return clientError(err, ctx.profile.labels, ctx.options.clientEvents);
 }
 
+/** A line as the page may have it: under `tools.showData: false`, none of a tool call's data. */
+function shownLine(ctx: HandlerContext, line: ReplyLine): ReplyLine | undefined {
+  if (line.type === 'conversation') return line;
+  const event = forClient(line, ctx.options.clientEvents);
+  return profileShowsToolData(ctx.profile) ? event : eventWithoutToolData(event);
+}
+
+/** The conversation as the page may have it, by `shownLine`'s rule. */
+function shownView(ctx: HandlerContext, view: ConversationView): ConversationView {
+  if (profileShowsToolData(ctx.profile)) return view;
+  const blocks = (list: readonly TranscriptBlock[]) =>
+    list.flatMap((block) => blockWithoutToolData(block) ?? []);
+  const { paused, ...rest } = view;
+  return {
+    ...rest,
+    transcript: blocks(view.transcript),
+    ...(paused
+      ? {
+          paused: {
+            events: paused.events.flatMap((event) => eventWithoutToolData(event) ?? []),
+            blocks: blocks(paused.blocks),
+          },
+        }
+      : {}),
+  };
+}
+
 function eventStream(
   ctx: HandlerContext,
   request: Request,
@@ -415,8 +449,9 @@ function eventStream(
         if (!cancelled) controller.enqueue(line(value));
       };
       try {
-        for await (const event of source()) {
-          send(event.type === 'conversation' ? event : forClient(event, ctx.options.clientEvents));
+        for await (const line of source()) {
+          const shown = shownLine(ctx, line);
+          if (shown) send(shown);
         }
       } catch (err) {
         if (!request.signal.aborted) send({ type: 'error', ...caughtError(ctx, err, request) });
@@ -669,7 +704,7 @@ async function conversation(
   const view = await coreOf(ctx, chat, request).read(contextOf(ctx, request, session.id), {
     ref: body.conversation,
   });
-  return jsonResponse(200, view);
+  return jsonResponse(200, shownView(ctx, view));
 }
 
 /**
@@ -744,7 +779,7 @@ async function rewind(
     ref: body.conversation,
     at: body.at,
   });
-  return jsonResponse(200, rewound);
+  return jsonResponse(200, { ...rewound, view: shownView(ctx, rewound.view) });
 }
 
 async function steer(

@@ -59,6 +59,11 @@ export function profileToolsParallel(profile: Profile): boolean | undefined {
   return 'tools' in profile ? profile.tools.parallel : undefined;
 }
 
+/** `tools.showData` as the profile sets it: whether the people in the chat may read a tool call's input and output. */
+export function profileToolsShowData(profile: Profile): boolean | undefined {
+  return profileToolsSpec(profile)?.showData;
+}
+
 export function resolveAllowedCustomToolIds(
   tools: ToolRegistry,
   profile: Profile,

@@ -564,7 +564,7 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
   const live = setProfileType(image, 'live', TEST_KEYS);
   const liveProfile = compiled({
     ...live,
-    tools: { t2Loader: 'not_checked', parallel: true },
+    tools: { t2Loader: 'not_checked', parallel: true, showData: true },
   }).profile;
   assert(liveProfile.type === 'live');
   assertEquals(Object.keys(liveProfile.tools), ['allow', 'parallel']);
@@ -1497,7 +1497,7 @@ Deno.test('compaction compiles as the agent compacting itself, and registers', (
   const plain = {
     ...createExampleDraft(),
     toolSpecs: [],
-    tools: { t2Loader: '', parallel: false },
+    tools: { t2Loader: '', parallel: false, showData: true },
   };
   const draft = updateModelBinding(plain, plain.modelBindings[0].key, {
     ...COMPACTION_DRAFT_DEFAULTS,

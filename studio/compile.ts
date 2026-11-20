@@ -987,8 +987,7 @@ function compileTool(
 
 function compileTools(
   draft: StudioDraft,
-  withLoader: boolean,
-  withParallel: boolean,
+  allows: (path: string) => boolean,
   report: Report,
   agentIdOf: AgentIdOf,
   agentInputOf: AgentToolInputOf,
@@ -1006,14 +1005,20 @@ function compileTools(
     customTools.push(compiled);
   }
   const allow = customTools.map((tool) => tool.name);
-  const t2Loader = withLoader ? draft.tools.t2Loader.trim() : '';
+  const t2Loader = allows('tools.t2Loader') ? draft.tools.t2Loader.trim() : '';
   if (t2Loader && !names.has(t2Loader)) {
     report('tools', `T2 loader '${t2Loader}' must be one of the custom tools.`, 't2Loader');
   }
-  const parallel = withParallel && draft.tools.parallel;
+  const parallel = allows('tools.parallel') && draft.tools.parallel;
+  const hidesData = allows('tools.showData') && !draft.tools.showData;
   return {
     customTools,
-    tools: { allow, ...(t2Loader ? { t2Loader } : {}), ...(parallel ? { parallel } : {}) },
+    tools: {
+      allow,
+      ...(t2Loader ? { t2Loader } : {}),
+      ...(parallel ? { parallel } : {}),
+      ...(hidesData ? { showData: false } : {}),
+    },
   };
 }
 
@@ -2200,8 +2205,7 @@ function compileHost(
   const facets = new Set<string>(draftFacets(draft));
   const { customTools, tools } = compileTools(
     draft,
-    draftAllows(draft, 'tools.t2Loader'),
-    draftAllows(draft, 'tools.parallel'),
+    (path) => draftAllows(draft, path),
     report,
     agentIdOf,
     agentInputOf,
@@ -2238,14 +2242,7 @@ function assemble(
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
     : {};
   const { customTools, tools } = facets.has('tools')
-    ? compileTools(
-        draft,
-        allows('tools.t2Loader'),
-        allows('tools.parallel'),
-        report,
-        agentIdOf,
-        agentInputOf,
-      )
+    ? compileTools(draft, allows, report, agentIdOf, agentInputOf)
     : { customTools: [] };
   const turnBehaviour = facets.has('turnBehaviour')
     ? compileTurnBehaviour(draft.turnBehaviour, allows('turnBehaviour.resumption'), report)

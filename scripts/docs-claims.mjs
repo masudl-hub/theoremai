@@ -4,6 +4,8 @@
 //   node scripts/docs-claims.mjs check <doc.md>
 //     Every inline `code span` that names a path, package, or identifier must
 //     exist in the repo. Prints the ones that do not. Exit 1 if any are missing.
+//     Release notes (docs/releases/v*.md) also name what a release removed: there a
+//     name the code no longer has passes as REMOVED when an earlier commit's code had it.
 //
 //   node scripts/docs-claims.mjs affected [--base REF]
 //     Lists Markdown docs that mention a symbol or path changed since REF
@@ -12,10 +14,12 @@
 // It proves that a name exists. It does not prove that a sentence is true.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 const IDENT = /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*(\(\))?$/;
 const PKG = /^@[\w.-]+\/[\w.-]+$/;
+// why: a file's extension starts with a letter; `vendor/model-1.14` is a model id, not a path.
+const FILE_EXTENSION = /\.[A-Za-z]\w*$/;
 const SPAN = /(?<!`)`([^`\n]+)`(?!`)/g;
 const GENERIC = new Set([
   'true',
@@ -70,6 +74,55 @@ function inCode(root, needle, fixed = true) {
   return git(['grep', ...flags, needle, '--', ':!*.md'], root).code === 0;
 }
 
+const NOT_WORD = '[^A-Za-z0-9_$]';
+
+// why: release notes are true of the code they describe, and that code had the names they say were removed.
+function isReleaseNotes(root, docPath) {
+  return /^docs\/releases\/v[^/]+\.md$/.test(relative(root, docPath));
+}
+
+// why: the newest commit that changed a line naming the word removed it, so its parent still had it.
+function removedBy(root, pattern, confirm, pathspec) {
+  const sha = git(['log', '-1', '--format=%H', '-G', pattern, '--', ...pathspec], root).out.trim();
+  if (!sha) return null;
+  return git(['grep', ...confirm, `${sha}^`, '--', ...pathspec], root).code === 0
+    ? sha.slice(0, 8)
+    : null;
+}
+
+function escapeRegex(text) {
+  return text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+function identifierRemovedBy(root, name) {
+  const pattern = `(^|${NOT_WORD})${escapeRegex(name)}(${NOT_WORD}|$)`;
+  return removedBy(root, pattern, ['-q', '-w', '-F', name], ['.', ':!*.md']);
+}
+
+function packageRemovedBy(root, name) {
+  const quoted = `"${name}"`;
+  return removedBy(
+    root,
+    escapeRegex(quoted),
+    ['-q', '-F', quoted],
+    ['*package.json', '*deno.json'],
+  );
+}
+
+// why: `@scope/name/sub/file.ts` names a file inside a package; the package's own directory holds it.
+function repoPath(root, path) {
+  const pkg = /^(@[\w.-]+\/[\w.-]+)\/(.+)$/.exec(path);
+  if (!pkg) return path;
+  const hit = git(['grep', '-l', '-F', `"name": "${pkg[1]}"`, '--', '*package.json'], root).out;
+  const manifest = hit.split('\n').find(Boolean);
+  return manifest ? join(dirname(manifest), pkg[2]) : path;
+}
+
+function pathRemovedBy(root, path) {
+  const sha = git(['log', '-1', '--format=%H', '--diff-filter=D', '--', path], root).out.trim();
+  return sha ? sha.slice(0, 8) : null;
+}
+
 function stripFences(text) {
   let fenced = false;
   const out = [];
@@ -88,8 +141,15 @@ function check(doc) {
   const docDir = dirname(docPath);
   const root = rootOf(docDir);
   const text = stripFences(readFileSync(docPath, 'utf8'));
+  const releaseNotes = isReleaseNotes(root, docPath);
   const seen = new Set();
   const missing = [];
+  const removed = [];
+  const notFound = (s, why, removedSha) => {
+    const sha = releaseNotes ? removedSha() : null;
+    if (sha) removed.push([s, sha]);
+    else missing.push([s, why]);
+  };
   for (const m of text.matchAll(SPAN)) {
     const s = m[1].trim();
     if (seen.has(s)) continue;
@@ -97,20 +157,27 @@ function check(doc) {
     if (PKG.test(s)) {
       const hit =
         git(['grep', '-q', '-F', `"${s}"`, '--', '*package.json', '*deno.json'], root).code === 0;
-      if (!hit) missing.push([s, 'package not found in any package.json or deno.json']);
-    } else if (s.includes('/') && /\.\w+$/.test(s) && !/[\s*<]|^http/.test(s)) {
-      const p = s.split(':')[0].replace(/^\.\//, '');
+      if (!hit)
+        notFound(s, 'package not found in any package.json or deno.json', () =>
+          packageRemovedBy(root, s),
+        );
+    } else if (s.includes('/') && FILE_EXTENSION.test(s) && !/[\s*<]|^http/.test(s)) {
+      const p = repoPath(root, s.split(':')[0].replace(/^\.\//, ''));
       if (!existsSync(join(root, p)) && !existsSync(join(docDir, p)))
-        missing.push([s, 'path does not exist']);
+        notFound(s, 'path does not exist', () => pathRemovedBy(root, p));
     } else if (IDENT.test(s)) {
       const name = s.replace(/\(\)$/, '').split('.').pop();
       if (name.length < 4 || GENERIC.has(name) || (name === name.toLowerCase() && name.length < 6))
         continue;
-      if (!inCode(root, name)) missing.push([s, 'identifier not found in code']);
+      if (!inCode(root, name))
+        notFound(s, 'identifier not found in code', () => identifierRemovedBy(root, name));
     }
   }
+  for (const [s, sha] of removed) console.log(`REMOVED  \`${s}\`  in the code before ${sha}`);
   for (const [s, why] of missing) console.log(`MISSING  \`${s}\`  ${why}`);
-  console.log(`${seen.size} code spans read, ${missing.length} not found in ${root}`);
+  console.log(
+    `${seen.size} code spans read, ${removed.length} removed, ${missing.length} not found in ${root}`,
+  );
   return missing.length ? 1 : 0;
 }
 

@@ -22,7 +22,7 @@ The file has these five sections, as `##` headings, in this order. Every section
 - **What's Fixed.** One bullet per fix. Say what the builder saw before, then what happens now.
 - **Breaking Changes.** One bullet per change. Say what changed, who it affects, and what to do. Show the old and new code when a name or a signature changed.
 - Follow [`docs/writing/writing.md`](../writing/writing.md): short sentences, active voice, one term for one thing.
-- Every claim is true of the released code. Check each name with `node scripts/docs-claims.mjs check docs/releases/vX.Y.Z.md`.
+- Every claim is true of the released code. Check each name with `node scripts/docs-claims.mjs check docs/releases/vX.Y.Z.md`. A name the release removed shows as `REMOVED`: the code had it before. Read each one, and make sure the note says that it was removed.
 
 ## What stays out
 

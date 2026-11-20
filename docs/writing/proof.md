@@ -33,6 +33,8 @@ node scripts/docs-claims.mjs check path/to/doc.md
 
 It reads every inline code span in the doc. It fails for a path that does not exist, a package that no `package.json` or `deno.json` names, and an identifier that no code file contains. Run it every time you finish a draft.
 
+Release notes (the `v*.md` files in `docs/releases/`) also name what a release removed. In release notes, a name that the code no longer has passes when an earlier commit's code had it. The check prints it as `REMOVED`, and names a commit before which the code had it. A name that no commit ever had fails, as in every other doc.
+
 It proves that a name exists. It does not prove that the sentence about the name is true. That part is yours.
 
 ## Verify examples

@@ -202,7 +202,7 @@ function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptB
                 mimeType: part.mimeType,
                 ...('data' in part
                   ? { sizeBytes: Math.floor((part.data.length * 3) / 4), data: part.data }
-                  : { sizeBytes: 0 }),
+                  : { sizeBytes: 0, uri: part.uri, type: part.type }),
                 ...host,
               },
             ],

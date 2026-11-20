@@ -221,8 +221,17 @@ export interface UserAttachmentBlock extends TranscriptBlockBase {
   name: string;
   mimeType: string;
   sizeBytes: number;
-  /** Optional base64 payload for inline image/audio preview in the host UI. */
+  /** Optional base64 payload for inline image/audio preview in the host UI. Absent when `uri` is set. */
   data?: string;
+  /**
+   * A file the app saved, shown through the app's own resolver as a tool's reference is: never a
+   * `src` itself. Absent when `data` is set.
+   */
+  uri?: string;
+  /** The kind of media `uri` names. */
+  type?: MediaInputKind;
+  /** The app's own values for the file, passed to its resolver with `uri`; Theorem does not read them. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface ThoughtBlock extends TranscriptBlockBase {

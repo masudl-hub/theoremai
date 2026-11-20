@@ -72,3 +72,43 @@ Deno.test('tool media keeps sent, its reference, and its metadata live, and afte
   );
   assertEquals(reloaded, blocks);
 });
+
+Deno.test("a person's saved voice note keeps its link and kind on the wire", () => {
+  const block = {
+    id: 'row-1:media:0',
+    kind: 'user-voice',
+    name: 'voice-note.m4a',
+    mimeType: 'audio/mp4',
+    sizeBytes: 0,
+    uri: 'conversation-media:c1/clip.m4a',
+    type: 'audio',
+    metadata: { description: 'Could you look at that photo again?' },
+  } as const;
+  assertEquals(transcriptBlockSchema.parse(JSON.parse(JSON.stringify(block))), block);
+});
+
+Deno.test("an inject's saved file is the person's own file, with its link", () => {
+  const blocks = foldTurnEvents([
+    {
+      type: 'stage',
+      stage: 'post_tool',
+      injected: [
+        {
+          id: 's1',
+          messages: [
+            {
+              role: 'user',
+              parts: [
+                { type: 'audio', mimeType: 'audio/mp4', uri: 'conversation-media:c1/clip.m4a' },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ]);
+  assertEquals(
+    blocks.map((b) => (b.kind === 'user-voice' ? [b.kind, b.uri, b.type, b.data] : [b.kind])),
+    [['user-voice', 'conversation-media:c1/clip.m4a', 'audio', undefined]],
+  );
+});

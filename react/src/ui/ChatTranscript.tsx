@@ -371,7 +371,22 @@ function UserBlock({ block, metadata }: { block: TranscriptBlock; metadata?: Rea
 
 /** An attached image or voice note inline; any other file as a Token. */
 function UserFile({ block }: { block: UserFileBlock }) {
-  const src = dataUrl(block.mimeType, block.data);
+  if (block.uri !== undefined) return <SavedUserFile block={block} uri={block.uri} />;
+  return <UserFileView block={block} src={dataUrl(block.mimeType, block.data)} />;
+}
+
+/** A file the app saved, as its resolver shows it; the named file while it resolves, or when nothing does. */
+function SavedUserFile({ block, uri }: { block: UserFileBlock; uri: string }) {
+  const src = useResolvedMedia({
+    type: block.type ?? (block.kind === 'user-voice' ? 'audio' : 'document'),
+    mimeType: block.mimeType,
+    uri,
+    ...(block.metadata ? { metadata: block.metadata } : {}),
+  });
+  return <UserFileView block={block} src={src ?? undefined} />;
+}
+
+function UserFileView({ block, src }: { block: UserFileBlock; src: string | undefined }) {
   if (src && block.mimeType.startsWith('image/')) {
     return <ImageAttachment src={src} name={block.name} />;
   }

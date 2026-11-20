@@ -241,6 +241,8 @@ A tool can also return a **reference**: `{ type, mimeType, uri }`, such as a `gs
 
 `resolveMedia` returns a string, `null`, or a promise of either. While it works, and when it returns `null` or throws, the chat shows the file name from the `uri`. `TheoremHost` takes the same `resolveMedia`, and always shows all the media of a call.
 
+A file the person sent works the same way after your app saves it. When you load a saved conversation, give the person's file as a `user-attachment` or `user-voice` block with `uri` and `type` in place of `data`, and your own values for the file in `metadata` if you need them. The chat shows it on the person's side through `resolveMedia`: a picture, a voice note to play, or the file name.
+
 ### Resume a conversation
 
 The server keeps the conversation in its `conversationStore`. The browser never sends the history. It holds only a ref that the store issued.

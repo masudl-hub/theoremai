@@ -60,7 +60,7 @@ ceiling on host side effects.
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `waitFor`, `abort` |
 | `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject`, `abort`, and `end` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort`, `end` (text turns) |
-| `post_step` | Text turns only. Once a step, after every call of the step settled, when the model takes another step: not after a step stopped, gated or ended. Before the step's steers and late results land | no | `context` |
+| `post_step` | Text turns only. Once a step, after every call of the step settled, when the model takes another step: not after a step stopped, gated or ended, nor after the last step `maxSteps` allows. Before the step's steers and late results land | no | `context` |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 
@@ -319,7 +319,10 @@ the turn.
   message had no host context, the new one goes first in it.
 - `post_step` runs once every call of the step has settled, so with
   `tools.parallel: true` a context built there sees what every call wrote.
-  `settledCalls` names each call and whether it completed or failed.
+  `settledCalls` names each call and whether it completed or failed. A call
+  that replies before its body ends ([background tool
+  calls](./kernel.md#background-tool-calls)) is settled at its reply: its
+  outcome is that reply's, and its body may still be running.
 - Only the `<turn_context from="server">` block changes. The page's context, the
   user's words and the opening message's files stay as they were.
 - `server` is read as `input.context.server` is: the profile must list `server`
@@ -545,7 +548,7 @@ in turn history, so a `before_end` inject on the retry lands after it.
 | --- | --- |
 | `pre_turn` | After resolve / sanitize / compaction-before / canary bind; before first provider step of the turn |
 | `pre_tool` / `post_tool` | Shared execute path. After a step's calls and their steers, the turn asks `TurnRequest.lateResults` ([kernel.md](./kernel.md#late-results)) |
-| `post_step` | Once a step's calls settled, when the model takes another step; before the step's steers and late results |
+| `post_step` | Once a step's calls settled, when the model takes another step (not after the last step `maxSteps` allows); before the step's steers and late results |
 | `before_end` | No further autonomous work (no pending tools, or batch finished without gate); **before** egress/validation finalize. Inject or late results → the answer, then the inject, then the late results, join turn history and the step loop re-enters if under `maxSteps` |
 | `post_turn` | Immediately after terminal `done` |
 

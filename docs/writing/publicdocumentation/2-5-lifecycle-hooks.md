@@ -116,7 +116,7 @@ if (ctx.stage === 'post_step' && ctx.settledCalls?.some((call) => call.outcome =
 }
 ```
 
-`post_step` runs once every call of the step has settled, so with `tools.parallel: true` the context you build there sees what every call wrote. The new context takes the place of the old one in the turn's opening message, and the model's next step reads it. The page's context and the user's words stay as they were. The new context passes the same checks as `input.context.server`, and the guardrails at the context boundary. When it lands, the turn emits a `post_step` `stage` event with `contextReplaced: true`. `post_step` does not run after a step that stopped, gated or ended the turn, since no model step follows it.
+`post_step` runs once every call of the step has settled, so with `tools.parallel: true` the context you build there sees what every call wrote. A call that replies before its body ends is settled at its reply, so its body may still be running. The new context takes the place of the old one in the turn's opening message, and the model's next step reads it. The page's context and the user's words stay as they were. The new context passes the same checks as `input.context.server`, and the guardrails at the context boundary. When it lands, the turn emits a `post_step` `stage` event with `contextReplaced: true`. `post_step` does not run after a step that stopped, gated or ended the turn, or after the last step `maxSteps` allows, since no model step follows it.
 
 ---
 

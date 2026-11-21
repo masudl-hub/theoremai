@@ -145,8 +145,9 @@ async function contextTurn(
   answer: (ctx: StageContext) => StageResult | undefined,
   input: TurnInput = { text: 'Add Monty', context: { server: 'plants: 24' } },
   afterTool: (ctx: StageContext) => StageResult | undefined = () => undefined,
+  beforeTool: (ctx: StageContext) => StageResult | undefined = () => undefined,
+  { model, sent } = saver(calls),
 ) {
-  const { model, sent } = saver(calls);
   const events: TurnEvent[] = await Array.fromAsync(
     runTurn(
       {
@@ -157,7 +158,9 @@ async function contextTurn(
             ? answer(ctx)
             : ctx.stage === 'post_tool'
               ? afterTool(ctx)
-              : undefined,
+              : ctx.stage === 'pre_tool'
+                ? beforeTool(ctx)
+                : undefined,
       },
       model,
     ),
@@ -368,22 +371,60 @@ Deno.test('context: a guardrail block at the context boundary refuses the turn',
   );
 });
 
-Deno.test('post_step: a step that ends the turn does not run it', async () => {
-  let ran = false;
-  const { events, sent } = await contextTurn(
+for (const [label, afterTool, beforeTool] of [
+  ['ends the turn', () => ({ end: true }), () => undefined],
+  ['aborts the turn', () => ({ abort: true }), () => undefined],
+  ['gates', () => undefined, () => ({ confirm: { summary: 'Save Monty?' } })],
+] satisfies [string, () => StageResult | undefined, () => StageResult | undefined][]) {
+  Deno.test(`post_step: a step that ${label} does not run it`, async () => {
+    let ran = false;
+    const { events, sent } = await contextTurn(
+      ONE_AT_A_TIME,
+      [SAVE],
+      () => {
+        ran = true;
+        return { context: { server: 'plants: 25' } };
+      },
+      undefined,
+      afterTool,
+      beforeTool,
+    );
+    assertEquals(sent.length, 1);
+    assertEquals(ran, false);
+    assertEquals(postStepRuns(events).length, 0);
+    assertEquals(replacedEvents(events).length, 0);
+    assertEquals(warningCodes(events), []);
+  });
+}
+
+Deno.test('post_step: the last step maxSteps allows does not run it', async () => {
+  const sent: ModelRequest[] = [];
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      sent.push(req);
+      yield {
+        type: 'tool',
+        tool: { name: SAVE, arguments: { val: 1 }, callId: `c${sent.length}` },
+      };
+    },
+  };
+  const steps: number[] = [];
+  const { events } = await contextTurn(
     ONE_AT_A_TIME,
-    [SAVE],
-    () => {
-      ran = true;
-      return { context: { server: 'plants: 25' } };
+    [],
+    (ctx) => {
+      steps.push(ctx.step);
+      return undefined;
     },
     undefined,
-    () => ({ end: true }),
+    undefined,
+    undefined,
+    { model, sent },
   );
-  assertEquals(sent.length, 1);
-  assertEquals(ran, false);
-  assertEquals(replacedEvents(events).length, 0);
-  assertEquals(warningCodes(events), []);
+  assertEquals(sent.length, 4);
+  assertEquals(steps, [1, 2, 3]);
+  assertEquals(postStepRuns(events).length, 3);
 });
 
 /** A reply that goes on after an earlier run's call settled: the host's history ends with its result. */

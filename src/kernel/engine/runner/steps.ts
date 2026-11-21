@@ -663,7 +663,7 @@ function recordProviderToolFailure(
 
 /**
  * `post_step`: the host's handler reads the step once every call settled, before the next model
- * step, and its `context` lands then.
+ * step, and its `context` lands then. Not after the last step `maxSteps` allows.
  */
 async function* runPostStep(args: {
   state: StepExecutionState;
@@ -676,6 +676,8 @@ async function* runPostStep(args: {
   signal?: AbortSignal;
 }): AsyncGenerator<TurnEvent, void> {
   const { state, calls, settlements, signal } = args;
+  // why: The last step maxSteps allows has no next step to read what post_step gives.
+  if (injectWouldExceedMaxSteps(state.stepCount, args.generation.maxSteps)) return;
   yield* applyTurnStage({
     profile: args.profile,
     generation: args.generation,

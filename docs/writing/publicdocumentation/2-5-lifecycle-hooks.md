@@ -28,13 +28,14 @@ const events = runTurn({
 
 ### Lifecycle Stages & Affordances
 
-A turn moves through up to five lifecycle stages in sequence. The handler receives a `StageContext` and can return a `StageResult` containing permitted affordances for that milestone:
+A turn moves through up to six lifecycle stages in sequence. The handler receives a `StageContext` and can return a `StageResult` containing permitted affordances for that milestone:
 
 | Stage | Trigger & Context | Permitted Affordances (`StageResult`) |
 | :--- | :--- | :--- |
 | **`'pre_turn'`** | Fires before dispatching input to the provider. `ctx.history` contains existing messages. | `inject`, `abort` |
 | **`'pre_tool'`** | Fires after the model requests tools, before handlers execute. `ctx.stepCalls` lists all calls in the step. | `abort`, `deny`, `confirm`, `mutate`, `waitFor` |
-| **`'post_tool'`** | Fires after a tool settles or fails. `ctx.outputRaw`, `ctx.outputForModel`, `ctx.outputModel`, and `ctx.failure` are populated. | `inject`, `abort`, `deny`, `mutate`, `labelFailed`, `end`, `context` (text turns) |
+| **`'post_tool'`** | Fires after a tool settles or fails. `ctx.outputRaw`, `ctx.outputForModel`, `ctx.outputModel`, and `ctx.failure` are populated. | `inject`, `abort`, `deny`, `mutate`, `labelFailed`, `end` (text turns) |
+| **`'post_step'`** | Text turns only. Fires once a step, after every tool call of the step settles, when the model takes another step. `ctx.settledCalls` lists the calls and whether each completed or failed. | `context` |
 | **`'before_end'`** | Fires after final reply generation, before guardrail verdict and history commit. `ctx.reply` contains the draft answer. | `inject`, `abort` |
 | **`'post_turn'`** | Fires after all generation, tool loops, and cleanup finish, right before `done`. | *(None — read-only telemetry)* |
 
@@ -106,16 +107,16 @@ The reply is what the model wrote before its calls, and it is empty when the mod
 
 ### Giving the Next Step New Context (`context`)
 
-On a text turn, a `post_tool` handler can replace the context your server sent with the turn. Use it when a call changes what that context says, for example a call that saves a plant while the context counts the plants:
+On a text turn, a `post_step` handler can replace the context your server sent with the turn. Use it when the step's calls change what that context says, for example a call that saves a plant while the context counts the plants:
 
 ```ts
 // ... inside onStage
-if (ctx.stage === 'post_tool' && ctx.tool === 'save_plant' && !ctx.failure) {
+if (ctx.stage === 'post_step' && ctx.settledCalls?.some((call) => call.outcome === 'completed')) {
   return { context: { server: await buildContext() } };
 }
 ```
 
-Once the step's calls settle, the new context takes the place of the old one in the turn's opening message, and the model's next step reads it. The page's context and the user's words stay as they were. The new context passes the same checks as `input.context.server`, and the guardrails at the context boundary. A `stage` event with `contextReplaced: true` names the call whose context landed. A live session or `invokeTool()` has no turn context, so `context` warns `context_not_allowed` there.
+`post_step` runs once every call of the step has settled, so with `tools.parallel: true` the context you build there sees what every call wrote. The new context takes the place of the old one in the turn's opening message, and the model's next step reads it. The page's context and the user's words stay as they were. The new context passes the same checks as `input.context.server`, and the guardrails at the context boundary. When it lands, the turn emits a `post_step` `stage` event with `contextReplaced: true`. `post_step` does not run after a step that stopped, gated or ended the turn, since no model step follows it.
 
 ---
 

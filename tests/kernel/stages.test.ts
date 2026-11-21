@@ -33,8 +33,11 @@ function gateOf(value: unknown): ToolGate | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-Deno.test('TURN_STAGES is the locked five-stage timeline', () => {
-  assertEquals([...TURN_STAGES], ['pre_turn', 'pre_tool', 'post_tool', 'before_end', 'post_turn']);
+Deno.test('TURN_STAGES is the locked six-stage timeline', () => {
+  assertEquals(
+    [...TURN_STAGES],
+    ['pre_turn', 'pre_tool', 'post_tool', 'post_step', 'before_end', 'post_turn'],
+  );
   for (const s of TURN_STAGES) assertEquals(isTurnStage(s), true);
   assertEquals(isTurnStage('pre_llm'), false);
   assertEquals(isTurnStage('pre_tool_followup'), false);
@@ -45,6 +48,7 @@ Deno.test('TURN_INJECT_STAGES excludes tool gates and post_turn', () => {
   assertEquals([...TURN_INJECT_STAGES], ['pre_turn', 'post_tool', 'before_end']);
   assertEquals(isTurnInjectStage('pre_tool'), false);
   assertEquals(isTurnInjectStage('post_turn'), false);
+  assertEquals(isTurnInjectStage('post_step'), false);
 });
 
 Deno.test('STAGE_AFFORDANCE_MATRIX matches the contract table', () => {
@@ -59,8 +63,9 @@ Deno.test('STAGE_AFFORDANCE_MATRIX matches the contract table', () => {
   );
   assertEquals(
     [...STAGE_AFFORDANCE_MATRIX.post_tool],
-    ['inject', 'abort', 'deny', 'mutate', 'labelFailed', 'end', 'context'],
+    ['inject', 'abort', 'deny', 'mutate', 'labelFailed', 'end'],
   );
+  assertEquals([...STAGE_AFFORDANCE_MATRIX.post_step], ['context']);
   assertEquals([...STAGE_AFFORDANCE_MATRIX.before_end], ['inject', 'abort']);
   assertEquals([...STAGE_AFFORDANCE_MATRIX.post_turn], []);
   assertEquals(stageAllowsAffordance('pre_tool', 'inject'), false);

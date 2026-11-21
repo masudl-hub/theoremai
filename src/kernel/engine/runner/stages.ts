@@ -146,44 +146,31 @@ function withContext(message: TurnHistoryMessage, block: string): TurnHistoryMes
     : { ...message, parts: [{ type: 'text', text: block }, ...message.parts] };
 }
 
-/** A `stage` event that says why the step's `context` did not land. */
+/** A `post_step` event that says why the step's `context` did not land. */
 function contextRefused(
-  extra: { callId: string; toolName: string },
   code: 'context_invalid' | 'context_not_allowed',
   message: string,
 ): TurnEventOf<'stage'> {
   return {
-    ...stageEventFields('post_tool', extra),
+    ...stageEventFields('post_step', {}),
     stageWarnings: [{ code, field: 'context', message }],
   };
 }
 
 /**
- * Lands a step's `post_tool` `context` (`StageResult.context`): read as the request's
+ * Lands a `post_step` `context` (`StageResult.context`): read as the request's
  * `input.context.server` is, then put in the turn's opening message in place of the old one, so
  * the next model step reads it. The request is unchanged, and so is what the host keeps of the
  * turn. A guardrail block refuses the turn; any other reason it cannot land is a warning.
  */
-export function* landStageContext(
+function* landStageContext(
   state: StepExecutionState,
   profile: Profile,
   context: { server: unknown },
-  extra: { callId: string; toolName: string },
-  /** The step was stopped, gated, or ended: no model step follows it to read the context. */
-  stepStopped: boolean,
 ): Generator<TurnEvent, void> {
-  if (stepStopped) {
-    yield contextRefused(
-      extra,
-      'context_not_allowed',
-      'context is ignored: the step stopped, so no model step reads it', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-    return;
-  }
   // why: The provider holds the conversation, so a message it already has cannot change.
   if ('providerContinuation' in profile && profile.providerContinuation?.history === 'provider') {
     yield contextRefused(
-      extra,
       'context_not_allowed',
       "context is ignored under providerContinuation.history 'provider': the provider already has the turn's opening message", // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
@@ -191,14 +178,13 @@ export function* landStageContext(
   }
   const problem = turnContextProblem(profile, context);
   if (problem) {
-    yield contextRefused(extra, 'context_invalid', problem);
+    yield contextRefused('context_invalid', problem);
     return;
   }
   const at = state.openingAt;
   const opening = at === undefined ? undefined : state.currentHistory[at];
   if (at === undefined || !opening) {
     yield contextRefused(
-      extra,
       'context_not_allowed',
       'context is ignored: the turn has no opening message to carry it', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
@@ -221,7 +207,7 @@ export function* landStageContext(
   // why: A failed retry puts its files back from the message it saved, which carries the old context.
   const saved = state.mediaTry?.originals.get(at);
   if (saved) state.mediaTry?.originals.set(at, withContext(saved, block));
-  yield stageEventFields('post_tool', { ...extra, contextReplaced: true });
+  yield stageEventFields('post_step', { contextReplaced: true });
 }
 
 /**
@@ -341,7 +327,7 @@ export function* landLateResultsAt(
 
 /**
  * Runs a turn stage: the host's handler, then the steers waiting for the turn. Both land together,
- * the host's first; an abort lands neither.
+ * the host's first; an abort lands neither. A `post_step` `context` lands as the handler returns.
  */
 export async function* applyTurnStage(
   args: ApplyTurnStageArgs,
@@ -365,6 +351,12 @@ export async function* applyTurnStage(
     next = await run.next();
   }
   const out = next.value;
+  if (out.context) {
+    for (const event of landStageContext(state, profile, out.context)) {
+      state.allEmittedEvents.push(event);
+      yield event;
+    }
+  }
   const steers = out.abort
     ? undefined
     : yield* steersToLand(state, profile, call.stage, call.injectWouldExceedMaxSteps);

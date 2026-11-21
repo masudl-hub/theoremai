@@ -72,7 +72,7 @@ interface StepExecutionState {
   turnOnly?: boolean;
   /**
    * Where the turn's opening message is in `currentHistory`: the user's input with the host's and
-   * the page's context before it, which a `post_tool` `context` rewrites. Unset when the turn opened
+   * the page's context before it, which a `post_step` `context` rewrites. Unset when the turn opened
    * without one (a run that goes on from a tool result).
    */
   openingAt?: number;

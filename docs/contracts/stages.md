@@ -14,7 +14,7 @@ the release cut.
 | `TURN_STAGES` / inject stages / gate kinds / awaiting unions | landed |
 | `STAGE_AFFORDANCE_MATRIX` / `applyStageResult` / parsers | landed |
 | `TurnRequest` / `SessionRequest` / `InvokeToolRequest.onStage` types | landed |
-| Text `runTurn` `pre_turn` / `post_tool` / `before_end` / `post_turn` | landed |
+| Text `runTurn` `pre_turn` / `post_tool` / `post_step` / `before_end` / `post_turn` | landed |
 | Text barriers, the steer handler and `barrier` events deleted from API | landed |
 | `pre_tool` deny/confirm/mutate execute cutover | landed |
 | Tool `preTool` replaced the old can-execute check, `preflight` and `interactive` | landed |
@@ -59,7 +59,8 @@ ceiling on host side effects.
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `waitFor`, `abort` |
-| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject`, `abort`, `end`, and `context` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort`, `end`, `context` (text turns) |
+| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject`, `abort`, and `end` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort`, `end` (text turns) |
+| `post_step` | Text turns only. Once a step, after every call of the step settled, when the model takes another step: not after a step stopped, gated or ended. Before the step's steers and late results land | no | `context` |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 
@@ -72,6 +73,7 @@ type TurnStage =
   | 'pre_turn'
   | 'pre_tool'
   | 'post_tool'
+  | 'post_step'
   | 'before_end'
   | 'post_turn';
 
@@ -92,6 +94,8 @@ interface StageContext {
   input?: unknown;
   /** pre_tool in a turn's step: every call the model made in the step, in its order, as the host was shown it. */
   stepCalls?: readonly { callId: string; tool: string; input: unknown }[];
+  /** post_step: every call the model made in the step, in its order, each settled. `failed` when it threw, was denied, or the provider failed it. */
+  settledCalls?: readonly { callId: string; tool: string; input: unknown; outcome: 'completed' | 'failed' }[];
   /** pre_tool: the user approved this call where it stopped, at its permission or a confirmation. A sign-in is not an approval. */
   approved?: true;
   /** pre_tool: what the turn had read from outside the host when the step began, the record guardrails.taint checks. A copy: changing it changes no check. Unset when it has read nothing. */
@@ -160,7 +164,7 @@ interface StageResult {
   waitFor?: string[];
   /** post_tool on a text turn only: the turn ends once the step's calls settle. */
   end?: true;
-  /** post_tool on a text turn only: the host's new context, read by the model's next step. */
+  /** post_step only: the host's new context, read by the model's next step. */
   context?: { server: unknown };
 }
 
@@ -172,28 +176,27 @@ type StageHandler = (
 **Affordance matrix (invalid combinations are no-ops with a host-visible
 `stageWarnings` follow-up on a `stage` event — not silent drop):**
 
-| Affordance | `pre_turn` | `pre_tool` | `post_tool` | `before_end` | `post_turn` |
-| --- | --- | --- | --- | --- | --- |
-| `inject` | yes* | no | yes* | yes* | no |
-| `abort` | yes | yes | yes | yes | no |
-| `deny` | no | yes | yes | no | no |
-| `confirm` | no | yes | no | no | no |
-| `mutate` | no | yes | yes | no | no |
-| `labelFailed` | no | no | yes | no | no |
-| `waitFor` | no | yes | no | no | no |
-| `end` | no | no | yes† | no | no |
-| `context` | no | no | yes‡ | no | no |
+| Affordance | `pre_turn` | `pre_tool` | `post_tool` | `post_step` | `before_end` | `post_turn` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `inject` | yes* | no | yes* | no | yes* | no |
+| `abort` | yes | yes | yes | no | yes | no |
+| `deny` | no | yes | yes | no | no | no |
+| `confirm` | no | yes | no | no | no | no |
+| `mutate` | no | yes | yes | no | no | no |
+| `labelFailed` | no | no | yes | no | no | no |
+| `waitFor` | no | yes | no | no | no | no |
+| `end` | no | no | yes† | no | no | no |
+| `context` | no | no | no | yes | no | no |
 
 \*Only when `profileAllowsInject` / session inject gate is true; otherwise no-op.
 †Only in a text turn's tool step. A live session or `invokeTool` has no turn for it to end: `end` warns `end_not_allowed` there.
-‡Only in a text turn's tool step. A live session or `invokeTool` has no turn context to replace: `context` warns `context_not_allowed` there.
 
 ### Attach points (locked)
 
 | Surface | Handler | Stages |
 | --- | --- | --- |
-| `TurnRequest.onStage` | Required for inject; optional otherwise | All five on text; image/speech emit stages but inject never allowed |
-| `SessionRequest.onStage` | Set once at `runSession`; immutable for session life | All five on live cycles + tool executes |
+| `TurnRequest.onStage` | Required for inject; optional otherwise | All six on text; image/speech emit stages but inject never allowed, and have no `post_step` |
+| `SessionRequest.onStage` | Set once at `runSession`; immutable for session life | Every stage but `post_step` on live cycles + tool executes |
 | `InvokeToolRequest.onStage` | Optional | `pre_tool` / `post_tool` only |
 | `LiveSession` | **No** way to set a handler later — avoids mid-session races | — |
 
@@ -311,27 +314,26 @@ example a call that saves a new plant while the context counts the plants. The
 model's next step then reads the new count, not the count from the start of
 the turn.
 
-- At `post_tool` on a text turn, `context: { server }` replaces the host's
-  context in the turn's opening message. The kernel lands it once every call of
-  the step has settled, before the model's next step. When the opening message
-  had no host context, the new one goes first in it.
+- At `post_step`, `context: { server }` replaces the host's context in the
+  turn's opening message, before the model's next step. When the opening
+  message had no host context, the new one goes first in it.
+- `post_step` runs once every call of the step has settled, so with
+  `tools.parallel: true` a context built there sees what every call wrote.
+  `settledCalls` names each call and whether it completed or failed.
 - Only the `<turn_context from="server">` block changes. The page's context, the
   user's words and the opening message's files stay as they were.
 - `server` is read as `input.context.server` is: the profile must list `server`
   in `inputs.context.from`, and the text must fit `maxChars`. A value that is
   not a string is sent as JSON. The guardrails then read it at the `context`
   boundary. A guardrail that blocks it refuses the turn.
-- When several calls of the step return `context`, the last call in the model's
-  order lands, once.
-- The swap does not land when the step stopped (an `abort`, a gate, or `end`),
-  when the provider holds the conversation (`providerContinuation.history:
-  'provider'`), or when the run opened without a message of its own. A reply
-  that goes on after an earlier run, sent with no `input.context`, opens without
-  one. It warns `context_not_allowed` there.
+- The swap does not land when the provider holds the conversation
+  (`providerContinuation.history: 'provider'`), or when the run opened without
+  a message of its own. A reply that goes on after an earlier run, sent with no
+  `input.context`, opens without one. It warns `context_not_allowed` there.
 - It warns `context_invalid` when the value is not `{ server }`, or when the
   profile does not take it from the host or it is over `maxChars`.
-- When it lands, the turn emits `{ type: 'stage', stage: 'post_tool', callId,
-  toolName, contextReplaced: true }`, naming the call whose context landed.
+- When it lands, the turn emits `{ type: 'stage', stage: 'post_step',
+  contextReplaced: true }`.
 - The request is unchanged. What the host saves of the turn keeps the context it
   sent.
 
@@ -512,7 +514,8 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 3. On **deny**: write synthetic failure result; `post_tool`; **continue**
    siblings.
 4. On **awaiting / success / error**: `post_tool`; **continue** siblings.
-5. After batch without gate → model follow-up or `before_end` as today.
+5. After batch without gate, stop, or `end` → `post_step` once, then the step's
+   steers and late results, then model follow-up or `before_end` as today.
 
 ### Repair
 
@@ -542,6 +545,7 @@ in turn history, so a `before_end` inject on the retry lands after it.
 | --- | --- |
 | `pre_turn` | After resolve / sanitize / compaction-before / canary bind; before first provider step of the turn |
 | `pre_tool` / `post_tool` | Shared execute path. After a step's calls and their steers, the turn asks `TurnRequest.lateResults` ([kernel.md](./kernel.md#late-results)) |
+| `post_step` | Once a step's calls settled, when the model takes another step; before the step's steers and late results |
 | `before_end` | No further autonomous work (no pending tools, or batch finished without gate); **before** egress/validation finalize. Inject or late results → the answer, then the inject, then the late results, join turn history and the step loop re-enters if under `maxSteps` |
 | `post_turn` | Immediately after terminal `done` |
 

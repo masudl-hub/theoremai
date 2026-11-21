@@ -103,7 +103,7 @@ In long multi-step workflows, waiting for an agent to finish multiple research s
 
 ### How Steering Works
 
-1. **Stage Boundaries**: Theorem emits `stage` events (`'pre_turn'`, `'pre_tool'`, `'post_tool'`, `'before_end'`, `'post_turn'`). Steering messages are applied at the nearest stage boundary.
+1. **Stage Boundaries**: Theorem emits `stage` events (`'pre_turn'`, `'pre_tool'`, `'post_tool'`, `'post_step'`, `'before_end'`, `'post_turn'`). Steering messages are applied at the nearest stage boundary.
 2. **Context Preservation**: Existing tool results and conversation history remain intact; the steering message is appended as a high-priority user instruction.
 3. **Non-Destructive**: Unlike an abort signal (`signal.abort()`), steering does not tear down connection state or discard accumulated work.
 

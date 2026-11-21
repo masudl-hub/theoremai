@@ -361,6 +361,10 @@ const TURN_STAGE_OPTIONS: Readonly<Record<TurnStage, TraceOptionMeta>> = {
   pre_turn: { label: 'Before the turn', doc: 'Before the first model call.' },
   pre_tool: { label: 'Before a tool', doc: 'Before a tool call runs.' },
   post_tool: { label: 'After a tool', doc: 'After a tool call settles.' },
+  post_step: {
+    label: 'After a step',
+    doc: 'After every tool call in a model step settles, before the next model step.',
+  },
   before_end: { label: 'Before the end', doc: 'Before the turn delivers its final answer.' },
   post_turn: { label: 'After the turn', doc: 'After the turn has ended.' },
 };

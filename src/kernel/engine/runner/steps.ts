@@ -13,7 +13,7 @@ import { ANSWER_TOOL, answersByTool, withAnswerTool } from '../../answer-tool.ts
 import { stepReplyMessages } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
-import { injectWouldExceedMaxSteps } from '../../stages.ts';
+import { injectWouldExceedMaxSteps, type StageHandler } from '../../stages.ts';
 import {
   AUTO_CONTINUE_DELAY_MS,
   cutOffRepairs,
@@ -57,9 +57,9 @@ import { startCallTrace } from '../turn-trace.ts';
 import { canDropMedia, dropMedia, refusedReport, restoreMedia } from './refused-media.ts';
 import {
   applyStageInjects,
+  applyTurnStage,
   type LateResultsAt,
   landLateResultsAt,
-  landStageContext,
   recordReply,
   steersToLand,
   unreadLateResultsAt,
@@ -662,29 +662,35 @@ function recordProviderToolFailure(
 }
 
 /**
- * The context a step's calls gave lands once, after every call settled: the last call's, in the
- * model's order. A call that failed before it ran gave none.
+ * `post_step`: the host's handler reads the step once every call settled, before the next model
+ * step, and its `context` lands then.
  */
-function* landStepContext(
-  state: StepExecutionState,
-  profile: Profile,
-  calls: readonly ModelCall[],
-  settlements: readonly (ToolExecuteSettlement | undefined)[],
-  stepStopped: boolean,
-): Generator<TurnEvent, void> {
-  const index = calls.findLastIndex(
-    (call, at) => call.failure === undefined && settlements[at]?.context !== undefined,
-  );
-  const call = calls[index];
-  const context = settlements[index]?.context;
-  if (!call || !context) return;
-  yield* landStageContext(
+async function* runPostStep(args: {
+  state: StepExecutionState;
+  profile: Profile;
+  generation: ResolvedGeneration;
+  onStage: StageHandler | undefined;
+  /** The step's calls, each with its input as the host was shown it. */
+  calls: readonly (ModelCall & { shown: unknown })[];
+  settlements: readonly (ToolExecuteSettlement | undefined)[];
+  signal?: AbortSignal;
+}): AsyncGenerator<TurnEvent, void> {
+  const { state, calls, settlements, signal } = args;
+  yield* applyTurnStage({
+    profile: args.profile,
+    generation: args.generation,
     state,
-    profile,
-    context,
-    { callId: call.callId, toolName: call.name },
-    stepStopped,
-  );
+    stage: 'post_step',
+    step: state.stepCount,
+    ...(args.onStage ? { onStage: args.onStage } : {}),
+    ...(signal ? { signal } : {}),
+    settledCalls: calls.map((call, index) => ({
+      callId: call.callId,
+      tool: call.name,
+      input: call.shown,
+      outcome: call.failure || settlements[index]?.failure ? 'failed' : 'completed',
+    })),
+  });
 }
 
 function* applyToolSettlement(
@@ -803,7 +809,7 @@ async function* handleModelCalls(
     history: () => state.currentHistory,
     injectAllowed: profileAllowsInject(profile),
     injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
-    textToolStep: true,
+    endAllowed: true,
     host: generation.host,
     signal,
     stepCalls: calls.map((call) => ({ callId: call.callId, tool: call.name, input: call.shown })),
@@ -881,11 +887,10 @@ async function* handleModelCalls(
     if (outcome === 'gated') gated = true;
     if (outcome === 'ended') ended = true;
   }
-  // why: No model step follows a step stopped, gated or ended, so nothing lands for it to read.
-  const stopped = cancelled || gated || ended;
-  yield* landStepContext(state, profile, calls, settlements, stopped);
   // why: Steers land once a step, after every call's own post_tool inject, so calls side by side never land one twice; an ended turn reads nothing more, so its steers stay waiting.
-  if (!stopped && calls.length > 0) {
+  if (!cancelled && !gated && !ended && calls.length > 0) {
+    // why: post_step reads the step once every call settled; a step stopped, gated or ended has no next step to read what it gives.
+    yield* runPostStep({ state, profile, generation, onStage, calls, settlements, signal });
     const steers = yield* steersToLand(
       state,
       profile,

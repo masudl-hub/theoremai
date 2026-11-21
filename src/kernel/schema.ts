@@ -249,6 +249,7 @@ export const TURN_STAGES = [
   'pre_turn',
   'pre_tool',
   'post_tool',
+  'post_step',
   'before_end',
   'post_turn',
 ] as const;

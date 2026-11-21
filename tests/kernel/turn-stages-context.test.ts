@@ -18,6 +18,7 @@ import { geminiModels } from '../fixtures/models.ts';
 
 const SAVE = 'context_test_save';
 const NOTE = 'context_test_note';
+const BREAK = 'context_test_break';
 const ONE_AT_A_TIME = 'context_test_caller';
 const SIDE_BY_SIDE = 'context_test_parallel';
 const NO_SERVER = 'context_test_client_only';
@@ -43,6 +44,21 @@ for (const name of [SAVE, NOTE]) {
     handler: () => ({ finding: 'saved' }),
   });
 }
+registerTool({
+  type: 'function',
+  name: BREAK,
+  description: 'Fails to save a plant.',
+  category: 'test',
+  access: 'read-write',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({ val: z.number() }),
+  output: z.object({ finding: z.string() }),
+  handler: () => {
+    throw new Error('the plant list is locked');
+  },
+});
 
 /** A `find` that matches all of a text naming `word`. */
 function findWord(word: string): HostFind {
@@ -66,7 +82,7 @@ function define(
       identity: { handle: id },
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 4,
-      tools: { allow: [SAVE, NOTE], parallel: options.parallel ?? false },
+      tools: { allow: [SAVE, NOTE, BREAK], parallel: options.parallel ?? false },
       inputs: {
         text: true,
         context: { from: options.from ?? ['client', 'server'], maxChars: 40 },
@@ -119,12 +135,16 @@ function saver(calls: readonly string[]): { model: TurnModel; sent: ModelRequest
   };
 }
 
-/** Runs one turn whose `post_tool` returns `answer(ctx)`; returns its events and each request. */
+/**
+ * Runs one turn whose `post_step` returns `answer(ctx)`, and whose `post_tool` returns
+ * `afterTool(ctx)`; returns its events and each request.
+ */
 async function contextTurn(
   profile: string,
   calls: readonly string[],
   answer: (ctx: StageContext) => StageResult | undefined,
   input: TurnInput = { text: 'Add Monty', context: { server: 'plants: 24' } },
+  afterTool: (ctx: StageContext) => StageResult | undefined = () => undefined,
 ) {
   const { model, sent } = saver(calls);
   const events: TurnEvent[] = await Array.fromAsync(
@@ -132,7 +152,12 @@ async function contextTurn(
       {
         profile,
         input,
-        onStage: (ctx) => (ctx.stage === 'post_tool' ? answer(ctx) : undefined),
+        onStage: (ctx) =>
+          ctx.stage === 'post_step'
+            ? answer(ctx)
+            : ctx.stage === 'post_tool'
+              ? afterTool(ctx)
+              : undefined,
       },
       model,
     ),
@@ -153,6 +178,17 @@ function openingText(sent: readonly ModelRequest[], step: number): string {
 
 function replacedEvents(events: readonly TurnEvent[]) {
   return events.filter((e) => e.type === 'stage' && e.contextReplaced === true);
+}
+
+/** The `post_step` events the handler ran at: one per step, before the replaced context lands. */
+function postStepRuns(events: readonly TurnEvent[]) {
+  return events.filter(
+    (e) =>
+      e.type === 'stage' &&
+      e.stage === 'post_step' &&
+      e.contextReplaced === undefined &&
+      e.stageWarnings === undefined,
+  );
 }
 
 /** The id the turn gave the model's call to `name`. */
@@ -182,7 +218,7 @@ Deno.test('context: the next model step reads the new host context in place of t
   assert(replaced[0]?.type === 'stage');
   assertEquals(
     [replaced[0].stage, replaced[0].callId, replaced[0].toolName],
-    ['post_tool', callIdOf(events, SAVE), SAVE],
+    ['post_step', undefined, undefined],
   );
   assertEquals(warningCodes(events), []);
 });
@@ -218,20 +254,51 @@ for (const [label, profile] of [
   ['one at a time', ONE_AT_A_TIME],
   ['side by side', SIDE_BY_SIDE],
 ] as const) {
-  Deno.test(`context: once a step, the last call's lands (${label})`, async () => {
-    const { events, sent } = await contextTurn(profile, [SAVE, NOTE], (ctx) => ({
-      context: { server: `plants: ${ctx.tool === SAVE ? 25 : 26}` },
-    }));
-    assertEquals(
-      openingText(sent, 1).startsWith('<turn_context from="server">\nplants: 26\n'),
-      true,
+  Deno.test(`post_step: runs once a step, after every call settled (${label})`, async () => {
+    let saved = 0;
+    const seen: StageContext[] = [];
+    const { events, sent } = await contextTurn(
+      profile,
+      [SAVE, NOTE],
+      (ctx) => {
+        seen.push(ctx);
+        return { context: { server: `plants: ${24 + saved}` } };
+      },
+      undefined,
+      () => {
+        saved += 1;
+        return undefined;
+      },
     );
-    const replaced = replacedEvents(events);
-    assertEquals(replaced.length, 1);
-    assert(replaced[0]?.type === 'stage');
-    assertEquals(replaced[0].callId, callIdOf(events, NOTE));
+    assertEquals(openingText(sent, 1).startsWith(REPLACED.replace('25', '26')), true);
+    assertEquals(replacedEvents(events).length, 1);
+    assertEquals(postStepRuns(events).length, 1);
+    assertEquals(seen.length, 1);
+    assertEquals(seen[0]?.step, 1);
+    assertEquals(
+      seen[0]?.settledCalls?.map((call) => [call.callId, call.tool, call.input, call.outcome]),
+      [
+        [callIdOf(events, SAVE), SAVE, { val: 1 }, 'completed'],
+        [callIdOf(events, NOTE), NOTE, { val: 1 }, 'completed'],
+      ],
+    );
   });
 }
+
+Deno.test('post_step: a call that failed is named failed', async () => {
+  const seen: StageContext[] = [];
+  await contextTurn(ONE_AT_A_TIME, [BREAK, SAVE], (ctx) => {
+    seen.push(ctx);
+    return undefined;
+  });
+  assertEquals(
+    seen[0]?.settledCalls?.map((call) => [call.tool, call.outcome]),
+    [
+      [BREAK, 'failed'],
+      [SAVE, 'completed'],
+    ],
+  );
+});
 
 Deno.test('context: text with $ patterns is kept as written', async () => {
   const { sent } = await contextTurn(ONE_AT_A_TIME, [SAVE], () => ({
@@ -301,14 +368,22 @@ Deno.test('context: a guardrail block at the context boundary refuses the turn',
   );
 });
 
-Deno.test('context: a step that ends the turn does not land it', async () => {
-  const { events, sent } = await contextTurn(ONE_AT_A_TIME, [SAVE], () => ({
-    end: true,
-    context: { server: 'plants: 25' },
-  }));
+Deno.test('post_step: a step that ends the turn does not run it', async () => {
+  let ran = false;
+  const { events, sent } = await contextTurn(
+    ONE_AT_A_TIME,
+    [SAVE],
+    () => {
+      ran = true;
+      return { context: { server: 'plants: 25' } };
+    },
+    undefined,
+    () => ({ end: true }),
+  );
   assertEquals(sent.length, 1);
+  assertEquals(ran, false);
   assertEquals(replacedEvents(events).length, 0);
-  assertEquals(warningCodes(events), ['context_not_allowed']);
+  assertEquals(warningCodes(events), []);
 });
 
 /** A reply that goes on after an earlier run's call settled: the host's history ends with its result. */
@@ -357,41 +432,28 @@ Deno.test('context: a conversation the provider holds warns and stays as it is',
   assertEquals(warningCodes(events), ['context_not_allowed']);
 });
 
-Deno.test('applyStageResult: context only at post_tool, only from the host, only in a text step', () => {
+Deno.test('applyStageResult: context only at post_step, only from the host', () => {
   const ok = applyStageResult({
-    stage: 'post_tool',
-    injectAllowed: true,
-    textToolStep: true,
+    stage: 'post_step',
+    injectAllowed: false,
     result: { context: { server: 'plants: 25' } },
   });
   assertEquals(ok.context, { server: 'plants: 25' });
   assertEquals(ok.warnings, []);
 
-  const elsewhere = applyStageResult({
-    stage: 'pre_tool',
-    injectAllowed: true,
-    textToolStep: true,
-    result: { context: { server: 'plants: 25' } },
-  });
-  assertEquals(elsewhere.context, undefined);
-  assertEquals(elsewhere.warnings[0]?.code, 'affordance_not_allowed');
+  for (const stage of ['pre_tool', 'post_tool', 'before_end'] as const) {
+    const elsewhere = applyStageResult({
+      stage,
+      injectAllowed: true,
+      result: { context: { server: 'plants: 25' } },
+    });
+    assertEquals(elsewhere.context, undefined);
+    assertEquals(elsewhere.warnings[0]?.code, 'affordance_not_allowed');
+  }
 
   for (const context of ['plants: 25', { client: 'x' }, { server: 'x', client: 'y' }, {}]) {
-    const bad = applyStageResult({
-      stage: 'post_tool',
-      injectAllowed: true,
-      textToolStep: true,
-      result: { context },
-    });
+    const bad = applyStageResult({ stage: 'post_step', injectAllowed: false, result: { context } });
     assertEquals(bad.context, undefined);
     assertEquals(bad.warnings[0]?.code, 'context_invalid');
   }
-
-  const noTurn = applyStageResult({
-    stage: 'post_tool',
-    injectAllowed: false,
-    result: { context: { server: 'plants: 25' } },
-  });
-  assertEquals(noTurn.context, undefined);
-  assertEquals(noTurn.warnings[0]?.code, 'context_not_allowed');
 });

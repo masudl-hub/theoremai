@@ -1114,9 +1114,8 @@ export type TurnEvent =
        */
       released?: number;
       /**
-       * A `post_tool` `context` landed: from the next model step on, the turn reads the host's new
-       * context in place of the old (`StageResult.context`). The call named is the one whose
-       * handler returned it.
+       * A `post_step` `context` landed: from the next model step on, the turn reads the host's new
+       * context in place of the old (`StageResult.context`).
        */
       contextReplaced?: true;
       /** In a live call, the id `LiveSession.wake` returned for the turn this stage belongs to. */

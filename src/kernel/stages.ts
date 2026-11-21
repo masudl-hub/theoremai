@@ -25,7 +25,7 @@ export type { AwaitingUserInput, ToolGate };
 /**
  * What a stage handler can ask for: inject messages, abort, deny a tool call, ask for
  * confirmation, mutate it, label it failed, have it wait for other calls in its step, end
- * the turn once its step's calls settle, or replace the host's context the turn reads.
+ * the turn once its step's calls settle, or replace the host's context the next step reads.
  */
 export const STAGE_AFFORDANCES = [
   'inject',
@@ -46,15 +46,8 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
   Object.freeze({
     pre_turn: Object.freeze(['inject', 'abort'] as const),
     pre_tool: Object.freeze(['abort', 'deny', 'confirm', 'mutate', 'waitFor'] as const),
-    post_tool: Object.freeze([
-      'inject',
-      'abort',
-      'deny',
-      'mutate',
-      'labelFailed',
-      'end',
-      'context',
-    ] as const),
+    post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate', 'labelFailed', 'end'] as const),
+    post_step: Object.freeze(['context'] as const),
     before_end: Object.freeze(['inject', 'abort'] as const),
     post_turn: Object.freeze([] as const),
   });
@@ -74,12 +67,22 @@ export interface StepCall {
   input: unknown;
 }
 
+/**
+ * A call in a step whose calls have all settled: `completed` when it ran to its output, `failed`
+ * when it ended in a failure (it threw, was denied, or the provider failed it).
+ */
+export interface SettledStepCall extends StepCall {
+  outcome: 'completed' | 'failed';
+}
+
 export type StageCallBag = {
   callId?: string;
   tool?: string;
   input?: unknown;
   /** `pre_tool` in a turn's step: every call the model made in the step, in the order it made them. */
   stepCalls?: readonly StepCall[];
+  /** `post_step`: every call the model made in the step, in the order it made them, each settled. */
+  settledCalls?: readonly SettledStepCall[];
   /**
    * `pre_tool`: the user approved this call where it stopped, at its permission or a
    * confirmation. A sign-in is not an approval.
@@ -207,14 +210,13 @@ export interface StageResult {
    */
   end?: true;
   /**
-   * `post_tool` on a text turn only: the host's context from now on, in place of the one the turn
-   * opened with. Once the step's calls settle, its `<turn_context from="server">` block in the
-   * turn's opening message is replaced where it stands, so the next model step reads it; with no
-   * such block, it goes first in that message, where the turn would have put it. It is read as
-   * `input.context.server` is: the profile's `inputs.context` must take `server` and its
-   * `maxChars` holds, and the guardrails read it at the `context` boundary, where a block refuses
-   * the turn. When several calls in a step return it, the last call's lands. The host's request,
-   * and so what it keeps of the turn, is unchanged.
+   * `post_step` only: the host's context from now on, in place of the one the turn opened with.
+   * The `<turn_context from="server">` block in the turn's opening message is replaced where it
+   * stands, so the next model step reads it; with no such block, it goes first in that message,
+   * where the turn would have put it. It is read as `input.context.server` is: the profile's
+   * `inputs.context` must take `server` and its `maxChars` holds, and the guardrails read it at
+   * the `context` boundary, where a block refuses the turn. The host's request, and so what it
+   * keeps of the turn, is unchanged.
    */
   context?: { server: unknown };
 }
@@ -249,11 +251,8 @@ export interface StageApplyInput {
    * output the kernel owns): `mutate` is then a `mutate_invalid` warning, never a silent no-op.
    */
   mutates?: StageMutateSubject;
-  /**
-   * True on a text turn's tool step: the only place `end` has a turn to end, and `context` a
-   * turn's context to replace.
-   */
-  textToolStep?: boolean;
+  /** True on a text turn's tool step, the only place `end` has a turn to end. */
+  endAllowed?: boolean;
 }
 
 export interface InjectUnit {
@@ -734,7 +733,7 @@ function applyEndField(
     );
   } else if (result.end !== true) {
     warn(out.warnings, 'end_invalid', 'end', 'end must be true'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  } else if (!input.textToolStep) {
+  } else if (!input.endAllowed) {
     warn(
       out.warnings,
       'end_not_allowed',
@@ -770,13 +769,6 @@ function applyContextField(
       'context_invalid',
       'context',
       'context must be { server }: the host replaces its own context only', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  } else if (!input.textToolStep) {
-    warn(
-      out.warnings,
-      'context_not_allowed',
-      'context',
-      "context is ignored outside a text turn's tool step", // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   } else {
     out.context = { server: context.server };
@@ -968,7 +960,7 @@ export interface RunStageArgs extends StageCallBag {
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
   mutates?: StageMutateSubject;
-  textToolStep?: boolean;
+  endAllowed?: boolean;
   host?: unknown;
   signal?: AbortSignal;
   span?: SpanHandle;
@@ -1054,7 +1046,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     injectAllowed,
     injectWouldExceedMaxSteps,
     mutates,
-    textToolStep,
+    endAllowed,
     host,
     signal,
     span,
@@ -1088,7 +1080,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
       injectAllowed,
       injectWouldExceedMaxSteps,
       ...(mutates ? { mutates } : {}),
-      textToolStep,
+      endAllowed,
     },
     signal,
   );

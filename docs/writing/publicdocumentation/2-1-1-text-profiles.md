@@ -211,7 +211,7 @@ For full-featured conversational interfaces, `runTurn()` emits granular lifecycl
 | **`thought`** | `text: string` | Incremental internal reasoning token delta (when `streaming.streamThoughts` is enabled). |
 | **`tool`** | `tool: ToolCallEvent` | Tool execution updates: emitted when a tool call starts (`input`) and when it finishes (`output`). |
 | **`structured`** | `structured: unknown` | Verified JSON object matching the registered schema and passing all host checks. |
-| **`stage`** | `stage: TurnStage` | Lifecycle transitions: `'pre_turn'`, `'pre_tool'`, `'post_tool'`, `'before_end'`, `'post_turn'`. |
+| **`stage`** | `stage: TurnStage` | Lifecycle transitions: `'pre_turn'`, `'pre_tool'`, `'post_tool'`, `'post_step'`, `'before_end'`, `'post_turn'`. |
 | **`done`** | `stop: TurnStop`, `tokens?: TurnTokens` | Terminal event emitted when the turn concludes, reporting stop reasons and token counts. |
 | **`error`** | `errorKind: ErrorKind`, `error?: string` | Emitted if an unhandled boundary violation or execution error halts the turn. |
 

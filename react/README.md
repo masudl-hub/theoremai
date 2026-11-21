@@ -260,7 +260,7 @@ function MyViewer({ isOpen, onOpenChange, media, index }: MediaViewerProps) {
 <TheoremChat endpoint="/api/theorem" profile="assistant" mediaViewer={MyViewer} />;
 ```
 
-Declare the viewer once, outside your components, as `MyViewer` is here. A function made again on each render is a new component each time, so the open viewer starts over and loses what it holds.
+Declare the viewer once, outside your components, as the example does. A function made again on each render is a new component each time, so the open viewer starts over and loses what it holds.
 
 The viewer is given the items, the one shown, and whether it is open. Call `onOpenChange(false)` to close it and `onIndexChange` to show another. An item's `src` is the address the page loads. When the app saved the file, the item also has `reference`, the `{ type, mimeType, uri }` that `resolveMedia` was given, since `src` can be a link that expires. `TheoremHost`, `LiveRunner`, and `TheoremSurface` take the same `mediaViewer`. Without it, they open Astryx's Lightbox, with zoom, as `AstryxMediaViewer` does. To open the page's viewer from your own component inside the surface, call `useMediaViewer(items)` and render its `element`.
 

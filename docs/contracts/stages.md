@@ -59,7 +59,7 @@ ceiling on host side effects.
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `waitFor`, `abort` |
-| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject`, `abort`, and `end` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort`, `end` (text turns) |
+| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject`, `abort`, `end`, and `context` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort`, `end`, `context` (text turns) |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 
@@ -160,6 +160,8 @@ interface StageResult {
   waitFor?: string[];
   /** post_tool on a text turn only: the turn ends once the step's calls settle. */
   end?: true;
+  /** post_tool on a text turn only: the host's new context, read by the model's next step. */
+  context?: { server: unknown };
 }
 
 type StageHandler = (
@@ -180,9 +182,11 @@ type StageHandler = (
 | `labelFailed` | no | no | yes | no | no |
 | `waitFor` | no | yes | no | no | no |
 | `end` | no | no | yes† | no | no |
+| `context` | no | no | yes‡ | no | no |
 
 \*Only when `profileAllowsInject` / session inject gate is true; otherwise no-op.
 †Only in a text turn's tool step. A live session or `invokeTool` has no turn for it to end: `end` warns `end_not_allowed` there.
+‡Only in a text turn's tool step. A live session or `invokeTool` has no turn context to replace: `context` warns `context_not_allowed` there.
 
 ### Attach points (locked)
 
@@ -206,7 +210,7 @@ Every stage run records one `theorem.stage` span event —
 `{ stage, affordance, hook_ms?, warnings? }` — on the span it belongs to:
 turn stages on the `invoke_agent` root, Live cycle stages on the session root,
 `pre_tool` / `post_tool` on that call's `execute_tool` span. `affordance` lists
-what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`, `labelFailed`, `waitFor`, `end`;
+what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`, `labelFailed`, `waitFor`, `end`, `context`;
 `[]` when nothing, or no handler ran); `hook_ms` is present only when handlers
 ran; `warnings` lists warning codes. See
 [observability.md](./observability.md#trace-records).
@@ -299,6 +303,37 @@ host that sent it knows to send it again. Unnamed injects land unreported.
   `post_turn` runs. A gate or an `abort` in the same step wins.
 - Any other value warns `end_invalid`. Outside a text turn's tool step it warns
   `end_not_allowed`.
+
+### `context`
+
+Use `context` when a tool call changes what the host's context says, for
+example a call that saves a new plant while the context counts the plants. The
+model's next step then reads the new count, not the count from the start of
+the turn.
+
+- At `post_tool` on a text turn, `context: { server }` replaces the host's
+  context in the turn's opening message. The kernel lands it once every call of
+  the step has settled, before the model's next step. When the opening message
+  had no host context, the new one goes first in it.
+- Only the `<turn_context from="server">` block changes. The page's context, the
+  user's words and the opening message's files stay as they were.
+- `server` is read as `input.context.server` is: the profile must list `server`
+  in `inputs.context.from`, and the text must fit `maxChars`. A value that is
+  not a string is sent as JSON. The guardrails then read it at the `context`
+  boundary. A guardrail that blocks it refuses the turn.
+- When several calls of the step return `context`, the last call in the model's
+  order lands, once.
+- The swap does not land when the step stopped (an `abort`, a gate, or `end`),
+  when the provider holds the conversation (`providerContinuation.history:
+  'provider'`), or when the run opened without a message of its own. A reply
+  that goes on after an earlier run, sent with no `input.context`, opens without
+  one. It warns `context_not_allowed` there.
+- It warns `context_invalid` when the value is not `{ server }`, or when the
+  profile does not take it from the host or it is over `maxChars`.
+- When it lands, the turn emits `{ type: 'stage', stage: 'post_tool', callId,
+  toolName, contextReplaced: true }`, naming the call whose context landed.
+- The request is unchanged. What the host saves of the turn keeps the context it
+  sent.
 
 ### `abort`
 

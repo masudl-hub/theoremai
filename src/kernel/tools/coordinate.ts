@@ -410,8 +410,14 @@ class CoordinatedExecution {
         emit,
       );
     }
-    // why: No turn is open, so a post_tool inject, abort, or end has nothing to reach.
-    const { pendingInject: _inject, aborted: _aborted, ended: _ended, ...kept } = settlement;
+    // why: No turn is open, so a post_tool inject, abort, end, or context has nothing to reach.
+    const {
+      pendingInject: _inject,
+      aborted: _aborted,
+      ended: _ended,
+      context: _context,
+      ...kept
+    } = settlement;
     const { terminal, crashed } = await this.finish(kept);
     if (terminal) await emit(terminal);
     if (crashed) throw crashed.error;

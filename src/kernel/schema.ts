@@ -303,6 +303,8 @@ export const STAGE_APPLY_WARNING_CODES = [
   'wait_for_invalid',
   'end_not_allowed',
   'end_invalid',
+  'context_invalid',
+  'context_not_allowed',
   'unknown_field',
   'result_invalid',
 ] as const;

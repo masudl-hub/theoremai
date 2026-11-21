@@ -377,6 +377,10 @@ const AFFORDANCES: Readonly<Record<StageAffordance, TraceOptionMeta>> = {
   },
   waitFor: { label: 'Waited', doc: 'Held a tool call until other calls in its step settled.' },
   end: { label: 'Ended', doc: 'Ended the turn once the calls in its step settled.' },
+  context: {
+    label: 'Replaced context',
+    doc: "Gave the host's new context for the next model step to read.",
+  },
 };
 
 const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>> = {

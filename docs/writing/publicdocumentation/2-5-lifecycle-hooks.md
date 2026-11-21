@@ -34,7 +34,7 @@ A turn moves through up to five lifecycle stages in sequence. The handler receiv
 | :--- | :--- | :--- |
 | **`'pre_turn'`** | Fires before dispatching input to the provider. `ctx.history` contains existing messages. | `inject`, `abort` |
 | **`'pre_tool'`** | Fires after the model requests tools, before handlers execute. `ctx.stepCalls` lists all calls in the step. | `abort`, `deny`, `confirm`, `mutate`, `waitFor` |
-| **`'post_tool'`** | Fires after a tool settles or fails. `ctx.outputRaw`, `ctx.outputForModel`, `ctx.outputModel`, and `ctx.failure` are populated. | `inject`, `abort`, `deny`, `mutate`, `labelFailed`, `end` (text turns) |
+| **`'post_tool'`** | Fires after a tool settles or fails. `ctx.outputRaw`, `ctx.outputForModel`, `ctx.outputModel`, and `ctx.failure` are populated. | `inject`, `abort`, `deny`, `mutate`, `labelFailed`, `end`, `context` (text turns) |
 | **`'before_end'`** | Fires after final reply generation, before guardrail verdict and history commit. `ctx.reply` contains the draft answer. | `inject`, `abort` |
 | **`'post_turn'`** | Fires after all generation, tool loops, and cleanup finish, right before `done`. | *(None — read-only telemetry)* |
 
@@ -103,6 +103,19 @@ if (ctx.stage === 'post_tool' && ctx.tool === 'submit_order' && !ctx.failure) {
 ```
 
 The reply is what the model wrote before its calls, and it is empty when the model wrote nothing first. `before_end` does not run. The reply still passes the egress judge, the answer tool, and `outputs.validation`. When it passes, `done` stops as `{ kind: 'completed' }`. When a check refuses it, the model gets a new attempt like any refused reply, and that attempt ends only if a `post_tool` returns `end` again. A structured turn ended before it called the answer tool has no answer, so it is repaired or stops as `answer_missing`. A live session or `invokeTool()` has no turn to end, so `end` warns `end_not_allowed` there.
+
+### Giving the Next Step New Context (`context`)
+
+On a text turn, a `post_tool` handler can replace the context your server sent with the turn. Use it when a call changes what that context says, for example a call that saves a plant while the context counts the plants:
+
+```ts
+// ... inside onStage
+if (ctx.stage === 'post_tool' && ctx.tool === 'save_plant' && !ctx.failure) {
+  return { context: { server: await buildContext() } };
+}
+```
+
+Once the step's calls settle, the new context takes the place of the old one in the turn's opening message, and the model's next step reads it. The page's context and the user's words stay as they were. The new context passes the same checks as `input.context.server`, and the guardrails at the context boundary. A `stage` event with `contextReplaced: true` names the call whose context landed. A live session or `invokeTool()` has no turn context, so `context` warns `context_not_allowed` there.
 
 ---
 

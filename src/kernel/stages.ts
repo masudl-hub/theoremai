@@ -24,8 +24,8 @@ export type { AwaitingUserInput, ToolGate };
 
 /**
  * What a stage handler can ask for: inject messages, abort, deny a tool call, ask for
- * confirmation, mutate it, label it failed, have it wait for other calls in its step, or end
- * the turn once its step's calls settle.
+ * confirmation, mutate it, label it failed, have it wait for other calls in its step, end
+ * the turn once its step's calls settle, or replace the host's context the turn reads.
  */
 export const STAGE_AFFORDANCES = [
   'inject',
@@ -36,6 +36,7 @@ export const STAGE_AFFORDANCES = [
   'labelFailed',
   'waitFor',
   'end',
+  'context',
 ] as const;
 /** One of {@linkcode STAGE_AFFORDANCES}. */
 export type StageAffordance = (typeof STAGE_AFFORDANCES)[number];
@@ -45,7 +46,15 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
   Object.freeze({
     pre_turn: Object.freeze(['inject', 'abort'] as const),
     pre_tool: Object.freeze(['abort', 'deny', 'confirm', 'mutate', 'waitFor'] as const),
-    post_tool: Object.freeze(['inject', 'abort', 'deny', 'mutate', 'labelFailed', 'end'] as const),
+    post_tool: Object.freeze([
+      'inject',
+      'abort',
+      'deny',
+      'mutate',
+      'labelFailed',
+      'end',
+      'context',
+    ] as const),
     before_end: Object.freeze(['inject', 'abort'] as const),
     post_turn: Object.freeze([] as const),
   });
@@ -197,6 +206,17 @@ export interface StageResult {
    * refused reply is retried like any other, as a new step `end` no longer holds.
    */
   end?: true;
+  /**
+   * `post_tool` on a text turn only: the host's context from now on, in place of the one the turn
+   * opened with. Once the step's calls settle, its `<turn_context from="server">` block in the
+   * turn's opening message is replaced where it stands, so the next model step reads it; with no
+   * such block, it goes first in that message, where the turn would have put it. It is read as
+   * `input.context.server` is: the profile's `inputs.context` must take `server` and its
+   * `maxChars` holds, and the guardrails read it at the `context` boundary, where a block refuses
+   * the turn. When several calls in a step return it, the last call's lands. The host's request,
+   * and so what it keeps of the turn, is unchanged.
+   */
+  context?: { server: unknown };
 }
 
 /** A rewrite of a tool call's input, its output, or its failure's details. */
@@ -229,8 +249,11 @@ export interface StageApplyInput {
    * output the kernel owns): `mutate` is then a `mutate_invalid` warning, never a silent no-op.
    */
   mutates?: StageMutateSubject;
-  /** True on a text turn's tool step, the only place `end` has a turn to end. */
-  endAllowed?: boolean;
+  /**
+   * True on a text turn's tool step: the only place `end` has a turn to end, and `context` a
+   * turn's context to replace.
+   */
+  textToolStep?: boolean;
 }
 
 export interface InjectUnit {
@@ -256,6 +279,8 @@ export interface StageApplyOutput {
   labelFailed?: true;
   waitFor?: string[];
   end?: true;
+  /** {@linkcode StageResult.context}: the host's package, not yet read against the profile. */
+  context?: { server: unknown };
   warnings: StageApplyWarning[];
 }
 
@@ -709,7 +734,7 @@ function applyEndField(
     );
   } else if (result.end !== true) {
     warn(out.warnings, 'end_invalid', 'end', 'end must be true'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  } else if (!input.endAllowed) {
+  } else if (!input.textToolStep) {
     warn(
       out.warnings,
       'end_not_allowed',
@@ -718,6 +743,43 @@ function applyEndField(
     );
   } else {
     out.end = true;
+  }
+}
+
+function applyContextField(
+  result: Record<string, unknown>,
+  input: StageApplyInput,
+  out: StageApplyOutput,
+): void {
+  if (!('context' in result) || result.context === undefined) return;
+  const { context } = result;
+  if (!stageAllowsAffordance(input.stage, 'context')) {
+    warn(
+      out.warnings,
+      'affordance_not_allowed',
+      'context',
+      `context is not allowed at stage ${input.stage}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (
+    !isRecord(context) ||
+    context.server === undefined ||
+    Object.keys(context).some((key) => key !== 'server')
+  ) {
+    warn(
+      out.warnings,
+      'context_invalid',
+      'context',
+      'context must be { server }: the host replaces its own context only', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else if (!input.textToolStep) {
+    warn(
+      out.warnings,
+      'context_not_allowed',
+      'context',
+      "context is ignored outside a text turn's tool step", // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  } else {
+    out.context = { server: context.server };
   }
 }
 
@@ -807,6 +869,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   applyLabelFailedField(result, stage, out);
   applyWaitForField(result, stage, out);
   applyEndField(result, input, out);
+  applyContextField(result, input, out);
 
   if (out.deny && out.confirm) {
     warn(warnings, 'confirm_invalid', 'confirm', 'confirm ignored because deny is set'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -826,6 +889,7 @@ export type StageEventExtra = {
   stop?: TurnStop;
   injected?: InjectedMessages[];
   released?: number;
+  contextReplaced?: true;
 };
 
 /** Build a stream `stage` event. Unknown extra keys are not copied. */
@@ -843,6 +907,7 @@ export function stageEventFields(
   if (extra.stop !== undefined) event.stop = extra.stop;
   if (extra.injected !== undefined) event.injected = extra.injected;
   if (extra.released !== undefined) event.released = extra.released;
+  if (extra.contextReplaced) event.contextReplaced = true;
   return event;
 }
 
@@ -903,7 +968,7 @@ export interface RunStageArgs extends StageCallBag {
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
   mutates?: StageMutateSubject;
-  endAllowed?: boolean;
+  textToolStep?: boolean;
   host?: unknown;
   signal?: AbortSignal;
   span?: SpanHandle;
@@ -935,6 +1000,7 @@ function mergeApplied(parts: readonly StageApplyOutput[]): RunStageOutput {
     if (part.labelFailed) out.labelFailed = true;
     if (part.waitFor) out.waitFor = [...new Set([...(out.waitFor ?? []), ...part.waitFor])];
     if (part.end) out.end = true;
+    if (part.context) out.context = part.context;
     if (part.inject) out.inject.push(part.inject);
     if (part.injects) out.inject.push(...part.injects);
   }
@@ -988,7 +1054,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
     injectAllowed,
     injectWouldExceedMaxSteps,
     mutates,
-    endAllowed,
+    textToolStep,
     host,
     signal,
     span,
@@ -1022,7 +1088,7 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
       injectAllowed,
       injectWouldExceedMaxSteps,
       ...(mutates ? { mutates } : {}),
-      endAllowed,
+      textToolStep,
     },
     signal,
   );

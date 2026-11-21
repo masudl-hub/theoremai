@@ -349,6 +349,8 @@ export type ToolExecuteSettlement = {
   pendingInject?: InjectUnit[];
   /** `post_tool` ended the turn: no model step follows this call's step. */
   ended?: true;
+  /** `post_tool`'s new host context, which the step lands once its calls settle. */
+  context?: { server: unknown };
 };
 
 /** Unguarded; `settleToolCall` guards the result. */
@@ -640,11 +642,12 @@ async function* withNamedMedia(
 /** What the after-call stages add to a settlement: a turn to stop or end, input to hand the model. */
 function stageSettlement(
   post: PostToolStageOutcome | undefined,
-): Pick<ToolExecuteSettlement, 'aborted' | 'pendingInject' | 'ended'> {
+): Pick<ToolExecuteSettlement, 'aborted' | 'pendingInject' | 'ended' | 'context'> {
   return {
     ...(post?.abort !== undefined ? { aborted: post.abort } : {}),
     ...(post?.inject.length ? { pendingInject: post.inject } : {}),
     ...(post?.end ? { ended: true as const } : {}),
+    ...(post?.context ? { context: post.context } : {}),
   };
 }
 

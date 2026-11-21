@@ -1113,6 +1113,12 @@ export type TurnEvent =
        * {@linkcode keptReply} drops the rest.
        */
       released?: number;
+      /**
+       * A `post_tool` `context` landed: from the next model step on, the turn reads the host's new
+       * context in place of the old (`StageResult.context`). The call named is the one whose
+       * handler returned it.
+       */
+      contextReplaced?: true;
       /** In a live call, the id `LiveSession.wake` returned for the turn this stage belongs to. */
       wake?: string;
     }
@@ -1349,6 +1355,7 @@ const TURN_EVENTS = {
       .min(1)
       .optional(),
     released: z.number().int().nonnegative().optional(),
+    contextReplaced: z.literal(true).optional(),
     wake: z.string().min(1).optional(),
   }),
   tool_draft: z.object({

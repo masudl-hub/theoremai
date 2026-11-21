@@ -42,8 +42,8 @@ export interface ToolStageSupport {
   history: () => readonly TurnHistoryMessage[];
   injectAllowed: boolean;
   injectWouldExceedMaxSteps?: boolean;
-  /** True on a text turn's tool step: `post_tool` may `end` the turn. */
-  endAllowed?: boolean;
+  /** True on a text turn's tool step: `post_tool` may `end` the turn and replace its `context`. */
+  textToolStep?: boolean;
   host?: unknown;
   signal?: AbortSignal;
   span?: SpanHandle;
@@ -95,6 +95,8 @@ export type PostToolStageOutcome = {
   labelFailed?: true;
   /** The turn ends once the step's calls settle. */
   end?: true;
+  /** The host's context the turn reads once the step's calls settle. */
+  context?: { server: unknown };
 };
 
 /** Tool `preTool` → host `pre_tool` → mutate re-parse. */
@@ -349,7 +351,7 @@ export async function* runPostToolStages(args: {
     injectAllowed: stages.injectAllowed,
     injectWouldExceedMaxSteps: stages.injectWouldExceedMaxSteps,
     ...(mutates ? { mutates } : {}),
-    ...(stages.endAllowed ? { endAllowed: true } : {}),
+    ...(stages.textToolStep ? { textToolStep: true } : {}),
     host: stages.host,
     signal: stages.signal,
     span: stages.span,
@@ -363,6 +365,7 @@ export async function* runPostToolStages(args: {
     ...(applied.mutate && !('input' in applied.mutate) ? { mutate: applied.mutate } : {}),
     ...(applied.labelFailed ? { labelFailed: true as const } : {}),
     ...(applied.end ? { end: true as const } : {}),
+    ...(applied.context ? { context: applied.context } : {}),
     inject: applied.inject,
   };
 }

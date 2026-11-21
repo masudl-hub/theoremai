@@ -59,6 +59,7 @@ import {
   applyStageInjects,
   type LateResultsAt,
   landLateResultsAt,
+  landStageContext,
   recordReply,
   steersToLand,
   unreadLateResultsAt,
@@ -660,6 +661,32 @@ function recordProviderToolFailure(
   return event;
 }
 
+/**
+ * The context a step's calls gave lands once, after every call settled: the last call's, in the
+ * model's order. A call that failed before it ran gave none.
+ */
+function* landStepContext(
+  state: StepExecutionState,
+  profile: Profile,
+  calls: readonly ModelCall[],
+  settlements: readonly (ToolExecuteSettlement | undefined)[],
+  stepStopped: boolean,
+): Generator<TurnEvent, void> {
+  const index = calls.findLastIndex(
+    (call, at) => call.failure === undefined && settlements[at]?.context !== undefined,
+  );
+  const call = calls[index];
+  const context = settlements[index]?.context;
+  if (!call || !context) return;
+  yield* landStageContext(
+    state,
+    profile,
+    context,
+    { callId: call.callId, toolName: call.name },
+    stepStopped,
+  );
+}
+
 function* applyToolSettlement(
   settlement: ToolExecuteSettlement,
   state: StepExecutionState,
@@ -776,7 +803,7 @@ async function* handleModelCalls(
     history: () => state.currentHistory,
     injectAllowed: profileAllowsInject(profile),
     injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
-    endAllowed: true,
+    textToolStep: true,
     host: generation.host,
     signal,
     stepCalls: calls.map((call) => ({ callId: call.callId, tool: call.name, input: call.shown })),
@@ -854,8 +881,11 @@ async function* handleModelCalls(
     if (outcome === 'gated') gated = true;
     if (outcome === 'ended') ended = true;
   }
+  // why: No model step follows a step stopped, gated or ended, so nothing lands for it to read.
+  const stopped = cancelled || gated || ended;
+  yield* landStepContext(state, profile, calls, settlements, stopped);
   // why: Steers land once a step, after every call's own post_tool inject, so calls side by side never land one twice; an ended turn reads nothing more, so its steers stay waiting.
-  if (!cancelled && !gated && !ended && calls.length > 0) {
+  if (!stopped && calls.length > 0) {
     const steers = yield* steersToLand(
       state,
       profile,

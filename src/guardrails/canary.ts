@@ -9,6 +9,7 @@ import {
 } from '../kernel/turn-events.ts';
 import type { ModelRequest, SystemPiece } from '../kernel/types.ts';
 import { OMIT_CANARY } from '../observability/spans.ts';
+import { TheoremError } from './error.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
 import { promptEchoScanFrom, scanTextForPromptEcho } from './prompt-echo.ts';
 import { scanTextOf, textForScan } from './serialize.ts';
@@ -92,6 +93,22 @@ function wrapUserData(text: string, messageId?: string): string {
  */
 function wrapContext(sender: ContextSender, text: string): string {
   return `<turn_context from="${sender}">\n${stripUserFences(text)}\n${CONTEXT_CLOSE}`;
+}
+
+/**
+ * `text` with `sender`'s context fence replaced by `block`, where it stands; with none, `block`
+ * goes first, as the host's fence opens a turn's message. `wrapContext` and `wrapUserData` took
+ * every fence out of what they wrapped, so the first close after the sender's opening tag is its
+ * own.
+ */
+function replaceContext(text: string, sender: ContextSender, block: string): string {
+  const start = text.indexOf(`<turn_context from="${sender}">`);
+  if (start === -1) return text ? `${block}\n\n${text}` : block;
+  const close = text.indexOf(CONTEXT_CLOSE, start);
+  if (close === -1) {
+    throw new TheoremError('internal', `The ${sender} context fence has no close`); // labels-exempt: invariant
+  }
+  return text.slice(0, start) + block + text.slice(close + CONTEXT_CLOSE.length);
 }
 
 /** The labels' `context.note`, which tells the model what `wrapContext`'s tags mean. */
@@ -1245,6 +1262,7 @@ export {
   RELEASED_LOOKBACK,
   redactCanary,
   redactCanaryText,
+  replaceContext,
   requestGivesCanary,
   scanTextForCanaryLeak,
   stripUserFences,

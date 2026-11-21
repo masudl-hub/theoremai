@@ -177,7 +177,7 @@ Deno.test('applyStageResult: end only at post_tool, only as true, only where all
   const ok = applyStageResult({
     stage: 'post_tool',
     injectAllowed: true,
-    endAllowed: true,
+    textToolStep: true,
     result: { end: true },
   });
   assertEquals(ok.end, true);
@@ -186,7 +186,7 @@ Deno.test('applyStageResult: end only at post_tool, only as true, only where all
   const elsewhere = applyStageResult({
     stage: 'before_end',
     injectAllowed: true,
-    endAllowed: true,
+    textToolStep: true,
     result: { end: true },
   });
   assertEquals(elsewhere.end, undefined);
@@ -195,7 +195,7 @@ Deno.test('applyStageResult: end only at post_tool, only as true, only where all
   const notTrue = applyStageResult({
     stage: 'post_tool',
     injectAllowed: true,
-    endAllowed: true,
+    textToolStep: true,
     result: { end: 'yes' },
   });
   assertEquals(notTrue.end, undefined);

@@ -1,5 +1,11 @@
-import { throwIfAborted } from '../../../guardrails/error.ts';
+import { replaceContext, wrapContext } from '../../../guardrails/canary.ts';
+import { boundaryReader } from '../../../guardrails/detect-at.ts';
+import { TheoremError, throwIfAborted } from '../../../guardrails/error.ts';
+import { guardrailTurnEvent } from '../../../guardrails/events.ts';
+import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
+import { requestRefused, sanitizeContext } from '../../../guardrails/sanitize.ts';
 import { hookFailed } from '../../hook-failure.ts';
+import { turnContextProblem } from '../../registry/ingress.ts';
 import type { TurnInjectStage } from '../../schema.ts';
 import {
   type InjectUnit,
@@ -12,10 +18,12 @@ import {
   type StageHandler,
   sanitizeInjects,
   stageAllowsAffordance,
+  stageEventFields,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
 import type { ToolOperationOutcome } from '../../tools/operation.ts';
 import { promoteTurnTools } from '../../tools/resolve.ts';
+import type { TurnEventOf } from '../../turn-events.ts';
 import type {
   Profile,
   ResolvedGeneration,
@@ -24,6 +32,7 @@ import type {
   TurnStage,
   TurnToolSnapshot,
 } from '../../types.ts';
+import { guardrailAttributes } from '../turn-trace.ts';
 import { landLateResults, type StepExecutionState, unreadLateResults } from './state.ts';
 
 export interface ApplyTurnStageArgs extends StageCallBag {
@@ -117,6 +126,102 @@ function dropDraft(state: StepExecutionState, released: number | undefined): num
   }
   state.replyMessages = kept;
   return released;
+}
+
+/** `message` with its text's `sender` context fence replaced by `block` (`replaceContext`). */
+function withContext(message: TurnHistoryMessage, block: string): TurnHistoryMessage {
+  if (message.parts === undefined) {
+    return { ...message, content: replaceContext(message.content ?? '', 'server', block) };
+  }
+  const first = message.parts[0];
+  // why: The input's text, with the fences before it, is its first part; files follow it.
+  return first?.type === 'text'
+    ? {
+        ...message,
+        parts: [
+          { ...first, text: replaceContext(first.text, 'server', block) },
+          ...message.parts.slice(1),
+        ],
+      }
+    : { ...message, parts: [{ type: 'text', text: block }, ...message.parts] };
+}
+
+/** A `stage` event that says why the step's `context` did not land. */
+function contextRefused(
+  extra: { callId: string; toolName: string },
+  code: 'context_invalid' | 'context_not_allowed',
+  message: string,
+): TurnEventOf<'stage'> {
+  return {
+    ...stageEventFields('post_tool', extra),
+    stageWarnings: [{ code, field: 'context', message }],
+  };
+}
+
+/**
+ * Lands a step's `post_tool` `context` (`StageResult.context`): read as the request's
+ * `input.context.server` is, then put in the turn's opening message in place of the old one, so
+ * the next model step reads it. The request is unchanged, and so is what the host keeps of the
+ * turn. A guardrail block refuses the turn; any other reason it cannot land is a warning.
+ */
+export function* landStageContext(
+  state: StepExecutionState,
+  profile: Profile,
+  context: { server: unknown },
+  extra: { callId: string; toolName: string },
+  /** The step was stopped, gated, or ended: no model step follows it to read the context. */
+  stepStopped: boolean,
+): Generator<TurnEvent, void> {
+  if (stepStopped) {
+    yield contextRefused(
+      extra,
+      'context_not_allowed',
+      'context is ignored: the step stopped, so no model step reads it', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+    return;
+  }
+  // why: The provider holds the conversation, so a message it already has cannot change.
+  if ('providerContinuation' in profile && profile.providerContinuation?.history === 'provider') {
+    yield contextRefused(
+      extra,
+      'context_not_allowed',
+      "context is ignored under providerContinuation.history 'provider': the provider already has the turn's opening message", // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+    return;
+  }
+  const problem = turnContextProblem(profile, context);
+  if (problem) {
+    yield contextRefused(extra, 'context_invalid', problem);
+    return;
+  }
+  const at = state.openingAt;
+  const opening = at === undefined ? undefined : state.currentHistory[at];
+  if (at === undefined || !opening) {
+    yield contextRefused(
+      extra,
+      'context_not_allowed',
+      'context is ignored: the turn has no opening message to carry it', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+    return;
+  }
+  const read = sanitizeContext(context, () =>
+    boundaryReader('context', resolveGuardrailPolicy(profile.guardrails).detect),
+  );
+  for (const event of read.events) {
+    state.trace.root.event('theorem.guardrail', guardrailAttributes(event));
+    yield guardrailTurnEvent(event);
+  }
+  if (read.blocked) throw requestRefused('context');
+  const server = read.context?.server;
+  if (typeof server !== 'string') {
+    throw new TheoremError('internal', 'The context boundary read no server text'); // labels-exempt: invariant
+  }
+  const block = wrapContext('server', server);
+  state.currentHistory[at] = withContext(opening, block);
+  // why: A failed retry puts its files back from the message it saved, which carries the old context.
+  const saved = state.mediaTry?.originals.get(at);
+  if (saved) state.mediaTry?.originals.set(at, withContext(saved, block));
+  yield stageEventFields('post_tool', { ...extra, contextReplaced: true });
 }
 
 /**

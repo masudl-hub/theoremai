@@ -12,6 +12,7 @@ import type {
   Profile,
   ProfileSpeechSpec,
   TurnBlob,
+  TurnContext,
   TurnMediaRef,
   TurnRequest,
   TurnSpeech,
@@ -208,27 +209,28 @@ function resolveInputParts(profile: Profile, req: TurnRequest): InteractionPart[
   return parts;
 }
 
-/** Refuses context from a sender the profile's `inputs.context` does not list, and a package over its `maxChars`. */
-function assertTurnContext(profile: Profile, req: TurnRequest): void {
-  const context = req.input?.context;
-  if (!context) return;
+/** Why the profile's `inputs.context` does not take `context`: a sender it does not list, or a package over its `maxChars`. */
+function turnContextProblem(profile: Profile, context: TurnContext): string | undefined {
   const spec = profileInputs(profile)?.context;
   for (const [sender, value] of Object.entries(context)) {
     if (value === undefined) continue;
     const allowed = (CONTEXT_SENDERS as readonly string[]).includes(sender);
     if (!allowed || !spec?.from.some((from) => from === sender)) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id} takes no context from '${sender}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
+      return `Profile ${profile.id} takes no context from '${sender}'`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     if (contextText(value).length > spec.maxChars) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id}: context from '${sender}' is over inputs.context.maxChars (${String(spec.maxChars)})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
+      return `Profile ${profile.id}: context from '${sender}' is over inputs.context.maxChars (${String(spec.maxChars)})`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
+  return undefined;
+}
+
+/** Refuses context from a sender the profile's `inputs.context` does not list, and a package over its `maxChars`. */
+function assertTurnContext(profile: Profile, req: TurnRequest): void {
+  const context = req.input?.context;
+  if (!context) return;
+  const problem = turnContextProblem(profile, context);
+  if (problem) throw new TheoremError('request', problem);
 }
 
 export {
@@ -239,4 +241,5 @@ export {
   resolveImageFormat,
   resolveInputParts,
   resolveSpeech,
+  turnContextProblem,
 };

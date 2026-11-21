@@ -70,6 +70,12 @@ interface StepExecutionState {
   turnStart: number;
   /** Set by a retry: from then on the model reads this turn only, from `turnStart`. */
   turnOnly?: boolean;
+  /**
+   * Where the turn's opening message is in `currentHistory`: the user's input with the host's and
+   * the page's context before it, which a `post_tool` `context` rewrites. Unset when the turn opened
+   * without one (a run that goes on from a tool result).
+   */
+  openingAt?: number;
   /** This run goes on with a reply an earlier run began (`continuesReply`). */
   continuesReply?: boolean;
   stepCount: number;
@@ -341,7 +347,9 @@ function openTurnState(args: {
       state.continuesReply = true;
       carryReplyReads(state, args.request.input?.history ?? []);
     }
+    const before = state.currentHistory.length;
     appendUserInput(state, generation.input);
+    if (state.currentHistory.length > before) state.openingAt = before;
     generation.input = [];
     // why: Only a text turn reads late results: an image or speech call reads its input alone.
     if (args.request?.lateResults) state.lateResults = args.request.lateResults;

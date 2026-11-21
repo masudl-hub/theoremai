@@ -438,6 +438,8 @@ class Chat implements ChatController {
   #readAgain = false;
   /** Reads the conversation again once the hold of the reply that runs elsewhere lapses. */
   #holdTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The `heldUntil` of the last read made when a hold lapsed. */
+  #heldUntilRead: number | null = null;
 
   constructor(options: ChatOptions) {
     this.#options = options;
@@ -554,9 +556,13 @@ class Chat implements ChatController {
     this.#holdTimer = null;
     const running = this.#state.runningElsewhere;
     if (!running || this.#listeners.size === 0) return;
+    // why: A read that still shows a hold already followed lapsed waits for the app's publish; the
+    // server's clock and this one differ, so one read per hold, not one per draw.
+    if (running.heldUntil === this.#heldUntilRead) return;
     this.#holdTimer = setTimeout(
       () => {
         this.#holdTimer = null;
+        this.#heldUntilRead = running.heldUntil;
         void this.refresh();
       },
       Math.max(0, running.heldUntil - Date.now()),
@@ -652,18 +658,24 @@ class Chat implements ChatController {
     }
   }
 
-  async #stopElsewhere(): Promise<void> {
+  /** Stops the reply that runs elsewhere. False when it may still run: the stop was refused or failed. */
+  async #stopElsewhere(): Promise<boolean> {
     const conversation = this.#conversation;
-    if (!this.#state.runningElsewhere || conversation === undefined) return;
+    if (!this.#state.runningElsewhere || conversation === undefined) return true;
     this.#stopped = true;
+    let stopped = true;
     try {
       await this.#options.transport.stop({ conversation });
     } catch (err) {
       // why: A reply that ended first is not running; the read below shows what it left.
-      if (!isTurnEnded(err))
+      if (!isTurnEnded(err)) {
+        stopped = false;
+        this.#stopped = false;
         this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
+      }
     }
     await this.refresh();
+    return stopped;
   }
 
   enqueue = async (kind: 'queue' | 'steer' | 'stash'): Promise<void> => {
@@ -740,8 +752,9 @@ class Chat implements ChatController {
     if (this.#busy) {
       await this.#stop();
       await this.#run;
-    } else if (this.#state.runningElsewhere) {
-      await this.#stopElsewhere();
+    } else if (!(await this.#stopElsewhere())) {
+      // why: A reply that may still run is not sent into; the message stays where it was.
+      return;
     }
     this.#set({ pendingMessages: convertSteersToFrontQueued(this.#state.pendingMessages) });
     this.#drainArmed = false;

@@ -170,6 +170,7 @@ export const LABEL_KEYS = [
   'session.full',
   'session.busy',
   'session.turn_ended',
+  'session.reply_unreachable',
   'session.gate_pending',
   'session.part_skipped',
   'live.session_ended',
@@ -293,6 +294,7 @@ export const CLIENT_LABEL_KEYS = [
   'session.sign_in',
   'session.gate_expired',
   'session.turn_ended',
+  'session.reply_unreachable',
   'session.gate_pending',
   'session.part_skipped',
   'live.session_ended',
@@ -602,6 +604,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'session.busy': 'Sorry, this conversation is busy. Please try again in a moment.',
   'session.gate_expired': 'Sorry, that step is no longer waiting for approval.',
   'session.turn_ended': 'Sorry, that reply has already finished.',
+  'session.reply_unreachable': "Sorry, that reply can't be stopped or steered from here.",
   'session.gate_pending':
     'Please approve or decline the waiting step before sending a new message.',
   'session.part_skipped': "Some of that reply didn't come through, so it may be incomplete.",
@@ -941,6 +944,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'session.gate_expired':
     'Shown to the user who answers a step that is no longer waiting for approval.',
   'session.turn_ended': 'Shown to the user who tries to steer a reply that has already finished.',
+  'session.reply_unreachable':
+    'Shown to the user who stops or steers a reply that runs elsewhere, on a host that has no way to reach it.',
   'session.gate_pending':
     'Shown to the user who sends a message while a step is still waiting for their approval.',
   'session.part_skipped':

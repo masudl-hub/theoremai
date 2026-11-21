@@ -303,6 +303,17 @@ async function* unheld(lines: AsyncIterable<ReplyLine>): Reply {
 }
 
 /** Steer inboxes are scoped to the session, so a turn id alone can't reach another user's turn. */
+/**
+ * The refusal of a stop or steer by conversation on a host that can't reach a reply it does not
+ * run: no app stop, or no intake for a steer. Not `turn_ended`: the reply may still be running.
+ */
+export function replyUnreachable(): TheoremError {
+  // labels-exempt: internal diagnostic; the user reads session.reply_unreachable
+  return new TheoremError('request', 'this host cannot reach a reply that runs elsewhere', {
+    copy: { key: 'session.reply_unreachable' },
+  });
+}
+
 function inboxKey(sessionId: string, turnId: string): string {
   return `${sessionId}\u0000${turnId}`;
 }
@@ -1340,7 +1351,7 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
       const app = state.options.inbox?.(at);
       if (app?.stop) return app.stop.ask(app.conversation);
       // why: without the app's stop, only this server's turns are known, each by its id
-      if (!('turnId' in args)) return Promise.resolve(false);
+      if (!('turnId' in args)) throw replyUnreachable();
       return Promise.resolve(state.steer.stop(inboxKey(at.sessionId, args.turnId)));
     },
   };

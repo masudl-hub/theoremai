@@ -554,7 +554,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `read(at, { ref })` | Returns the conversation as a page draws it. |
 | `rewind(at, { ref, at })` | Cuts the conversation after transcript block `at`. |
 | `steer(at, { turnId, id, input })` | Puts `input` into a running turn. Returns `false` when the turn is not running. Throws what `message` throws for an `input` the profile does not take, such as text over `inputs.maxTextChars`. |
-| `stop(at, { turnId } \| { conversation })` | Stops a running reply: the turn `turnId` names, or the reply that holds `conversation`. Returns `false` when it is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and reads neither. Without one, only `{ turnId }` reaches a turn. |
+| `stop(at, { turnId } \| { conversation })` | Stops a running reply: the turn `turnId` names, or the reply that holds `conversation`. Returns `false` when it is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and reads neither. Without one, only `{ turnId }` reaches a turn, and `{ conversation }` throws `session.reply_unreachable`. |
 
 The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
 
@@ -679,9 +679,11 @@ const snapshot: ConversationSnapshot = {
 
 The view the page reads has the same `running`. While it is set, the chat's phase is `streaming` and `runningElsewhere` holds it, so the page acts as it does for its own reply:
 
-- The stop button sends `/stop` with `{ conversation }`. Your `inbox`'s `stop` stops the reply. Without one, the stop is refused with `session.turn_ended`.
-- A steer sends `/steer` with `{ conversation }` and no `turnId`. `intake` saves it.
-- A message sent while it works waits in the queue. Send now stops the reply, then sends the message.
+- The stop button sends `/stop` with `{ conversation }`. Your `inbox`'s `stop` stops the reply. Without one, the stop is refused with `session.reply_unreachable`, the page shows that error, and the reply still shows as working.
+- A steer sends `/steer` with `{ conversation }` and no `turnId`. `intake` saves it. Without `intake`, the steer is refused with `session.reply_unreachable`.
+- A message sent while it works waits in the queue. Send now stops the reply, then sends the message. When the stop is refused, the message stays in the composer.
+
+The page reads again at `heldUntil` once for each `heldUntil`. When your server's clock and the browser's differ, a hold can look lapsed to the page while your store still returns it. The page then waits for your `notifier.publish`, or for a read that returns a new `heldUntil`.
 
 Call `notifier.publish` after each save that ends the reply. The page reads the conversation again. When `running` is gone, the queue sends its next message, unless the person stopped the reply.
 

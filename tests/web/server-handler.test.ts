@@ -438,6 +438,16 @@ Deno.test("steer reaches only this session's running turn, and only while it run
       }),
     'session.turn_ended',
   );
+  // Without intake, a steer by the conversation can't reach a reply this server doesn't run.
+  await assertRefused(
+    () =>
+      transport.steer({
+        conversation: refOf(transport),
+        id: 'steer-elsewhere',
+        input: { text: 'elsewhere' },
+      }),
+    'session.reply_unreachable',
+  );
 });
 Deno.test('bad requests get 4xx JSON errors', async () => {
   const handler = handlerFor({

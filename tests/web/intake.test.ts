@@ -721,12 +721,52 @@ Deno.test("a page stops a reply that runs elsewhere through the app's stop, and 
   leave();
 });
 
-Deno.test('a stop by the conversation, with no app stop, reaches nothing and is refused as ended', async () => {
+Deno.test("a stop by the conversation, with no app stop, can't reach the reply and says so, not that it ended", async () => {
   const made = app();
   await made.run((onLine) => made.transport.turn({ id: 'm1', input: { text: 'first' } }, onLine));
   const refused = await assertRejects(() => made.transport.stop({ conversation: made.refOf() }));
   assert(refused instanceof TheoremStreamError);
-  assertEquals(refused.copy, { key: 'session.turn_ended' });
+  assertEquals(refused.copy, { key: 'session.reply_unreachable' });
+});
+
+Deno.test("a page whose stop can't reach the reply elsewhere shows why, keeps it working, sends nothing into it, and sends its queue when it ends", async () => {
+  const elsewhere: { running?: RunningReply } = {};
+  const made = app({}, {}, { elsewhere });
+  await runningElsewhere(made, elsewhere);
+  const iface = await made.transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({
+    iface,
+    transport: made.transport,
+    conversation: made.refOf(),
+  });
+  const leave = chat.subscribe(() => {});
+  await waitFor(() => chat.getState().phase === 'streaming');
+  chat.setDraftText('later');
+  await chat.submit();
+  chat.stop();
+  await waitFor(() => chat.getState().failure !== null);
+  assertEquals(
+    chat.getState().failure?.error,
+    "Sorry, that reply can't be stopped or steered from here.",
+  );
+  assertEquals(chat.getState().phase, 'streaming', 'the reply it could not stop still runs');
+
+  chat.setDraftText('instead');
+  await chat.sendNow();
+  assertEquals(
+    chat.getState().draftText,
+    'instead',
+    'send now sent into a reply it could not stop',
+  );
+  const intakes = made.intakes.length;
+
+  await endElsewhere(made, elsewhere);
+  await chat.refresh();
+  await waitFor(() => made.runs.count === 2 && chat.getState().phase === 'idle');
+  await waitFor(() => chat.getState().pendingMessages.length === 0);
+  assertEquals(made.intakes.length, intakes + 1, 'the queue did not send on');
+  leave();
 });
 
 Deno.test("a page's steer to a reply that runs elsewhere goes by the conversation, and the app saves it", async () => {
@@ -773,6 +813,40 @@ Deno.test('a page reads the conversation again once the hold of the reply elsewh
   await waitFor(() => chat.getState().phase === 'idle');
   assertEquals(chat.getState().runningElsewhere, null);
   assertEquals(chat.getState().streamBlocks, []);
+  leave();
+});
+
+Deno.test('a page reads once when a hold it sees has lapsed by its own clock, not again on every read that still shows it', async () => {
+  const held: { running?: RunningReply } = {};
+  let reads = 0;
+  const elsewhere = {
+    get running() {
+      reads++;
+      return held.running;
+    },
+    set running(value: RunningReply | undefined) {
+      held.running = value;
+    },
+  };
+  const made = app({}, {}, { elsewhere });
+  await runningElsewhere(made, elsewhere);
+  const running = held.running;
+  assert(running);
+  // The server's clock runs behind the page's: the hold it says lives looks lapsed here.
+  held.running = { ...running, heldUntil: Date.now() - 60_000 };
+  const iface = await made.transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({
+    iface,
+    transport: made.transport,
+    conversation: made.refOf(),
+  });
+  const leave = chat.subscribe(() => {});
+  await waitFor(() => chat.getState().phase === 'streaming');
+  const before = reads;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert(reads - before <= 1, `the page read ${reads - before} times for one lapsed hold`);
+  assertEquals(chat.getState().phase, 'streaming');
   leave();
 });
 

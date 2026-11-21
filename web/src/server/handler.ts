@@ -98,6 +98,7 @@ import {
   oneInbox,
   type Reply,
   type ReplyWiring,
+  replyUnreachable,
   unconversedAnswer,
 } from './conversation-core.ts';
 import type { TheoremConversationStore } from './conversation-store.ts';
@@ -812,9 +813,8 @@ async function steer(
     return jsonResponse(200, { ok: true, saved });
   }
   // why: without `intake`, a steer reaches only a turn this server runs, by its id
-  const steered =
-    'turnId' in body &&
-    (await core.steer(at, { turnId: body.turnId, id: body.id, input: body.input }));
+  if (!('turnId' in body)) throw replyUnreachable();
+  const steered = await core.steer(at, { turnId: body.turnId, id: body.id, input: body.input });
   if (!steered) throw replyNotRunning(body);
   return jsonResponse(200, { ok: true });
 }

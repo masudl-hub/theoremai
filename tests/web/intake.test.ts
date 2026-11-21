@@ -10,17 +10,20 @@ import { createChatController } from '../../web/src/client/chat.ts';
 import {
   type ChatLine,
   createHttpTransport,
+  type RunningReply,
   TheoremStreamError,
   type TheoremTransport,
 } from '../../web/src/client/transport.ts';
 import {
   createMemoryConversationStore,
+  createMemoryNotifier,
   createTheoremHandler,
   emptyConversation,
   type HoldStop,
   type MessageIntake,
   type TheoremConversationStore,
   type TheoremHandlerOptions,
+  type TheoremNotifier,
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
@@ -86,7 +89,13 @@ function app(
   {
     marks = 'marks told',
     stop,
-  }: { marks?: 'marks told' | 'never marks told'; stop?: HoldStop } = {},
+    elsewhere,
+  }: {
+    marks?: 'marks told' | 'never marks told';
+    stop?: HoldStop;
+    /** The reply the app's records say runs elsewhere, as its store's read returns it. */
+    elsewhere?: { running?: RunningReply };
+  } = {},
 ) {
   const runs = { count: 0 };
   const texts = new Map<string, string>();
@@ -94,9 +103,16 @@ function app(
   let ref: string | undefined;
   const inbox = createMemoryInbox<Sent>({ leaseMs: LEASE_MS });
   const memory = createMemoryConversationStore();
+  const sessions = new Set<string>();
   /** A store that marks told what the reply told, in its write, as an app's store does. */
   const store: TheoremConversationStore = {
     ...memory,
+    read: async (sessionId, at) => {
+      sessions.add(sessionId);
+      const snapshot = await memory.read(sessionId, at);
+      const running = elsewhere?.running;
+      return snapshot && running ? { ...snapshot, running } : snapshot;
+    },
     write: async (sessionId, at, expected, next, context) => {
       const result = await memory.write(sessionId, at, expected, next, context);
       if (marks === 'marks told' && result.written && context?.hold && context.reply) {
@@ -161,8 +177,59 @@ function app(
     await send((line) => lines.push(line));
     return lines;
   };
-  return { transport, run, runs, intakes, inbox, refOf: () => ref ?? '' };
+  return { transport, run, runs, intakes, inbox, memory, sessions, refOf: () => ref ?? '' };
 }
+
+/** A notifier that remembers each session a page listens under, so a test can publish to it. */
+function listenedNotifier(): TheoremNotifier & { sessions: string[] } {
+  const base = createMemoryNotifier();
+  const sessions: string[] = [];
+  return {
+    sessions,
+    subscribe: (sessionId, changed) => {
+      sessions.push(sessionId);
+      return base.subscribe(sessionId, changed);
+    },
+    publish: (sessionId) => base.publish(sessionId),
+  };
+}
+
+/**
+ * A conversation with one reply in it, then a reply that runs elsewhere on the message `m2`:
+ * the app's inbox is held, and its store's read says so.
+ */
+async function runningElsewhere(
+  made: ReturnType<typeof app>,
+  elsewhere: { running?: RunningReply },
+) {
+  await made.run((onLine) => made.transport.turn({ id: 'm1', input: { text: 'first' } }, onLine));
+  await made.inbox.open(KEEPER, 'elsewhere');
+  elsewhere.running = {
+    since: 1_000,
+    prompt: [{ id: rowId('m2'), kind: 'user-text', text: 'second' }],
+    heldUntil: Date.now() + LEASE_MS,
+  };
+}
+
+/** The reply elsewhere ends as the app's own reply would: its message and answer saved, the hold let go. */
+async function endElsewhere(made: ReturnType<typeof app>, elsewhere: { running?: RunningReply }) {
+  const [sessionId] = made.sessions;
+  const snapshot = await made.memory.read(sessionId, made.refOf());
+  assert(snapshot, 'the conversation is gone');
+  const { conversation } = snapshot;
+  const answered = [
+    { id: rowId('m2'), kind: 'user-text' as const, text: 'second' },
+    { id: 'answer-m2', kind: 'text' as const, text: 'Done.' },
+  ];
+  const next = { ...conversation, transcript: [...conversation.transcript, ...answered] };
+  const written = await made.memory.write(sessionId, made.refOf(), snapshot.revision, next);
+  assert(written.written, 'the reply elsewhere was not saved');
+  elsewhere.running = undefined;
+  await made.inbox.release(KEEPER, 'elsewhere', (await made.inbox.read(KEEPER)).version);
+}
+
+const said = (blocks: readonly { kind: string; text?: string }[]) =>
+  blocks.flatMap((b) => (b.kind === 'user-text' || b.kind === 'text' ? [[b.kind, b.text]] : []));
 
 function gate(): { script: Script; free(): void } {
   let free = () => {};
@@ -562,4 +629,186 @@ Deno.test("a page's stop reaches the reply under the hold the app's save took", 
   const view = await transport.conversation({ conversation: refOf() });
   const last = view.transcript.at(-1);
   assertEquals(last?.kind === 'turn-done' ? last.stop?.kind : undefined, 'cancelled');
+});
+
+Deno.test('a page opened while a reply runs elsewhere shows it working with what was said, and sends its queue once told it ended', async () => {
+  const elsewhere: { running?: RunningReply } = {};
+  const notifier = listenedNotifier();
+  const made = app({}, { notifier }, { elsewhere });
+  await runningElsewhere(made, elsewhere);
+  const iface = await made.transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({
+    iface,
+    transport: made.transport,
+    conversation: made.refOf(),
+  });
+  const leave = chat.subscribe(() => {});
+  await waitFor(() => chat.getState().runningElsewhere !== null);
+  const working = chat.getState();
+  assertEquals(working.phase, 'streaming');
+  assertEquals(working.runningElsewhere?.since, 1_000);
+  assertEquals(said(working.streamBlocks), [['user-text', 'second']]);
+
+  chat.setDraftText('third');
+  await chat.submit();
+  assertEquals(
+    chat.getState().pendingMessages.map((m) => [m.kind, m.draft.text]),
+    [['queue', 'third']],
+    'a message sent while it works waits in the queue',
+  );
+  assertEquals(made.runs.count, 1);
+
+  await endElsewhere(made, elsewhere);
+  await waitFor(() => notifier.sessions.length > 0);
+  await notifier.publish(notifier.sessions[0]);
+  await waitFor(() => made.runs.count === 2 && chat.getState().phase === 'idle');
+  await waitFor(() => chat.getState().pendingMessages.length === 0);
+  const ended = chat.getState();
+  assertEquals(ended.runningElsewhere, null);
+  assertEquals(said(ended.blocks), [
+    ['user-text', 'first'],
+    ['text', 'Sure.'],
+    ['user-text', 'second'],
+    ['text', 'Done.'],
+    ['user-text', 'third'],
+    ['text', 'Sure.'],
+  ]);
+  leave();
+});
+
+Deno.test("a page stops a reply that runs elsewhere through the app's stop, and its queue waits", async () => {
+  const elsewhere: { running?: RunningReply } = {};
+  const asked: string[] = [];
+  const stop: HoldStop = {
+    ask: (conversation) => {
+      asked.push(conversation);
+      return Promise.resolve(true);
+    },
+    stopped: (_conversation, _hold, over) =>
+      new Promise((resolve) => over.addEventListener('abort', () => resolve(false))),
+    clear: () => Promise.resolve(),
+  };
+  const made = app({}, {}, { elsewhere, stop });
+  await runningElsewhere(made, elsewhere);
+  const iface = await made.transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({
+    iface,
+    transport: made.transport,
+    conversation: made.refOf(),
+  });
+  const leave = chat.subscribe(() => {});
+  await waitFor(() => chat.getState().phase === 'streaming');
+  chat.setDraftText('later');
+  await chat.submit();
+  chat.stop();
+  await waitFor(() => asked.length === 1);
+  assertEquals(asked, [KEEPER]);
+
+  await endElsewhere(made, elsewhere);
+  await chat.refresh();
+  await waitFor(() => chat.getState().phase === 'idle');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const stopped = chat.getState();
+  assertEquals(stopped.failure, null);
+  assertEquals(
+    stopped.pendingMessages.map((m) => [m.kind, m.draft.text]),
+    [['queue', 'later']],
+    'a stopped reply sent the queue on',
+  );
+  assertEquals(made.runs.count, 1);
+  leave();
+});
+
+Deno.test('a stop by the conversation, with no app stop, reaches nothing and is refused as ended', async () => {
+  const made = app();
+  await made.run((onLine) => made.transport.turn({ id: 'm1', input: { text: 'first' } }, onLine));
+  const refused = await assertRejects(() => made.transport.stop({ conversation: made.refOf() }));
+  assert(refused instanceof TheoremStreamError);
+  assertEquals(refused.copy, { key: 'session.turn_ended' });
+});
+
+Deno.test("a page's steer to a reply that runs elsewhere goes by the conversation, and the app saves it", async () => {
+  const elsewhere: { running?: RunningReply } = {};
+  const made = app({}, {}, { elsewhere });
+  await runningElsewhere(made, elsewhere);
+  const iface = await made.transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({
+    iface: { ...iface, allowSteering: true },
+    transport: made.transport,
+    conversation: made.refOf(),
+  });
+  const leave = chat.subscribe(() => {});
+  await waitFor(() => chat.getState().phase === 'streaming');
+  chat.setDraftText('also this');
+  await chat.enqueue('steer');
+  const [steered] = chat.getState().pendingMessages;
+  assertEquals(chat.getState().failure, null);
+  assertEquals([steered?.kind, steered?.saved?.landsAs], ['steer', landsAs(steered?.id ?? '')]);
+  assertEquals(made.intakes.at(-1), steered?.id);
+  assertEquals(made.runs.count, 1, 'the steer ran a reply of its own');
+  leave();
+});
+
+Deno.test('a page reads the conversation again once the hold of the reply elsewhere lapses, with no word from the app', async () => {
+  const elsewhere: { running?: RunningReply } = {};
+  const made = app({}, {}, { elsewhere });
+  await runningElsewhere(made, elsewhere);
+  const running = elsewhere.running;
+  assert(running);
+  elsewhere.running = { ...running, heldUntil: Date.now() + 30 };
+  const iface = await made.transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({
+    iface,
+    transport: made.transport,
+    conversation: made.refOf(),
+  });
+  const leave = chat.subscribe(() => {});
+  await waitFor(() => chat.getState().phase === 'streaming');
+  // The server that ran it died: the hold lapses, and nothing is saved or told.
+  elsewhere.running = undefined;
+  await waitFor(() => chat.getState().phase === 'idle');
+  assertEquals(chat.getState().runningElsewhere, null);
+  assertEquals(chat.getState().streamBlocks, []);
+  leave();
+});
+
+Deno.test("a page's send now stops the reply that runs elsewhere, then sends the message, which the app saves", async () => {
+  const elsewhere: { running?: RunningReply } = {};
+  const asked: string[] = [];
+  const stop: HoldStop = {
+    ask: (conversation) => {
+      asked.push(conversation);
+      return Promise.resolve(true);
+    },
+    stopped: (_conversation, _hold, over) =>
+      new Promise((resolve) => over.addEventListener('abort', () => resolve(false))),
+    clear: () => Promise.resolve(),
+  };
+  const made = app({}, {}, { elsewhere, stop });
+  await runningElsewhere(made, elsewhere);
+  const iface = await made.transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({
+    iface,
+    transport: made.transport,
+    conversation: made.refOf(),
+  });
+  const leave = chat.subscribe(() => {});
+  await waitFor(() => chat.getState().phase === 'streaming');
+  chat.setDraftText('instead');
+  await chat.sendNow();
+  assertEquals(asked, [KEEPER]);
+  const intake = made.intakes.at(-1);
+  assert(intake !== undefined && intake !== 'm1', 'the app never saved the message');
+  assertEquals(
+    chat.getState().pendingMessages.map((m) => [m.draft.text, m.saved?.landsAs]),
+    [['instead', landsAs(intake)]],
+    'the message waits for the stopped reply to let the conversation go',
+  );
+  assertEquals(made.runs.count, 1);
+  leave();
 });

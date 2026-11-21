@@ -224,6 +224,7 @@ export {
   type NotifyLine,
   postJson,
   postNdjson,
+  type RunningReply,
   readNdjsonStream,
   type StatedTurn,
   type TheoremConversationRequest,

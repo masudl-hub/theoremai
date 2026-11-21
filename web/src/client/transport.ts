@@ -228,22 +228,36 @@ true satisfies Equals<z.infer<typeof theoremInvokeRequest>, TheoremInvokeRequest
 /** An `/invoke` body as `createTheoremHandler` reads it. */
 export const theoremInvokeRequestSchema: z.ZodType<TheoremInvokeRequest> = theoremInvokeRequest;
 
-/** The person's message for an in-flight turn. */
-export type TheoremSteerRequest = {
-  turnId: string;
-  /** The client's id for this steer; the turn's `stage` event names it in `injected` once it lands. */
-  id: string;
-  /** The message, as a `/turn` posts one. The host makes the user message the model reads. */
-  input: Pick<TheoremTurnInput, 'text' | 'attachments' | 'voice'>;
-  /** The ref of the conversation the turn replies in, when the page has one. */
-  conversation?: string;
-};
-const theoremSteerRequest = z.object({
-  turnId: clientId,
-  id: clientId,
-  input: theoremTurnInput.pick({ text: true, attachments: true, voice: true }),
-  conversation: z.string().min(1).optional(),
-});
+/**
+ * The person's message for an in-flight reply. With `turnId`, it goes to the turn this page
+ * started. Without it, it goes to the reply that holds `conversation` now, one the view says runs
+ * elsewhere (`ConversationView.running`).
+ */
+export type TheoremSteerRequest =
+  | {
+      turnId: string;
+      /** The client's id for this steer; the turn's `stage` event names it in `injected` once it lands. */
+      id: string;
+      /** The message, as a `/turn` posts one. The host makes the user message the model reads. */
+      input: Pick<TheoremTurnInput, 'text' | 'attachments' | 'voice'>;
+      /** The ref of the conversation the turn replies in, when the page has one. */
+      conversation?: string;
+    }
+  | {
+      id: string;
+      input: Pick<TheoremTurnInput, 'text' | 'attachments' | 'voice'>;
+      conversation: string;
+    };
+const steerInput = theoremTurnInput.pick({ text: true, attachments: true, voice: true });
+const theoremSteerRequest = z.union([
+  z.object({
+    turnId: clientId,
+    id: clientId,
+    input: steerInput,
+    conversation: z.string().min(1).optional(),
+  }),
+  z.object({ id: clientId, input: steerInput, conversation: z.string().min(1) }),
+]);
 true satisfies Equals<z.infer<typeof theoremSteerRequest>, TheoremSteerRequest>;
 /** A `/steer` body as `createTheoremHandler` reads it. */
 export const theoremSteerRequestSchema: z.ZodType<TheoremSteerRequest> = theoremSteerRequest;
@@ -268,9 +282,16 @@ export type TheoremSteerReply = { saved?: TheoremSavedMessage };
 const theoremSteerReply = z.object({ saved: theoremSavedMessage.optional() });
 true satisfies Equals<z.infer<typeof theoremSteerReply>, TheoremSteerReply>;
 
-/** Stop an in-flight turn where it stands; its stream ends with what the reply left. */
-export type TheoremStopRequest = { turnId: string };
-const theoremStopRequest = z.object({ turnId: clientId });
+/**
+ * Stop an in-flight reply where it stands; its stream ends with what the reply left. With
+ * `turnId`, the turn this page started; with `conversation`, the reply that holds it now, one the
+ * view says runs elsewhere (`ConversationView.running`).
+ */
+export type TheoremStopRequest = { turnId: string } | { conversation: string };
+const theoremStopRequest = z.union([
+  z.object({ turnId: clientId }),
+  z.object({ conversation: z.string().min(1) }),
+]);
 true satisfies Equals<z.infer<typeof theoremStopRequest>, TheoremStopRequest>;
 /** A `/stop` body as `createTheoremHandler` reads it. */
 export const theoremStopRequestSchema: z.ZodType<TheoremStopRequest> = theoremStopRequest;
@@ -305,11 +326,35 @@ export const CHAT_LINES: WireLines<TurnEvent | ConversationLine> = {
   conversation: conversationLine,
 };
 
-/** What the browser draws: the transcript, and the reply that waits on gates. */
+/**
+ * A reply that runs now, away from the page that reads it: another tab, another channel, a page
+ * reloaded while it ran. The app's store says so (`ConversationSnapshot.running`).
+ */
+export type RunningReply = {
+  /** When the reply started, in epoch milliseconds. */
+  since: number;
+  /** What the person said that the transcript does not hold yet, the messages the reply answers first. */
+  prompt: TranscriptBlock[];
+  /**
+   * When the hold the reply runs under lapses unless it is renewed, in epoch milliseconds. A page
+   * that has heard nothing by then reads the conversation again.
+   */
+  heldUntil: number;
+};
+const runningReply = z.object({
+  since: z.number(),
+  prompt: z.array(transcriptBlockSchema),
+  heldUntil: z.number(),
+});
+true satisfies Equals<z.infer<typeof runningReply>, RunningReply>;
+
+/** What the browser draws: the transcript, the reply that waits on gates, and one that runs elsewhere. */
 export type ConversationView = {
   transcript: TranscriptBlock[];
   /** The reply that waits on gates: its events, and its blocks as the transcript will keep them. */
   paused?: { events: TurnEvent[]; blocks: TranscriptBlock[] };
+  /** A reply that runs now, away from this page. The page shows it working, and can stop and steer it. */
+  running?: RunningReply;
   /** The host pushes the end of a call that still runs. `retryMs` is its wait to reopen the push. */
   notify?: { retryMs?: number };
   /** Results wait that no reply has read: the page wakes the conversation (`transport.wake`). */
@@ -320,6 +365,7 @@ const conversationView = z.object({
   paused: z
     .object({ events: z.array(turnEventSchema), blocks: z.array(transcriptBlockSchema) })
     .optional(),
+  running: runningReply.optional(),
   notify: z.object({ retryMs: z.number().optional() }).optional(),
   wake: z.literal(true).optional(),
 });
@@ -410,7 +456,7 @@ export interface TheoremTransport {
   turn(request: TheoremTurnRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   invoke(request: TheoremInvokeRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   steer(request: TheoremSteerRequest): Promise<TheoremSteerReply>;
-  /** Stops the turn; refused (`session.turn_ended`) when this host is not running it. */
+  /** Stops the reply; refused (`session.turn_ended`) when this host is not running it. */
   stop(request: TheoremStopRequest): Promise<void>;
   /** The conversation under `ref`, as the host shows it. */
   conversation(
@@ -496,9 +542,18 @@ export function hostError(body: HostErrorBody, fallbackKind: ErrorKind): Theorem
 
 /** The host could not open the message's conversation (`session.conversation_unknown`). */
 export function isUnknownConversation(err: unknown): boolean {
+  return hostSaid(err, 'session.conversation_unknown');
+}
+
+/** Whether the host refused a steer or stop because the reply it names is not running (`session.turn_ended`). */
+export function isTurnEnded(err: unknown): boolean {
+  return hostSaid(err, 'session.turn_ended');
+}
+
+function hostSaid(err: unknown, key: string): boolean {
   if (!isTheoremStreamError(err) || err.copy === undefined) return false;
   const copies: readonly { key: string }[] = Array.isArray(err.copy) ? err.copy : [err.copy];
-  return copies.some((copy) => copy.key === 'session.conversation_unknown');
+  return copies.some((copy) => copy.key === key);
 }
 
 /** One NDJSON line checked against `lines`; an `error` line ends the stream as a {@link TheoremStreamError}. */

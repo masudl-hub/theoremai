@@ -341,7 +341,9 @@ export function createStudioDraftHandler(
           await readBody(request, z.unknown()),
           'request body',
         );
-        if (!(await steer.enqueue(asked.turnId, steerUnitOf(asked)))) {
+        // why: the studio's turns run on this server, each by its id; a steer by the conversation reaches none
+        const opened = 'turnId' in asked && (await steer.enqueue(asked.turnId, steerUnitOf(asked)));
+        if (!opened) {
           // labels-exempt: internal diagnostic; the user reads session.turn_ended
           throw new TheoremError('request', 'steer: no open run has this inbox', {
             copy: { key: 'session.turn_ended' },
@@ -360,7 +362,8 @@ export function createStudioDraftHandler(
           await readBody(request, z.unknown()),
           'request body',
         );
-        if (!(await steer.stop(asked.turnId))) {
+        const stopped = 'turnId' in asked && (await steer.stop(asked.turnId));
+        if (!stopped) {
           // labels-exempt: internal diagnostic; the user reads session.turn_ended
           throw new TheoremError('request', 'stop: no open run has this inbox', {
             copy: { key: 'session.turn_ended' },

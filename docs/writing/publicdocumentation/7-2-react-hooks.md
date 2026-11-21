@@ -99,7 +99,7 @@ export function HarborChat() {
 
 The `chat.phase` enum indicates the active runtime state:
 - `'idle'`: Ready for user input.
-- `'streaming'`: Model response tokens are actively flowing into `chat.streamBlocks`.
+- `'streaming'`: Model response tokens are actively flowing into `chat.streamBlocks`, or a reply runs elsewhere (`chat.runningElsewhere`): another tab, another channel, or from before a reload. The page stops, steers and queues behind it the same way.
 - `'gated'`: The model paused turn execution to wait for human confirmation on a sensitive tool.
 
 When `chat.phase === 'gated'`, render the pending decision dialog and resolve it using `handleToolDecision` with `'allow'` or `'deny'`:

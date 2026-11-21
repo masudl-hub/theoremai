@@ -66,7 +66,8 @@ export function useTheoremChat(options: UseTheoremChatOptions): TheoremChatState
     optionChoices,
     shownBlocks,
     turnClock,
-    workingSince: liveTurnStart(groups, turnClock, state.streaming),
+    workingSince:
+      state.runningElsewhere?.since ?? liveTurnStart(groups, turnClock, state.streaming),
     backgroundJobs: jobs,
     setDraftText: chat.setDraftText,
     setPendingFiles: chat.setPendingFiles,
@@ -100,7 +101,10 @@ export type TheoremChatState = ChatState & {
    * `clock` so its times agree with the composer's working pill.
    */
   turnClock: TurnClock;
-  /** When the reply in progress started, its approval waits skipped; `undefined` when none runs. */
+  /**
+   * When the reply in progress started: one this page runs, its approval waits skipped, or one
+   * that runs elsewhere (`runningElsewhere.since`); `undefined` when none runs.
+   */
   workingSince: number | undefined;
   /** The tool calls still running in the background, oldest first, until their results land. */
   backgroundJobs: BackgroundJob[];

@@ -75,6 +75,7 @@ import {
   type ConversationLine,
   type ConversationView,
   type TheoremSavedMessage,
+  type TheoremStopRequest,
   type TheoremTurnInput,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
@@ -419,10 +420,11 @@ function shownView(ctx: HandlerContext, view: ConversationView): ConversationVie
   if (profileShowsToolData(ctx.profile)) return view;
   const blocks = (list: readonly TranscriptBlock[]) =>
     list.flatMap((block) => blockWithoutToolData(block) ?? []);
-  const { paused, ...rest } = view;
+  const { paused, running, ...rest } = view;
   return {
     ...rest,
     transcript: blocks(view.transcript),
+    ...(running ? { running: { ...running, prompt: blocks(running.prompt) } } : {}),
     ...(paused
       ? {
           paused: {
@@ -809,13 +811,22 @@ async function steer(
     const saved: TheoremSavedMessage = { conversation: taken.ref, landsAs: [...taken.landsAs] };
     return jsonResponse(200, { ok: true, saved });
   }
-  if (!(await core.steer(at, { turnId: body.turnId, id: body.id, input: body.input }))) {
-    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-    throw new TheoremError('request', `turn ${body.turnId} is not running`, {
-      copy: { key: 'session.turn_ended' },
-    });
-  }
+  // why: without `intake`, a steer reaches only a turn this server runs, by its id
+  const steered =
+    'turnId' in body &&
+    (await core.steer(at, { turnId: body.turnId, id: body.id, input: body.input }));
+  if (!steered) throw replyNotRunning(body);
   return jsonResponse(200, { ok: true });
+}
+
+/** The refusal of a steer or stop for a reply that is not running. */
+function replyNotRunning(target: TheoremStopRequest): TheoremError {
+  // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+  const what = 'turnId' in target ? `turn ${target.turnId}` : 'a reply on the conversation';
+  // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+  return new TheoremError('request', `${what} is not running`, {
+    copy: { key: 'session.turn_ended' },
+  });
 }
 
 /** Stops a running turn where it stands; its stream goes on to save and send what the reply left. */
@@ -827,12 +838,7 @@ async function stop(
 ): Promise<Response> {
   const body = await readBody(request, theoremStopRequestSchema, ctx.options.maxRequestBytes);
   const core = coreOf(ctx, chat, request);
-  if (!(await core.stop(contextOf(ctx, request, session.id), { turnId: body.turnId }))) {
-    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-    throw new TheoremError('request', `turn ${body.turnId} is not running`, {
-      copy: { key: 'session.turn_ended' },
-    });
-  }
+  if (!(await core.stop(contextOf(ctx, request, session.id), body))) throw replyNotRunning(body);
   return jsonResponse(200, { ok: true });
 }
 

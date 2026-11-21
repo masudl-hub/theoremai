@@ -212,8 +212,10 @@ export function createStudioTransport(
       ),
     rewind: (request, signal) =>
       fetchRewound('/api/studio/rewind', { ...compiled, ...request }, { ...options, signal }),
-    async steer({ turnId, id, input }) {
-      const inbox = inboxes.get(turnId);
+    async steer(request) {
+      // why: the studio runs every turn on this page, so a steer names one by its id
+      const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
+      const { id, input } = request;
       if (!inbox) {
         // labels-exempt: internal diagnostic; the user reads session.turn_ended
         throw new TheoremError('request', 'steer: the turn has not opened its inbox', {
@@ -224,8 +226,8 @@ export function createStudioTransport(
       await postJson('/api/studio/turn/steer', { turnId: inbox, id, input }, options);
       return {};
     },
-    async stop({ turnId }) {
-      const inbox = inboxes.get(turnId);
+    async stop(request) {
+      const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
       if (!inbox) {
         // labels-exempt: internal diagnostic; the user reads session.turn_ended
         throw new TheoremError('request', 'stop: the turn has not opened its inbox', {

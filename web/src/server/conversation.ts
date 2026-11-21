@@ -56,6 +56,7 @@ import type {
   ConversationLine,
   ConversationView,
   EncodedBlob,
+  RunningReply,
   StatedTurn,
   TheoremTurnInput,
 } from '../client/transport.ts';
@@ -137,6 +138,8 @@ export type OpenedConversation = {
   stored?: number;
   /** What the guardrails decided reading a restored transcript, for the reply to stream first. */
   events?: TurnEvent[];
+  /** The reply the store says runs on the conversation now (`ConversationSnapshot.running`). */
+  running?: RunningReply;
 };
 
 /**
@@ -186,7 +189,10 @@ async function openedAt(
     return { ref: null, revision: null, conversation: emptyConversation() };
   }
   const snapshot = await host.store.read(host.sessionId, ref);
-  if (snapshot) return { ref, revision: snapshot.revision, conversation: snapshot.conversation };
+  if (snapshot) {
+    const { revision, conversation, running } = snapshot;
+    return { ref, revision, conversation, ...(running ? { running } : {}) };
+  }
   if (!restore) throw unknownConversation();
   // why: A null ref makes the reply's write a new conversation, whose ref the `conversation` line hands the page.
   // invariant: A page cannot state a block's host values; only the app's own save sets them.

@@ -13,7 +13,7 @@ Deno.test('a steer body keeps the trimmed id, and its unit is one user message',
     id: ' steer-1 ',
     input: { text: 'steered' },
   });
-  assertEquals(body.turnId, 'turn-1');
+  assertEquals('turnId' in body ? body.turnId : undefined, 'turn-1');
   assertEquals(steerUnitOf(body), {
     id: 'steer-1',
     messages: [{ role: 'user', content: 'steered' }],
@@ -36,21 +36,28 @@ Deno.test("a steer's files go to the model beside its text", () => {
   });
 });
 
-Deno.test('a steer without a turn, an id, or a message fails its check', () => {
+Deno.test('a steer without a turn or a conversation, an id, or a message fails its check', () => {
   const input = { text: 'steered' };
-  const refused: [unknown, string][] = [
-    [{ turnId: 't', input }, 'id'],
-    [{ turnId: 't', id: '  ', input }, 'id'],
-    [{ turnId: 't', id: 7, input }, 'id'],
-    [{ id: 'steer-1', input }, 'turnId'],
-    [{ turnId: 't', id: 'steer-1' }, 'input'],
-    [{ turnId: 't', id: 'steer-1', input: 'steered' }, 'input'],
+  // Each body fails both forms: to a turn by its id, and to the reply that holds a conversation.
+  // A body that only one form could have been fails with that form's reason alone.
+  const refused: [unknown, string[]][] = [
+    [{ turnId: 't', input }, ['id', 'id']],
+    [{ turnId: 't', id: '  ', input }, ['id']],
+    [{ turnId: 't', id: 7, input }, ['id', 'id']],
+    [{ id: 'steer-1', input }, ['turnId', 'conversation']],
+    [{ turnId: 't', id: 'steer-1' }, ['input', 'input']],
+    [{ turnId: 't', id: 'steer-1', input: 'steered' }, ['input', 'input']],
   ];
-  for (const [body, path] of refused) {
+  for (const [body, paths] of refused) {
     const parsed = theoremSteerRequestSchema.safeParse(body);
     assertEquals(parsed.success, false);
     if (parsed.success) continue;
-    assertEquals(parsed.error.issues[0]?.path[0], path);
+    const [issue] = parsed.error.issues;
+    const reasons =
+      issue?.code === 'invalid_union'
+        ? issue.errors.map((form) => form[0]?.path[0])
+        : [issue?.path[0]];
+    assertEquals(reasons, paths);
   }
 });
 

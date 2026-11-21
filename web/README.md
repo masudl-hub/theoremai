@@ -386,6 +386,7 @@ interface ConversationDatabase {
 - Check what you read back with `storedConversationSchema`.
 - A store that keeps each block in its own place (a row, a column) checks one block with `transcriptBlockSchema`.
 - Keep `id` as the handler gives it. It names the conversation in each turn's trace as `gen_ai.conversation.id`, and stays the same through every save and rewind.
+- Set `running` on the snapshot while a reply runs on the conversation under a hold you keep. See [Show a reply that runs elsewhere](#show-a-reply-that-runs-elsewhere).
 
 ### Share session authority
 
@@ -553,7 +554,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `read(at, { ref })` | Returns the conversation as a page draws it. |
 | `rewind(at, { ref, at })` | Cuts the conversation after transcript block `at`. |
 | `steer(at, { turnId, id, input })` | Puts `input` into a running turn. Returns `false` when the turn is not running. Throws what `message` throws for an `input` the profile does not take, such as text over `inputs.maxTextChars`. |
-| `stop(at, { turnId })` | Stops a running turn. Returns `false` when the turn is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and `turnId` is not read. |
+| `stop(at, { turnId } \| { conversation })` | Stops a running reply: the turn `turnId` names, or the reply that holds `conversation`. Returns `false` when it is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and reads neither. Without one, only `{ turnId }` reaches a turn. |
 
 The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
 
@@ -658,6 +659,31 @@ const stop: HoldStop = {
 - `clear` removes a stop asked for `hold`. The core calls it as each model run ends.
 
 A stop is for the reply that holds the conversation when the stop arrives. The follow-up keeps the hold. Because the core clears the stop as the reply ends, a stop that came too late for the reply does not stop the follow-up.
+
+### Show a reply that runs elsewhere
+
+A page that opens while a reply runs, after a reload, in another tab, or while another channel's reply runs, did not start that reply. Only your records know that it runs. Your store's `read` tells the page with `running` on the snapshot:
+
+```ts
+const snapshot: ConversationSnapshot = {
+  revision,
+  conversation,
+  running: { since, prompt, heldUntil },
+};
+```
+
+- `since`: when the reply started, in epoch milliseconds. The working pill counts from it.
+- `prompt`: what the person said that the transcript does not hold yet, as transcript blocks. These are the messages the reply answers, and steers that are saved but not read yet. The page shows them under the transcript.
+- `heldUntil`: when the hold lapses unless it is renewed. A page that has heard nothing by then reads the conversation again, so a reply whose server died does not show as working forever.
+- Set `running` only while the hold is live. Leave it unset when no reply runs.
+
+The view the page reads has the same `running`. While it is set, the chat's phase is `streaming` and `runningElsewhere` holds it, so the page acts as it does for its own reply:
+
+- The stop button sends `/stop` with `{ conversation }`. Your `inbox`'s `stop` stops the reply. Without one, the stop is refused with `session.turn_ended`.
+- A steer sends `/steer` with `{ conversation }` and no `turnId`. `intake` saves it.
+- A message sent while it works waits in the queue. Send now stops the reply, then sends the message.
+
+Call `notifier.publish` after each save that ends the reply. The page reads the conversation again. When `running` is gone, the queue sends its next message, unless the person stopped the reply.
 
 ### Shape the save that ends a reply
 

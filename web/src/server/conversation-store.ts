@@ -24,7 +24,7 @@ import {
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import { type Equals, openSecret, sealSecret } from '@theoremjs/agents/kernel';
 import { transcriptBlockSchema } from '../client/transcript-schema.ts';
-import { type StatedTurn, statedTurnSchema } from '../client/transport.ts';
+import { type RunningReply, type StatedTurn, statedTurnSchema } from '../client/transport.ts';
 import { type MemorySessionStoreOptions, memoryStoreLimits } from './session-store.ts';
 
 /** A reply's base and the count of its events that base holds, as they stood before a compaction. */
@@ -112,6 +112,14 @@ export function emptyConversation(): StoredConversation {
 export interface ConversationSnapshot {
   revision: string;
   conversation: StoredConversation;
+  /**
+   * A reply that runs on the conversation now, as the app's own records say: one under a hold the
+   * app keeps (`inbox`), whichever server, channel or wake runs it. Set only while that hold is
+   * live. A page reads it to show the reply working, and stops and steers it by the conversation.
+   * The app tells the page when the reply ends (`notifier.publish` after its save). Unset, no
+   * reply runs, or the store does not know.
+   */
+  running?: RunningReply;
 }
 
 /**

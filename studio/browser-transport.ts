@@ -252,7 +252,8 @@ export function createBrowserStudioTransport(
         );
       }),
     async steer(request) {
-      const inbox = inboxes.get(request.turnId);
+      // why: the studio runs every turn on this page, so a steer names one by its id
+      const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
       const { run, steer } = await session;
       if (!inbox || !(await steer.enqueue(inbox, run.steerUnitOf(request)))) {
         throw new TheoremError('request', 'The turn has ended', {
@@ -261,8 +262,8 @@ export function createBrowserStudioTransport(
       }
       return {};
     },
-    async stop({ turnId }) {
-      const inbox = inboxes.get(turnId);
+    async stop(request) {
+      const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
       const { steer } = await session;
       if (!inbox || !(await steer.stop(inbox))) {
         throw new TheoremError('request', 'The turn has ended', {

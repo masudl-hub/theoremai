@@ -68,7 +68,8 @@ function heldHost() {
     // The host stops the turn where it stands: its stream ends cancelled.
     stop: (request) => {
       stops.push(request);
-      const turn = turns.find((open) => open.request.turnId === request.turnId);
+      const turnId = 'turnId' in request ? request.turnId : undefined;
+      const turn = turns.find((open) => open.request.turnId === turnId);
       turn?.line({ type: 'done', stop: { kind: 'cancelled' } });
       turn?.end();
       return Promise.resolve();
@@ -253,7 +254,8 @@ Deno.test("a steer goes to the running turn by its id, and shows where the turn'
   const [steer] = chat.getState().pendingMessages;
   assertEquals(steer.kind, 'steer');
   assertEquals(host.steers.length, 1);
-  assertEquals(host.steers[0].turnId, host.turns[0].request.turnId);
+  const [steered] = host.steers;
+  assertEquals('turnId' in steered ? steered.turnId : undefined, host.turns[0].request.turnId);
   assertEquals(host.steers[0].id, steer.id);
   assertEquals(host.steers[0].input, { text: 'Also the fern' });
   host.turns[0].line({ type: 'text', text: 'Looking' });

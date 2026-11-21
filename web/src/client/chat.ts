@@ -56,7 +56,9 @@ import {
   type ChatLineSink,
   type ClientTurnEvent,
   type ConversationView,
+  isTurnEnded,
   isUnknownConversation,
+  type RunningReply,
   type StatedTurn,
   type TheoremSteerRequest,
   type TheoremTransport,
@@ -160,6 +162,13 @@ export type ChatState = {
   /** The latest message's delivery; `null` before the first and once its turn failed. */
   delivery: MessageDelivery | null;
   streaming: boolean;
+  /**
+   * A reply that runs away from this page (another tab, another channel, or before a reload), as
+   * the host's last read said; `null` when none does. While one runs the phase is `streaming`:
+   * the page stops and steers it by the conversation, queues behind it, and its prompt shows in
+   * `streamBlocks`.
+   */
+  runningElsewhere: RunningReply | null;
   /** `undefined` when the profile declares no options. */
   options: ChatOptionPicks | undefined;
 };
@@ -427,6 +436,8 @@ class Chat implements ChatController {
   #streamed = false;
   #reading: Promise<void> | null = null;
   #readAgain = false;
+  /** Reads the conversation again once the hold of the reply that runs elsewhere lapses. */
+  #holdTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: ChatOptions) {
     this.#options = options;
@@ -448,6 +459,7 @@ class Chat implements ChatController {
       session: emptyInterfaceTurnSession(),
       delivery: null,
       streaming: false,
+      runningElsewhere: null,
       options: picksOf(options.iface, options.options, {}).options,
     };
     this.#notified = this.#state;
@@ -464,9 +476,11 @@ class Chat implements ChatController {
       this.#settle();
     }
     this.#followPush();
+    this.#followHold();
     return () => {
       this.#listeners.delete(listener);
       this.#followPush();
+      this.#followHold();
     };
   };
 
@@ -528,6 +542,25 @@ class Chat implements ChatController {
     const listening = new AbortController();
     this.#listening = listening;
     void this.#listen(listening);
+  }
+
+  /**
+   * Reads the conversation again when the hold of the reply that runs elsewhere lapses, while
+   * someone is here to see it. The app says when that reply ends; this covers a server that died
+   * holding it, which says nothing.
+   */
+  #followHold(): void {
+    if (this.#holdTimer) clearTimeout(this.#holdTimer);
+    this.#holdTimer = null;
+    const running = this.#state.runningElsewhere;
+    if (!running || this.#listeners.size === 0) return;
+    this.#holdTimer = setTimeout(
+      () => {
+        this.#holdTimer = null;
+        void this.refresh();
+      },
+      Math.max(0, running.heldUntil - Date.now()),
+    );
   }
 
   async #listen(listening: AbortController): Promise<void> {
@@ -594,11 +627,18 @@ class Chat implements ChatController {
     void this.#stop();
   };
 
-  /** Asks the host to stop the turn, so the reply it leaves comes back; a host that can't drops the stream. */
+  /**
+   * Asks the host to stop the reply, so what it leaves comes back; a host that can't drops the
+   * stream. A reply that runs elsewhere is stopped by the conversation, and the read after it
+   * draws what it left.
+   */
   async #stop(): Promise<void> {
     const abort = this.#abort;
     const turnId = this.#turnId;
-    if (!abort) return;
+    if (!abort) {
+      await this.#stopElsewhere();
+      return;
+    }
     this.#stopped = true;
     if (!turnId) {
       abort.abort();
@@ -610,6 +650,20 @@ class Chat implements ChatController {
       // why: The host isn't running the turn here (it ended, or another instance runs it); the stream is dropped instead.
       abort.abort();
     }
+  }
+
+  async #stopElsewhere(): Promise<void> {
+    const conversation = this.#conversation;
+    if (!this.#state.runningElsewhere || conversation === undefined) return;
+    this.#stopped = true;
+    try {
+      await this.#options.transport.stop({ conversation });
+    } catch (err) {
+      // why: A reply that ended first is not running; the read below shows what it left.
+      if (!isTurnEnded(err))
+        this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
+    }
+    await this.refresh();
   }
 
   enqueue = async (kind: 'queue' | 'steer' | 'stash'): Promise<void> => {
@@ -645,21 +699,15 @@ class Chat implements ChatController {
     });
     if (message.kind === 'queue' && this.#state.phase === 'idle') this.#drainArmed = true;
     if (message.kind !== 'steer') return;
-    const turnId = this.#turnId;
-    if (!turnId) {
+    const target = this.#steerTarget();
+    if (!target) {
       this.#steerAfterTurnEnded();
       return;
     }
     const input = steerInput(message.draft);
     if (Object.keys(input).length === 0) return;
-    const conversation = this.#conversation;
     try {
-      const { saved } = await this.#options.transport.steer({
-        turnId,
-        id: message.id,
-        input,
-        ...(conversation === undefined ? {} : { conversation }),
-      });
+      const { saved } = await this.#options.transport.steer({ ...target, id: message.id, input });
       if (!saved) return;
       this.#set({
         pendingMessages: saveComposerPendingMessage(
@@ -676,6 +724,15 @@ class Chat implements ChatController {
     }
   };
 
+  /** Where a steer goes: the turn this page runs, or the reply that runs elsewhere. */
+  #steerTarget(): { turnId: string; conversation?: string } | { conversation: string } | null {
+    const conversation = this.#conversation;
+    const turnId = this.#turnId;
+    if (turnId) return { turnId, ...(conversation === undefined ? {} : { conversation }) };
+    if (this.#state.runningElsewhere && conversation !== undefined) return { conversation };
+    return null;
+  }
+
   sendNow = async (source?: ComposerPendingMessage): Promise<void> => {
     if (!this.#options.iface || source?.saved) return;
     const draft = source ? source.draft : await this.#composerDraft();
@@ -683,6 +740,8 @@ class Chat implements ChatController {
     if (this.#busy) {
       await this.#stop();
       await this.#run;
+    } else if (this.#state.runningElsewhere) {
+      await this.#stopElsewhere();
     }
     this.#set({ pendingMessages: convertSteersToFrontQueued(this.#state.pendingMessages) });
     this.#drainArmed = false;
@@ -748,7 +807,7 @@ class Chat implements ChatController {
 
   branch = async (index: number): Promise<void> => {
     const { iface } = this.#options;
-    if (!iface || this.#busy) return;
+    if (!iface || this.#busy || this.#state.runningElsewhere) return;
     const ref = this.#conversation;
     if (!keepsConversation(iface) || ref === undefined) {
       const kept = [...this.#state.blocks, ...this.#state.streamBlocks].slice(0, index + 1);
@@ -810,7 +869,8 @@ class Chat implements ChatController {
 
   #set(patch: Partial<ChatState>): void {
     const next = { ...this.#state, ...patch };
-    next.phase = this.#busy ? 'streaming' : next.session.gatedTool ? 'gated' : 'idle';
+    const running = this.#busy || next.runningElsewhere !== null;
+    next.phase = running ? 'streaming' : next.session.gatedTool ? 'gated' : 'idle';
     const gate = next.session.gatedTool;
     next.waitingGate = next.phase === 'gated' && gate && gate.gateKind !== 'page' ? gate : null;
     this.#state = next;
@@ -912,18 +972,27 @@ class Chat implements ChatController {
   #draw(view: ConversationView, session: InterfaceTurnSession, events: readonly TurnEvent[]): void {
     const shown = [...this.#state.blocks, ...this.#state.streamBlocks];
     const blocks = keepIds(shown, view.transcript);
-    const drawn = [...view.transcript, ...(view.paused?.blocks ?? [])].map((block) => block.id);
+    const after = view.paused?.blocks ?? view.running?.prompt ?? [];
+    const drawn = [...view.transcript, ...after].map((block) => block.id);
+    const ended = this.#state.runningElsewhere !== null && view.running === undefined;
     this.#set({
       // why: A saved message the conversation now shows is no longer waiting.
       pendingMessages: takeSavedComposerPending(this.#state.pendingMessages, drawn).remaining,
       blocks,
-      streamBlocks: keepIds(shown.slice(blocks.length), view.paused?.blocks ?? []),
+      streamBlocks: keepIds(shown.slice(blocks.length), after),
       // why: A reply at rest leaves the run's own events (tokens, an ask); a paused one, the host's.
       session: this.#sessionAfter(session, view.paused?.events ?? events),
-      chatStarted: view.transcript.length > 0 || view.paused !== undefined,
+      chatStarted: view.transcript.length > 0 || after.length > 0 || view.running !== undefined,
+      runningElsewhere: view.running ?? null,
     });
     this.#wakeDue = view.wake === true;
     this.#setPush(view.notify);
+    this.#followHold();
+    // why: The reply that ran elsewhere ended as a reply here ends: the queue sends on, unless it was stopped.
+    if (ended && !this.#busy) {
+      this.#runEnded(!this.#stopped);
+      this.#stopped = false;
+    }
   }
 
   /**

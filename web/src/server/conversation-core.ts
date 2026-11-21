@@ -47,6 +47,7 @@ import type {
   TheoremInvokeRequest,
   TheoremRewound,
   TheoremSteerRequest,
+  TheoremStopRequest,
   TheoremTurnInput,
 } from '../client/transport.ts';
 import {
@@ -909,9 +910,10 @@ async function currentView<Item extends InboxItem>(
   at: CoreContext,
   host: ConversationHost,
   ref: string,
-  conversation: StoredConversation,
+  opened: Pick<OpenedConversation, 'conversation' | 'running'>,
 ): Promise<ConversationView> {
-  const view = conversationView(host, conversation);
+  const { conversation, running } = opened;
+  const view = { ...conversationView(host, conversation), ...(running ? { running } : {}) };
   const detached = view.transcript.some(isDetachedBlock);
   // why: a session's late results come from detached calls only; an app's items come from anywhere
   if (!detached && !ctx.options.inbox) return view;
@@ -1207,7 +1209,7 @@ async function read<Item extends InboxItem>(
   const host = conversationHost(ctx, at);
   if (!host) throw statelessRefusal('read');
   const opened = await openConversation(host, args.ref, { kind: 'read' });
-  return currentView(ctx, at, host, args.ref, opened.conversation);
+  return currentView(ctx, at, host, args.ref, opened);
 }
 
 /** The conversation cut after one block; a reply that waits on gates is walked away from first. */
@@ -1232,7 +1234,7 @@ async function rewind<Item extends InboxItem>(
   if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
   return {
     conversation: next.ref,
-    view: await currentView(ctx, at, host, next.ref, next.conversation),
+    view: await currentView(ctx, at, host, next.ref, next),
   };
 }
 
@@ -1306,10 +1308,12 @@ export type ConversationCore = {
     args: { turnId: string } & Pick<TheoremSteerRequest, 'id' | 'input'>,
   ): Promise<boolean>;
   /**
-   * Stops a running turn where it stands. False when the turn is not running. Where the app's
-   * `inbox` has a `stop`, it stops the reply that holds the conversation, and reads no `turnId`.
+   * Stops a running reply where it stands: the turn `turnId` names, or the reply that holds
+   * `conversation`. False when it is not running. Where the app's `inbox` has a `stop`, it stops
+   * the reply that holds the conversation, and reads neither. Without one, only a turn this
+   * server runs can be stopped, by its `turnId`.
    */
-  stop(at: CoreContext, args: { turnId: string }): Promise<boolean>;
+  stop(at: CoreContext, args: TheoremStopRequest): Promise<boolean>;
 };
 
 /** The conversation core over `state`. */
@@ -1332,10 +1336,12 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
       postedMessage(chatInterface(state.chat), steer.input);
       return await state.steer.enqueue(inboxKey(at.sessionId, turnId), steerUnitOf(steer));
     },
-    stop: (at, { turnId }) => {
+    stop: (at, args) => {
       const app = state.options.inbox?.(at);
       if (app?.stop) return app.stop.ask(app.conversation);
-      return Promise.resolve(state.steer.stop(inboxKey(at.sessionId, turnId)));
+      // why: without the app's stop, only this server's turns are known, each by its id
+      if (!('turnId' in args)) return Promise.resolve(false);
+      return Promise.resolve(state.steer.stop(inboxKey(at.sessionId, args.turnId)));
     },
   };
 }

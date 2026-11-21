@@ -106,7 +106,7 @@ function crashOn(stage: TurnStage) {
   };
 }
 
-for (const stage of ['pre_turn', 'post_tool', 'before_end', 'post_turn'] as const) {
+for (const stage of ['pre_turn', 'post_tool', 'post_step', 'before_end', 'post_turn'] as const) {
   Deno.test(`an onStage throw at ${stage} is reported once, and the turn goes on`, async () => {
     const events = await turn({
       execution: createMemoryToolExecution(),

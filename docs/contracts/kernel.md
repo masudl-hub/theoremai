@@ -520,6 +520,8 @@ sink, or noop). An explicit third-argument sink always wins for that call.
 Text turns emit **stage** events and invoke optional `TurnRequest.onStage`
 (`docs/contracts/stages.md`): `pre_turn` before the first provider step;
 `post_tool` after each tool body (may `deny` or `mutate` the result);
+`post_step` once a step's calls settle, before the next model step (may replace
+the host's `context`);
 `before_end` before egress/validation
 finalize (inject may re-enter the step loop under `maxSteps`); terminal `done`;
 then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
@@ -572,6 +574,8 @@ Live sessions emit the same stage names around utterance cycles and
    Each reads the turn's taint, destinations, and visible tools as they stood when the step
    began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
+   When the model takes another step, `post_step` runs once the step's calls settle, and its
+   `context` replaces the host's context the next step reads.
    The runner records each step's reply in portable history: the text it wrote
    (its structured reply, when it gave one), then its tool calls, then their results,
    so the next call reads what the model wrote before its calls.
@@ -1693,8 +1697,9 @@ On text turns the runner always yields `{ type: 'stage', stage }`:
 
 1. `pre_turn` — once before the first provider step.
 2. `post_tool` — per tool call, before its terminal `tool` event (inject window before the next model step; may `deny` / `mutate` the result).
-3. `before_end` — before egress/validation; an inject lands after the answer the model wrote and may re-enter the step loop under `maxSteps`.
-4. `post_turn` — after terminal `done` (sees compaction-after when attached).
+3. `post_step` — once a step's calls settle, when the model takes another step; may replace the host's `context` for that step.
+4. `before_end` — before egress/validation; an inject lands after the answer the model wrote and may re-enter the step loop under `maxSteps`.
+5. `post_turn` — after terminal `done` (sees compaction-after when attached).
 
 Inject applies only when `profileAllowsInject(profile)` (text + live when
 `allowSteering !== false`). Where a named inject lands, the runner yields

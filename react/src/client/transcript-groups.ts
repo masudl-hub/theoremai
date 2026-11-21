@@ -263,7 +263,7 @@ function classifyNonGateBlock(
  *   latest tool → body (while streaming too, so the answer streams formatted)
  * - No tools: thoughts still go to trace; remaining kinds → body
  * - Under `stepLayout: 'inline'`, nothing is traced: every block but the first gate is body, in
- *   stream order, and thoughts that say nothing are dropped
+ *   stream order; thoughts, and words before a call, that say nothing are dropped
  * - Body kinds then follow {@link ComposeAssistantTurnOptions.bodyKindPlacement}
  *   (default: citations last)
  */
@@ -278,8 +278,15 @@ export function composeAssistantTurn(
   const nonGate = visible.filter((block) => block !== nextGate);
   const placement = options?.bodyKindPlacement ?? DEFAULT_BODY_KIND_PLACEMENT;
   if (options?.stepLayout === 'inline') {
-    // why: In place, a step is a body row like the words around it; an empty thought says nothing.
-    const body = nonGate.filter((block) => block.kind !== 'thought' || block.text.trim());
+    // why: In place, a step is a body row like the words around it. As in the trace, a thought or
+    // the words before a call that say nothing are dropped; the answer after the last call stays,
+    // empty while it starts streaming.
+    const lastToolIndex = lastToolIndexOf(nonGate);
+    const body = nonGate.filter(
+      (block, index) =>
+        !(block.kind === 'thought' || (block.kind === 'text' && index < lastToolIndex)) ||
+        block.text.trim(),
+    );
     return {
       trace: [],
       gatedTools,

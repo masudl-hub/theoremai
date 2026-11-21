@@ -769,13 +769,14 @@ Deno.test('composeAssistantTurn streams the answer after the latest tool in the 
   );
 });
 
-Deno.test('composeAssistantTurn in place keeps every step and word where it came, and drops empty thoughts', () => {
+Deno.test('composeAssistantTurn in place keeps every step and word where it came, and drops steps that say nothing', () => {
   const call = (id: string): TranscriptBlock => ({
     id,
     kind: 'tool',
     tool: foldedCall({ name: 'plan_day', callId: id }, {}, { phase: 'complete', output: {} }),
   });
   const blocks: TranscriptBlock[] = [
+    { id: 'blank', kind: 'text', text: '' },
     { id: 'n', kind: 'text', text: 'Let me check.' },
     call('t1'),
     { id: 'r', kind: 'thought', text: 'Two nudges, one plant.' },
@@ -791,6 +792,14 @@ Deno.test('composeAssistantTurn in place keeps every step and word where it came
   assertEquals(
     turn.body.map((block) => block.id),
     ['n', 't1', 'r', 't2', 't3', 'a'],
+  );
+  // The answer after the last call stays while it streams in, empty at first.
+  const starting = composeAssistantTurn([call('t1'), { id: 'a', kind: 'text', text: '' }], {
+    stepLayout: 'inline',
+  });
+  assertEquals(
+    starting.body.map((block) => block.id),
+    ['t1', 'a'],
   );
   const plain = composeAssistantTurn([{ id: 'a', kind: 'text', text: 'Hi.' }], {
     stepLayout: 'inline',

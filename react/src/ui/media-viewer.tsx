@@ -51,7 +51,10 @@ export function PageMediaViewer(props: MediaViewerProps) {
   return <Viewer {...props} />;
 }
 
-/** The page's viewer over `media`, closed until `open`; render `element` where the viewer belongs. */
+/**
+ * The page's viewer over `media`, closed until `open`; render `element` where the viewer belongs.
+ * A viewer may report the index or open state it already has; that changes nothing.
+ */
 export function useMediaViewer(media: readonly MediaViewerItem[]): {
   open: (index?: number) => void;
   element: ReactNode;
@@ -66,10 +69,14 @@ export function useMediaViewer(media: readonly MediaViewerItem[]): {
       media.length > 0 ? (
         <PageMediaViewer
           isOpen={shown.isOpen}
-          onOpenChange={(isOpen) => setShown((current) => ({ ...current, isOpen }))}
+          onOpenChange={(isOpen) =>
+            setShown((current) => (current.isOpen === isOpen ? current : { ...current, isOpen }))
+          }
           media={media}
           index={shown.index}
-          onIndexChange={(index) => setShown((current) => ({ ...current, index }))}
+          onIndexChange={(index) =>
+            setShown((current) => (current.index === index ? current : { ...current, index }))
+          }
         />
       ) : null,
   };

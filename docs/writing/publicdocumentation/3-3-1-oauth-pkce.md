@@ -115,7 +115,7 @@ OAuth access tokens expire. When a tool with an OAuth credential executes, Theor
 * `auth`: the refresh token is dead (`invalid_grant`), the client was refused (`invalid_client`), or the endpoint answered 401, 402 or 403. Ask the user to sign in again.
 * `unavailable`, `busy`, or `rate_limit`: the server could not answer now. Try again later.
 
-The error also has the HTTP `status` and the server's `error` code. A request that gets no answer throws a `TheoremError` with kind `network`.
+The error also has the HTTP `status` and the server's `error` code. A request that gets no answer throws a `TheoremError` with kind `network`. Pass `timeoutMs` to limit how long each request may take, its body included; past it the call throws a `TimeoutError` (kind `timeout`). Without it, there is no limit.
 
 ---
 

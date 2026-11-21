@@ -405,6 +405,48 @@ Deno.test('a sealed prepare refreshes an expired token on its own side and tells
   );
 });
 
+Deno.test('a sealed host limits each refresh to its timeoutMs, and leaves its sends unlimited', async () => {
+  const expired: ToolCredential = {
+    type: 'oauth2',
+    issuer: 'https://auth.weather.example',
+    resource: RESOURCE,
+    accessToken: 'old-access',
+    refreshToken: 'old-refresh',
+    tokenEndpoint: 'https://auth.weather.example/token',
+    clientId: 'client',
+    expiresAt: Date.now() - 1000,
+  };
+  const signals: (AbortSignal | null | undefined)[] = [];
+  const stalls: typeof fetch = (_input, init) => {
+    signals.push(init?.signal);
+    const signal = init?.signal;
+    return new Promise((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason));
+    });
+  };
+  const host = (fetchFn: typeof fetch, source: ToolCredentialSource) =>
+    sealedCredentialHost({
+      source,
+      slots: { weather: { resource: RESOURCE } },
+      resolveHost: RESOLVE,
+      fetchFn,
+      timeoutMs: 20,
+    });
+  const ready = await host(stalls, memoryCredentialSource({ weather: expired })).prepare('weather');
+  assertEquals(ready.state === 'unusable' ? ready.reason : ready.state, 'refresh_failed');
+  const sent: (AbortSignal | null | undefined)[] = [];
+  const answers: typeof fetch = (_input, init) => {
+    sent.push(init?.signal);
+    return Promise.resolve(json({ temp: 20 }));
+  };
+  await host(answers, memoryCredentialSource({ weather: BEARER_KEY })).send(
+    'weather',
+    `${RESOURCE}v1/now`,
+    { method: 'GET', headers: {} },
+  );
+  assertEquals({ refresh: signals.length, send: sent }, { refresh: 1, send: [undefined] });
+});
+
 Deno.test('a refresh the token server refuses says why without anything it was sent', async () => {
   const expired: ToolCredential = {
     type: 'oauth2',

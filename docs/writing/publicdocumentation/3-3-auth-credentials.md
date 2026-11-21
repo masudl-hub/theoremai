@@ -148,7 +148,7 @@ const keys = sealedCredentialHost({
 });
 ```
 
-On the run's side, pass a source with `sealed: true` whose `prepare` and `send` forward to `keys.prepare` and `keys.send` (over a service binding or an RPC of your own) as `credentials`. A request outside a slot's `resource` is refused before the key is read. An expiring OAuth token is refreshed and saved on the sealed side. Gates and refusals work as with a source the run reads. A key typed at a sign-in gate is refused under a sealed source: collect it on a page that sends it to the side that holds the keys.
+On the run's side, pass a source with `sealed: true` whose `prepare` and `send` forward to `keys.prepare` and `keys.send` (over a service binding or an RPC of your own) as `credentials`. A request outside a slot's `resource` is refused before the key is read. An expiring OAuth token is refreshed and saved on the sealed side; pass `timeoutMs` to `sealedCredentialHost` to limit how long each refresh request may take (no limit without it). Gates and refusals work as with a source the run reads. A key typed at a sign-in gate is refused under a sealed source: collect it on a page that sends it to the side that holds the keys.
 
 ---
 

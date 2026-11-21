@@ -33,12 +33,18 @@ function oauthFetch(
   init: { method?: string; headers: Record<string, string>; body?: string },
   transport: OAuthTransportOptions,
 ): Promise<Response> {
-  return fetchGuarded(url, init, {
-    policy: transport.network,
-    followRedirects: false,
-    resolveHost: transport.resolveHost,
-    ...(transport.fetchFn ? { fetchFn: transport.fetchFn } : {}),
-  });
+  const timeout = transport.timeoutMs;
+  const signal = timeout === undefined ? {} : { signal: AbortSignal.timeout(timeout) };
+  return fetchGuarded(
+    url,
+    { ...init, ...signal },
+    {
+      policy: transport.network,
+      followRedirects: false,
+      resolveHost: transport.resolveHost,
+      ...(transport.fetchFn ? { fetchFn: transport.fetchFn } : {}),
+    },
+  );
 }
 
 /** RFC 8414 §2, RFC 9728 §1.2, OAuth 2.1 §1.5: an absolute `https` URL without a fragment. */

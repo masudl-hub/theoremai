@@ -1198,3 +1198,86 @@ Deno.test('the revocation endpoint comes from the issuer metadata, or there is n
     'http given',
   );
 });
+
+/** A fetch that never answers, or answers with a body that never ends; either way it waits for its signal. */
+function stalled(mode: 'answer' | 'body') {
+  const fetchFn: typeof fetch = (_input, init) => {
+    const signal = init?.signal;
+    if (mode === 'body') {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          signal?.addEventListener('abort', () => controller.error(signal.reason));
+        },
+      });
+      return Promise.resolve(
+        new Response(body, { headers: { 'Content-Type': 'application/json' } }),
+      );
+    }
+    return new Promise((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason));
+    });
+  };
+  return { fetchFn };
+}
+
+async function errorName(body: () => Promise<unknown>): Promise<string> {
+  try {
+    await body();
+    return 'resolved';
+  } catch (err) {
+    return err instanceof Error ? err.name : String(err);
+  }
+}
+
+Deno.test('every OAuth call stops at timeoutMs, its body read included, and has no limit without it', async () => {
+  const calls = {
+    resource: (t: Record<string, unknown>) => discoverResourceMetadata(RESOURCE, t),
+    issuer: (t: Record<string, unknown>) => discoverAuthServerMetadata(ISSUER, t),
+    exchange: async (t: Record<string, unknown>) => {
+      const flow = await flowFor();
+      return exchangeOAuthPkce({
+        code: 'code',
+        state: flow.state,
+        redirectUri: REDIRECT,
+        signingSecret: SECRET,
+        sessionBinding: SESSION,
+        ...t,
+      });
+    },
+    refresh: (t: Record<string, unknown>) =>
+      refreshOAuthToken({
+        issuer: ISSUER,
+        resource: RESOURCE,
+        tokenEndpoint: TOKEN_ENDPOINT,
+        clientId: 'client',
+        refreshToken: 'old-refresh',
+        ...t,
+      }),
+    revoke: (t: Record<string, unknown>) =>
+      revokeOAuthToken({
+        credential: { issuer: ISSUER, clientId: 'client', accessToken: 'tok' },
+        revocationEndpoint: `${ISSUER}/oauth/revoke`,
+        ...t,
+      }),
+  };
+  for (const [name, call] of Object.entries(calls)) {
+    // why: A revocation's 200 is all its answer; its body is cancelled, never read.
+    const modes = name === 'revoke' ? (['answer'] as const) : (['answer', 'body'] as const);
+    for (const mode of modes) {
+      const { fetchFn } = stalled(mode);
+      check(
+        await errorName(() => call({ fetchFn, timeoutMs: 20 })),
+        'TimeoutError',
+        `${name} stops when the ${mode} stalls`,
+      );
+    }
+    const { fetchFn, seen } = routes({});
+    await call({ fetchFn }).catch(() => undefined);
+    check(
+      seen.map((request) => request.init?.signal),
+      seen.map(() => undefined),
+      `${name} sends no signal without timeoutMs`,
+    );
+    check(seen.length > 0, true, `${name} sent a request`);
+  }
+});

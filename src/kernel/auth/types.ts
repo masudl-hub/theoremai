@@ -79,6 +79,11 @@ export interface OAuthTransportOptions {
   /** A host that resolves to a private address is refused. */
   resolveHost?: ResolveHost;
   fetchFn?: typeof fetch;
+  /**
+   * How long each request to the authorization server may take, its body read included, in
+   * milliseconds. Past it the request fails `timeout`. Without it, no limit.
+   */
+  timeoutMs?: number;
 }
 
 /** The endpoints of an OAuth authorization server. */

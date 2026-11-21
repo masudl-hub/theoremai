@@ -769,6 +769,35 @@ Deno.test('composeAssistantTurn streams the answer after the latest tool in the 
   );
 });
 
+Deno.test('composeAssistantTurn in place keeps every step and word where it came, and drops empty thoughts', () => {
+  const call = (id: string): TranscriptBlock => ({
+    id,
+    kind: 'tool',
+    tool: foldedCall({ name: 'plan_day', callId: id }, {}, { phase: 'complete', output: {} }),
+  });
+  const blocks: TranscriptBlock[] = [
+    { id: 'n', kind: 'text', text: 'Let me check.' },
+    call('t1'),
+    { id: 'r', kind: 'thought', text: 'Two nudges, one plant.' },
+    { id: 'empty', kind: 'thought', text: '  ' },
+    call('t2'),
+    call('t3'),
+    { id: 'a', kind: 'text', text: 'Cleaned up.' },
+  ];
+  const turn = composeAssistantTurn(blocks, { stepLayout: 'inline' });
+  assertEquals(turn.trace, []);
+  assertEquals(turn.hasTrace, false);
+  assertEquals(turn.hasSteps, true);
+  assertEquals(
+    turn.body.map((block) => block.id),
+    ['n', 't1', 'r', 't2', 't3', 'a'],
+  );
+  const plain = composeAssistantTurn([{ id: 'a', kind: 'text', text: 'Hi.' }], {
+    stepLayout: 'inline',
+  });
+  assertEquals(plain.hasSteps, false);
+});
+
 Deno.test('groupTranscriptBlocks keeps tools and text in one assistant turn', () => {
   const blocks = [
     { id: 'user-1', kind: 'user-text', text: 'hi' },
@@ -853,12 +882,12 @@ function workLine(args: Parameters<typeof workStatus>[0]): string {
 }
 
 Deno.test('workStatus is working while streaming and worked after; workStatusLabel words it', () => {
-  assertEquals(workLine({ streaming: true, hasTrace: false }), 'Working…');
-  assertEquals(workLine({ streaming: true, hasTrace: true }), 'Working…');
-  assertEquals(workLine({ streaming: false, hasTrace: false }), '');
-  assertEquals(workLine({ streaming: false, hasTrace: true, elapsedMs: 2300 }), 'Worked for 2.3s');
-  assertEquals(workLine({ streaming: false, hasTrace: false, elapsedMs: 2300 }), 'Worked for 2.3s');
-  assertEquals(workLine({ streaming: false, hasTrace: true }), 'Worked');
+  assertEquals(workLine({ streaming: true, hasSteps: false }), 'Working…');
+  assertEquals(workLine({ streaming: true, hasSteps: true }), 'Working…');
+  assertEquals(workLine({ streaming: false, hasSteps: false }), '');
+  assertEquals(workLine({ streaming: false, hasSteps: true, elapsedMs: 2300 }), 'Worked for 2.3s');
+  assertEquals(workLine({ streaming: false, hasSteps: false, elapsedMs: 2300 }), 'Worked for 2.3s');
+  assertEquals(workLine({ streaming: false, hasSteps: true }), 'Worked');
 });
 
 Deno.test('formatAttachmentSize covers B/KB/MB', () => {

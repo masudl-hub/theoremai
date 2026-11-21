@@ -52,6 +52,7 @@ import {
   pendingPromptOf,
   promptReplyKey,
   promptTime,
+  type StepLayout,
   type TraceItem,
   type TranscriptTurnGroup,
   type TurnUsage,
@@ -125,6 +126,15 @@ export type ChatTranscriptProps = {
    * the prose). Pass `{}` to keep stream order for inline citations.
    */
   bodyKindPlacement?: ComposeAssistantTurnOptions['bodyKindPlacement'];
+  /**
+   * Where a reply's thoughts and tool calls sit. `trace` (default) folds them, with the words
+   * written between them, under the work status. `inline` shows each where it came: every word in
+   * the open, calls side by side as one row that opens from its count, and each thought a folded
+   * line. The work status is then a line of its own.
+   */
+  stepLayout?: StepLayout;
+  /** Whether a finished tool call's row shows how long it ran. Default: true. */
+  showToolDurations?: boolean;
   /** The profile's labels (`iface.labels`): a stopped turn says why in its words. */
   labels?: LabelOverrides;
 };
@@ -135,12 +145,19 @@ const ShowUsage = createContext(false);
 /** Whether a tool call's row opens on its detail (`ChatTranscriptProps.showToolData`). */
 const ShowToolData = createContext(true);
 
+/** Whether a finished tool call's row shows how long it ran (`ChatTranscriptProps.showToolDurations`). */
+const ShowToolDurations = createContext(true);
+
 /** What a tool call's row shows beside its label. */
-type ToolRowShows = { usage: boolean; detail: boolean };
+type ToolRowShows = { usage: boolean; detail: boolean; duration: boolean };
 
 /** What the transcript's props say a tool call's row shows. */
 function useToolRowShows(): ToolRowShows {
-  return { usage: useContext(ShowUsage), detail: useContext(ShowToolData) };
+  return {
+    usage: useContext(ShowUsage),
+    detail: useContext(ShowToolData),
+    duration: useContext(ShowToolDurations),
+  };
 }
 
 /** Image-profile display: `ratio` is the profile's pinned aspect ratio, if any. */
@@ -579,12 +596,14 @@ export function ReferencedMedia({ reference }: { reference: MediaReference }) {
 
 type BodyRow =
   | { kind: 'block'; block: TranscriptBlock }
+  | { kind: 'tools'; blocks: ToolBlock[] }
   | { kind: 'gallery'; items: GalleryItem[] }
   | { kind: 'sources'; citations: SourceCitation[] };
 
 /**
  * Runs of images/videos become one gallery row; consecutive citation blocks
- * become one sources row; everything else is a row of its own.
+ * become one sources row; calls side by side become one tools row; everything
+ * else is a row of its own.
  */
 function bodyRows(
   t: LabelText,
@@ -597,6 +616,7 @@ function bodyRows(
     const item = galleryItemOf(t, block);
     if (item) addToGallery(rows, item);
     else if (block.kind === 'citation') addToSources(rows, citationsFromBlock(block));
+    else if (block.kind === 'tool') addToTools(rows, block);
     else rows.push({ kind: 'block', block });
   }
   return rows;
@@ -606,6 +626,12 @@ function addToGallery(rows: BodyRow[], item: GalleryItem): void {
   const last = rows.at(-1);
   if (last?.kind === 'gallery') last.items.push(item);
   else rows.push({ kind: 'gallery', items: [item] });
+}
+
+function addToTools(rows: BodyRow[], block: ToolBlock): void {
+  const last = rows.at(-1);
+  if (last?.kind === 'tools') last.blocks.push(block);
+  else rows.push({ kind: 'tools', blocks: [block] });
 }
 
 function addToSources(rows: BodyRow[], citations: readonly SourceCitation[]): void {
@@ -736,7 +762,7 @@ function StreamedMarkdown({
 
 function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: boolean }) {
   if (block.kind === 'text') return <StreamedMarkdown text={block.text} streaming={streaming} />;
-  if (block.kind === 'tool') return <ToolCall tool={block.tool} />;
+  if (block.kind === 'thought') return <ThoughtLine text={block.text} streaming={streaming} />;
   return <ResultBlock block={block} />;
 }
 
@@ -798,9 +824,13 @@ function ToolSteps({ steps }: { steps: readonly ToolBlock['tool'][] }) {
   );
 }
 
-/** How long a finished call ran, when both ends were seen. */
-function toolDuration(t: LabelText, tool: ToolBlock['tool']): { duration?: string } {
-  if (tool.startedAt === undefined || tool.endedAt === undefined) return {};
+/** How long a finished call ran, when the transcript shows it and both ends were seen. */
+function toolDuration(
+  t: LabelText,
+  tool: ToolBlock['tool'],
+  shows: ToolRowShows,
+): { duration?: string } {
+  if (!shows.duration || tool.startedAt === undefined || tool.endedAt === undefined) return {};
   return { duration: workDuration(t, tool.endedAt - tool.startedAt) };
 }
 
@@ -864,7 +894,7 @@ function toolCallItem(
       return {
         ...base,
         status: 'complete',
-        ...toolDuration(t, tool),
+        ...toolDuration(t, tool, shows),
         ...toolUsageStats(state, shows),
         ...rowDetail(
           t,
@@ -883,10 +913,11 @@ function toolCallItem(
   }
 }
 
-function ToolCall({ tool }: { tool: ToolBlock['tool'] }) {
+/** Calls side by side in a reply's body: one call's row, or several under their count. */
+function ToolRun({ blocks }: { blocks: readonly ToolBlock[] }) {
   const t = useLabels();
   const shows = useToolRowShows();
-  return <ToolCalls calls={[toolCallItem(t, tool.name, tool, shows)]} />;
+  return <ToolCalls calls={blocks.map((block) => toolCallItem(t, block.id, block.tool, shows))} />;
 }
 
 /**
@@ -912,6 +943,31 @@ const THOUGHT_TEXT = {
   '--text-body-size': 'var(--text-supporting-size)',
   '--color-text-primary': 'var(--color-text-secondary)',
 } as CSSProperties;
+
+/**
+ * A thought where it came in a reply, folded to one line that opens on the whole of it. It starts
+ * folded, streaming too: the reply's words are what is read.
+ */
+function ThoughtLine({ text, streaming }: { text: string; streaming: boolean }) {
+  const t = useLabels();
+  const trigger = (
+    <Text size="sm" color="secondary" maxLines={1}>
+      {t('@theorem.transcript.thought', { text: text.trim().replace(/\s+/g, ' ') })}
+    </Text>
+  );
+  return (
+    <Collapsible trigger={trigger} defaultIsOpen={false}>
+      <div style={THOUGHT_TEXT}>
+        <StreamedMarkdown
+          text={text}
+          streaming={streaming}
+          density="compact"
+          components={THOUGHT_MARKDOWN}
+        />
+      </div>
+    </Collapsible>
+  );
+}
 
 function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
   const t = useLabels();
@@ -1051,6 +1107,7 @@ function BodyRowView({
   imageOutput?: ImageOutput;
 }) {
   if (row.kind === 'block') return <BodyBlock block={row.block} streaming={streaming} />;
+  if (row.kind === 'tools') return <ToolRun blocks={row.blocks} />;
   if (row.kind === 'sources') return <Sources citations={row.citations} />;
   if (imageOutput) return <GeneratedGallery items={row.items} ratio={imageOutput.ratio} />;
   return <MediaGallery items={row.items} />;
@@ -1087,22 +1144,23 @@ function AssistantTurn(props: {
   /** Whether it is the transcript's last message. */
   isNewest?: boolean;
   bodyKindPlacement?: ComposeAssistantTurnOptions['bodyKindPlacement'];
+  stepLayout?: StepLayout;
 }) {
   const t = useLabels();
   const chrome = useChromeReveal(props.isNewest === true);
   const showUsage = useContext(ShowUsage);
   const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.workedMs);
-  const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(
-    props.blocks,
-    props.bodyKindPlacement !== undefined
+  const { trace, gatedTools, body, hasTrace, hasSteps } = composeAssistantTurn(props.blocks, {
+    ...(props.bodyKindPlacement !== undefined
       ? { bodyKindPlacement: props.bodyKindPlacement }
-      : undefined,
-  );
+      : {}),
+    ...(props.stepLayout !== undefined ? { stepLayout: props.stepLayout } : {}),
+  });
   const { shown } = useToolMedia();
   const rows = bodyRows(t, body, shown);
   const status = workStatusLabel(
     t,
-    workStatus({ streaming: props.streaming, hasTrace, elapsedMs }),
+    workStatus({ streaming: props.streaming, hasSteps, elapsedMs }),
   );
   const copyText = assistantTurnCopyText(body.length > 0 ? body : props.blocks);
 
@@ -1131,7 +1189,9 @@ function AssistantTurn(props: {
           <GateCard key={block.id} block={block} handle={props.handle} handlers={props.handlers} />
         ))}
         {keyedByContent(rows, (row) =>
-          row.kind === 'gallery' || row.kind === 'sources' ? row.kind : row.block.kind,
+          row.kind === 'gallery' || row.kind === 'sources' || row.kind === 'tools'
+            ? row.kind
+            : row.block.kind,
         ).map(({ item: row, index: i, key }) => (
           <BodyRowView
             // why: Not the block id: the committed turn re-mints ids, and a
@@ -1209,7 +1269,9 @@ export function ChatTranscript(props: ChatTranscriptProps) {
     <TheoremLabelsProvider>
       <ShowUsage.Provider value={props.usage === true}>
         <ShowToolData.Provider value={props.showToolData !== false}>
-          <ChatTranscriptBody {...props} />
+          <ShowToolDurations.Provider value={props.showToolDurations !== false}>
+            <ChatTranscriptBody {...props} />
+          </ShowToolDurations.Provider>
         </ShowToolData.Provider>
       </ShowUsage.Provider>
     </TheoremLabelsProvider>
@@ -1228,6 +1290,7 @@ function ChatTranscriptBody({
   dividers,
   imageOutput,
   bodyKindPlacement,
+  stepLayout,
   labels,
   clock,
 }: ChatTranscriptProps) {
@@ -1246,7 +1309,7 @@ function ChatTranscriptBody({
     onToolDecision,
     onAuthenticated,
   };
-  const turn = { handle, handlers, imageOutput, bodyKindPlacement };
+  const turn = { handle, handlers, imageOutput, bodyKindPlacement, stepLayout };
 
   const lastUser = groups.findLastIndex((group) => group.kind === 'user');
 

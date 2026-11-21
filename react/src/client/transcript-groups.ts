@@ -56,7 +56,17 @@ export type ComposedAssistantTurn = {
   body: TranscriptBlock[];
   /** True when the disclosure control should appear. */
   hasTrace: boolean;
+  /** True when the reply thought or called a tool, folded or in place. */
+  hasSteps: boolean;
 };
+
+/**
+ * Where a reply's steps (its thoughts and tool calls) sit.
+ *
+ * - `trace`: under the work status, folded, with the words written between them.
+ * - `inline`: each where it came, beside the words, which all show. The work status is a line.
+ */
+export type StepLayout = 'trace' | 'inline';
 
 /** Pin a body kind before or after kinds with no placement (stream order among peers). */
 export type BodyKindPlacement = 'first' | 'last';
@@ -70,6 +80,8 @@ export type ComposeAssistantTurnOptions = {
   bodyKindPlacement?: Partial<
     Record<TranscriptBlock['kind'], BodyKindPlacement | null | undefined>
   >;
+  /** Where the reply's steps sit. Default: `trace`. */
+  stepLayout?: StepLayout;
 };
 
 /**
@@ -177,17 +189,17 @@ export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): strin
 /** A turn's work, for the status line: running, or done (with its duration when known). */
 export type WorkStatus = { phase: 'working' | 'worked'; elapsedMs?: number };
 
-/** Working while streaming; worked after, when it has a duration or a trace; else nothing to show. */
+/** Working while streaming; worked after, when it has a duration or steps; else nothing to show. */
 export function workStatus(args: {
   streaming: boolean;
-  hasTrace: boolean;
+  hasSteps: boolean;
   elapsedMs?: number;
 }): WorkStatus | null {
   const elapsed = args.elapsedMs !== undefined ? { elapsedMs: args.elapsedMs } : {};
   if (args.streaming) return { phase: 'working', ...elapsed };
   if (args.elapsedMs !== undefined && args.elapsedMs > 0)
     return { phase: 'worked', elapsedMs: args.elapsedMs };
-  return args.hasTrace ? { phase: 'worked' } : null;
+  return args.hasSteps ? { phase: 'worked' } : null;
 }
 
 function isGatedTool(block: TranscriptBlock): block is Extract<TranscriptBlock, { kind: 'tool' }> {
@@ -250,6 +262,8 @@ function classifyNonGateBlock(
  * - `text` before/between tools → narration; text and answer kinds after the
  *   latest tool → body (while streaming too, so the answer streams formatted)
  * - No tools: thoughts still go to trace; remaining kinds → body
+ * - Under `stepLayout: 'inline'`, nothing is traced: every block but the first gate is body, in
+ *   stream order, and thoughts that say nothing are dropped
  * - Body kinds then follow {@link ComposeAssistantTurnOptions.bodyKindPlacement}
  *   (default: citations last)
  */
@@ -262,6 +276,18 @@ export function composeAssistantTurn(
   const nextGate = visible.find(isGatedTool);
   const gatedTools = nextGate ? [nextGate] : [];
   const nonGate = visible.filter((block) => block !== nextGate);
+  const placement = options?.bodyKindPlacement ?? DEFAULT_BODY_KIND_PLACEMENT;
+  if (options?.stepLayout === 'inline') {
+    // why: In place, a step is a body row like the words around it; an empty thought says nothing.
+    const body = nonGate.filter((block) => block.kind !== 'thought' || block.text.trim());
+    return {
+      trace: [],
+      gatedTools,
+      body: placeBodyBlocks(body, placement),
+      hasTrace: false,
+      hasSteps: body.some((block) => block.kind === 'tool' || block.kind === 'thought'),
+    };
+  }
   const lastToolIndex = lastToolIndexOf(nonGate);
   const hasTools = lastToolIndex >= 0;
 
@@ -271,12 +297,12 @@ export function composeAssistantTurn(
     classifyNonGateBlock(block, { hasTools, index, lastToolIndex }, trace, body);
   }
 
-  const placement = options?.bodyKindPlacement ?? DEFAULT_BODY_KIND_PLACEMENT;
   return {
     trace,
     gatedTools,
     body: placeBodyBlocks(body, placement),
     hasTrace: trace.length > 0,
+    hasSteps: trace.length > 0,
   };
 }
 

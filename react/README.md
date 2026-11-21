@@ -590,7 +590,7 @@ function Dock({ chat, iface }) {
 }
 ```
 
-`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, and `bodyKindPlacement`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
+`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, and `showToolDurations`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
 
 The two pieces read one clock: `chat.turnClock`. So the working pill of the composer and the status line of the transcript show the same time. `chat.workingSince` is when the reply in progress started, less its waits for approval. For a reply that runs elsewhere, it is `chat.runningElsewhere.since`. `chat.shownBlocks` is what the transcript shows: `chat.blocks`, then `chat.streamBlocks`.
 
@@ -601,6 +601,15 @@ The composer bar has a selector for the model, its effort, and each option. When
 A failed tool call in `ChatTranscript` shows its failure once: the row shows the message the model read, and the details show its `code`, `kind`, and `details`.
 
 `ChatTranscript` places `citation` blocks after the answer text by default (the Sources strip under the prose). Pass `bodyKindPlacement={{}}` when citations must stay in stream order between text segments (inline citations).
+
+`ChatTranscript` folds a reply's thoughts and tool calls, with the words the reply wrote between them, under its work status ("Worked for 22s"). Pass `stepLayout="inline"` to keep each where it came. A channel that sends each piece of words as its own message, as a text message does, then reads the same as the page:
+
+- All the words show in the open.
+- Calls side by side are one row. One call shows its own label. Several show their count and open to each call.
+- Each thought is one folded line, "Thought: …", that opens to the whole of it.
+- The work status is a line with nothing under it.
+
+Pass `showToolDurations={false}` to leave out how long each call ran.
 
 The hooks and the client write no English text. They return kinds, codes, and states. You write the words.
 

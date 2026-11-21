@@ -355,6 +355,12 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Worked',
     description: 'Turn status once done, duration unknown.',
   },
+  '@theorem.transcript.thought': {
+    defaultMessage: 'Thought: {text}',
+    description:
+      "A thought where it came in a reply, folded to one line; `text` is the thought, cut off at the line's end.",
+    params: ['text'],
+  },
   '@theorem.transcript.worked_for': {
     defaultMessage: 'Worked for {duration}',
     description: 'Turn status once done.',

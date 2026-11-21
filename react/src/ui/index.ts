@@ -23,6 +23,7 @@ export type {
 } from '@theoremjs/web/client';
 export type { InkWaveStatus } from '../client/ink-waveform.ts';
 export { useLiveCaptionLog } from '../client/live/use-live-caption-log.ts';
+export type { StepLayout } from '../client/transcript-groups.ts';
 export {
   InkWaveform,
   type InkWaveformProps,

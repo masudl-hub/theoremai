@@ -3,7 +3,6 @@ import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
-import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
 import { Link } from '@astryxdesign/core/Link';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Markdown } from '@astryxdesign/core/Markdown';
@@ -41,6 +40,7 @@ import { Component, type CSSProperties, type ReactNode, useMemo, useState } from
 import { Arrive, useArrive } from './arrive.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { useMarkdownPlugins } from './markdown-plugins.tsx';
+import { type MediaViewerItem, useMediaViewer } from './media-viewer.tsx';
 import { keyedByContent } from './row-keys.ts';
 import { VoiceNote } from './VoiceNote.tsx';
 
@@ -59,7 +59,7 @@ import { VoiceNote } from './VoiceNote.tsx';
  *   its title field and tagged with its place or kind;
  * - a list of plain values → tokens;
  * - a list of parts (text, image, audio, video, document) → in order: text as
- *   prose, images and videos as Thumbnails sharing one Lightbox, audio as a
+ *   prose, images and videos as Thumbnails sharing one viewer, audio as a
  *   voice note, a document as a token;
  * - a string holding JSON → what it holds;
  * - a plain value → text, a link, a date, Yes/No, or a dash.
@@ -403,12 +403,12 @@ function viewable(part: InteractionPart): part is MediaPart & { type: 'image' | 
   return part.type === 'image' || part.type === 'video';
 }
 
-/** A list of parts in its own order; every image and video opens in one Lightbox, so the arrows walk them all. */
+/** A list of parts in its own order; every image and video opens in one viewer, so the arrows walk them all. */
 function Parts({ parts }: { parts: readonly InteractionPart[] }) {
   const t = useLabels();
   const shown = parts.slice(0, MAX_ROWS);
-  const media: LightboxMedia[] = [];
-  /** Each viewable part's place in the Lightbox, by its place in the list. */
+  const media: MediaViewerItem[] = [];
+  /** Each viewable part's place in the viewer, by its place in the list. */
   const slides = new Map<number, number>();
   shown.forEach((part, index) => {
     if (!viewable(part)) return;
@@ -418,7 +418,7 @@ function Parts({ parts }: { parts: readonly InteractionPart[] }) {
     });
     media.push({ src: partSrc(part), alt, type: part.type });
   });
-  const lightbox = useLightbox({ media, hasZoom: true });
+  const lightbox = useMediaViewer(media);
   return (
     <VStack gap={2}>
       {shown.map((part, index) => {

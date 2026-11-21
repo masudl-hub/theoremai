@@ -3,7 +3,6 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { useLocale } from '@astryxdesign/core/i18n';
-import { Lightbox } from '@astryxdesign/core/Lightbox';
 import { Text } from '@astryxdesign/core/Text';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
@@ -28,6 +27,7 @@ import { Arrive, Stream } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
 import { resultMeta } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
+import { useMediaViewer } from './media-viewer.tsx';
 import { ChartCard, TRACE_RADIUS, traceFill } from './trace-patterns.tsx';
 
 export type TheoremDecisionAnswersProps = {
@@ -296,6 +296,9 @@ function BoxCrop({
   const src = imageSrc(source);
   const size = useImageSize(src);
   const [marked, setMarked] = useState<string | null>(null);
+  const viewer = useMediaViewer([
+    { type: 'image', src: marked ?? src, alt: t('@theorem.decision.box_marked'), caption },
+  ]);
   if (!size) return null;
   const crop = cropOf(box);
   const ratio = (size.width * (box.right - box.left)) / (size.height * (box.bottom - box.top));
@@ -311,7 +314,10 @@ function BoxCrop({
               outline: themeColor(event.currentTarget, '--color-accent'),
               shade: themeColor(event.currentTarget, '--color-overlay'),
             };
-            void markedBox(src, box, marks).then(setMarked);
+            void markedBox(src, box, marks).then((next) => {
+              setMarked(next);
+              viewer.open();
+            });
           }}
         >
           <div
@@ -341,14 +347,7 @@ function BoxCrop({
           </div>
         </ClickableCard>
       </Tooltip>
-      <Lightbox
-        isOpen={marked !== null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) setMarked(null);
-        }}
-        media={{ src: marked ?? src, alt: t('@theorem.decision.box_marked'), caption }}
-        hasZoom
-      />
+      {viewer.element}
     </>
   );
 }

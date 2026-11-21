@@ -3,7 +3,6 @@ import { FieldLabel } from '@astryxdesign/core/Field';
 import { FileInput } from '@astryxdesign/core/FileInput';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import { Lightbox } from '@astryxdesign/core/Lightbox';
 import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
@@ -21,6 +20,7 @@ import { type DecisionImages, IMAGE_ACCEPT, imageSrc } from '../client/decision-
 import { blankLike, isWordList, tableColumns } from '../client/state-fields.ts';
 import { useImageReader } from './DecisionImages.tsx';
 import { useLabels } from './labels-provider.tsx';
+import { useMediaViewer } from './media-viewer.tsx';
 import { useKeyedRows } from './row-keys.ts';
 
 export type Edit<T = DecisionJson> = { value: T; onChange: (next: T) => void };
@@ -54,24 +54,17 @@ function ImageField({
   const t = useLabels();
   const { images, onImages } = useContext(StateImages);
   const { read, status } = useImageReader();
-  const [isOpen, setOpen] = useState(false);
   const src = Object.hasOwn(images, value) ? imageSrc(images[value]) : undefined;
+  const viewer = useMediaViewer(src ? [{ type: 'image', src, alt: label, caption: value }] : []);
   return (
     <HStack gap={2} vAlign="center">
       <Thumbnail
         src={src}
         alt={label}
         label={value}
-        onClick={src ? () => setOpen(true) : undefined}
+        onClick={src ? () => viewer.open() : undefined}
       />
-      {src ? (
-        <Lightbox
-          isOpen={isOpen}
-          onOpenChange={setOpen}
-          media={{ src, alt: label, caption: value }}
-          hasZoom
-        />
-      ) : null}
+      {viewer.element}
       <StackItem size="fill">
         <FileInput
           label={label}

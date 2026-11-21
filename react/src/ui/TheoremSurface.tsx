@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider } from './labels-provider.tsx';
 import { MarkdownPluginsProvider } from './markdown-plugins.tsx';
+import type { MediaViewer } from './media-viewer.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
 import { type ResolveMedia, ToolMediaProvider, type ToolMediaShown } from './tool-media.tsx';
 
@@ -14,6 +15,7 @@ export type TheoremSurfaceProps = {
   detectCodeLanguage?: boolean;
   media?: ToolMediaShown;
   resolveMedia?: ResolveMedia;
+  mediaViewer?: MediaViewer;
   children: ReactNode;
 };
 
@@ -29,13 +31,14 @@ export function TheoremSurface({
   detectCodeLanguage,
   media,
   resolveMedia,
+  mediaViewer,
   children,
 }: TheoremSurfaceProps) {
   return (
     <TheoremThemeProvider theme={theme} mode={mode}>
       <TheoremLabelsProvider labels={labels}>
         <MarkdownPluginsProvider detectCodeLanguage={detectCodeLanguage}>
-          <ToolMediaProvider media={media} resolveMedia={resolveMedia}>
+          <ToolMediaProvider media={media} resolveMedia={resolveMedia} mediaViewer={mediaViewer}>
             {children}
           </ToolMediaProvider>
         </MarkdownPluginsProvider>

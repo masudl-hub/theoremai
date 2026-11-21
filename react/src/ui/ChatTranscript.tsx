@@ -17,7 +17,6 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { useLocale } from '@astryxdesign/core/i18n';
-import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
 import { Markdown, type MarkdownComponents } from '@astryxdesign/core/Markdown';
 import { OverflowList } from '@astryxdesign/core/OverflowList';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
@@ -65,6 +64,7 @@ import { useDisclosureMotion } from './disclosure-motion.ts';
 import { type LabelText, usageLine, workDuration, workStatusLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { useMarkdownPlugins } from './markdown-plugins.tsx';
+import { type MediaViewerItem, useMediaViewer } from './media-viewer.tsx';
 import { keyedByContent } from './row-keys.ts';
 import { ShapedData } from './ShapedData.tsx';
 import { ApprovalCard, AuthChallengeCard, type ToolDecision } from './ToolGateCard.tsx';
@@ -350,12 +350,22 @@ function dataUrl(mimeType: string, data?: string): string | undefined {
   return data === undefined ? undefined : `data:${mimeType};base64,${data}`;
 }
 
-function ImageAttachment({ src, name }: { src: string; name: string }) {
-  const lightbox = useLightbox({ media: { src, alt: name, caption: name }, hasZoom: true });
+function ImageAttachment({
+  src,
+  name,
+  reference,
+}: {
+  src: string;
+  name: string;
+  reference?: MediaReference;
+}) {
+  const viewer = useMediaViewer([
+    { type: 'image', src, alt: name, caption: name, ...(reference ? { reference } : {}) },
+  ]);
   return (
     <>
-      <Thumbnail src={src} alt={name} label={name} onClick={() => lightbox.open()} />
-      {lightbox.element}
+      <Thumbnail src={src} alt={name} label={name} onClick={() => viewer.open()} />
+      {viewer.element}
     </>
   );
 }
@@ -377,18 +387,27 @@ function UserFile({ block }: { block: UserFileBlock }) {
 
 /** A file the app saved, as its resolver shows it; the named file while it resolves, or when nothing does. */
 function SavedUserFile({ block, uri }: { block: UserFileBlock; uri: string }) {
-  const src = useResolvedMedia({
+  const reference: MediaReference = {
     type: block.type ?? (block.kind === 'user-voice' ? 'audio' : 'document'),
     mimeType: block.mimeType,
     uri,
     ...(block.metadata ? { metadata: block.metadata } : {}),
-  });
-  return <UserFileView block={block} src={src ?? undefined} />;
+  };
+  const src = useResolvedMedia(reference);
+  return <UserFileView block={block} src={src ?? undefined} reference={reference} />;
 }
 
-function UserFileView({ block, src }: { block: UserFileBlock; src: string | undefined }) {
+function UserFileView({
+  block,
+  src,
+  reference,
+}: {
+  block: UserFileBlock;
+  src: string | undefined;
+  reference?: MediaReference;
+}) {
   if (src && block.mimeType.startsWith('image/')) {
-    return <ImageAttachment src={src} name={block.name} />;
+    return <ImageAttachment src={src} name={block.name} {...(reference ? { reference } : {})} />;
   }
   if (src && block.mimeType.startsWith('audio/')) {
     return <VoiceNote src={src} mimeType={block.mimeType} />;
@@ -400,7 +419,7 @@ function mediaSrc(block: Extract<TranscriptBlock, { kind: 'media' }>): string | 
   return dataUrl(block.mimeType, block.data);
 }
 
-function lightboxMedia(t: LabelText, src: string, mimeType: string): LightboxMedia | undefined {
+function viewerItem(t: LabelText, src: string, mimeType: string): MediaViewerItem | undefined {
   if (mimeType.startsWith('image/'))
     return { src, alt: t('@theorem.transcript.generated_image'), type: 'image' };
   if (mimeType.startsWith('video/'))
@@ -410,23 +429,23 @@ function lightboxMedia(t: LabelText, src: string, mimeType: string): LightboxMed
 
 type MediaTranscriptBlock = Extract<TranscriptBlock, { kind: 'media' }>;
 
-/** Media for the Lightbox; its Thumbnail shows the same picture. */
-type GalleryItem = { media: LightboxMedia };
+/** Media for the viewer; its Thumbnail shows the same picture. */
+type GalleryItem = { media: MediaViewerItem };
 
 /** Image or video media: shown as Thumbnails in a gallery row, not as its own body row. */
 function galleryItemOf(t: LabelText, block: TranscriptBlock): GalleryItem | undefined {
   if (block.kind !== 'media') return undefined;
   const src = mediaSrc(block);
-  const media = src ? lightboxMedia(t, src, block.mimeType) : undefined;
+  const media = src ? viewerItem(t, src, block.mimeType) : undefined;
   return media ? { media } : undefined;
 }
 
 /**
  * Consecutive images and videos as one wrapping row of Astryx Thumbnails that
- * share a Lightbox gallery (Astryx's `useLightbox({ media: [...] })` pattern).
+ * share one viewer, so its arrows walk them all.
  */
 function MediaGallery({ items }: { items: GalleryItem[] }) {
-  const lightbox = useLightbox({ media: items.map((item) => item.media), hasZoom: true });
+  const lightbox = useMediaViewer(items.map((item) => item.media));
   return (
     <HStack gap={2} wrap="wrap">
       {items.map(({ media: item }, i) => (
@@ -474,7 +493,7 @@ function GeneratedImage(props: { item: GalleryItem; ratio?: number; onOpen: () =
  * own ratio. Anything else (video) keeps the square Thumbnail.
  */
 function GeneratedGallery({ items, ratio }: { items: GalleryItem[]; ratio?: number }) {
-  const lightbox = useLightbox({ media: items.map((item) => item.media), hasZoom: true });
+  const lightbox = useMediaViewer(items.map((item) => item.media));
   return (
     <VStack gap={2} width="100%">
       {items.map((item, i) =>
@@ -553,8 +572,8 @@ export function ReferencedMedia({ reference }: { reference: MediaReference }) {
   if (src && reference.mimeType.startsWith('audio/')) {
     return <VoiceNote src={src} mimeType={reference.mimeType} />;
   }
-  const media = src ? lightboxMedia(t, src, reference.mimeType) : undefined;
-  if (media) return <MediaGallery items={[{ media }]} />;
+  const media = src ? viewerItem(t, src, reference.mimeType) : undefined;
+  if (media) return <MediaGallery items={[{ media: { ...media, reference } }]} />;
   return <MediaFileToken reference={reference} />;
 }
 

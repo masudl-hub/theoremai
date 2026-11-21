@@ -44,6 +44,7 @@ import {
 import { type LabelText, liveDuration, type TheoremLabels, workDuration } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { IconMcp } from './mcp-icon.tsx';
+import type { MediaViewer } from './media-viewer.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SchemaFields } from './SchemaFields.tsx';
 import { TheoremSurface } from './TheoremSurface.tsx';
@@ -77,6 +78,12 @@ export type TheoremHostProps = {
    * as a named file.
    */
   resolveMedia?: ResolveMedia;
+  /**
+   * The viewer every picture and video opens in: the transcript's, a tool's, a decision's and a
+   * form field's. It is given the items, which one shows, and whether it is open; each item names
+   * the saved file it came from, when there is one. Default: Astryx's Lightbox, with zoom.
+   */
+  mediaViewer?: MediaViewer;
   /** Widest the column may grow, as a CSS length. Default `960px`. */
   maxWidth?: string;
   /**
@@ -598,6 +605,7 @@ export function TheoremHost({
   labels,
   detectCodeLanguage,
   resolveMedia,
+  mediaViewer,
   ...rest
 }: TheoremHostProps) {
   const httpRef = useRef(http);
@@ -614,6 +622,7 @@ export function TheoremHost({
       detectCodeLanguage={detectCodeLanguage}
       media="all"
       resolveMedia={resolveMedia}
+      mediaViewer={mediaViewer}
     >
       <HostForTransport {...rest} transport={resolved} />
     </TheoremSurface>

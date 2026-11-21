@@ -41,8 +41,8 @@ import { DEFAULT_CHAT_MAX_WIDTH, type TheoremChatProps } from './TheoremChat.tsx
 import { TheoremSurface } from './TheoremSurface.tsx';
 import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 
-/** `media` and `resolveMedia` are the chat's: the captions show a tool's media as the chat does. */
-export type LiveRunnerProps = Pick<TheoremChatProps, 'media' | 'resolveMedia'> & {
+/** `media`, `resolveMedia` and `mediaViewer` are the chat's: the captions show a tool's media as the chat does. */
+export type LiveRunnerProps = Pick<TheoremChatProps, 'media' | 'resolveMedia' | 'mediaViewer'> & {
   /** The call to draw, from `useLiveCall`. The call outlives the runner: it ends when its owner unmounts. */
   call: LiveCall;
   /** Astryx theme, as on `TheoremChat`. Omit to inherit the host's `<Theme>` or use `theoremTheme`. */
@@ -82,6 +82,7 @@ export function LiveRunner({
   labels,
   media,
   resolveMedia,
+  mediaViewer,
   ...props
 }: LiveRunnerProps) {
   return (
@@ -92,6 +93,7 @@ export function LiveRunner({
       detectCodeLanguage={undefined}
       media={media}
       resolveMedia={resolveMedia}
+      mediaViewer={mediaViewer}
     >
       <LiveRunnerBody {...props} />
     </TheoremSurface>
@@ -102,7 +104,7 @@ function LiveRunnerBody({
   call,
   trace,
   onMinimize,
-}: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels' | 'media' | 'resolveMedia'>) {
+}: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels' | 'media' | 'resolveMedia' | 'mediaViewer'>) {
   const t = useLabels();
   // why: Both panels size against the whole live layout, so a third means the same for each.
   const layoutRef = useRef<HTMLDivElement | null>(null);

@@ -76,6 +76,13 @@ export {
   type TheoremLabelsProviderProps,
   useLabels,
 } from './labels-provider.tsx';
+export {
+  AstryxMediaViewer,
+  type MediaViewer,
+  type MediaViewerItem,
+  type MediaViewerProps,
+  useMediaViewer,
+} from './media-viewer.tsx';
 export { PaneFailure, PaneLoading, PaneState } from './PaneState.tsx';
 export { RadialBars, Sunburst, type SunburstNode } from './RadialCharts.tsx';
 export { type RankedBar, RankedBars } from './RankedBars.tsx';

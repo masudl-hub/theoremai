@@ -1,6 +1,7 @@
 import { Token } from '@astryxdesign/core/Token';
 import type { ToolOutputRefPart } from '@theoremjs/agents';
 import { createContext, type ReactNode, use, useEffect, useRef, useState } from 'react';
+import type { MediaViewer } from './media-viewer.tsx';
 import { mediaFileName, type ToolMediaShown } from './tool-media-shown.ts';
 
 export { type ToolMediaShown, toolMediaShows } from './tool-media-shown.ts';
@@ -14,22 +15,30 @@ export type MediaReference = ToolOutputRefPart;
  */
 export type ResolveMedia = (reference: MediaReference) => string | null | Promise<string | null>;
 
-/** What a page shows of tool media, and how it loads a reference. */
-export type ToolMediaView = { shown: ToolMediaShown; resolve?: ResolveMedia };
+/** What a page shows of tool media, how it loads a reference, and the viewer its pictures open in. */
+export type ToolMediaView = { shown: ToolMediaShown; resolve?: ResolveMedia; viewer?: MediaViewer };
 
 const ToolMediaContext = createContext<ToolMediaView>({ shown: 'sent' });
 
 export function ToolMediaProvider({
   media = 'sent',
   resolveMedia,
+  mediaViewer,
   children,
 }: {
   media?: ToolMediaShown;
   resolveMedia?: ResolveMedia;
+  mediaViewer?: MediaViewer;
   children: ReactNode;
 }) {
   return (
-    <ToolMediaContext value={{ shown: media, ...(resolveMedia ? { resolve: resolveMedia } : {}) }}>
+    <ToolMediaContext
+      value={{
+        shown: media,
+        ...(resolveMedia ? { resolve: resolveMedia } : {}),
+        ...(mediaViewer ? { viewer: mediaViewer } : {}),
+      }}
+    >
       {children}
     </ToolMediaContext>
   );

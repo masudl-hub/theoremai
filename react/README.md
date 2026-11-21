@@ -180,6 +180,7 @@ To draw your own figures like the trace panel does, `@theoremjs/react/ui` also e
 | `composerIcons` | The glyphs the `'row'` composer draws: `working`, before the working pill's text; `backgroundJob`, before each background call's name; `stop`, in the working pill's stop button. Each one you leave out keeps Theorem's. See [The row composer's look](#the-row-composers-look). |
 | `media` | Which media from tools the chat shows. `'sent'` shows only what a tool sent to the person. `'all'` also shows what only the model read, for an evaluation view. Default: `'sent'`. See [Tool media](#tool-media). |
 | `resolveMedia` | Turns a tool's reference into an address the page can load. See [Tool media](#tool-media). |
+| `mediaViewer` | The viewer every picture and video opens in. Default: Astryx's Lightbox, with zoom. See [Your own media viewer](#your-own-media-viewer). |
 
 ### The row composer's look
 
@@ -242,6 +243,26 @@ A tool can also return a **reference**: `{ type, mimeType, uri }`, such as a `gs
 `resolveMedia` returns a string, `null`, or a promise of either. While it works, and when it returns `null` or throws, the chat shows the file name from the `uri`. `TheoremHost` takes the same `resolveMedia`, and always shows all the media of a call.
 
 A file the person sent works the same way after your app saves it. When you load a saved conversation, give the person's file as a `user-attachment` or `user-voice` block with `uri` and `type` in place of `data`, and your own values for the file in `metadata` if you need them. The chat shows it on the person's side through `resolveMedia`: a picture, a voice note to play, or the file name.
+
+### Your own media viewer
+
+A picture or a video opens in a viewer when the person clicks it: in the transcript, in a tool's result, in a decision's answer, and in a form field. Pass `mediaViewer` to open them all in your own:
+
+```tsx
+import type { MediaViewerProps } from '@theoremjs/react/ui';
+
+function MyViewer({ isOpen, onOpenChange, media, index }: MediaViewerProps) {
+  const item = media[index]; // { type, src, alt, caption?, reference? }
+  if (!isOpen || !item) return null;
+  return <MyDialog item={item} onClose={() => onOpenChange(false)} />;
+}
+
+<TheoremChat endpoint="/api/theorem" profile="assistant" mediaViewer={MyViewer} />;
+```
+
+Declare the viewer once, outside your components, as `MyViewer` is here. A function made again on each render is a new component each time, so the open viewer starts over and loses what it holds.
+
+The viewer is given the items, the one shown, and whether it is open. Call `onOpenChange(false)` to close it and `onIndexChange` to show another. An item's `src` is the address the page loads. When the app saved the file, the item also has `reference`, the `{ type, mimeType, uri }` that `resolveMedia` was given, since `src` can be a link that expires. `TheoremHost`, `LiveRunner`, and `TheoremSurface` take the same `mediaViewer`. Without it, they open Astryx's Lightbox, with zoom, as `AstryxMediaViewer` does. To open the page's viewer from your own component inside the surface, call `useMediaViewer(items)` and render its `element`.
 
 ### Resume a conversation
 
@@ -427,7 +448,7 @@ const call = useLiveCall({ iface, connection: () => ({ profile: 'support.voice' 
 
 This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own message to the relay, add `openMessage`. To use your own socket, add `createSocket`.
 
-`LiveRunner` also accepts `theme`, `mode`, `labels`, `media`, `resolveMedia`, and `trace`. Its captions show the media a tool returns as the chat does: see [Tool media](#tool-media). Tool gates in a call appear in a dialog over the call.
+`LiveRunner` also accepts `theme`, `mode`, `labels`, `media`, `resolveMedia`, `mediaViewer`, and `trace`. Its captions show the media a tool returns as the chat does: see [Tool media](#tool-media). Tool gates in a call appear in a dialog over the call.
 
 ### A call across pages
 
@@ -569,7 +590,7 @@ function Dock({ chat, iface }) {
 }
 ```
 
-`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, and `bodyKindPlacement`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, and `resolveMedia`.
+`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, and `bodyKindPlacement`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
 
 The two pieces read one clock: `chat.turnClock`. So the working pill of the composer and the status line of the transcript show the same time. `chat.workingSince` is when the reply in progress started, less its waits for approval. `chat.shownBlocks` is what the transcript shows: `chat.blocks`, then `chat.streamBlocks`.
 

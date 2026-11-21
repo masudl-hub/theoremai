@@ -1,7 +1,6 @@
 import { AspectRatio } from '@astryxdesign/core/AspectRatio';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { useLocale } from '@astryxdesign/core/i18n';
-import { Lightbox } from '@astryxdesign/core/Lightbox';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
@@ -18,6 +17,7 @@ import { Arrive } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
 import { ReferencedMedia } from './ChatTranscript.tsx';
 import { useLabels } from './labels-provider.tsx';
+import { PageMediaViewer } from './media-viewer.tsx';
 import { keyedByContent } from './row-keys.ts';
 import { ShapedData } from './ShapedData.tsx';
 import { ChartCard } from './trace-patterns.tsx';
@@ -94,12 +94,12 @@ function ResultLead({
         ))}
       </CardWall>
       {images.length > 0 ? (
-        <Lightbox
+        <PageMediaViewer
           isOpen={open !== null}
           onOpenChange={(isOpen) => {
             if (!isOpen) setOpen(null);
           }}
-          media={images.map((image) => ({ src: image.src, alt: image.alt }))}
+          media={images.map((image) => ({ type: 'image', src: image.src, alt: image.alt }))}
           index={open ?? 0}
           onIndexChange={setOpen}
         />

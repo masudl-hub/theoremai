@@ -41,6 +41,7 @@ import { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
+import type { MediaViewer } from './media-viewer.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SidePanelHeader } from './SidePanel.tsx';
 import { TheoremSurface } from './TheoremSurface.tsx';
@@ -82,6 +83,12 @@ export type TheoremChatProps = {
    * named file. The model never reads a reference.
    */
   resolveMedia?: ResolveMedia;
+  /**
+   * The viewer every picture and video opens in: the transcript's, a tool's, a decision's and a
+   * form field's. It is given the items, which one shows, and whether it is open; each item names
+   * the saved file it came from, when there is one. Default: Astryx's Lightbox, with zoom.
+   */
+  mediaViewer?: MediaViewer;
   /**
    * The value chosen for each of the profile's `inputs.options`, sent with every turn. An option you
    * name is fixed to that value; one you leave out gets a selector in the composer bar, beside
@@ -631,6 +638,7 @@ export function TheoremChat({
   detectCodeLanguage,
   media,
   resolveMedia,
+  mediaViewer,
   ...rest
 }: TheoremChatProps) {
   const httpRef = useRef(http);
@@ -647,6 +655,7 @@ export function TheoremChat({
       detectCodeLanguage={detectCodeLanguage}
       media={media}
       resolveMedia={resolveMedia}
+      mediaViewer={mediaViewer}
     >
       <ChatForTransport {...rest} transport={resolved} />
     </TheoremSurface>

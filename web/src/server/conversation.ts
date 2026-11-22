@@ -267,6 +267,20 @@ function foldedFor(host: ConversationHost, events: readonly TurnEvent[]): Transc
   );
 }
 
+/**
+ * A saved block as the host's reader reads it. A failed call saved without its failure in the
+ * profile's wording (saved before the chat worded every end it saves) gets that wording here.
+ */
+function readerBlock(host: ConversationHost, block: TranscriptBlock): TranscriptBlock {
+  if (block.kind !== 'tool') return block;
+  const { state } = block.tool;
+  if (state?.phase !== 'error' || state.failure.error !== undefined) return block;
+  const event = host.forReader({ type: 'tool', tool: state });
+  return event.type === 'tool' && event.tool.phase === 'error'
+    ? { ...block, tool: { ...block.tool, state: event.tool } }
+    : block;
+}
+
 /** The conversation as the browser draws it. */
 export function conversationView(
   host: ConversationHost,
@@ -274,7 +288,7 @@ export function conversationView(
 ): ConversationView {
   const { paused } = conversation;
   return {
-    transcript: conversation.transcript,
+    transcript: conversation.transcript.map((block) => readerBlock(host, block)),
     ...(paused
       ? {
           paused: {

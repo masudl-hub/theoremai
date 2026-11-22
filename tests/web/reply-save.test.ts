@@ -5,6 +5,7 @@ import { failureEvent } from '../../src/kernel/tools/events.ts';
 import { theoremStartRequestSchema } from '../../web/src/client/transport.ts';
 import {
   answerReply,
+  conversationView,
   messageReply,
   type ReplyLine,
   type ReplyRunner,
@@ -757,5 +758,41 @@ Deno.test("a step after the save, or the app's compaction, that throws is report
   assertEquals(
     writes.filter((write) => write.context).map((write) => write.written),
     [true],
+  );
+});
+
+Deno.test("conversation view: a failed call saved without its wording reads in the profile's", () => {
+  const failed: TranscriptBlock = {
+    id: 'tool-1',
+    kind: 'tool',
+    tool: {
+      name: 'design_plan',
+      callId: 'call-1',
+      arguments: {},
+      state: {
+        name: 'design_plan',
+        callId: 'call-1',
+        at: 1,
+        phase: 'error',
+        failure: { code: 'slow', kind: 'timeout', message: 'the upstream model took 61s' },
+      },
+    },
+  };
+  const labels = { 'error.timeout': 'That took too long.' };
+  const host = readerConversationHost({
+    sessionId: PERSON,
+    store: createMemoryConversationStore(),
+    profile: { ...PROFILE, labels },
+    clientEvents: undefined,
+  });
+  const [block] = conversationView(host, {
+    ...emptyConversation(),
+    transcript: [failed],
+  }).transcript;
+  const state = block?.kind === 'tool' ? block.tool.state : undefined;
+  assertEquals(state?.phase === 'error' ? state.failure.error : undefined, 'That took too long.');
+  assertEquals(
+    state?.phase === 'error' ? state.failure.message : undefined,
+    'the upstream model took 61s',
   );
 });

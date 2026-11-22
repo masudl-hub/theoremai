@@ -882,9 +882,9 @@ function failedToolItem(
   state: Extract<NonNullable<ToolBlock['tool']['state']>, { phase: 'error' }>,
   shows: ToolRowShows,
 ): ChatToolCallItem {
-  // why: A failure the server worded carries `error`; one saved before it did falls back to
-  // the transcript's own line, never to the model's message.
-  const said = state.failure.error ?? t('@theorem.transcript.tool_failed');
+  // why: The server words every failure it hands the page, in the profile's labels; the row
+  // shows that wording, never the model's message.
+  const said = state.failure.error;
   return {
     ...base,
     status: 'error',

@@ -19,6 +19,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const TOOL = 'refuse_delete';
 const KEEPER = 'person-1';
@@ -128,6 +129,7 @@ function app(
   const saves: { ended: string; blocks: string[]; hosts: unknown[] }[] = [];
   const after: string[] = [];
   const core = createTheoremConversationCore<Note>({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(model(seen, options.gated === true)),
     conversationStore: conversations,

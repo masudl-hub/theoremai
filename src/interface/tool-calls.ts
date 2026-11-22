@@ -52,9 +52,18 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
         endedAt: tool.at,
         ...(tool.activityPast ? { activityPast: tool.activityPast } : {}),
       };
+    case 'background':
+      return {
+        ...settled(call),
+        state: tool,
+        endedAt: tool.at,
+        detached: {
+          at: tool.at,
+          ...(tool.readBack === undefined ? {} : { readBack: tool.readBack }),
+        },
+      };
     case 'cancel':
     case 'gate':
-    case 'background':
       return { ...settled(call), state: tool, endedAt: tool.at };
     case 'draft':
       return { ...call, outputDraft: (call.outputDraft ?? '') + tool.text };

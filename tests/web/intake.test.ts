@@ -27,6 +27,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const KEEPER = 'person-1';
 const LEASE_MS = 60_000;
@@ -122,6 +123,7 @@ function app(
     },
   };
   const options: TheoremHandlerOptions<Sent> = {
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(model(runs, script)),
     conversationStore: store,
@@ -257,6 +259,7 @@ const conversationLines = (lines: readonly ChatLine[]) =>
 Deno.test('a handler with `intake` and no `inbox` is refused at setup', () => {
   assertThrows(() =>
     createTheoremHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: PROFILE,
       provider: () => fixtureHostOptions(model({ count: 0 }, {})),
       conversationStore: createMemoryConversationStore(),

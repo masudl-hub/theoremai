@@ -1,5 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import { z } from 'zod';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 import '../fixtures/test-host.ts';
 import { isLateResult } from '../../src/guardrails/tool-fence.ts';
 import { wrapToolData } from '../../src/guardrails/tool-result.ts';
@@ -92,6 +93,7 @@ Deno.test('an approval in the middle of a reply keeps what the reply read', asyn
   try {
     const model = steeredModel();
     const handler = createTheoremHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: defineProfile({
         type: 'text',
         id: 'taint_pause',
@@ -182,6 +184,7 @@ Deno.test('a late result passed once stays through an approval and on later turn
   };
   let pending: ToolOperationOutcome[] = [late];
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: defineProfile({
       type: 'text',
       id: 'late_once',
@@ -270,6 +273,7 @@ Deno.test('a late result that lands mid-reply before an approval keeps what the 
   try {
     const model = steeredModel();
     const handler = createTheoremHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: defineProfile({
         type: 'text',
         id: 'taint_pause_mid',
@@ -344,6 +348,7 @@ Deno.test('a write held after a remote read asks the person over the wire, and t
       },
     };
     const handler = createTheoremHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: defineProfile({
         type: 'text',
         id: 'taint_ask',

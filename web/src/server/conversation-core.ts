@@ -34,9 +34,8 @@ import {
   type ReplyStart,
   runConversation,
 } from '@theoremjs/agents/conversation';
-import type { ClientTurnOptions } from '@theoremjs/agents/host';
+import { type ClientTurnOptions, forClient } from '@theoremjs/agents/host';
 import {
-  applyToolEvent,
   type ComposerProfileInterface,
   interfaceFromProfile,
   refuseInterfacePick,
@@ -72,8 +71,14 @@ import {
   waitingCalls,
   wakeReply,
 } from './conversation.ts';
-import { detachedEnd, sessionConversationInbox } from './conversation-inbox.ts';
 import {
+  detachedAt,
+  detachedEnd,
+  readerEnding,
+  sessionConversationInbox,
+} from './conversation-inbox.ts';
+import {
+  endedBlock,
   type ReplyEnd,
   type StoredConversation,
   type TheoremConversationStore,
@@ -88,6 +93,7 @@ import {
   pausedWaits,
   recorded,
   replayAllowed,
+  saveEnded,
   sessionCredentials,
   settlingOf,
   takeLapsed,
@@ -107,6 +113,20 @@ export type ChatContext = {
   /** Undefined when the profile keeps no conversation (`'stateless'`). */
   conversations?: TheoremConversationStore;
 };
+
+/**
+ * Where the chat saves a detached call's end: its conversation store, as `clientEvents` reads it.
+ * None with `authorizeToolReplay`: every request reads a saved end, and that host checks each read.
+ */
+export function endingsOf(
+  chat: ChatContext | undefined,
+  options: { clientEvents?: ClientTurnOptions; authorizeToolReplay?: unknown },
+): Pick<CallsContext, 'endings'> {
+  const store = chat?.conversations;
+  if (!store || options.authorizeToolReplay) return {};
+  const { clientEvents } = options;
+  return { endings: { store, forReader: (event) => forClient(event, clientEvents) } };
+}
 
 /**
  * The chat `definition` serves, with the store that keeps its conversation. `name` is the function
@@ -822,6 +842,7 @@ function replySaving<Item extends InboxItem>(
             }),
         }
       : {}),
+    written: (appended) => saveEnded(ctx, at, appended),
     after: async (saved) => {
       held?.told(saved.told);
       await afterSave?.(at, saved);
@@ -926,11 +947,12 @@ async function currentView<Item extends InboxItem>(
 ): Promise<ConversationView> {
   const { conversation, running } = opened;
   const view = { ...conversationView(host, conversation), ...(running ? { running } : {}) };
-  const detached = view.transcript.some(isDetachedBlock);
-  // why: a session's late results come from detached calls only; an app's items come from anywhere
-  if (!detached && !ctx.options.inbox) return view;
+  // why: a session's late results come from detached calls only, ended or not; an app's items come from anywhere
+  if (!view.transcript.some(wasDetached) && !ctx.options.inbox) return view;
   const wake = (await wakeDue(ctx, at, host, ref, conversation)) ? { wake: true as const } : {};
-  if (!detached) return { ...view, ...notifyOffer(ctx), ...wake };
+  if (!view.transcript.some(isDetachedBlock)) {
+    return { ...view, ...(ctx.options.inbox ? notifyOffer(ctx) : {}), ...wake };
+  }
   const { operations } = await ctx.sessions.read(at.sessionId);
   const transcript = await Promise.all(
     view.transcript.map((block) =>
@@ -978,14 +1000,22 @@ function isDetachedBlock(block: TranscriptBlock): block is ToolBlock {
   return block.kind === 'tool' && block.tool.state?.phase === 'background';
 }
 
-/** A detached call's block as its operation stands. One the session no longer holds has no known end. */
+/** A detached call's block, whether its end is saved on it or not. */
+function wasDetached(block: TranscriptBlock): boolean {
+  return block.kind === 'tool' && detachedAt(block.tool) !== undefined;
+}
+
+/**
+ * A detached call's block as its operation stands, for a block whose end no save put on it. One
+ * the session no longer holds has no known end.
+ */
 async function lateBlock<Item extends InboxItem>(
   ctx: CoreState<Item>,
   at: CoreContext,
   block: ToolBlock,
   operations: TheoremSessionState['operations'],
   host: ConversationHost,
-): Promise<ToolBlock> {
+): Promise<TranscriptBlock> {
   const { tool } = block;
   const id = tool.operationId;
   const operation = id && Object.hasOwn(operations, id) ? operations[id] : undefined;
@@ -1009,23 +1039,14 @@ async function lateBlock<Item extends InboxItem>(
       },
     };
   }
-  if (operation?.status === 'settled') {
-    const settled = host.forReader(operation.outcome.event);
-    if (settled.type !== 'tool') return block;
-    const { tool: state } = settled;
-    if (!('phase' in state) || (state.phase !== 'complete' && state.phase !== 'error'))
-      return block;
-    return { ...block, tool: { ...applyToolEvent(tool, state), endedAt: operation.settledAt } };
-  }
   const { name, callId } = tool;
-  const unresolved = detachedEnd(
+  const outcome = detachedEnd(
     { operationId: id ?? '', callId, name, at: tool.state?.at ?? Date.now() },
     operation,
     labels,
   );
-  if (!unresolved) return block;
-  const { operationId: _id, ...state } = unresolved.event.tool;
-  return { ...block, tool: applyToolEvent(tool, state) };
+  const ending = outcome && readerEnding(outcome, host.forReader);
+  return ending && id ? endedBlock(block, { operationId: id, tool: ending }) : block;
 }
 
 /** The answer's reply, handed first what the paused reply read, so it tells them as it goes on. */

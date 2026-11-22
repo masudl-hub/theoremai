@@ -12,6 +12,7 @@ import {
   type ConversationCore,
   chatOf,
   createConversationCore,
+  endingsOf,
   type ReplyWiring,
 } from './conversation-core.ts';
 import type { TheoremHandlerOptions } from './handler.ts';
@@ -66,6 +67,7 @@ export function createTheoremConversationCore<Item extends InboxItem = InboxItem
   }
   return createConversationCore<Item>({
     ...sessionParts(name, chat.profile, options),
+    ...endingsOf(chat, options),
     chat,
     steer: options.steerInbox ?? createMemorySteerInbox(),
     options: {

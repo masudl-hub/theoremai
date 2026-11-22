@@ -54,6 +54,12 @@ import { registerDefined, type StudioToolHandlers } from './tools.ts';
  */
 export const STUDIO_BACKGROUND: ToolBackgroundService = { detached() {}, event() {} };
 
+/**
+ * How long the studio's session keeps a finished tool call's result: a day, longer than a builder's
+ * sitting, so a call asked for again in it does not run again.
+ */
+export const STUDIO_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
+
 /** What a run holds besides what it runs on. */
 export interface StudioRuntimeBase {
   /** A project's own provider definitions, registered after the studio's. */

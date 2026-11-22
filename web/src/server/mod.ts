@@ -68,7 +68,9 @@ export {
   type ConversationWriteResult,
   createMemoryConversationStore,
   createSealedConversationStore,
+  type DetachedEnding,
   emptyConversation,
+  endedBlock,
   type PausedReply,
   type ReplyEnd,
   type SealedConversationStoreOptions,
@@ -132,7 +134,6 @@ export type { CoreContext } from './session-calls.ts';
 export type { TheoremSessionCapacity } from './session-limits.ts';
 export {
   createMemorySessionStore,
-  DEFAULT_OPERATION_RETENTION_MS,
   type MemorySessionStoreOptions,
   type PendingToolGate,
   type SessionSnapshot,

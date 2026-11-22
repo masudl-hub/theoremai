@@ -24,6 +24,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const PROFILE: ProfileDefinition = {
   type: 'text',
@@ -66,6 +67,7 @@ function harness(options: Partial<TheoremConversationCoreOptions<Note>> = {}) {
     started: () => started(),
   };
   const core = createTheoremConversationCore<Note>({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(answerer(seen, gate)),
     conversationStore: createMemoryConversationStore(),
@@ -212,6 +214,7 @@ function countingStore(): { store: TheoremConversationStore; writes: () => numbe
   return {
     store: {
       read: (sessionId, ref) => inner.read(sessionId, ref),
+      end: (sessionId, ending) => inner.end(sessionId, ending),
       write(sessionId, ref, expectedRevision, next) {
         writes++;
         return inner.write(sessionId, ref, expectedRevision, next);
@@ -477,6 +480,7 @@ function contextStore() {
   const writes: { context: WriteContext | undefined; written: boolean }[] = [];
   const store: TheoremConversationStore = {
     read: (sessionId, ref) => inner.read(sessionId, ref),
+    end: (sessionId, ending) => inner.end(sessionId, ending),
     async write(sessionId, ref, expectedRevision, next, context) {
       const result = await inner.write(sessionId, ref, expectedRevision, next, context);
       writes.push({ context, written: result.written });

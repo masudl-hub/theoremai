@@ -400,10 +400,15 @@ async function saveReply(
       cause: CONFLICT,
     });
   }
+  // invariant: The save is written; a step after it cannot fail the reply.
+  try {
+    await runner.saving?.written?.(reply.context.appended);
+  } catch (err) {
+    runner.saving?.report(err);
+  }
   try {
     await runner.saving?.after?.({ ended: saving.ended, told: reply.context.told });
   } catch (err) {
-    // invariant: The save is written; a step after it cannot fail the reply.
     runner.saving?.report(err);
   }
   return { ref: result.ref, revision: result.revision, conversation: reply.next };
@@ -423,7 +428,14 @@ async function saveLost(
   if (!runner.saving?.before) return;
   try {
     const reply = await shaped(opened, runner, { ...saving, ended: 'lost' });
-    await host.store.write(host.sessionId, opened.ref, opened.revision, reply.next, reply.context);
+    const result = await host.store.write(
+      host.sessionId,
+      opened.ref,
+      opened.revision,
+      reply.next,
+      reply.context,
+    );
+    if (result.written) await runner.saving.written?.(reply.context.appended);
   } catch (err) {
     runner.saving.report(err);
   }
@@ -523,6 +535,11 @@ export type ReplySaving = {
   before?: (reply: ReplyToSave) => Promise<ShapedReply>;
   /** Runs once a save is written. What it throws is reported, and the save stands. */
   after?: (saved: { ended: ReplyEnd; told: readonly string[] }) => Promise<void>;
+  /**
+   * Runs once any write of the reply lands, with the blocks it added: saves the end of each call
+   * among them that went on in the background and has ended already. What it throws is reported.
+   */
+  written?: (appended: readonly TranscriptBlock[]) => Promise<void>;
   /** The app's compaction, in place of the runner's. What it throws is reported. */
   compact?: (signal: { history: TurnHistoryMessage[]; tokens: number }) => Promise<void>;
   /** Reports an error the save does not throw. */

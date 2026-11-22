@@ -28,6 +28,7 @@ import {
   createMemoryNotifier,
   createMemorySessionStore,
   createTheoremHandler,
+  type TheoremConversationStore,
 } from '../../web/src/server/mod.ts';
 import {
   layeredToolCoordinator,
@@ -35,6 +36,7 @@ import {
 } from '../../web/src/server/tool-operations.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const PROFILE: ProfileDefinition = {
   type: 'text',
@@ -47,7 +49,8 @@ const PROFILE: ProfileDefinition = {
 };
 
 /** A model that calls the tool in its first step, then answers. */
-function caller(): TurnModel {
+/** A model that calls `web_slow_job`, then replies once `beforeReply` resolves. */
+function caller(beforeReply?: () => Promise<unknown>): TurnModel {
   let step = 0;
   return {
     complete: () =>
@@ -61,6 +64,7 @@ function caller(): TurnModel {
           };
           return;
         }
+        await beforeReply?.();
         yield { type: 'text' as const, text: 'Looking into it.' };
         yield { type: 'done' as const, stop: { kind: 'completed' } };
       })(),
@@ -164,7 +168,11 @@ Deno.test('history holding the reply owns a checkpoint, before and after the set
   assert(await requireOwnedCheckpoint(saved, checkpoint, await operations(), history));
 });
 
-Deno.test('a chat turn replies now, and the session keeps the late result', async () => {
+/**
+ * A chat whose one call ends after its turn, kept in `conversationStore`. Returns what a read shows of
+ * the call once the session marks it uncertain, and once the session drops it.
+ */
+async function lateCallChat(conversationStore: TheoremConversationStore) {
   let release = () => {};
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -200,9 +208,10 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
       },
     };
     const handler = createTheoremHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: PROFILE,
       provider: () => fixtureHostOptions(caller()),
-      conversationStore: createMemoryConversationStore(),
+      conversationStore,
       sessionStore,
       session: () => 'one-person',
       onError: (err) => console.error(err),
@@ -273,12 +282,86 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
         detectedAt: 1,
       },
     });
-    assertEquals(await failures(), ['worker_lost']);
+    const uncertain = await failures();
     await swap({});
-    assertEquals(await failures(), ['outcome_not_retained']);
+    return { uncertain, dropped: await failures(), shown: await shown() };
   } finally {
     release();
   }
+}
+
+Deno.test('a chat turn replies now, and the session keeps the late result', async () => {
+  // why: the call's end is saved on its step, so the session losing its record changes nothing shown
+  assertEquals(await lateCallChat(createMemoryConversationStore()), {
+    uncertain: [],
+    dropped: [],
+    shown: ['complete'],
+  });
+});
+
+Deno.test('with a store that keeps no end, a read shows what the session holds of the call', async () => {
+  const keepsNoEnd = { ...createMemoryConversationStore(), end: () => Promise.resolve() };
+  assertEquals(await lateCallChat(keepsNoEnd), {
+    uncertain: ['worker_lost'],
+    dropped: ['outcome_not_retained'],
+    shown: ['error'],
+  });
+});
+
+Deno.test('a call that ends before its reply is saved has its end saved with the reply', async () => {
+  registerFixtureProviders(defaultKernelScope);
+  registerTool({
+    type: 'function',
+    name: 'web_slow_job',
+    description: 'A slow job.',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    background: 'always',
+    input: z.strictObject({}),
+    output: z.object({ done: z.string() }),
+    handler: () => ({ done: 'early' }),
+  });
+  const sessionStore = createMemorySessionStore();
+  const handles: ToolBackgroundHandle[] = [];
+  const sessions: string[] = [];
+  const handler = createTheoremHandler({
+    profile: PROFILE,
+    // why: the reply waits for the call's end, so the end comes before the reply's save
+    provider: () => fixtureHostOptions(caller(() => handles[0].done)),
+    conversationStore: createMemoryConversationStore(),
+    sessionStore,
+    session: () => 'one-person',
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+    onError: (err) => console.error(err),
+    background: ({ sessionId }) => {
+      sessions.push(sessionId);
+      return { detached: (handle) => handles.push(handle), event: () => {} };
+    },
+  });
+  const transport = createHttpTransport({
+    endpoint: 'http://host.test/api/theorem',
+    fetch: (url, init) => handler(new Request(url, init)),
+  });
+  let ref = '';
+  await transport.turn({ input: { text: 'hello' } }, (line) => {
+    if (line.type === 'conversation') ref = line.ref;
+  });
+  const snapshot = await sessionStore.load(sessions[0]);
+  assert(snapshot);
+  // why: with the session's record gone, only the saved reply can show the call's end
+  await sessionStore.compareAndSwap(sessions[0], snapshot.revision, {
+    ...snapshot.state,
+    operations: {},
+  });
+  assertEquals(
+    (await transport.conversation({ conversation: ref })).transcript.flatMap((block) =>
+      block.kind === 'tool' ? [block.tool.state?.phase] : [],
+    ),
+    ['complete'],
+  );
 });
 
 /** A coordinator that keeps every call it is given, and logs each step it takes. */
@@ -336,6 +419,7 @@ Deno.test("prepare's own record and service hold a chat's late call, and the ses
       event: () => {},
     };
     const handler = createTheoremHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: PROFILE,
       provider: () => fixtureHostOptions(caller()),
       conversationStore: createMemoryConversationStore(),
@@ -367,12 +451,16 @@ Deno.test("prepare's own record and service hold a chat's late call, and the ses
     assertEquals(ownHandles.length, 0);
     assertEquals(await shown(), ['background']);
     let published = 0;
-    notifier.subscribe('one-person', () => {
-      published += 1;
+    // why: the page is told once the call's end is saved, after the call's own end
+    const told = new Promise<void>((resolve) => {
+      notifier.subscribe('one-person', () => {
+        published += 1;
+        resolve();
+      });
     });
     release();
     await appHandles[0].done;
-    await Promise.resolve();
+    await told;
     assertEquals(steps, ['lookup', 'begin', 'detach', 'settle']);
     assertEquals(published, 1);
     assertEquals(await shown(), ['complete']);

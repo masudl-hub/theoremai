@@ -26,6 +26,7 @@ import { toolEventsOf } from '../fixtures/events.ts';
 import { atOpen } from '../fixtures/late-results.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const TOOL = 'web_late_result_job';
 const ASK = 'web_late_result_ask';
@@ -128,6 +129,7 @@ function harness(
   const model = caller(seen);
   const conversationStore = createMemoryConversationStore();
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(model),
     conversationStore,

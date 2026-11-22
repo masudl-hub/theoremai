@@ -52,6 +52,7 @@ import {
   studioConversation,
 } from '../runtime.ts';
 import type { StudioDependency, StudioRuntime } from '../runtime-scope.ts';
+import { STUDIO_OPERATION_RETENTION_MS } from '../runtime-scope.ts';
 import { draftDecide } from './draft-decide.ts';
 import { draftEmbedding } from './draft-embedding.ts';
 import { draftProbe, type ProbeEntry } from './draft-probe.ts';
@@ -234,6 +235,7 @@ export function createStudioDraftHandler(
       const boundary = await createTheoremSessionBoundary({
         request,
         sessionStore,
+        operationRetentionMs: STUDIO_OPERATION_RETENTION_MS,
         pageToolBroker,
       });
       const response = await handle(draft, boundary);
@@ -379,6 +381,7 @@ export function createStudioDraftHandler(
         const boundary = await createTheoremSessionBoundary({
           request,
           sessionStore,
+          operationRetentionMs: STUDIO_OPERATION_RETENTION_MS,
           pageToolBroker,
         });
         await boundary.answerPageResult(await readBody(request, pageToolResultSchema));

@@ -79,6 +79,85 @@ for (const [name, make] of stores) {
   });
 }
 
+/** A conversation whose one call went on in the background as `op_1`. */
+function detaching(): StoredConversation {
+  return {
+    ...saying('find it'),
+    transcript: [
+      { id: 'user-1', kind: 'user-text', text: 'find it' },
+      {
+        id: 'tool-1',
+        kind: 'tool',
+        tool: {
+          name: 'lookup',
+          callId: 'c1',
+          operationId: 'op_1',
+          arguments: {},
+          state: {
+            name: 'lookup',
+            callId: 'c1',
+            phase: 'background',
+            at: 5,
+            readBack: 'still running',
+          },
+        },
+      },
+    ],
+  };
+}
+
+const ENDING = {
+  operationId: 'op_1',
+  tool: {
+    name: 'lookup',
+    callId: 'c1',
+    operationId: 'op_1',
+    phase: 'complete',
+    at: 9,
+    output: { found: true },
+    readBack: 'found',
+  },
+} as const;
+
+const phaseOf = (conversation: StoredConversation | undefined) =>
+  conversation?.transcript.flatMap((block) =>
+    block.kind === 'tool' ? [block.tool.state?.phase] : [],
+  );
+
+Deno.test("a memory store saves a call's end on its step, and a stale write keeps it", async () => {
+  const store = createMemoryConversationStore();
+  const written = await store.write('session-a', null, null, detaching());
+  if (!written.written) throw new Error('expected the conversation to be written');
+  await store.end('session-b', ENDING);
+  assertEquals(phaseOf((await store.read('session-a', written.ref))?.conversation), ['background']);
+  await store.end('session-a', ENDING);
+  const ended = await store.read('session-a', written.ref);
+  // why: the end changes no revision, so a reply that read the conversation before it still saves
+  assertEquals(ended?.revision, written.revision);
+  assertEquals(phaseOf(ended?.conversation), ['complete']);
+  // why: the block was written as one saved before `detached` was kept; its end keeps it detached
+  const step = ended?.conversation.transcript.find((block) => block.kind === 'tool');
+  assertEquals(step?.kind === 'tool' ? step.tool.detached : undefined, {
+    at: 5,
+    readBack: 'still running',
+  });
+  const next = detaching();
+  next.transcript.push({ id: 'text-1', kind: 'text', text: 'Still looking.' });
+  const later = await store.write('session-a', written.ref, written.revision, next);
+  if (!later.written) throw new Error('expected the write from the current revision to land');
+  const kept = await store.read('session-a', later.ref);
+  assertEquals(phaseOf(kept?.conversation), ['complete']);
+  assertEquals(kept?.conversation.transcript.length, 3);
+});
+
+Deno.test('a sealed store keeps no end: the conversation stays as written', async () => {
+  const store = createSealedConversationStore({ keys: { 1: KEY_1 }, keyVersion: 1 });
+  const written = await store.write('session-a', null, null, detaching());
+  if (!written.written) throw new Error('expected the conversation to be written');
+  await store.end('session-a', ENDING);
+  assertEquals(phaseOf((await store.read('session-a', written.ref))?.conversation), ['background']);
+});
+
 Deno.test('a memory store hands out copies, so a caller cannot change what it holds', async () => {
   const store = createMemoryConversationStore();
   const { ref } = await created(store, 'session-a', 'hello');

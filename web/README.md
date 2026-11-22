@@ -66,6 +66,7 @@ export const theorem = createTheoremHandler({
   profile: support,
   provider: { vault: { main: process.env.GEMINI_API_KEY } },
   conversationStore: createMemoryConversationStore(),
+  operationRetentionMs: 24 * 60 * 60 * 1000, // a day: how long a finished call's result is kept
 });
 ```
 
@@ -128,6 +129,7 @@ const boundary = await createTheoremSessionBoundary({
   request,
   session: authenticatedConversation,
   sessionStore: sharedSessionStore,
+  operationRetentionMs: 24 * 60 * 60 * 1000,
 });
 const open = parseLiveOpenMessage(firstFrame);
 const session = await runSession(
@@ -298,17 +300,16 @@ const transport = withPageToolDispatch(
 | `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`, and the next message or the next wake cancels the call. Unset, a gate waits until it is answered. |
 | `maxRequestBytes` | The largest browser request body, in bytes. Unset, a body of any size is read. |
 | `pageToolTimeoutMs` | How long the page has to answer a tool call it runs. A call it has not answered by then settles as timed out. Unset, the call waits until the page answers or the turn stops. The browser clients answer every call they get, so only a page function that never returns holds a turn. |
-| `operationRetentionMs` | How long a settled tool result is kept. Default: 24 hours. |
+| `operationRetentionMs` | Required. How long the session keeps a finished tool call's result, in milliseconds from when it finished. While it is kept, the same call asked for again gets that result and does not run again. Your app decides it: the handler has no default. |
 | `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
 | `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
 
 ### Defaults
 
-A limit that stops a turn or refuses a request is unset unless you set it: `gateTtlMs`, `maxRequestBytes`, `pageToolTimeoutMs`, and a session store's `capacity`. The memory stores expire and evict nothing unless you set `ttlMs` and `maxSessions`, so they grow until the process ends. Set both on a public server. These have a default:
+A limit that stops a turn or refuses a request is unset unless you set it: `gateTtlMs`, `maxRequestBytes`, `pageToolTimeoutMs`, and a session store's `capacity`. `operationRetentionMs` has no default, so every handler sets it. The memory stores expire and evict nothing unless you set `ttlMs` and `maxSessions`, so they grow until the process ends. Set both on a public server. These have a default:
 
 | What | Default | Set it with |
 | --- | --- | --- |
-| A settled tool result | Kept 24 hours | `operationRetentionMs` |
 | The session cookie | Lasts 30 days | `session` |
 
 A model profile that leaves out `maxSteps` makes at most 20 model calls a turn.
@@ -360,12 +361,13 @@ The sealed store:
 - If the user stops a reply, or the browser leaves while a reply runs, the server saves the result under a new ref that the browser never receives. The browser keeps the ref from when its message reached the server. The reply, and any tool call it settled, is lost to the browser. With the memory store or your own store, the ref does not change, and the chat shows what the server saved.
 - The ref holds the whole conversation, including the bytes of each attachment. Every request sends it, so the conversation must stay under `maxRequestBytes`.
 
-To keep conversations in your own database, implement these two methods:
+To keep conversations in your own database, implement these three methods:
 
 ```ts
 import type {
   ConversationSnapshot,
   ConversationWriteResult,
+  DetachedEnding,
   StoredConversation,
 } from '@theoremjs/web/server';
 
@@ -377,6 +379,7 @@ interface ConversationDatabase {
     expectedRevision: string | null,
     next: StoredConversation,
   ): Promise<ConversationWriteResult>;
+  end(sessionId: string, ending: DetachedEnding): Promise<void>;
 }
 ```
 
@@ -387,6 +390,7 @@ interface ConversationDatabase {
 - A store that keeps each block in its own place (a row, a column) checks one block with `transcriptBlockSchema`.
 - Keep `id` as the handler gives it. It names the conversation in each turn's trace as `gen_ai.conversation.id`, and stays the same through every save and rewind.
 - Set `running` on the snapshot while a reply runs on the conversation under a hold you keep. See [Show a reply that runs elsewhere](#show-a-reply-that-runs-elsewhere).
+- `end` saves how a background call ended on the step of the reply that started it. The handler calls it when the call ends, and again after each save of a reply, for a call that ended before its reply was saved. Find the tool block whose `tool.operationId` is `ending.operationId`, in any of the session's conversations, and replace it with `endedBlock(block, ending)`. Change no revision, so a reply that runs meanwhile still saves. Keep the ended block when a later `write` still holds the block as it detached. With no such block, change nothing. A call whose end is saved shows its end and its done label after the session has dropped its record. A store that keeps nothing, such as the sealed store, does nothing in `end`: the conversation read shows the end from the session's record while the session keeps it. With `authorizeToolReplay`, the handler does not call `end`, because every request reads a saved end and that check runs on each read.
 
 ### Share session authority
 
@@ -443,7 +447,7 @@ Supply `authorizeToolReplay` for current role or resource access checks. This re
 If execution ends without a saved outcome, the claim remains running or becomes uncertain.
 The handler never restores that operation as an approval. The host must check the destination before any new action.
 Saved outcomes include guarded model read-back, media, provenance, and suspicious content signals.
-The handler retains settled operations for 24 hours from settlement by default. Set `operationRetentionMs` to change this window.
+The handler retains settled operations for `operationRetentionMs` from settlement.
 Each saved outcome records its absolute retention deadline. Changing a handler's policy does not shorten that deadline.
 Each issued gate records its absolute expiry. Changing `gateTtlMs` does not extend an issued gate.
 Ready, running, background, and uncertain operations do not expire.
@@ -607,6 +611,7 @@ createTheoremHandler({
   profile,
   provider,
   conversationStore,
+  operationRetentionMs,
   inbox,
   intake: async (at, sent) => {
     const saved = await saveMessage(at.sessionId, sent.id, sent.ref, sent.message);

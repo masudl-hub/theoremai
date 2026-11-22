@@ -6,6 +6,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 Deno.test('native live approval dispatch uses saved prepared input and settles one authoritative result', async () => {
   const scope = createKernelScope();
@@ -34,6 +35,7 @@ Deno.test('native live approval dispatch uses saved prepared input and settles o
   });
   const store = createMemorySessionStore();
   const boundary = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request: new Request('https://live.test'),
     session: () => 'owner',
     sessionStore: store,

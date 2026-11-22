@@ -108,6 +108,7 @@ export const theorem = createTheoremHandler({
   profile: support,
   provider: { vault: { main: process.env.GEMINI_API_KEY } },
   conversationStore: createMemoryConversationStore(),
+  operationRetentionMs: 24 * 60 * 60 * 1000, // a day: how long a finished call's result is kept
 });
 ```
 
@@ -327,7 +328,10 @@ A `host` profile does not run a model. The page calls the tools of the profile d
 ```ts
 import { createTheoremHostHandler } from '@theoremjs/web/server';
 
-export const host = createTheoremHostHandler({ profile: opsConsole }); // mount at /api/host
+export const host = createTheoremHostHandler({
+  profile: opsConsole,
+  operationRetentionMs: 24 * 60 * 60 * 1000,
+}); // mount at /api/host
 ```
 
 ```tsx

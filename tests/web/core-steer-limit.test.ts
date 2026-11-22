@@ -7,6 +7,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 registerFixtureProviders(defaultKernelScope);
 
@@ -23,6 +24,7 @@ const PROFILE: ProfileDefinition = {
 Deno.test('the core refuses a steer over inputs.maxTextChars, with no handler in front', async () => {
   const steerInbox = createMemorySteerInbox();
   const core = createTheoremConversationCore({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions({ complete: () => (async function* () {})() }),
     steerInbox,

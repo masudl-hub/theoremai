@@ -251,6 +251,12 @@ export type ToolCallState = Extract<
 >;
 
 /** invariant: An issued operation joins its request and phases; historical calls use callId. */
+/** A call that went on in the background: `ToolCall.detached`. */
+export interface ToolCallDetached {
+  at: number;
+  readBack?: string;
+}
+
 export interface ToolCall {
   operationId?: string;
   name: string;
@@ -283,6 +289,12 @@ export interface ToolCall {
   startedAt?: number;
   /** When it last settled: complete, failed, cancelled, or gated (epoch ms). */
   endedAt?: number;
+  /**
+   * Set once the call went on in the background, and kept after it ends: when it detached (epoch
+   * ms), and what the model read as its result then. History replays that read-back, whatever the
+   * call's end, because the model read the end later, in its own message.
+   */
+  detached?: ToolCallDetached;
   /** An agent tool's: the calls its agent made, in order, from the call's `progress` phases. */
   steps?: ToolCall[];
 }

@@ -43,6 +43,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { eventsOf, failureOf, lastTool, toolEventsOf, toolPhases } from '../fixtures/events.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 import { scriptedProvider } from '../fixtures/scripted.ts';
 import { sqliteSessionStore } from '../fixtures/sqlite-session-store.ts';
 import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
@@ -166,6 +167,7 @@ async function collect(run: (onLine: ChatLineSink) => Promise<void>): Promise<Tu
 }
 Deno.test('describe returns the interface without server-only identity', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-describe'),
     provider: () => fixtureHostOptions(textProvider('unused')),
   });
@@ -182,6 +184,7 @@ Deno.test('React handler runs a provider registered under its own id through its
   const text = profile('handler-renamed-provider');
   if (text.type !== 'text') throw new Error('expected a text profile');
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: {
       ...text,
       models: { stub: { protocol: 'scripted', provider: 'handler-renamed', apiId: 'stub-model' } },
@@ -213,6 +216,7 @@ Deno.test("describe sends a tool's id, never its definition", async () => {
     output: z.object({}).passthrough(),
   });
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-describe-tools', ['handler_describe_http']),
     provider: () => fixtureHostOptions(textProvider('unused')),
   });
@@ -230,6 +234,7 @@ Deno.test('turn streams kernel events from the host profile, not the client', as
     system?: string;
   }[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-turn'),
     provider: () => fixtureHostOptions(textProvider('hello there', seen)),
   });
@@ -261,6 +266,7 @@ Deno.test("a turn carries the page's options and context, and the host's context
       })(),
   };
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: {
       type: 'text',
       id: 'handler-context',
@@ -289,6 +295,7 @@ Deno.test("a turn carries the page's options and context, and the host's context
 });
 Deno.test('provider failures reach the client in the labels wording for their kind', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-error'),
     provider: () => {
       throw new Error('upstream key sk-live-123 rejected');
@@ -311,6 +318,7 @@ Deno.test('React provider vault does not resolve inherited credentials', async (
   const text = profile('handler-inherited-vault');
   if (text.type !== 'text') throw new Error('expected a text profile');
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: {
       ...text,
       models: { stub: { protocol: 'scripted', provider: 'handler-identity', apiId: 'stub-model' } },
@@ -344,6 +352,7 @@ Deno.test('React provider vault does not resolve inherited credentials', async (
 });
 Deno.test('a failed stream carries its error kind to the client', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-error-kind'),
     provider: () => {
       throw new TheoremError('rate_limit', 'upstream 429');
@@ -359,6 +368,7 @@ Deno.test('a failed stream carries its error kind to the client', async () => {
 Deno.test('onError reports the error; the user reads the profile labels', async () => {
   const reported: unknown[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: {
       ...profile('handler-on-error'),
       labels: { 'error.internal': 'Host copy: please try again.' },
@@ -384,6 +394,7 @@ Deno.test("steer reaches only this session's running turn, and only while it run
   });
   const injected: string[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-steer'),
     provider: () =>
       fixtureHostOptions({
@@ -451,6 +462,7 @@ Deno.test("steer reaches only this session's running turn, and only while it run
 });
 Deno.test('bad requests get 4xx JSON errors', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-bad'),
     provider: () => fixtureHostOptions(textProvider('unused')),
   });
@@ -529,6 +541,7 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
 Deno.test('live profiles are rejected at construction', () => {
   assertThrows(() =>
     handlerFor({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: {
         type: 'live',
         id: 'handler-live',
@@ -623,6 +636,7 @@ function post(handler: Handler, path: string, body: unknown, cookie?: string) {
 }
 Deno.test('client-sent permissions are ignored: gated tools still pause', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-forged-perms', ['handler_share']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_share', 'r1')),
   });
@@ -640,6 +654,7 @@ Deno.test('client-sent permissions are ignored: gated tools still pause', async 
 Deno.test('invoke only runs a call the server paused, with the model input', async () => {
   ran.length = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-invoke-gate', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'model-chosen')),
   });
@@ -712,6 +727,7 @@ for (const backend of ['memory', 'sqlite'] as const) {
       const conversationStore = createMemoryConversationStore();
       const handlers = [0, 1].map(() =>
         createTheoremHandler({
+          operationRetentionMs: TEST_OPERATION_RETENTION_MS,
           conversationStore,
           profile: profile(`handler-cas-${backend}`, ['handler_delete']),
           provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'one-effect')),
@@ -757,6 +773,7 @@ Deno.test('invalid stored authority fails before provider access', async () => {
     let providerCalls = 0;
     let writes = 0;
     const handler = handlerFor({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: profile('handler-invalid-authority'),
       provider: () => {
         providerCalls++;
@@ -795,6 +812,7 @@ Deno.test('eight session conflicts fail without invoking a tool', async () => {
     },
   };
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-contention', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'not-authorized')),
     session: () => 'contended',
@@ -825,6 +843,7 @@ Deno.test('a legacy load-save session store is refused at handler construction',
   assertThrows(
     () =>
       handlerFor({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: profile('handler-legacy-store'),
         provider: {},
         sessionStore: legacy,
@@ -839,6 +858,7 @@ Deno.test('invalid or reused write revisions cannot release an approval', async 
     const memory = createMemorySessionStore();
     let corrupt = false;
     const handler = handlerFor({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: profile(`handler-invalid-write-${kind}`, ['handler_delete']),
       provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'must-not-execute')),
       session: () => 'invalid-write',
@@ -876,6 +896,7 @@ Deno.test('invalid or reused write revisions cannot release an approval', async 
 Deno.test('the host settles a denied call: declined, never run, and the gate is gone', async () => {
   ran.length = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-refuse-deny', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'model-chosen')),
   });
@@ -925,6 +946,7 @@ function walkAwayProvider(seen: (TurnHistoryMessage[] | undefined)[]): TurnModel
 async function pausedForWalkAway(id: string, cut: Cut = {}, gateTtlMs?: number) {
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile(id, ['handler_delete']),
     provider: () => fixtureHostOptions(walkAwayProvider(seen)),
     ...(gateTtlMs === undefined ? {} : { gateTtlMs }),
@@ -1038,6 +1060,7 @@ Deno.test('an approval interrupted before dispatch retries its accepted input', 
   ran.length = 0;
   const cut: Cut = {};
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-approve-cut-before', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'model-chosen')),
   });
@@ -1114,6 +1137,7 @@ Deno.test('an approval the host ran but the client never heard is in the convers
 Deno.test("an approval with the user's edit runs the edited input", async () => {
   ran.length = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-edit', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'model-chosen')),
   });
@@ -1152,6 +1176,7 @@ Deno.test('a chat page callback returns its result against an active claimed gra
   for (const answer of [{ output: { shown: true } }, { output: { shown: 'yes' } }, undefined]) {
     let effects = 0;
     const handler = handlerFor({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: profile(`handler-page-grant-${JSON.stringify(answer)}`, ['handler_highlight']),
       provider: () => fixtureHostOptions(toolCallingProvider('handler_highlight', 'pricing')),
     });
@@ -1221,6 +1246,7 @@ Deno.test('a reply that goes on after an answered gate keeps the tool that call 
       })(),
   };
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: {
       type: 'text',
       id: 'handler-loaded-after-gate',
@@ -1266,6 +1292,7 @@ Deno.test('a reply that goes on after an answered gate keeps counting its steps'
       })(),
   };
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: {
       type: 'text',
       id: 'handler-steps-after-gate',
@@ -1294,6 +1321,7 @@ Deno.test('a reply that goes on after an answered gate keeps counting its steps'
 Deno.test("another session can't approve this session's paused call", async () => {
   ran.length = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-cross-session', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'victim-record')),
   });
@@ -1330,6 +1358,7 @@ Deno.test("another session can't approve this session's paused call", async () =
 Deno.test("an answer after the host's gateTtlMs is refused and the call never runs", async () => {
   ran.length = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-gate-ttl', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'late')),
     gateTtlMs: 1,
@@ -1365,12 +1394,18 @@ Deno.test('a gate that expired does not block the next message, and its call nev
 Deno.test('a gateTtlMs that is not a positive number is refused at construction', () => {
   for (const gateTtlMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assertThrows(() =>
-      handlerFor({ profile: profile('handler-gate-ttl-bad'), provider: {}, gateTtlMs }),
+      handlerFor({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+        profile: profile('handler-gate-ttl-bad'),
+        provider: {},
+        gateTtlMs,
+      }),
     );
   }
 });
 Deno.test('approving a session_consent tool is remembered by the server, not the client', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-session-consent', ['handler_share']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_share', 'r1')),
   });
@@ -1392,6 +1427,7 @@ Deno.test('approving a session_consent tool is remembered by the server, not the
 });
 Deno.test('approving an always_confirm tool covers that call only', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-always-confirm', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'once')),
   });
@@ -1413,6 +1449,7 @@ Deno.test('approving an always_confirm tool covers that call only', async () => 
 Deno.test('a history the client sends never reaches the model', async () => {
   const seen: string[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-no-system'),
     provider: () =>
       fixtureHostOptions({
@@ -1444,6 +1481,7 @@ Deno.test('a history the client sends never reaches the model', async () => {
 });
 Deno.test('a custom session resolver can refuse anonymous callers', async () => {
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-auth'),
     provider: () => fixtureHostOptions(textProvider('ok')),
     session: (request) => request.headers.get('x-user') ?? undefined,
@@ -1534,6 +1572,7 @@ function oauthCredential(overrides: Partial<OAuth2Credential> = {}): OAuth2Crede
 Deno.test('a key typed at a sign-in gate is saved on the server and never sent back', async () => {
   const store = inspectableStore();
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-typed-key', ['handler_tracker']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_tracker', 'item-1')),
     credentialStore: store,
@@ -1575,6 +1614,7 @@ Deno.test('a key typed at a sign-in gate is refused, and never saved, when the c
     slots: { tracker: { resource: 'https://api.tracker.example/' } },
   });
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-typed-key-sealed', ['handler_tracker']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_tracker', 'item-1')),
     credentialStore: store,
@@ -1611,6 +1651,7 @@ Deno.test('a typed key answers only a sign-in gate, and a refused one leaves the
   ran.length = 0;
   const store = inspectableStore();
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-typed-key-wrong-gate', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'kept')),
     credentialStore: store,
@@ -1648,6 +1689,7 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
   const store = inspectableStore();
   const sessions: string[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-oauth-gate', ['handler_oauth_tracker']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_oauth_tracker', 'item-1')),
     credentialStore: store,
@@ -1699,6 +1741,7 @@ Deno.test('an OAuth gate carries the host sign-in URL and resumes on the token i
 Deno.test('a refreshed OAuth token is saved to the store before the call goes on', async () => {
   const store = inspectableStore();
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-oauth-refresh', ['handler_oauth_tracker']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_oauth_tracker', 'item-1')),
     credentialStore: store,
@@ -1823,6 +1866,7 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
     const options = {
       profile: bound,
       provider: {},
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       session: () => 'same-session',
       sessionStore: store,
       conversationStore: conversations,
@@ -1882,6 +1926,7 @@ Deno.test('operation identity refuses an old answer when the wire reuses a call 
   ran.length = 0;
   let target = 'first';
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-operation-identity', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', target)),
   });
@@ -1947,6 +1992,7 @@ Deno.test('operation identity keeps two pending actions distinct when the wire r
   ran.length = 0;
   let target = 'first-pending';
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-two-operation-identities', ['handler_delete']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', target)),
   });
@@ -1988,6 +2034,7 @@ function echoProvider(seen: (TurnHistoryMessage[] | undefined)[]): TurnModel {
 Deno.test('the model reads the conversation the host kept, and the page draws it from the ref', async () => {
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-kept-conversation'),
     provider: () => fixtureHostOptions(echoProvider(seen)),
   });
@@ -2028,6 +2075,7 @@ function savedWith(store: TheoremConversationStore, text: string) {
   const saved = Promise.withResolvers<void>();
   const watched: TheoremConversationStore = {
     read: (sessionId, ref) => store.read(sessionId, ref),
+    end: (sessionId, ending) => store.end(sessionId, ending),
     write: async (sessionId, ref, revision, conversation) => {
       const written = await store.write(sessionId, ref, revision, conversation);
       if (written.written && JSON.stringify(conversation.transcript).includes(text)) {
@@ -2070,6 +2118,7 @@ Deno.test('a reply the browser stops reading still saves, and the page reads it 
   const held = Promise.withResolvers<void>();
   const { store, saved } = savedWith(createMemoryConversationStore(), 'second half');
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-browser-left'),
     provider: () => fixtureHostOptions(heldReply(held.promise)),
     conversationStore: store,
@@ -2092,6 +2141,7 @@ Deno.test('a sealed reply the browser stops reading saves under a ref it never h
     'second half',
   );
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-sealed-left'),
     provider: () => fixtureHostOptions(heldReply(held.promise)),
     conversationStore: store,
@@ -2109,6 +2159,7 @@ Deno.test('a sealed reply the browser stops reading saves under a ref it never h
 Deno.test('a rewind cuts the conversation and the next message goes on from the cut', async () => {
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-rewind'),
     provider: () => fixtureHostOptions(echoProvider(seen)),
   });
@@ -2131,6 +2182,7 @@ Deno.test('a rewind cuts the conversation and the next message goes on from the 
 Deno.test('a sealed store hands the browser a new ref each write, and a stolen one opens nothing', async () => {
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-sealed'),
     provider: () => fixtureHostOptions(echoProvider(seen)),
     conversationStore: createSealedConversationStore({
@@ -2159,6 +2211,7 @@ Deno.test('a stateless chat keeps nothing: no ref, and a ref is refused', async 
   assertThrows(
     () =>
       createTheoremHandler({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: stateless,
         provider: {},
         conversationStore: createMemoryConversationStore(),
@@ -2166,10 +2219,16 @@ Deno.test('a stateless chat keeps nothing: no ref, and a ref is refused', async 
     TheoremError,
   );
   assertThrows(
-    () => createTheoremHandler({ profile: profile('handler-store-missing'), provider: {} }),
+    () =>
+      createTheoremHandler({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+        profile: profile('handler-store-missing'),
+        provider: {},
+      }),
     TheoremError,
   );
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: stateless,
     provider: () => fixtureHostOptions(textProvider('ok')),
   });
@@ -2189,6 +2248,7 @@ Deno.test('a sealed reply the person stops keeps what it said, under the ref the
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
   let turns = 0;
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-sealed-stop'),
     provider: () =>
       fixtureHostOptions(turns++ === 0 ? heldReply(held.promise) : echoProvider(seen)),
@@ -2239,6 +2299,7 @@ registerTool({
 Deno.test("a held call runs on, once answered, with the context the application's prepare set", async () => {
   hostsSeen.length = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-prepared-host', ['handler_reads_host']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
     host: () => ({ user: 'u1' }),
@@ -2260,6 +2321,7 @@ Deno.test("a turn's prepare sees a held call going on, and only a run's events r
   const prepared: (true | undefined)[] = [];
   const seen: string[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('handler-held-prepare', ['handler_reads_host']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
     host: () => ({ user: 'u1' }),
@@ -2309,6 +2371,7 @@ Deno.test("the page may pick the model only when the profile lets the interface;
   };
   const page = transportFor(
     handlerFor({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: twoModels('handler-pick-page'),
       provider: () => fixtureHostOptions(recording),
     }),
@@ -2319,6 +2382,7 @@ Deno.test("the page may pick the model only when the profile lets the interface;
   );
   const host = transportFor(
     handlerFor({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: twoModels('handler-pick-host'),
       provider: () => fixtureHostOptions(recording),
       prepare: (turn) => ({ ...turn, model: 'b' }),
@@ -2344,6 +2408,7 @@ const PICKED = { path: 'web', options: { plan: 'paid' } };
 Deno.test('a page the host trusts says which prompt lines its turn gets', async () => {
   const seen: { system?: string }[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: linedProfile('handler-stated'),
     provider: () => fixtureHostOptions(textProvider('ok', seen)),
     pageStatesTurn: true,
@@ -2358,6 +2423,7 @@ Deno.test('a page the host trusts says which prompt lines its turn gets', async 
 Deno.test('a page saying which prompt lines it gets is refused unless the host trusts it', async () => {
   const seen: { system?: string }[] = [];
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: linedProfile('handler-stated-refused'),
     provider: () => fixtureHostOptions(textProvider('ok', seen)),
   });
@@ -2376,6 +2442,7 @@ Deno.test('a reply paused on a gate keeps its prompt lines when it goes on', asy
   const seen: { system?: string }[] = [];
   const model = toolCallingProvider('handler_delete', 'kept');
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: linedProfile('handler-stated-paused', ['handler_delete']),
     provider: () =>
       fixtureHostOptions({
@@ -2416,6 +2483,7 @@ Deno.test('a message over inputs.maxTextChars is refused before the model, and a
   });
   let modelCalls = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: limited('handler-text-limit'),
     provider: () =>
       fixtureHostOptions({
@@ -2476,6 +2544,7 @@ Deno.test('the page, the web server and the kernel count the same redacted text'
     const id = `handler-redacted-${limit}-${text.length}`;
     const transport = transportFor(
       handlerFor({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: redacting(id, limit),
         provider: () =>
           fixtureHostOptions({
@@ -2515,6 +2584,7 @@ Deno.test('the page, the web server and the kernel count the same redacted text'
 Deno.test("a profile that hides tool data sends the page none of a call's input or output; an approval still runs the model's call", async () => {
   ran.length = 0;
   const handler = handlerFor({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: {
       ...profile('hides-tool-data'),
       tools: { allow: ['handler_delete'], showData: false },

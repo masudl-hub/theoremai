@@ -20,6 +20,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const TOOL = 'web_notify_job';
 
@@ -93,6 +94,7 @@ function harness(
   // why: One model for the chat, so a wake answers in text instead of starting the job again.
   const model = caller();
   const options: TheoremHandlerOptions = {
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(model),
     conversationStore: createMemoryConversationStore(),
@@ -334,7 +336,8 @@ Deno.test('a read does not show a result that authorizeToolReplay refuses', asyn
     await handles[0].done;
     const refused = await transport.conversation({ conversation: ref });
     assertEquals(phases(refused), ['error']);
-    assert(!JSON.stringify(refused).includes('late'));
+    // why: the result is the string "late"; the running note's "comes later" is not it.
+    assert(!JSON.stringify(refused).includes('"late"'));
     allowed = true;
     assertEquals(phases(await transport.conversation({ conversation: ref })), ['complete']);
   } finally {

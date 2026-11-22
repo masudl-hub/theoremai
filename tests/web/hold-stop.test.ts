@@ -17,6 +17,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const PROFILE: ProfileDefinition = {
   type: 'text',
@@ -148,6 +149,7 @@ function app(more: { beforePrepare?: () => Promise<void>; hears?: Hears } = {}) 
     },
   };
   const core = createTheoremConversationCore<Note>({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(halves(runs, () => rest.promise)),
     conversationStore: store,

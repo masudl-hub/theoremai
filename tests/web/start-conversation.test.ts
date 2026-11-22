@@ -67,6 +67,7 @@ Deno.test('a guardrail set to block refuses the blocks, and nothing is stored', 
     sessionId: 'session-a',
     store: {
       read: base.read,
+      end: base.end,
       write: (...args: Parameters<typeof base.write>) => {
         written.push(args);
         return base.write(...args);

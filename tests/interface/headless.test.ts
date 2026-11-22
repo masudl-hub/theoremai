@@ -839,6 +839,23 @@ Deno.test('appendAssistantEventsToHistory refuses a settled tool with no readBac
     );
   }
 });
+Deno.test('a background call whose end is saved on its step replays what the model read as it detached', () => {
+  const blocks = foldTurnEvents(
+    callEvents(
+      { name: 'lookup', callId: 'c1' },
+      {},
+      { phase: 'background', readBack: 'still running' },
+      { phase: 'complete', output: { finding: 'ok' }, readBack: '{"finding":"ok"}' },
+    ),
+  );
+  const tool = blocks.find((block) => block.kind === 'tool');
+  const call = tool?.kind === 'tool' ? tool.tool : undefined;
+  assertEquals([call?.state?.phase, call?.detached?.readBack], ['complete', 'still running']);
+  assertEquals(
+    historyFromTranscriptBlocks(blocks).flatMap((m) => (m.role === 'tool' ? [m.content] : [])),
+    ['still running'],
+  );
+});
 /** A step of three calls: `done` settled, `a` and `b` paused on their gates. */
 function pausedStep(): TurnEvent[] {
   const gate = {

@@ -1,4 +1,5 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 import '../fixtures/test-host.ts';
 import { assert, assertEquals, assertThrows } from '@std/assert';
 import { z } from 'zod';
@@ -132,7 +133,10 @@ Deno.test('one tool, two readers: the host gets every field, each model view lea
 });
 
 Deno.test('the host door hands the page the whole output and publishes the mark in its schema', async () => {
-  const handler = createTheoremHostHandler({ profile: { ...HOST, id: 'model_view_host_door' } });
+  const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+    profile: { ...HOST, id: 'model_view_host_door' },
+  });
   let cookie = '';
   const transport = createHostTransport({
     endpoint: 'http://host.test/api/host',

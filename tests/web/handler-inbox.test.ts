@@ -22,6 +22,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const TOOL = 'handler_inbox_delete';
 const KEEPER = 'person-1';
@@ -111,6 +112,7 @@ function app(script: Script = {}, more: Partial<TheoremHandlerOptions<Note>> = {
   const asked = { host: 0 };
   const inbox = createMemoryInbox<Note>({ leaseMs: LEASE_MS });
   const options: TheoremHandlerOptions<Note> = {
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(model(read, script)),
     conversationStore: createMemoryConversationStore(),

@@ -18,6 +18,7 @@ import {
   type StageHandler,
   TheoremError,
   type ToolGate,
+  type ToolOperationOutcome,
   type TurnEvent,
   type TurnInput,
   type TurnWiring,
@@ -27,6 +28,7 @@ import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import {
   gatedToolsFromEvents,
   promotedToolIdsFromEvents,
+  type TranscriptBlock,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
 import {
@@ -41,8 +43,13 @@ import {
 import type { TheoremHostCallRequest } from '../client/host-transport.ts';
 import type { TheoremInvokeRequest } from '../client/transport.ts';
 import { type IssuedWalkAway, requiredOperationId, waitingCalls } from './conversation.ts';
-import { detachedEnd, type SettledOperation } from './conversation-inbox.ts';
-import type { StoredConversation } from './conversation-store.ts';
+import {
+  type DetachedCall,
+  detachedEnd,
+  readerEnding,
+  type SettledOperation,
+} from './conversation-inbox.ts';
+import type { StoredConversation, TheoremConversationStore } from './conversation-store.ts';
 import {
   createMemoryCredentialStore,
   type TheoremCredentialStore,
@@ -63,7 +70,6 @@ import {
 } from './session-authority.ts';
 import {
   createMemorySessionStore,
-  DEFAULT_OPERATION_RETENTION_MS,
   type PendingToolGate,
   type SessionToolOperation,
   type TheoremSessionState,
@@ -84,11 +90,19 @@ export type CoreContext = {
 };
 
 /** What a session's tool calls read from whoever serves them. */
+/** Where a detached call's end is saved: the chat's conversation store, as its pages read it. */
+export type DetachedEndings = {
+  store: TheoremConversationStore;
+  forReader: (event: TurnEvent) => TurnEvent;
+};
+
 export type CallsContext = {
   profile: Profile;
   sessions: SessionStateStore;
   credentials: MutableStore<TheoremCredentials>;
   pageToolBroker: PageToolBroker;
+  /** Unset when the profile keeps no conversation. */
+  endings?: DetachedEndings;
   options: {
     prepare?: AppPrepare;
     onStage?: StageHandler;
@@ -123,7 +137,7 @@ export type SessionOptions = {
   sessionStore?: TheoremSessionStore;
   credentialStore?: TheoremCredentialStore;
   gateTtlMs?: number;
-  operationRetentionMs?: number;
+  operationRetentionMs: number;
   pageToolBroker?: PageToolBroker;
   pageToolTimeoutMs?: number;
   notifyRetryMs?: number;
@@ -139,7 +153,7 @@ export function sessionParts(
   options: SessionOptions,
 ): Pick<CallsContext, 'profile' | 'sessions' | 'credentials' | 'pageToolBroker'> {
   const gateTtlMs = resolveGateTtlMs(name, options.gateTtlMs);
-  const operationRetentionMs = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
+  const { operationRetentionMs } = options;
   if (!Number.isSafeInteger(operationRetentionMs) || operationRetentionMs <= 0) {
     throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'operation_retention' },
@@ -625,8 +639,61 @@ export function backgroundWiring(
 }
 
 /**
- * `service`, telling the session's open pages when each of its calls ends, and the decider's
- * `ended`, with the wake and the notify it may use.
+ * What became of the detached call, once it has ended; undefined while it runs, and when the
+ * session holds no record of it, since an end it never saw is not one to save.
+ */
+function endedOutcome(
+  ctx: CallsContext,
+  call: DetachedCall,
+  operations: TheoremSessionState['operations'],
+): ToolOperationOutcome | undefined {
+  const { operationId } = call;
+  if (!Object.hasOwn(operations, operationId)) return undefined;
+  return detachedEnd(call, operations[operationId], ctx.profile.labels);
+}
+
+/** Saves a detached call's end on its block. What the store throws is reported: the page then reads the end from the session. */
+async function saveEnding(
+  ctx: CallsContext,
+  at: CoreContext,
+  operationId: string,
+  outcome: ToolOperationOutcome,
+): Promise<void> {
+  const { endings } = ctx;
+  const tool = endings && readerEnding(outcome, endings.forReader);
+  if (!endings || !tool) return;
+  try {
+    await endings.store.end(at.sessionId, { operationId, tool });
+  } catch (err) {
+    ctx.options.onError?.(err, at);
+  }
+}
+
+/**
+ * Saves the end of each call in `blocks` that detached and has ended already: a call that ended
+ * before its reply was written had no block to take its end.
+ */
+export async function saveEnded(
+  ctx: CallsContext,
+  at: CoreContext,
+  blocks: readonly TranscriptBlock[],
+): Promise<void> {
+  const calls = blocks.flatMap((block) => {
+    if (block.kind !== 'tool' || block.tool.state?.phase !== 'background') return [];
+    const { operationId, callId, name, state } = block.tool;
+    return operationId ? [{ operationId, callId, name, at: state.at }] : [];
+  });
+  if (!ctx.endings || calls.length === 0) return;
+  const { operations } = await ctx.sessions.read(at.sessionId);
+  for (const call of calls) {
+    const outcome = endedOutcome(ctx, call, operations);
+    if (outcome) await saveEnding(ctx, at, call.operationId, outcome);
+  }
+}
+
+/**
+ * `service`, saving each of its calls' end on the call's block when it ends, then telling the
+ * session's open pages, then the decider's `ended`, with the wake and the notify it may use.
  */
 export function announced(
   ctx: CallsContext,
@@ -635,7 +702,7 @@ export function announced(
 ): ToolBackgroundService {
   const { notifier, lateResultsDecider } = ctx.options;
   const ended = lateResultsDecider?.ended?.bind(lateResultsDecider);
-  if (!notifier && !ended) return service;
+  if (!notifier && !ended && !ctx.endings) return service;
   const notify = async () => {
     await notifier?.publish(at.sessionId);
   };
@@ -644,19 +711,18 @@ export function announced(
       service.detached(call);
       void call.done
         .then(async () => {
-          await notify();
-          if (!ended) return;
-          const { operations } = await ctx.sessions.read(at.sessionId);
           const { operationId, callId, toolId } = call;
-          const operation = Object.hasOwn(operations, operationId)
-            ? operations[operationId]
-            : undefined;
-          const outcome = detachedEnd(
-            { operationId, callId, name: toolId, at: Date.now() },
-            operation,
-            ctx.profile.labels,
-          );
-          if (!outcome) return;
+          const outcome =
+            ctx.endings || ended
+              ? endedOutcome(
+                  ctx,
+                  { operationId, callId, name: toolId, at: Date.now() },
+                  (await ctx.sessions.read(at.sessionId)).operations,
+                )
+              : undefined;
+          if (outcome) await saveEnding(ctx, at, operationId, outcome);
+          await notify();
+          if (!ended || !outcome) return;
           await ended({
             host: await at.host,
             result: { operationId, outcome },

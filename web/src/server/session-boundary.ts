@@ -23,11 +23,7 @@ import {
 import { checkRequest } from './request-check.ts';
 import { sessionStateStore } from './session-authority.ts';
 import { theoremSession } from './session-identity.ts';
-import {
-  DEFAULT_OPERATION_RETENTION_MS,
-  detachedReply,
-  type TheoremSessionStore,
-} from './session-store.ts';
+import { detachedReply, type TheoremSessionStore } from './session-store.ts';
 import { sessionToolCoordinator } from './tool-operations.ts';
 import { liveSessionOpen } from './turn-input.ts';
 
@@ -36,7 +32,8 @@ export interface SessionBoundaryOptions {
   session?: (request: Request) => string | undefined | Promise<string | undefined>;
   sessionStore: TheoremSessionStore;
   gateTtlMs?: number;
-  operationRetentionMs?: number;
+  /** As `TheoremHandlerOptions.operationRetentionMs`. */
+  operationRetentionMs: number;
   /** As `TheoremHandlerOptions.pageStatesTurn`: refuses a live call's `stated` unless set. */
   pageStatesTurn?: boolean;
   pageToolBroker?: PageToolBroker;
@@ -74,7 +71,7 @@ export async function createTheoremSessionBoundary(
     throw new TheoremError('auth', labelText('session.sign_in'), {
       copy: { key: 'session.sign_in' },
     });
-  const retention = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
+  const retention = options.operationRetentionMs;
   if (!Number.isSafeInteger(retention) || retention <= 0)
     throw new TheoremError('config', labelText('error.config'));
   const store = sessionStateStore(

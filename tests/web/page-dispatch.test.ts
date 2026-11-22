@@ -3,6 +3,7 @@ import { registerTool, type TurnEvent, z } from '../../mod.ts';
 import { createHostTransport } from '../../web/src/client/host-transport.ts';
 import { withPageToolDispatch } from '../../web/src/client/page-dispatch.ts';
 import { createMemorySessionStore, createTheoremHostHandler } from '../../web/src/server/mod.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 for (const permission of ['auto', 'always_confirm', 'confirmation'] as const) {
   Deno.test(`browser ${permission} dispatch carries final prepared arguments after its durable claim`, async () => {
@@ -26,6 +27,7 @@ for (const permission of ['auto', 'always_confirm', 'confirmation'] as const) {
     });
     const store = createMemorySessionStore();
     const handler = createTheoremHostHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: { type: 'host', id: name, tools: { allow: [name] } },
       session: (request) => request.headers.get('x-session') ?? undefined,
       sessionStore: store,
@@ -121,6 +123,7 @@ Deno.test('host transport dispatches prepared page input and settled replay cann
   });
   const store = createMemorySessionStore();
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host', id: name, tools: { allow: [name] } },
     session: () => 'host-transport-owner',
     sessionStore: store,

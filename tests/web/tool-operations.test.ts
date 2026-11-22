@@ -16,6 +16,7 @@ import { labelText } from '../../src/guardrails/labels.ts';
 import { createMemorySessionStore, createTheoremHostHandler } from '../../web/src/server/mod.ts';
 import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 import { sqliteSessionStore } from '../fixtures/sqlite-session-store.ts';
 
 async function post(
@@ -66,6 +67,7 @@ function capacityHandler(
 ) {
   const store = createMemorySessionStore({ capacity });
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host', id: name, tools: { allow: [name] } },
     session: () => name,
     sessionStore: store,
@@ -94,6 +96,7 @@ Deno.test('a store that declares no capacity keeps a result of any size', async 
   const calls = countingTool(name, () => 'x'.repeat(2 * 1024 * 1024));
   const store = createMemorySessionStore();
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host', id: name, tools: { allow: [name] } },
     session: () => name,
     sessionStore: store,
@@ -154,6 +157,7 @@ Deno.test('settlement retention is absolute and independent of a replacement han
   });
   const store = createMemorySessionStore();
   const options = {
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host' as const, id: name, tools: { allow: [name] } },
     session: () => name,
     sessionStore: store,
@@ -196,6 +200,7 @@ Deno.test('current resource authorization can withhold replay without reopening 
   });
   const store = createMemorySessionStore();
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host', id: name, tools: { allow: [name] } },
     session: () => name,
     sessionStore: store,
@@ -247,6 +252,7 @@ for (const backend of ['memory', 'sqlite'] as const) {
         handler: () => ({ count: ++effects }),
       });
       const options = {
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: { type: 'host' as const, id: name, tools: { allow: [name] } },
         sessionStore: store,
         session: () => name,
@@ -458,6 +464,7 @@ Deno.test('a settlement write failure keeps the operation uncertain, and the cli
     },
   };
   const options = {
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host' as const, id: name, tools: { allow: [name] } },
     sessionStore: store,
     session: () => name,
@@ -513,6 +520,7 @@ Deno.test('ready invocation survives a pre-dispatch validator fault and rejects 
     handler: () => ({ count: ++effects }),
   });
   const options = {
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host' as const, id: name, tools: { allow: [name] } },
     sessionStore: store,
     session: () => name,
@@ -567,6 +575,7 @@ Deno.test('a pre-dispatch sign-in gate replaces ready authority under the same o
     handler: () => ({ count: ++effects }),
   });
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host', id: name, tools: { allow: [name] } },
     sessionStore: store,
     session: () => name,
@@ -665,6 +674,7 @@ Deno.test('shared session storage cannot approve a gate through another profile'
   });
   const handler = (id: string) =>
     createTheoremHostHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
       profile: { type: 'host', id, tools: { allow: [name] } },
       sessionStore: store,
       session: () => 'shared-profile-session',
@@ -717,6 +727,7 @@ Deno.test('dispatch retains accepted intent and final prepared input for current
   });
   const store = createMemorySessionStore();
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host', id: name, tools: { allow: [name] } },
     session: () => name,
     sessionStore: store,
@@ -766,6 +777,7 @@ Deno.test('unserializable prepared input refuses dispatch before effects', async
   });
   const store = createMemorySessionStore();
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { type: 'host', id: name, tools: { allow: [name] } },
     session: () => name,
     sessionStore: store,
@@ -799,6 +811,7 @@ for (const stricter of ['block', 'redact'] as const) {
     const store = createMemorySessionStore();
     const make = (action: 'ignore' | typeof stricter) =>
       createTheoremHostHandler({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: {
           id: name,
           type: 'host',
@@ -847,7 +860,12 @@ Deno.test('a hidden tool replays only the words that say it finished', async () 
   });
   const store = createMemorySessionStore();
   const profile = defineProfile({ id: name, type: 'host', tools: { allow: [name] } });
-  const handler = createTheoremHostHandler({ profile, session: () => name, sessionStore: store });
+  const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+    profile,
+    session: () => name,
+    sessionStore: store,
+  });
   const issued = (await post(handler, 'call', { name, input: {} })).events.findLast(
     (event) => event.type === 'tool' && event.tool.phase === 'gate',
   );

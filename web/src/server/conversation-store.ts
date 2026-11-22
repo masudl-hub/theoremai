@@ -21,7 +21,7 @@ import {
   turnHistoryMessageSchema,
   z,
 } from '@theoremjs/agents';
-import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import { applyToolEvent, type TranscriptBlock } from '@theoremjs/agents/interface';
 import { type Equals, openSecret, sealSecret } from '@theoremjs/agents/kernel';
 import { transcriptBlockSchema } from '../client/transcript-schema.ts';
 import { type RunningReply, type StatedTurn, statedTurnSchema } from '../client/transport.ts';
@@ -148,6 +148,26 @@ export type WriteContext = {
   appended: readonly TranscriptBlock[];
 };
 
+/** A call a reply left running in the background, as it ended: the event its block takes. */
+export type DetachedEnding = {
+  operationId: string;
+  tool: Extract<Extract<TurnEvent, { type: 'tool' }>['tool'], { phase: 'complete' | 'error' }>;
+};
+
+/**
+ * `block` with `ending` on it, when it is the block of that call as it detached; any other block
+ * as it is. A store's `end` writes each block through it.
+ */
+export function endedBlock(block: TranscriptBlock, ending: DetachedEnding): TranscriptBlock {
+  if (block.kind !== 'tool' || block.tool.operationId !== ending.operationId) return block;
+  const { tool } = block;
+  if (tool.state?.phase !== 'background') return block;
+  // why: A block saved before `detached` was kept takes it from its background phase, so the call
+  // stays one that detached once it has ended.
+  const detached = tool.detached ? tool : applyToolEvent(tool, tool.state);
+  return { ...block, tool: applyToolEvent(detached, ending.tool) };
+}
+
 export type ConversationWriteResult =
   | { written: true; ref: string; revision: string }
   | { written: false };
@@ -172,6 +192,15 @@ export interface TheoremConversationStore {
     next: StoredConversation,
     context?: WriteContext,
   ): Promise<ConversationWriteResult>;
+  /**
+   * A call a reply left running in the background ended. The store puts the end on the call's
+   * block in whichever of the session's conversations holds it (`endedBlock`), and keeps it there
+   * when a later write still holds the block as it detached. It changes no revision, so a reply
+   * that runs meanwhile still saves. With no such block (it was rewound away) it changes nothing.
+   * A store that keeps nothing (`createSealedConversationStore`) does nothing: the page reads the
+   * end from the session's record while the session keeps it (`operationRetentionMs`).
+   */
+  end(sessionId: string, ending: DetachedEnding): Promise<void>;
 }
 
 /** Refuses a ref the store does not know or cannot open: the browser reads `session.conversation_unknown`. */
@@ -211,7 +240,7 @@ export function createMemoryConversationStore(
     // invariant: A ref this session cannot read takes no write, so no session overwrites another's conversation.
     if (ref !== null && snapshot === undefined) return { written: false };
     if ((snapshot?.revision ?? null) !== expectedRevision) return { written: false };
-    const conversation = storedConversation.parse(next);
+    const conversation = keptEnds(storedConversation.parse(next), snapshot?.conversation);
     const key = ref ?? crypto.randomUUID();
     const revision = crypto.randomUUID();
     conversations.delete(key);
@@ -231,7 +260,37 @@ export function createMemoryConversationStore(
     read: (sessionId, ref) => Promise.resolve(structuredClone(current(sessionId, ref))),
     // why: A write that fails its check rejects, as any store's does, rather than throwing at the call.
     write: (...args) => new Promise((resolve) => resolve(written(...args))),
+    end: (sessionId, ending) =>
+      new Promise((resolve) => {
+        for (const entry of conversations.values()) {
+          if (entry.sessionId !== sessionId) continue;
+          const { conversation } = entry.snapshot;
+          const transcript = conversation.transcript.map((block) => endedBlock(block, ending));
+          entry.snapshot = { ...entry.snapshot, conversation: { ...conversation, transcript } };
+        }
+        resolve();
+      }),
   };
+}
+
+/** `next`, with each detached call's end that `stored` holds kept on the block `next` still holds as it detached. */
+function keptEnds(
+  next: StoredConversation,
+  stored: StoredConversation | undefined,
+): StoredConversation {
+  const ends = new Map<string, TranscriptBlock>();
+  for (const block of stored?.transcript ?? []) {
+    if (block.kind === 'tool' && block.tool.operationId && block.tool.detached) {
+      if (block.tool.state?.phase !== 'background') ends.set(block.tool.operationId, block);
+    }
+  }
+  if (ends.size === 0) return next;
+  const transcript = next.transcript.map((block) => {
+    if (block.kind !== 'tool' || block.tool.state?.phase !== 'background') return block;
+    const ended = block.tool.operationId ? ends.get(block.tool.operationId) : undefined;
+    return ended ?? block;
+  });
+  return { ...next, transcript };
 }
 
 export type SealedConversationStoreOptions = {
@@ -267,6 +326,8 @@ export function createSealedConversationStore(
       const conversation = storedConversation.parse(JSON.parse(plaintext));
       return { revision: ref, conversation };
     },
+    // why: The browser carries the conversation, so the server holds nothing to put an end on.
+    end: () => Promise.resolve(),
     async write(sessionId, ref, expectedRevision, next, context) {
       // invariant: This store keeps no holds, so a reply whose hold lost the conversation writes nothing here.
       if (context?.ended === 'lost') return { written: false };

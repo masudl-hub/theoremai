@@ -1,6 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import { registerTool, type TurnEvent, z } from '../../mod.ts';
 import { createTheoremHostHandler } from '../../web/src/server/mod.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 import { sqliteSessionStore } from '../fixtures/sqlite-session-store.ts';
 
 for (const phase of [
@@ -53,6 +54,7 @@ for (const phase of [
     const store = sqliteSessionStore(path);
     const make = () =>
       createTheoremHostHandler({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: { id: name, type: 'host', tools: { allow: [name] } },
         session: () => name,
         sessionStore: store,

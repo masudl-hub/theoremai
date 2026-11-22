@@ -17,6 +17,7 @@ import {
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const TOOL = 'web_notify_fuzz_job';
 const SEEDS = 60;
@@ -105,6 +106,7 @@ async function run(seed: number): Promise<void> {
   const random = randomFrom(seed);
   const handles: ToolBackgroundHandle[] = [];
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(caller()),
     conversationStore: createMemoryConversationStore(),

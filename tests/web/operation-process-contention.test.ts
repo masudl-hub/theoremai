@@ -1,6 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import { registerTool, type TurnEvent, z } from '../../mod.ts';
 import { createTheoremHostHandler } from '../../web/src/server/mod.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 import { sqliteSessionStore } from '../fixtures/sqlite-session-store.ts';
 
 Deno.test('two independent kernel workers approve one action through atomic SQLite authority', async () => {
@@ -40,6 +41,7 @@ Deno.test('two independent kernel workers approve one action through atomic SQLi
   });
   const store = sqliteSessionStore(path);
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: { id: name, type: 'host', tools: { allow: [name] } },
     session: () => name,
     sessionStore: store,

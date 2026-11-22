@@ -30,6 +30,7 @@ export const theorem = createTheoremHandler({
   provider,
   conversationStore,
   credentialStore,
+  operationRetentionMs: 24 * 60 * 60 * 1000,
   authorizationUrl: async (challenge, { sessionId }) =>
     (
       await createOAuthPkceFlow({

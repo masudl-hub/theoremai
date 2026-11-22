@@ -24,7 +24,7 @@ import {
 } from '@theoremjs/web/server';
 import { attachStudioLiveSession } from '../live-session-bridge.ts';
 import { STUDIO_READER } from '../reader.ts';
-import { STUDIO_BACKGROUND } from '../runtime-scope.ts';
+import { STUDIO_BACKGROUND, STUDIO_OPERATION_RETENTION_MS } from '../runtime-scope.ts';
 import type { StudioTraceLine } from '../traces.ts';
 
 /** The server's end of the page's socket, and the answer that completes the upgrade. */
@@ -146,6 +146,7 @@ export function createStudioLiveHandler(
     const boundary = await createTheoremSessionBoundary({
       request,
       sessionStore,
+      operationRetentionMs: STUDIO_OPERATION_RETENTION_MS,
       session,
       pageStatesTurn: true,
     });

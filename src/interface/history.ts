@@ -18,16 +18,19 @@ import type { ToolCall, TranscriptBlock, UserTurnDraft } from './types.ts';
  */
 function toolReadBack(call: ToolCall): string {
   const state = call.state;
-  if (
-    (state?.phase !== 'complete' && state?.phase !== 'error' && state?.phase !== 'background') ||
-    state.readBack === undefined
-  ) {
-    throw new TheoremError(
-      'request',
-      `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
+  if (state?.phase !== 'complete' && state?.phase !== 'error' && state?.phase !== 'background') {
+    return noReadBack(call);
   }
-  return state.readBack;
+  // why: A call that went on in the background replays what the model read when it detached.
+  const readBack = call.detached ? call.detached.readBack : state.readBack;
+  return readBack === undefined ? noReadBack(call) : readBack;
+}
+
+function noReadBack(call: ToolCall): never {
+  throw new TheoremError(
+    'request',
+    `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
 }
 
 function blobToPart(blob: TurnBlob): InteractionPart {

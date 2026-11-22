@@ -4,6 +4,7 @@ import {
   createMemorySessionStore,
   createTheoremSessionBoundary,
 } from '../../web/src/server/mod.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const checkpoint: ProviderCheckpoint = {
   protocol: 'fixture',
@@ -22,6 +23,7 @@ const live = { id: 'live' };
 Deno.test('live boundary refuses unowned or edited state and isolates authorized conversations', async () => {
   const store = createMemorySessionStore();
   const first = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'first',
     sessionStore: store,
@@ -40,6 +42,7 @@ Deno.test('live boundary refuses unowned or edited state and isolates authorized
     ),
   );
   const other = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'other',
     sessionStore: store,
@@ -49,6 +52,7 @@ Deno.test('live boundary refuses unowned or edited state and isolates authorized
 
 Deno.test('live context stays untrusted and system-role history never reaches setup', async () => {
   const boundary = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'context',
     sessionStore: createMemorySessionStore(),
@@ -75,13 +79,19 @@ Deno.test('live context stays untrusted and system-role history never reaches se
 Deno.test('live checkpoints are deduplicated and the oldest drops when the session is full', async () => {
   const probe = createMemorySessionStore();
   await (
-    await createTheoremSessionBoundary({ request, session: () => 'probe', sessionStore: probe })
+    await createTheoremSessionBoundary({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+      request,
+      session: () => 'probe',
+      sessionStore: probe,
+    })
   ).recordCheckpoint(checkpoint);
   const one = JSON.stringify((await probe.load('probe'))?.state).length;
   const store = createMemorySessionStore({
     capacity: { maxStateBytes: one, maxOutcomeBytes: one },
   });
   const boundary = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'retained',
     sessionStore: store,
@@ -111,6 +121,7 @@ Deno.test('live checkpoints are deduplicated and the oldest drops when the sessi
 Deno.test('a resumed live connection cannot revive a running or uncertain operation', async () => {
   const store = createMemorySessionStore();
   const boundary = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'uncertain',
     sessionStore: store,
@@ -137,6 +148,7 @@ Deno.test('a resumed live connection cannot revive a running or uncertain operat
 
 Deno.test('settlement invalidates older native ownership even when the effect completed', async () => {
   const boundary = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'settled-epoch',
     sessionStore: createMemorySessionStore(),
@@ -188,6 +200,7 @@ Deno.test('settlement invalidates older native ownership even when the effect co
 Deno.test('a live call says which prompt lines it gets only on a page the host trusts', async () => {
   const stated = { path: 'web', options: { plan: 'paid' } };
   const refusing = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'untrusted',
     sessionStore: createMemorySessionStore(),
@@ -198,6 +211,7 @@ Deno.test('a live call says which prompt lines it gets only on a page the host t
   );
   assertEquals(refused.message, labelText('error.request'));
   const trusting = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'trusted',
     sessionStore: createMemorySessionStore(),
@@ -209,6 +223,7 @@ Deno.test('a live call says which prompt lines it gets only on a page the host t
 
 Deno.test("a live call's model or effort is the page's to pick only when the profile lets the interface", async () => {
   const boundary = await createTheoremSessionBoundary({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     request,
     session: () => 'pick',
     sessionStore: createMemorySessionStore(),

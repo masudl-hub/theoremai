@@ -55,7 +55,7 @@ A single mounted endpoint handles six sub-routes:
 
 ## Mounting on Web Frameworks
 
-Mounting [`createTheoremHandler`](file:///Users/masudlewis/Development/theoremai/web/src/server/handler.ts#L71) requires passing the profile, provider credential mappings, and a conversation store.
+Mounting [`createTheoremHandler`](file:///Users/masudlewis/Development/theoremai/web/src/server/handler.ts#L71) requires passing the profile, provider credential mappings, a conversation store, and how long a finished tool result is kept (`operationRetentionMs`).
 
 ### Next.js App Router (`app/api/agent/[...path]/route.ts`)
 
@@ -69,6 +69,7 @@ const handler = createTheoremHandler({
     vault: { primary: process.env.ANTHROPIC_API_KEY! },
   },
   conversationStore: createMemoryConversationStore(),
+  operationRetentionMs: 24 * 60 * 60 * 1000, // a day: how long a finished call's result is kept
 });
 
 export const GET = handler;
@@ -92,6 +93,7 @@ const agentHandler = createTheoremHandler({
   conversationStore: createSealedConversationStore({
     secret: process.env.SESSION_SECRET!, // Zero-database stateless store
   }),
+  operationRetentionMs: 24 * 60 * 60 * 1000,
 });
 
 app.all('/api/agent/*', (c) => agentHandler(c.req.raw));

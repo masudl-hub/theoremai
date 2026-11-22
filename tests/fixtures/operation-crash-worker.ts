@@ -1,5 +1,6 @@
 import { registerTool, z } from '../../mod.ts';
 import { createTheoremHostHandler } from '../../web/src/server/mod.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 import { sqliteSessionStore } from './sqlite-session-store.ts';
 
 const [path, phase, endpoint, encodedAnswer, name] = Deno.args;
@@ -30,6 +31,7 @@ registerTool({
 });
 const durable = sqliteSessionStore(path);
 const handler = createTheoremHostHandler({
+  operationRetentionMs: TEST_OPERATION_RETENTION_MS,
   profile: { id: name, type: 'host', tools: { allow: [name] } },
   session: () => name,
   sessionStore: {

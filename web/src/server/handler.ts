@@ -93,6 +93,7 @@ import {
   type CoreState,
   chatOf,
   createConversationCore,
+  endingsOf,
   followedUp,
   type MessageArgs,
   oneInbox,
@@ -184,8 +185,12 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
    * and the next message cancels the call. Unset, a gate waits until it is answered.
    */
   gateTtlMs?: number;
-  /** Retain settled tool results in milliseconds. Default: 24 hours. */
-  operationRetentionMs?: number;
+  /**
+   * How long the session keeps a finished tool call's result, in milliseconds from when it
+   * finished. While kept, the same call asked for again gets the kept result and does not run
+   * again, and a background call's end can still reach its saved reply. Your app decides it.
+   */
+  operationRetentionMs: number;
   /** Maximum UTF-8 request body bytes before JSON parsing. Unset, a body of any size is read. */
   maxRequestBytes?: number;
   pageToolBroker?: PageToolBroker;
@@ -504,6 +509,7 @@ function callsOf(ctx: HandlerContext, request: Request): CallsContext {
     sessions: ctx.sessions,
     credentials: ctx.credentials,
     pageToolBroker: ctx.pageToolBroker,
+    ...endingsOf(ctx.chat, options),
     options: {
       prepare: options.prepare,
       onStage: options.onStage,

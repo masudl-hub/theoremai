@@ -45,6 +45,7 @@ function recordingStore() {
   const writes: Write[] = [];
   const store: TheoremConversationStore = {
     read: (sessionId, ref) => inner.read(sessionId, ref),
+    end: (sessionId, ending) => inner.end(sessionId, ending),
     async write(sessionId, ref, expectedRevision, next, context) {
       const result = await inner.write(sessionId, ref, expectedRevision, next, context);
       writes.push({ next, context, written: result.written });
@@ -653,6 +654,7 @@ Deno.test('a store that keeps holds takes a lost reply, and the run names no sav
   const lost: { next: StoredConversation; context: WriteContext }[] = [];
   const store: TheoremConversationStore = {
     read: (sessionId, ref) => inner.read(sessionId, ref),
+    end: (sessionId, ending) => inner.end(sessionId, ending),
     write(sessionId, ref, expectedRevision, next, context) {
       if (context?.ended !== 'lost') return inner.write(sessionId, ref, expectedRevision, next);
       lost.push({ next, context });

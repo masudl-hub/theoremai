@@ -109,8 +109,6 @@ export function detachedReply(operation: SessionToolOperation): ToolOperationRep
     : undefined;
 }
 
-export const DEFAULT_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
-
 /** What the replies of one conversation did with one late result, until a saved reply tells it. */
 export type SessionInboxEntry = {
   /** The reply it is handed to now, while that reply's hold has the conversation. */
@@ -483,8 +481,10 @@ export function createMemorySessionStore(
     Object.values(entry.snapshot.state.operations).some(
       (operation) =>
         operation.status !== 'settled' ||
-        Date.now() <
-          (operation.retainUntil ?? operation.settledAt + DEFAULT_OPERATION_RETENTION_MS),
+        // why: the session's every write stamps `retainUntil` from the host's operationRetentionMs;
+        // a record written without it is kept, and the session drops it as it loads
+        operation.retainUntil === undefined ||
+        Date.now() < operation.retainUntil,
     );
   const current = (sessionId: string) => {
     const entry = sessions.get(sessionId);

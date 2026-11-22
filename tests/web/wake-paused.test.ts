@@ -21,6 +21,7 @@ import {
 import { failureOf, lastTool, toolPhases } from '../fixtures/events.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const PROFILE: ProfileDefinition = {
   type: 'text',
@@ -131,6 +132,7 @@ async function paused(gateTtlMs: number | undefined, calls = 1) {
   const conversations = createMemoryConversationStore();
   const saves: { ended: string; blocks: string[] }[] = [];
   const core = createTheoremConversationCore<Note>({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(gatedModel(seen, calls)),
     conversationStore: conversations,

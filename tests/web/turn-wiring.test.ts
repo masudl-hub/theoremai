@@ -6,6 +6,7 @@ import { createHttpTransport } from '../../web/src/client/transport.ts';
 import { createMemoryConversationStore, createTheoremHandler } from '../../web/src/server/mod.ts';
 import { credentialsInOrder, stagesInOrder } from '../../web/src/server/turn-wiring.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 function profile(id: string): ProfileDefinition {
   return {
@@ -51,6 +52,7 @@ Deno.test("a handler runs the application's own turn, given the application's co
   const systems: (string | undefined)[] = [];
   const hosts: unknown[] = [];
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('wiring-system'),
     provider: () => fixtureHostOptions(replying('hi', systems)),
     conversationStore: createMemoryConversationStore(),
@@ -72,6 +74,7 @@ Deno.test("a handler runs the application's own turn, given the application's co
 Deno.test('a handler keeps its own profile whatever prepare returns', async () => {
   const systems: (string | undefined)[] = [];
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: profile('wiring-kept'),
     provider: () => fixtureHostOptions(replying('kept', systems)),
     conversationStore: createMemoryConversationStore(),

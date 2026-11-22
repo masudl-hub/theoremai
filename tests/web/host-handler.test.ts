@@ -14,6 +14,7 @@ import { createTheoremHandler, createTheoremHostHandler } from '../../web/src/se
 import { toolEventsOf } from '../fixtures/events.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const BASE = 'http://host.test/api/host';
 type Handler = (request: Request) => Promise<Response>;
@@ -157,6 +158,7 @@ function post(handler: Handler, path: string, body: unknown) {
 }
 Deno.test("describe lists the host's allowed tools with their schemas, and nothing of their endpoints", async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-describe', ['host_handler_lookup', 'host_handler_http']),
   });
   const iface = await transportFor(handler).describe();
@@ -177,6 +179,7 @@ Deno.test("describe lists the host's allowed tools with their schemas, and nothi
 });
 Deno.test('describe lists an agent tool the host allows, with the input its caller fills', async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-describe-agent', ['host_handler_ask']),
   });
   const iface = await transportFor(handler).describe();
@@ -213,6 +216,7 @@ for (const [name, input] of [
 }
 Deno.test("describe shows a tool that sets after with the input it declared, without the model's after", async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-describe-after', [
       'host_handler_ordered',
       'host_handler_ordered_union',
@@ -230,6 +234,7 @@ Deno.test("describe shows a tool that sets after with the input it declared, wit
 });
 Deno.test('a call streams the tool through to its output', async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-call', ['host_handler_lookup']),
   });
   const events = await collect((onEvent) =>
@@ -241,6 +246,7 @@ Deno.test('a call streams the tool through to its output', async () => {
 });
 Deno.test('a call body without a tool name is refused before anything runs', async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-bad-body', ['host_handler_lookup']),
   });
   const res = await post(handler, 'call', { input: { id: 'abc' } });
@@ -250,6 +256,7 @@ Deno.test('a call body without a tool name is refused before anything runs', asy
 Deno.test('a tool the host does not allow never runs', async () => {
   const before = ran.length;
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-not-allowed', ['host_handler_lookup']),
   });
   const events = await collect((onEvent) =>
@@ -260,6 +267,7 @@ Deno.test('a tool the host does not allow never runs', async () => {
 });
 Deno.test('a gated call pauses, and runs only once the user approves it', async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-gate', ['host_handler_delete']),
   });
   const transport = transportFor(handler);
@@ -281,6 +289,7 @@ Deno.test('a gated call pauses, and runs only once the user approves it', async 
 });
 Deno.test('a host context that settles later reaches the tool, on a call and on an approved one', async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-async-host', ['host_handler_whoami', 'host_handler_whoami_gated']),
     host: async () => {
       await Promise.resolve();
@@ -307,6 +316,7 @@ Deno.test('a host context that settles later reaches the tool, on a call and on 
 });
 Deno.test('a host serves no chat: its turn route is refused', async () => {
   const handler = createTheoremHostHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: host('host-handler-no-turn', ['host_handler_lookup']),
   });
   const res = await post(handler, 'turn', { input: { text: 'hi' } });
@@ -316,6 +326,7 @@ Deno.test('each handler refuses the other kind of profile, naming the right one'
   assertThrows(
     () =>
       createTheoremHandler({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: host('host-handler-wrong-a', []) as never,
         provider: () => fixtureHostOptions({ complete: () => (async function* () {})() }),
       }),
@@ -325,6 +336,7 @@ Deno.test('each handler refuses the other kind of profile, naming the right one'
   assertThrows(
     () =>
       createTheoremHostHandler({
+        operationRetentionMs: TEST_OPERATION_RETENTION_MS,
         profile: {
           type: 'text',
           id: 'host-handler-wrong-b',

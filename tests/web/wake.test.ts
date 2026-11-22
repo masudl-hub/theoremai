@@ -31,6 +31,7 @@ import {
 import { toolEventsOf } from '../fixtures/events.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const TOOL = 'web_wake_job';
 const ASK = 'web_wake_ask';
@@ -127,6 +128,7 @@ function harness(options: Partial<TheoremHandlerOptions> = {}) {
   const script: Script = { fail: false };
   const model = caller(seen, script);
   const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions(model),
     conversationStore: createMemoryConversationStore(),

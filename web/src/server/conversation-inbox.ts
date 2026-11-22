@@ -11,9 +11,11 @@ import {
   labelText,
   type Profile,
   type ToolOperationOutcome,
+  type TurnEvent,
 } from '@theoremjs/agents';
 import type { ConversationInbox, Handover, InboxRead } from '@theoremjs/agents/conversation';
-import type { StoredConversation } from './conversation-store.ts';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { DetachedEnding, StoredConversation } from './conversation-store.ts';
 import type { MutableStore } from './session-authority.ts';
 import type {
   SessionConversationInbox,
@@ -58,6 +60,28 @@ export function detachedEnd(
   };
 }
 
+/**
+ * When a call detached, epoch ms: kept after its end is saved on its block, so the end is told
+ * apart. A block saved before `detached` was kept has only its background phase. Undefined for a
+ * call that never detached.
+ */
+export function detachedAt(
+  tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool'],
+): number | undefined {
+  return tool.detached?.at ?? (tool.state?.phase === 'background' ? tool.state.at : undefined);
+}
+
+/** A detached call's end as `forReader` lets its reader read it: the event its block takes. */
+export function readerEnding(
+  outcome: ToolOperationOutcome,
+  forReader: (event: TurnEvent) => TurnEvent,
+): DetachedEnding['tool'] | undefined {
+  const event = forReader(outcome.event);
+  if (event.type !== 'tool') return undefined;
+  const { tool } = event;
+  return tool.phase === 'complete' || tool.phase === 'error' ? tool : undefined;
+}
+
 /** Options for {@link sessionConversationInbox}. */
 export type SessionConversationInboxOptions = {
   sessions: MutableStore<TheoremSessionState>;
@@ -80,9 +104,10 @@ function transcriptState(conversation: StoredConversation | undefined) {
   for (const block of conversation?.transcript ?? []) {
     if (block.kind === 'late-results') for (const id of block.operationIds) told.add(id);
     const { tool } = block.kind === 'tool' ? block : { tool: undefined };
-    if (tool?.state?.phase === 'background' && tool.operationId) {
+    const at = tool && detachedAt(tool);
+    if (tool?.operationId && at !== undefined) {
       const { operationId, callId, name } = tool;
-      detached.push({ operationId, callId, name, at: tool.state.at });
+      detached.push({ operationId, callId, name, at });
     }
   }
   const paused = new Set<string>();

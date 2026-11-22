@@ -58,6 +58,7 @@ const toolCall = z.object({
   state: toolCallState.optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
+  detached: z.object({ at: z.number(), readBack: z.string().optional() }).optional(),
   get steps() {
     return z.array(toolCall).optional();
   },

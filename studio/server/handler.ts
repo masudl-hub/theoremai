@@ -74,7 +74,11 @@ import {
 import { readStudioSource } from '../read-source.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { ToolRegistration } from '../registrations.ts';
-import { STUDIO_BACKGROUND, withPatterns } from '../runtime-scope.ts';
+import {
+  STUDIO_BACKGROUND,
+  STUDIO_OPERATION_RETENTION_MS,
+  withPatterns,
+} from '../runtime-scope.ts';
 import { studioSource } from '../source.ts';
 import { createStudioDraftHandler, STUDIO_BASE } from './draft-handler.ts';
 import { errorJson } from './draft-replies.ts';
@@ -731,6 +735,7 @@ function profileHandlers(
             createTheoremHostHandler({
               profile: tracedToPage(profile),
               ...sessionsOf(profile.id),
+              operationRetentionMs: STUDIO_OPERATION_RETENTION_MS,
               ...shared,
             }),
           ),
@@ -749,6 +754,7 @@ function profileHandlers(
         // The studio's page is the builder's own: its picks choose the prompt lines.
         pageStatesTurn: true,
         background: () => STUDIO_BACKGROUND,
+        operationRetentionMs: STUDIO_OPERATION_RETENTION_MS,
         notifier,
         ...shared,
       });

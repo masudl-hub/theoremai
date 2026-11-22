@@ -8,11 +8,9 @@ import {
   type StoredConversation,
 } from '../../web/src/server/conversation-store.ts';
 import { sessionStateStore } from '../../web/src/server/session-authority.ts';
-import {
-  createMemorySessionStore,
-  DEFAULT_OPERATION_RETENTION_MS,
-} from '../../web/src/server/session-store.ts';
+import { createMemorySessionStore } from '../../web/src/server/session-store.ts';
 import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
+import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const LEASE_MS = 30_000;
 const SESSION = 'session';
@@ -85,7 +83,7 @@ for (const scenario of conversationScenarios<LateResultItem>({
     const sessions = sessionStateStore(
       createMemorySessionStore(),
       undefined,
-      DEFAULT_OPERATION_RETENTION_MS,
+      TEST_OPERATION_RETENTION_MS,
     );
     const conversations = createMemoryConversationStore();
     const first = await conversations.write(SESSION, null, null, emptyConversation());
@@ -202,7 +200,7 @@ async function oneEndedCall() {
   const sessions = sessionStateStore(
     createMemorySessionStore(),
     undefined,
-    DEFAULT_OPERATION_RETENTION_MS,
+    TEST_OPERATION_RETENTION_MS,
   );
   const conversations = createMemoryConversationStore();
   const first = await conversations.write(SESSION, null, null, emptyConversation());

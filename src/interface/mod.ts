@@ -102,7 +102,13 @@ export {
 export type { WordedStopKind } from './stop.ts';
 export { stopText, WORDED_STOP_KINDS } from './stop.ts';
 export type { SettledToolCallEvent } from './tool-calls.ts';
-export { argumentsSoFar, settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
+export {
+  applyToolEvent,
+  argumentsSoFar,
+  settlesToolCall,
+  toolCallRanWith,
+  toolCallsOf,
+} from './tool-calls.ts';
 export {
   blockWithoutToolData,
   eventWithoutToolData,

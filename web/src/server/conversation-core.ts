@@ -36,6 +36,7 @@ import {
 } from '@theoremjs/agents/conversation';
 import type { ClientTurnOptions } from '@theoremjs/agents/host';
 import {
+  applyToolEvent,
   type ComposerProfileInterface,
   interfaceFromProfile,
   refuseInterfacePick,
@@ -1014,7 +1015,7 @@ async function lateBlock<Item extends InboxItem>(
     const { tool: state } = settled;
     if (!('phase' in state) || (state.phase !== 'complete' && state.phase !== 'error'))
       return block;
-    return { ...block, tool: { ...tool, state, endedAt: operation.settledAt } };
+    return { ...block, tool: { ...applyToolEvent(tool, state), endedAt: operation.settledAt } };
   }
   const { name, callId } = tool;
   const unresolved = detachedEnd(
@@ -1024,7 +1025,7 @@ async function lateBlock<Item extends InboxItem>(
   );
   if (!unresolved) return block;
   const { operationId: _id, ...state } = unresolved.event.tool;
-  return { ...block, tool: { ...tool, state, endedAt: state.at } };
+  return { ...block, tool: applyToolEvent(tool, state) };
 }
 
 /** The answer's reply, handed first what the paused reply read, so it tells them as it goes on. */

@@ -180,6 +180,7 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
     loadTier: 'T0',
     permission: 'auto',
     background: 'always',
+    labels: { activityPast: 'Did the slow job' },
     input: z.strictObject({}),
     output: z.object({ done: z.string() }),
     handler: async () => {
@@ -247,6 +248,13 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
     assert(operation.reply);
     assert(late.some((event) => event.type === 'tool' && event.tool.phase === 'complete'));
     assertEquals(await shown(), ['complete']);
+    // why: A call that ended after its turn shows its done label, as one that ended in its turn does.
+    assertEquals(
+      (await transport.conversation({ conversation: ref })).transcript.flatMap((block) =>
+        block.kind === 'tool' ? [block.tool.activityPast] : [],
+      ),
+      ['Did the slow job'],
+    );
     const swap = async (operations: Record<string, unknown>) => {
       const snapshot = await sessionStore.load(sessions[0]);
       assert(snapshot);

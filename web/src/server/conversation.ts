@@ -60,6 +60,7 @@ import type {
   StatedTurn,
   TheoremTurnInput,
 } from '../client/transport.ts';
+import { readerOf } from './conversation-inbox.ts';
 import {
   emptyConversation,
   type PausedReply,
@@ -116,7 +117,7 @@ export function readerConversationHost(args: {
     sessionId: args.sessionId,
     store: args.store,
     showThoughts: streamThoughtsEnabled(profile.outputs),
-    forReader: (event) => forClient(event, clientEvents),
+    forReader: readerOf(clientEvents),
     failureText(failure) {
       const worded = forClient(withPublicLabels(failure, profile.labels), clientEvents);
       return worded.type === 'error' && worded.error

@@ -34,7 +34,7 @@ import {
   type ReplyStart,
   runConversation,
 } from '@theoremjs/agents/conversation';
-import { type ClientTurnOptions, forClient } from '@theoremjs/agents/host';
+import type { ClientTurnOptions } from '@theoremjs/agents/host';
 import {
   type ComposerProfileInterface,
   interfaceFromProfile,
@@ -75,6 +75,7 @@ import {
   detachedAt,
   detachedEnd,
   readerEnding,
+  readerOf,
   sessionConversationInbox,
 } from './conversation-inbox.ts';
 import {
@@ -125,7 +126,7 @@ export function endingsOf(
   const store = chat?.conversations;
   if (!store || options.authorizeToolReplay) return {};
   const { clientEvents } = options;
-  return { endings: { store, forReader: (event) => forClient(event, clientEvents) } };
+  return { endings: { store, forReader: readerOf(clientEvents) } };
 }
 
 /**

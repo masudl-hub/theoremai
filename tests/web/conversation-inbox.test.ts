@@ -1,7 +1,16 @@
 import { assert, assertEquals } from '@std/assert';
-import { type LateResultItem, labelText, type ToolOperationIdentity } from '../../mod.ts';
+import {
+  type LateResultItem,
+  labelText,
+  type ToolOperationIdentity,
+  type ToolOperationOutcome,
+  type TurnEvent,
+} from '../../mod.ts';
 import { conversationScenarios } from '../../src/conversation/testing.ts';
-import { sessionConversationInbox } from '../../web/src/server/conversation-inbox.ts';
+import {
+  detachedEnding,
+  sessionConversationInbox,
+} from '../../web/src/server/conversation-inbox.ts';
 import {
   createMemoryConversationStore,
   emptyConversation,
@@ -248,4 +257,44 @@ Deno.test('session inbox: an end given up stays given up after the session drops
   assertEquals((await inbox.giveUp(key, 'hold', ['op'])).length, 1);
   await drop();
   assertEquals((await inbox.read(key)).items, []);
+});
+
+/** A detached call's outcome, as a session or a host's own record keeps it. */
+function outcomeOf(tool: ToolOperationOutcome['event']['tool']): ToolOperationOutcome {
+  return { event: { type: 'tool', tool }, effects: 'completed', replay: {} };
+}
+
+Deno.test('detached ending: an end a host kept is the end its reader reads', () => {
+  const outcome = outcomeOf({
+    operationId: 'op',
+    callId: 'call-op',
+    name: 'tool',
+    at: 1,
+    phase: 'complete',
+    output: { secret: 'kept', shown: 'yes' },
+    readBack: 'done',
+  });
+  const redact = (event: TurnEvent): TurnEvent =>
+    event.type === 'tool' && event.tool.phase === 'complete'
+      ? { ...event, tool: { ...event.tool, output: { shown: 'yes' } } }
+      : event;
+  const ending = detachedEnding('op', outcome, { redact });
+  assertEquals(ending?.operationId, 'op');
+  assertEquals(ending?.tool.phase === 'complete' ? ending.tool.output : undefined, {
+    shown: 'yes',
+  });
+});
+
+Deno.test('detached ending: an end its reader reads as no tool end has none', () => {
+  const outcome = outcomeOf({
+    operationId: 'op',
+    callId: 'call-op',
+    name: 'tool',
+    at: 1,
+    phase: 'error',
+    failure: { code: 'boom', kind: 'internal', message: 'failed' },
+  });
+  const hidden = (): TurnEvent => ({ type: 'text', text: 'hidden' });
+  assertEquals(detachedEnding('op', outcome, undefined)?.tool.phase, 'error');
+  assertEquals(detachedEnding('op', outcome, { redact: hidden }), undefined);
 });

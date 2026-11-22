@@ -14,6 +14,7 @@ import {
   type TurnEvent,
 } from '@theoremjs/agents';
 import type { ConversationInbox, Handover, InboxRead } from '@theoremjs/agents/conversation';
+import { type ClientTurnOptions, forClient } from '@theoremjs/agents/host';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import type { DetachedEnding, StoredConversation } from './conversation-store.ts';
 import type { MutableStore } from './session-authority.ts';
@@ -69,6 +70,28 @@ export function detachedAt(
   tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool'],
 ): number | undefined {
   return tool.detached?.at ?? (tool.state?.phase === 'background' ? tool.state.at : undefined);
+}
+
+/** An event as a reader given `clientEvents` reads it: the page, and every end saved for it. */
+export function readerOf(
+  clientEvents: ClientTurnOptions | undefined,
+): (event: TurnEvent) => TurnEvent {
+  return (event) => forClient(event, clientEvents);
+}
+
+/**
+ * A detached call's end as a reader given `clientEvents` reads it: what a conversation store's
+ * `end` takes, as the handler saves it when the call ends. For a host that saves an end it kept
+ * itself, such as one that ended before its store had `end`. Undefined when the reader reads the
+ * outcome as no call's end.
+ */
+export function detachedEnding(
+  operationId: string,
+  outcome: ToolOperationOutcome,
+  clientEvents: ClientTurnOptions | undefined,
+): DetachedEnding | undefined {
+  const tool = readerEnding(outcome, readerOf(clientEvents));
+  return tool && { operationId, tool };
 }
 
 /** A detached call's end as `forReader` lets its reader read it: the event its block takes. */

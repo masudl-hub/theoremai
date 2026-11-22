@@ -135,6 +135,12 @@ export type ChatTranscriptProps = {
   stepLayout?: StepLayout;
   /** Whether a finished tool call's row shows how long it ran. Default: true. */
   showToolDurations?: boolean;
+  /**
+   * Whether a reply shows its work status ("Working for 12s", "Worked for 3.5s"). Default: true.
+   * With `false`, a reply whose steps fold under the status keeps it as the fold's trigger, without
+   * the time ("Worked"); any other reply shows none.
+   */
+  showWorkStatus?: boolean;
   /** The profile's labels (`iface.labels`): a stopped turn says why in its words. */
   labels?: LabelOverrides;
 };
@@ -147,6 +153,9 @@ const ShowToolData = createContext(true);
 
 /** Whether a finished tool call's row shows how long it ran (`ChatTranscriptProps.showToolDurations`). */
 const ShowToolDurations = createContext(true);
+
+/** Whether a reply shows its work status (`ChatTranscriptProps.showWorkStatus`). */
+const ShowWorkStatus = createContext(true);
 
 /** What a tool call's row shows beside its label. */
 type ToolRowShows = { usage: boolean; detail: boolean; duration: boolean };
@@ -1165,9 +1174,16 @@ function AssistantTurn(props: {
   });
   const { shown } = useToolMedia();
   const rows = bodyRows(t, body, shown);
+  const statusShown = useContext(ShowWorkStatus);
   const status = workStatusLabel(
     t,
-    workStatus({ streaming: props.streaming, hasSteps, elapsedMs }),
+    workStatus({
+      streaming: props.streaming,
+      hasSteps,
+      elapsedMs,
+      shown: statusShown,
+      folds: hasTrace,
+    }),
   );
   const copyText = assistantTurnCopyText(body.length > 0 ? body : props.blocks);
 
@@ -1277,7 +1293,9 @@ export function ChatTranscript(props: ChatTranscriptProps) {
       <ShowUsage.Provider value={props.usage === true}>
         <ShowToolData.Provider value={props.showToolData !== false}>
           <ShowToolDurations.Provider value={props.showToolDurations !== false}>
-            <ChatTranscriptBody {...props} />
+            <ShowWorkStatus.Provider value={props.showWorkStatus !== false}>
+              <ChatTranscriptBody {...props} />
+            </ShowWorkStatus.Provider>
           </ShowToolDurations.Provider>
         </ShowToolData.Provider>
       </ShowUsage.Provider>

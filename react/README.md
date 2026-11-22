@@ -590,7 +590,7 @@ function Dock({ chat, iface }) {
 }
 ```
 
-`TheoremChatComposer` takes `layout`, `icons`, `pills`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, and `showToolDurations`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
+`TheoremChatComposer` takes `layout`, `icons`, `pills`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, `showToolDurations`, and `showWorkStatus`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
 
 Use `pills` to show your own notice in the pill row of the `row` layout, for example "New from your agent" while the chat is closed. Each pill is `{ id, label, icon?, onSelect? }`. It comes after the working pill and the background calls, and looks like them. The icon goes before the words. A click calls `onSelect`. A pill without `onSelect` only shows.
 
@@ -614,6 +614,8 @@ A failed tool call in `ChatTranscript` shows its failure once: the row shows the
 - The work status is a line with nothing under it.
 
 Pass `showToolDurations={false}` to leave out how long each call ran.
+
+Pass `showWorkStatus={false}` to leave out a reply's work status ("Working for 12s", "Worked for 3.5s"). A reply whose steps fold under the status keeps it as the fold's trigger, without the time ("Worked"). Any other reply shows none.
 
 The hooks and the client write no English text. They return kinds, codes, and states. You write the words.
 

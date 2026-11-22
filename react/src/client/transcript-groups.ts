@@ -189,12 +189,22 @@ export function assistantTurnCopyText(blocks: readonly TranscriptBlock[]): strin
 /** A turn's work, for the status line: running, or done (with its duration when known). */
 export type WorkStatus = { phase: 'working' | 'worked'; elapsedMs?: number };
 
-/** Working while streaming; worked after, when it has a duration or steps; else nothing to show. */
+/**
+ * Working while streaming; worked after, when it has a duration or steps; else nothing to show.
+ * With `shown: false` (`ChatTranscriptProps.showWorkStatus`), only a reply whose steps fold under
+ * the status (`folds`) has one, as the fold's trigger, without its time.
+ */
 export function workStatus(args: {
   streaming: boolean;
   hasSteps: boolean;
   elapsedMs?: number;
+  shown?: boolean;
+  folds?: boolean;
 }): WorkStatus | null {
+  if (args.shown === false) {
+    const work = workStatus({ streaming: args.streaming, hasSteps: args.hasSteps });
+    return args.folds && work ? { phase: work.phase } : null;
+  }
   const elapsed = args.elapsedMs !== undefined ? { elapsedMs: args.elapsedMs } : {};
   if (args.streaming) return { phase: 'working', ...elapsed };
   if (args.elapsedMs !== undefined && args.elapsedMs > 0)

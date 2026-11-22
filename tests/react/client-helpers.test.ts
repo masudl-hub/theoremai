@@ -899,6 +899,15 @@ Deno.test('workStatus is working while streaming and worked after; workStatusLab
   assertEquals(workLine({ streaming: false, hasSteps: true }), 'Worked');
 });
 
+Deno.test('workStatus with the status turned off keeps only a fold trigger, without its time', () => {
+  const off = { shown: false, elapsedMs: 2300 } as const;
+  assertEquals(workLine({ ...off, streaming: true, hasSteps: true, folds: true }), 'Working…');
+  assertEquals(workLine({ ...off, streaming: false, hasSteps: true, folds: true }), 'Worked');
+  assertEquals(workLine({ ...off, streaming: true, hasSteps: true, folds: false }), '');
+  assertEquals(workLine({ ...off, streaming: false, hasSteps: true, folds: false }), '');
+  assertEquals(workLine({ ...off, streaming: false, hasSteps: false, folds: true }), '');
+});
+
 Deno.test('formatAttachmentSize covers B/KB/MB', () => {
   assertEquals(formatAttachmentSize(0), '');
   assertEquals(formatAttachmentSize(512), '512 B');

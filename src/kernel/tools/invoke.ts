@@ -561,6 +561,7 @@ async function* invokePrepared(
       credentials: request.credentials,
       resolveHost: request.resolveHost,
       fetch: request.fetch,
+      limitWait: request.limitWait,
       path: request.path,
       signal: request.signal,
       resume: request.resume,

@@ -865,7 +865,9 @@ async function* sendHttpRequest(
 
   let timedOut: AbortSignal | undefined;
   try {
-    const place = tool.limit ? await takeLimitPlace(tool, tool.limit, ctx.signal) : undefined;
+    const place = tool.limit
+      ? await takeLimitPlace(tool, tool.limit, ctx.signal, ctx.limitWait)
+      : undefined;
     if (place && 'full' in place) return failureOutcome(limitFullFailure(tool, place), false);
     // why: the timeout starts at send, so a call's wait for a place is not counted against it.
     timedOut = tool.timeoutMs === undefined ? undefined : AbortSignal.timeout(tool.timeoutMs);

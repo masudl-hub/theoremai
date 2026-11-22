@@ -40,11 +40,11 @@ Deno.test('a full window past the wait budget sends nothing and says when the ne
   const tool = {};
   const clock = fakeClock();
   const limit = { requests: 2, windowMs: 60_000 };
-  isPlace(await takeLimitPlace(tool, limit, null, clock)).answered(new Response());
+  isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock)).answered(new Response());
   clock.at(1000);
-  isPlace(await takeLimitPlace(tool, limit, null, clock)).answered(new Response());
+  isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock)).answered(new Response());
   clock.at(2000);
-  const full = await takeLimitPlace(tool, limit, null, clock);
+  const full = await takeLimitPlace(tool, limit, null, 'briefly', clock);
   assertEquals(full, { full: true, limit, opensInMs: 58_000 });
   assertEquals(clock.waits, []);
 });
@@ -53,8 +53,8 @@ Deno.test('a place that opens within the wait budget is waited for', async () =>
   const tool = {};
   const clock = fakeClock();
   const limit = { requests: 1, windowMs: 3000 };
-  isPlace(await takeLimitPlace(tool, limit, null, clock)).answered(new Response());
-  isPlace(await takeLimitPlace(tool, limit, null, clock));
+  isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock)).answered(new Response());
+  isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock));
   assertEquals(clock.waits, [3000]);
 });
 
@@ -62,8 +62,8 @@ Deno.test('an unanswered request holds its place: the budget passes and nothing 
   const tool = {};
   const clock = fakeClock();
   const limit = { requests: 1, windowMs: 1000 };
-  isPlace(await takeLimitPlace(tool, limit, null, clock));
-  assertEquals(await takeLimitPlace(tool, limit, null, clock), {
+  isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock));
+  assertEquals(await takeLimitPlace(tool, limit, null, 'briefly', clock), {
     full: true,
     limit,
     opensInMs: undefined,
@@ -75,9 +75,9 @@ Deno.test('an answer wakes a waiting call, which then waits out the window from 
   const tool = {};
   const clock = fakeClock();
   const limit = { requests: 1, windowMs: 1000 };
-  const first = isPlace(await takeLimitPlace(tool, limit, null, clock));
+  const first = isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock));
   clock.hang = true;
-  const second = takeLimitPlace(tool, limit, null, clock);
+  const second = takeLimitPlace(tool, limit, null, 'briefly', clock);
   await Promise.resolve();
   clock.hang = false;
   clock.at(500);
@@ -90,10 +90,10 @@ Deno.test("a 429's Retry-After holds every call of the tool until then", async (
   const tool = {};
   const clock = fakeClock();
   const limit = { requests: 30, windowMs: 60_000 };
-  isPlace(await takeLimitPlace(tool, limit, null, clock)).answered(
+  isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock)).answered(
     new Response(null, { status: 429, headers: { 'Retry-After': '40' } }),
   );
-  assertEquals(await takeLimitPlace(tool, limit, null, clock), {
+  assertEquals(await takeLimitPlace(tool, limit, null, 'briefly', clock), {
     full: true,
     limit,
     opensInMs: 40_000,
@@ -103,18 +103,51 @@ Deno.test("a 429's Retry-After holds every call of the tool until then", async (
 Deno.test('tools have their own windows', async () => {
   const clock = fakeClock();
   const limit = { requests: 1, windowMs: 60_000 };
-  isPlace(await takeLimitPlace({}, limit, null, clock)).answered(new Response());
-  isPlace(await takeLimitPlace({}, limit, null, clock));
+  isPlace(await takeLimitPlace({}, limit, null, 'briefly', clock)).answered(new Response());
+  isPlace(await takeLimitPlace({}, limit, null, 'briefly', clock));
 });
 
 Deno.test('an abort ends the wait for a place', async () => {
   const tool = {};
   const clock = fakeClock();
   const limit = { requests: 1, windowMs: 1000 };
-  isPlace(await takeLimitPlace(tool, limit, null, clock));
+  isPlace(await takeLimitPlace(tool, limit, null, 'briefly', clock));
   clock.hang = true;
   const stop = new AbortController();
-  const waiting = takeLimitPlace(tool, limit, stop.signal, clock);
+  const waiting = takeLimitPlace(tool, limit, stop.signal, 'briefly', clock);
+  stop.abort(new Error('stopped'));
+  await assertRejects(() => waiting, Error, 'stopped');
+});
+
+Deno.test('a call waiting until_room waits past the budget for the next place', async () => {
+  const tool = {};
+  const clock = fakeClock();
+  const limit = { requests: 1, windowMs: 60_000 };
+  isPlace(await takeLimitPlace(tool, limit, null, 'until_room', clock)).answered(new Response());
+  isPlace(await takeLimitPlace(tool, limit, null, 'until_room', clock));
+  assertEquals(clock.waits, [60_000]);
+});
+
+Deno.test('a call waiting until_room behind an unanswered request waits for its answer', async () => {
+  const tool = {};
+  const clock = fakeClock();
+  const limit = { requests: 1, windowMs: 1000 };
+  const held = isPlace(await takeLimitPlace(tool, limit, null, 'until_room', clock));
+  const waiting = takeLimitPlace(tool, limit, null, 'until_room', clock);
+  await Promise.resolve();
+  assertEquals(clock.waits, []);
+  held.answered(new Response());
+  isPlace(await waiting);
+  assertEquals(clock.waits, [1000]);
+});
+
+Deno.test('an abort ends a wait until_room', async () => {
+  const tool = {};
+  const clock = fakeClock();
+  const limit = { requests: 1, windowMs: 1000 };
+  isPlace(await takeLimitPlace(tool, limit, null, 'until_room', clock));
+  const stop = new AbortController();
+  const waiting = takeLimitPlace(tool, limit, stop.signal, 'until_room', clock);
   stop.abort(new Error('stopped'));
   await assertRejects(() => waiting, Error, 'stopped');
 });

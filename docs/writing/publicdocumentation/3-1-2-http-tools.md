@@ -63,7 +63,7 @@ The `mapping` configuration defines where model-generated arguments are placed i
 
 Remote HTTP services often enforce strict rate limits or experience network latency. Theorem guards outbound calls with three built-in controls:
 
-* **`limit`**: Sets a sliding-window rate limit (`requests` per `windowMs`) for the tool's credentials. Calls wait up to 5 seconds for an available slot before failing with `rate_limit_window`.
+* **`limit`**: Sets a sliding-window rate limit (`requests` per `windowMs`) for the tool's credentials. Calls wait up to 5 seconds for an available slot before failing with `rate_limit_window`. A call you run with `runTool` and `limitWait: 'until_room'` waits until a slot opens, or until its `signal` stops it.
 * **`timeoutMs`**: Hard deadline covering both connection time and response body streaming. Calls exceeding the deadline fail with `timeout`.
 * **`maxResponseBytes`**: Maximum response body size (default: 4 MiB). Responses exceeding this limit are aborted and fail with `response_too_large`.
 

@@ -4,7 +4,7 @@ import {
   type Wait,
   waitDefault,
 } from '../../providers/shared/retry.ts';
-import type { HttpToolLimit } from './types.ts';
+import type { HttpToolLimit, LimitWait } from './types.ts';
 
 /** Time as the limit reads it; a test passes its own. */
 export interface LimitClock {
@@ -59,6 +59,14 @@ function nextOpening(window: ToolWindow, limit: HttpToolLimit, now: number): num
   return Math.max(freeAt, window.heldUntil);
 }
 
+/** Rejects with the signal's reason once it aborts. */
+function abortOf(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
+}
+
 /** Returns when a place frees early (an answer) or the wait ends; the caller's abort rejects. */
 async function waitForChange(
   window: ToolWindow,
@@ -69,8 +77,10 @@ async function waitForChange(
   const changed = new AbortController();
   const wake = (): void => changed.abort();
   window.waiting.add(wake);
+  const until = signal ? AbortSignal.any([signal, changed.signal]) : changed.signal;
   try {
-    await clock.wait(ms, signal ? AbortSignal.any([signal, changed.signal]) : changed.signal);
+    // why: with no place due to open (every request unanswered), only an answer or the abort ends the wait.
+    await (Number.isFinite(ms) ? clock.wait(ms, until) : abortOf(until));
   } catch (err) {
     if (signal?.aborted || !changed.signal.aborted) throw err;
   } finally {
@@ -82,17 +92,19 @@ async function waitForChange(
  * Takes a place in the tool's window for one request. A request holds its place from send
  * until a window after its answer, so requests the network delivers unevenly still land
  * within the limit. A 429 with `Retry-After` holds every request of the tool until then.
- * A call waits for a place at most the same five seconds a retry may wait; past that it
- * gets `LimitFull` and sends nothing. A call is one place, its retries and redirects included.
+ * A call waiting `briefly` waits for a place at most the same five seconds a retry may wait;
+ * past that it gets `LimitFull` and sends nothing. One waiting `until_room` waits until a place
+ * opens, or its signal stops it. A call is one place, its retries and redirects included.
  */
 export async function takeLimitPlace(
   tool: object,
   limit: HttpToolLimit,
   signal?: AbortSignal | null,
+  wait: LimitWait = 'briefly',
   clock: LimitClock = SYSTEM_CLOCK,
 ): Promise<LimitPlace | LimitFull> {
   const window = windowOf(tool);
-  const deadline = clock.now() + WAIT_BUDGET_MS;
+  const deadline = wait === 'until_room' ? Number.POSITIVE_INFINITY : clock.now() + WAIT_BUDGET_MS;
   for (;;) {
     const now = clock.now();
     const opening = nextOpening(window, limit, now);

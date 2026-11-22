@@ -191,6 +191,8 @@ export interface ToolContext {
   resolveHost?: ResolveHost;
   /** Sends this call's requests once their checks pass; the run's `fetch`. Default: the global `fetch`. */
   fetch?: typeof fetch;
+  /** How long this call waits for a place in its tool's `limit`. Default: `briefly`. */
+  limitWait?: LimitWait;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
   /** The page's answer to this call, for a tool with `answeredBy: 'page'`. */
@@ -493,6 +495,12 @@ export interface HttpToolLimit {
   requests: number;
   windowMs: number;
 }
+
+/**
+ * How long a call waits for a place in its tool's `limit`: `briefly`, the five seconds a retry
+ * may wait, then it fails as rate_limit; `until_room`, until a place opens or its signal stops it.
+ */
+export type LimitWait = 'briefly' | 'until_room';
 
 export interface McpToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
@@ -817,6 +825,11 @@ export interface InvokeToolRequest extends RunControls {
   resolveHost?: ResolveHost;
   /** Sends the call's requests once their checks pass. Default: the global `fetch`. */
   fetch?: typeof fetch;
+  /**
+   * How long the call waits for a place in its tool's `limit`. Default: `briefly`. Work that
+   * runs in the background may pass `until_room`, and stops the wait with its signal.
+   */
+  limitWait?: LimitWait;
   path?: string;
   /** Handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;

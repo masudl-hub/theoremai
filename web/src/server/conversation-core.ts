@@ -116,7 +116,8 @@ export type ChatContext = {
 };
 
 /**
- * Where the chat saves a detached call's end: its conversation store, as `clientEvents` reads it.
+ * Where the chat saves a detached call's end: its conversation store, as `clientEvents` reads it,
+ * in the profile's wording.
  * None with `authorizeToolReplay`: every request reads a saved end, and that host checks each read.
  */
 export function endingsOf(
@@ -126,7 +127,7 @@ export function endingsOf(
   const store = chat?.conversations;
   if (!store || options.authorizeToolReplay) return {};
   const { clientEvents } = options;
-  return { endings: { store, forReader: readerOf(clientEvents) } };
+  return { endings: { store, forReader: readerOf({ clientEvents, labels: chat.profile.labels }) } };
 }
 
 /**

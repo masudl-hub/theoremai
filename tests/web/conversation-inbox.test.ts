@@ -278,7 +278,7 @@ Deno.test('detached ending: an end a host kept is the end its reader reads', () 
     event.type === 'tool' && event.tool.phase === 'complete'
       ? { ...event, tool: { ...event.tool, output: { shown: 'yes' } } }
       : event;
-  const ending = detachedEnding('op', outcome, { redact });
+  const ending = detachedEnding('op', outcome, { clientEvents: { redact } });
   assertEquals(ending?.operationId, 'op');
   assertEquals(ending?.tool.phase === 'complete' ? ending.tool.output : undefined, {
     shown: 'yes',
@@ -295,6 +295,24 @@ Deno.test('detached ending: an end its reader reads as no tool end has none', ()
     failure: { code: 'boom', kind: 'internal', message: 'failed' },
   });
   const hidden = (): TurnEvent => ({ type: 'text', text: 'hidden' });
-  assertEquals(detachedEnding('op', outcome, undefined)?.tool.phase, 'error');
-  assertEquals(detachedEnding('op', outcome, { redact: hidden }), undefined);
+  assertEquals(detachedEnding('op', outcome, {})?.tool.phase, 'error');
+  assertEquals(detachedEnding('op', outcome, { clientEvents: { redact: hidden } }), undefined);
+});
+
+Deno.test("detached ending: a failed end carries the failure in the profile's wording", () => {
+  const outcome = outcomeOf({
+    operationId: 'op',
+    callId: 'call-op',
+    name: 'tool',
+    at: 1,
+    phase: 'error',
+    failure: { code: 'slow', kind: 'timeout', message: 'the upstream model took 61s' },
+  });
+  const labels = { 'error.timeout': 'That took too long.' };
+  const { tool } = detachedEnding('op', outcome, { labels }) ?? {};
+  assertEquals(tool?.phase === 'error' ? tool.failure.error : undefined, 'That took too long.');
+  assertEquals(
+    tool?.phase === 'error' ? tool.failure.message : undefined,
+    'the upstream model took 61s',
+  );
 });

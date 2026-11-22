@@ -606,7 +606,7 @@ The composer bar has a selector for the model, its effort, and each option. When
 
 A tool call that runs on in the background after its reply ends shows as running, with "⋅ running in the background" after its name (`@theorem.transcript.tool_background`). The words go when the call's end reaches the transcript.
 
-A failed tool call in `ChatTranscript` shows its failure once: the row shows the message the model read, and the details show its `code`, `kind`, and `details`.
+A failed tool call in `ChatTranscript` shows its failure in the person's wording: the row shows the failure's `error`, or "Failed" (`@theorem.transcript.tool_failed`) when it has none. The message the model read shows only in the call's details, with its `code`, `kind`, and `details`.
 
 `ChatTranscript` places `citation` blocks after the answer text by default (the Sources strip under the prose). Pass `bodyKindPlacement={{}}` when citations must stay in stream order between text segments (inline citations).
 

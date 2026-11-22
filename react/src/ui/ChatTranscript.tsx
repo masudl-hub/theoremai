@@ -853,12 +853,13 @@ function toolUsageStats(state: SettledTool, shows: ToolRowShows): { stats?: Reac
   return shows.usage && state.tokens ? { stats: <Usage tokens={state.tokens} /> } : {};
 }
 
-// why: The row already reads the failure's message, and `error` is the person's wording of the
-// same failure, so the detail holds only what the row does not say.
-function failureDetail(failure: ToolFailure): Omit<ToolFailure, 'message' | 'error'> {
+// why: The row reads the person's wording of the failure; the model's message, and the rest of the
+// failure, show only in the call's detail.
+function failureDetail(failure: ToolFailure): Omit<ToolFailure, 'error'> {
   return {
     code: failure.code,
     kind: failure.kind,
+    message: failure.message,
     ...(failure.details === undefined ? {} : { details: failure.details }),
   };
 }
@@ -873,6 +874,35 @@ function rowDetail(
   return shows.detail ? { resultDetail: toolDetail(t, tool, result) } : {};
 }
 
+/** A failed call's row: the person's wording of its failure, and the rest in its detail. */
+function failedToolItem(
+  t: LabelText,
+  base: { key: string; name: string },
+  tool: ToolBlock['tool'],
+  state: Extract<NonNullable<ToolBlock['tool']['state']>, { phase: 'error' }>,
+  shows: ToolRowShows,
+): ChatToolCallItem {
+  // why: A failure the server worded carries `error`; one saved before it did falls back to
+  // the transcript's own line, never to the model's message.
+  const said = state.failure.error ?? t('@theorem.transcript.tool_failed');
+  return {
+    ...base,
+    status: 'error',
+    target: said,
+    ...toolUsageStats(state, shows),
+    errorMessage: said,
+    ...rowDetail(
+      t,
+      tool,
+      shows,
+      <ShapedData
+        value={failureDetail(state.failure)}
+        title={t('@theorem.transcript.tool_error')}
+      />,
+    ),
+  };
+}
+
 function toolCallItem(
   t: LabelText,
   id: string,
@@ -883,22 +913,7 @@ function toolCallItem(
   const { state } = tool;
   switch (state?.phase) {
     case 'error':
-      return {
-        ...base,
-        status: 'error',
-        target: state.failure.message,
-        ...toolUsageStats(state, shows),
-        errorMessage: state.failure.message,
-        ...rowDetail(
-          t,
-          tool,
-          shows,
-          <ShapedData
-            value={failureDetail(state.failure)}
-            title={t('@theorem.transcript.tool_error')}
-          />,
-        ),
-      };
+      return failedToolItem(t, base, tool, state, shows);
     case 'complete':
       return {
         ...base,

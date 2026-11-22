@@ -7,6 +7,7 @@
  */
 
 import {
+  type LabelOverrides,
   type LateResultItem,
   labelText,
   type Profile,
@@ -14,6 +15,7 @@ import {
   type TurnEvent,
 } from '@theoremjs/agents';
 import type { ConversationInbox, Handover, InboxRead } from '@theoremjs/agents/conversation';
+import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import { type ClientTurnOptions, forClient } from '@theoremjs/agents/host';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import type { DetachedEnding, StoredConversation } from './conversation-store.ts';
@@ -72,25 +74,29 @@ export function detachedAt(
   return tool.detached?.at ?? (tool.state?.phase === 'background' ? tool.state.at : undefined);
 }
 
-/** An event as a reader given `clientEvents` reads it: the page, and every end saved for it. */
-export function readerOf(
-  clientEvents: ClientTurnOptions | undefined,
-): (event: TurnEvent) => TurnEvent {
-  return (event) => forClient(event, clientEvents);
+/** Who reads a chat's events: the host's `clientEvents`, in the profile's `labels`. */
+export type ChatReader = { clientEvents?: ClientTurnOptions; labels?: LabelOverrides };
+
+/**
+ * An event as `reader` reads it: a failure in the profile's wording, then `forClient`. The page,
+ * a late read and every end saved for it read the same.
+ */
+export function readerOf(reader: ChatReader): (event: TurnEvent) => TurnEvent {
+  return (event) => forClient(withPublicLabels(event, reader.labels), reader.clientEvents);
 }
 
 /**
- * A detached call's end as a reader given `clientEvents` reads it: what a conversation store's
- * `end` takes, as the handler saves it when the call ends. For a host that saves an end it kept
- * itself, such as one that ended before its store had `end`. Undefined when the reader reads the
- * outcome as no call's end.
+ * A detached call's end as `reader` reads it: what a conversation store's `end` takes, as the
+ * handler saves it when the call ends. For a host that saves an end it kept itself, such as one
+ * that ended before its store had `end`. Undefined when the reader reads the outcome as no call's
+ * end.
  */
 export function detachedEnding(
   operationId: string,
   outcome: ToolOperationOutcome,
-  clientEvents: ClientTurnOptions | undefined,
+  reader: ChatReader,
 ): DetachedEnding | undefined {
-  const tool = readerEnding(outcome, readerOf(clientEvents));
+  const tool = readerEnding(outcome, readerOf(reader));
   return tool && { operationId, tool };
 }
 

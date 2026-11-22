@@ -291,6 +291,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Output',
     description: "A tool call's result, in its detail.",
   },
+  '@theorem.transcript.tool_failed': {
+    defaultMessage: 'Failed',
+    description: 'A failed tool call, on its row, when the failure carries no wording of its own.',
+  },
   '@theorem.transcript.tool_error': {
     defaultMessage: 'Error',
     description: "A failed tool call's failure, in its detail.",

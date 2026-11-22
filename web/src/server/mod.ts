@@ -63,7 +63,7 @@ export type {
   WakeArgs,
 } from './conversation-core.ts';
 export { followedUp } from './conversation-core.ts';
-export { detachedEnding } from './conversation-inbox.ts';
+export { type ChatReader, detachedEnding } from './conversation-inbox.ts';
 export {
   type ConversationSnapshot,
   type ConversationWriteResult,

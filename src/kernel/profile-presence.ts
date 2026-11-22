@@ -105,6 +105,10 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
     value: ['length', 'stream_incomplete'],
   },
   'turnBehaviour.resumption.maxContinues': { unset: 'No cap' },
+  'turnBehaviour.resumption.partialReply': {
+    required: 'on a text profile whose autoContinue names provider_error or stream_incomplete',
+    unset: 'No failed call is sent again',
+  },
   'turnBehaviour.allowSteering': { unset: 'On', value: true },
   'turnBehaviour.atStepLimit': { unset: 'stop', value: 'stop' },
   'guardrails.quota': { unset: 'No limit' },

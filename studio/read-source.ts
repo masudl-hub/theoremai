@@ -33,6 +33,7 @@ import {
 import {
   CONTEXT_SENDERS,
   type ContextSender,
+  PARTIAL_REPLY_MODES,
   type ProfileType,
   profileFieldProblems,
 } from '@theoremjs/agents/schema';
@@ -1269,7 +1270,9 @@ function turnOf(turn: Record<string, unknown>): StudioDraft['turnBehaviour'] {
     resumeEnabled: allowContinue.length > 0 || autoContinue.length > 0,
     allowContinue: allowContinue as StudioDraft['turnBehaviour']['allowContinue'],
     autoContinue: autoContinue as StudioDraft['turnBehaviour']['autoContinue'],
+    autoContinueList: Array.isArray(resumption?.autoContinue) ? 'own' : 'left_out',
     maxContinues: whole(resumption?.maxContinues),
+    partialReply: PARTIAL_REPLY_MODES.find((mode) => mode === resumption?.partialReply) ?? '',
     continueInstruction: '',
     allowSteering: turn.allowSteering !== false,
     atStepLimit: turn.atStepLimit === 'answer' ? 'answer' : 'stop',

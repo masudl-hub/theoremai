@@ -1058,6 +1058,14 @@ export type TurnEvent =
    */
   | { type: 'attempt'; attempt: number; reason: AttemptReason }
   /**
+   * A model call failed on a stop the profile's `turnBehaviour.resumption.autoContinue` lists, and
+   * is sent again. `stop` is how it ended. Its failure is not the turn's unless the call sent again
+   * fails too. The last `withdrawn` reply events ({@linkcode isReplyEvent}) are that failed call's,
+   * and are not the reply: {@linkcode keptReply} drops them. What the call wrote that stays is set
+   * by `turnBehaviour.resumption.partialReply`.
+   */
+  | { type: 'resend'; stop: TurnStop; withdrawn: number }
+  /**
    * The message `lateResults` put in the conversation, role `user`. It enters a history built from
    * events like any other message. `operationIds` are the calls whose results it holds; `stage` and
    * `step` are where it landed. `inReply` is true when it landed inside a reply: after the person's
@@ -1283,6 +1291,11 @@ const TURN_EVENTS = {
     attempt: z.number().int().positive(),
     reason: z.enum(['validation', 'egress']),
   }),
+  resend: z.object({
+    type: z.literal('resend'),
+    stop: turnStop,
+    withdrawn: z.number().int().nonnegative(),
+  }),
   late_results: z.object({
     type: z.literal('late_results'),
     text: z.string(),
@@ -1397,6 +1410,7 @@ const turnEvent = z.union([
     TURN_EVENTS.structured,
     TURN_EVENTS.structured_draft,
     TURN_EVENTS.attempt,
+    TURN_EVENTS.resend,
     TURN_EVENTS.media,
     TURN_EVENTS.grounding,
     TURN_EVENTS.citation,
@@ -1422,14 +1436,28 @@ export const turnEventSchema: z.ZodType<TurnEvent> = turnEvent;
 export const TURN_EVENT_SCHEMAS: { readonly [K in TurnEventType]: z.ZodType<TurnEventOf<K>> } =
   TURN_EVENTS;
 
-/** Events that make up a reply, and that an `attempt` throws away. */
-function isReply(event: TurnEvent): boolean {
+/** Events that make up a reply: what an `attempt` throws away, and what a `resend` withdraws. */
+export function isReplyEvent(event: TurnEvent): boolean {
   return (
     event.type === 'text' ||
     event.type === 'media' ||
     event.type === 'structured' ||
-    event.type === 'structured_draft'
+    event.type === 'structured_draft' ||
+    event.type === 'citation'
   );
+}
+
+/** `reply` without its last `count` reply events. */
+function withoutLastReplies(reply: readonly TurnEvent[], count: number): TurnEvent[] {
+  const out = [...reply];
+  let left = count;
+  for (let index = out.length - 1; index >= 0 && left > 0; index -= 1) {
+    const event = out[index];
+    if (!event || !isReplyEvent(event)) continue;
+    out.splice(index, 1);
+    left -= 1;
+  }
+  return out;
 }
 
 /**
@@ -1440,7 +1468,7 @@ function cutReply(reply: readonly TurnEvent[], released: number): TurnEvent[] {
   const out: TurnEvent[] = [];
   let left = released;
   for (const event of reply) {
-    if (!isReply(event)) out.push(event);
+    if (!isReplyEvent(event)) out.push(event);
     else if (event.type !== 'text') {
       if (left > 0) out.push(event);
     } else if (left > 0) {
@@ -1453,10 +1481,11 @@ function cutReply(reply: readonly TurnEvent[], released: number): TurnEvent[] {
 }
 
 /**
- * `events` without the replies a retry threw away: each `attempt` drops the text, media and
- * structured output before it, back to the turn's start or its last `done`. A `stage` event with
- * `released` keeps only that much of the reply's text, and drops what followed it. Tool calls,
- * thoughts and everything else stay, since they happened.
+ * `events` without the replies a retry threw away: each `attempt` drops the reply events
+ * ({@linkcode isReplyEvent}) before it, back to the turn's start or its last `done`. A `stage` event
+ * with `released` keeps only that much of the reply's text, and drops what followed it. A `resend`
+ * drops its `withdrawn` reply events before it. Tool calls, thoughts and everything else stay, since
+ * they happened.
  */
 export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
   const kept: TurnEvent[] = [];
@@ -1464,10 +1493,13 @@ export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
   for (const event of events) {
     if (event.type === 'attempt') {
       const before = kept.splice(turnStart);
-      kept.push(...before.filter((each) => !isReply(each)));
+      kept.push(...before.filter((each) => !isReplyEvent(each)));
     }
     if (event.type === 'stage' && event.released !== undefined) {
       kept.push(...cutReply(kept.splice(turnStart), event.released));
+    }
+    if (event.type === 'resend' && event.withdrawn > 0) {
+      kept.push(...withoutLastReplies(kept.splice(turnStart), event.withdrawn));
     }
     kept.push(event);
     if (event.type === 'done') turnStart = kept.length;

@@ -1,6 +1,7 @@
 import {
   CONTINUE_STOP_KINDS,
   type ContinueStopKind,
+  type PartialReplyMode,
   type ProfileType,
   type StepLimitMode,
 } from './schema.ts';
@@ -49,15 +50,16 @@ export interface ProfileTurnResumptionSpec {
   allowContinue?: ContinueStopKind[];
   /**
    * Which early stops are continued without asking, whether or not allowContinue offers a Continue
-   * for them. When set, a text turn sends a listed failed model call that gave no reply again
-   * itself; the host continues the rest. Naming length also repairs a call the output limit cut
+   * for them. When set, a text turn sends a listed failed model call again itself; the host
+   * continues the rest. Naming length also repairs a call the output limit cut
    * off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.
    *
    * @remarks Omit → length / stream_incomplete; `[]` = none. Apart from `allowContinue`: a stop can
    * be continued without Continue being offered for it. The host sends the `continueFrom` turn with
    * `continuation`. A text turn also sends a failed model call (`provider_error`,
-   * `stream_incomplete`) again itself when this list is set and names that stop, and the call gave
-   * no reply and no tool call: the turn keeps its history, its step count and what it has read. A
+   * `stream_incomplete`) again itself when this list is set and names that stop. A tool call the failed call
+   * streamed never ran, so it goes with the call. The turn keeps its history, its step count and what it has read, and
+   * `partialReply` says what becomes of the words the call wrote. A
    * failure the same call would meet again (the provider refused the request) is not sent again,
    * except without its files when it carried any: once per type the provider named, or once a turn
    * without this turn's files when it named none. Accepted that way, the turn goes on and
@@ -75,6 +77,19 @@ export interface ProfileTurnResumptionSpec {
    * calls one text turn sends again itself, failed calls and cut-off repairs together; omit → one.
    */
   maxContinues?: number;
+  /**
+   * What a text turn does with the words a failed model call already wrote, when autoContinue
+   * sends that call again: take them back, or keep them and have the model go on from where they
+   * stop. Required when autoContinue names provider_error or stream_incomplete.
+   *
+   * @remarks `'retract'`: the words leave the reply with the sources they cited (a `resend` event
+   * withdraws them), and the call is sent again as it was. `'continue'`: the words and their
+   * sources stay; the call is sent again with the words as the model's own, then a note (label
+   * `resume.partial_reply`) that its call failed there, and the model goes on from where they stop.
+   * Only words continue: a call that showed a structured reply or its draft, or a file, is withdrawn
+   * whole in either mode.
+   */
+  partialReply?: PartialReplyMode;
 }
 
 const CONTINUE_KIND_SET = new Set<string>(CONTINUE_STOP_KINDS);
@@ -144,6 +159,17 @@ const FAILED_STOP_KINDS = new Set<TurnStop['kind']>(['provider_error', 'stream_i
 /** True for a stop where the model call failed; the rest either finished or were stopped on purpose. */
 export function isFailedStopKind(kind: TurnStop['kind']): boolean {
   return FAILED_STOP_KINDS.has(kind);
+}
+
+/**
+ * True when a profile of `type` sends a failed model call again itself: a text profile whose
+ * `autoContinue` names `provider_error` or `stream_incomplete`. Such a profile sets `partialReply`.
+ */
+export function resendsFailedCalls(
+  type: ProfileType | '',
+  resumption: ProfileTurnResumptionSpec | undefined,
+): boolean {
+  return type === 'text' && (resumption?.autoContinue ?? []).some(isFailedStopKind);
 }
 
 /** True for a turn that ended in failure: its model call failed, or the model never gave its answer. */

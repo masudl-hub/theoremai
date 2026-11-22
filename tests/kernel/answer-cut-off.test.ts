@@ -161,7 +161,10 @@ Deno.test('maxContinues raises how many times a cut-off answer is repaired', asy
 Deno.test('a cut-off answer is not repaired when autoContinue does not name length', async () => {
   const { model, requests } = scripted([cutOff(ANSWER_TOOL, CUT), answered({ message: 'Short' })]);
   const events = await collect(
-    cutOffProfile('cut_answer_off', { autoContinue: ['stream_incomplete'] }),
+    cutOffProfile('cut_answer_off', {
+      autoContinue: ['stream_incomplete'],
+      partialReply: 'retract',
+    }),
     model,
   );
   assertEquals(requests.length, 1);

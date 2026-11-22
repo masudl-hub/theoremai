@@ -1756,7 +1756,8 @@ async function* executeAgentTool(args: {
       ...(handlerCtx.signal ? { signal: handlerCtx.signal } : {}),
       ...(args.stages?.steers ? { steers: args.stages.steers } : {}),
     });
-    // why: A retry throws away the reply drafted so far; the drafts stop there, and the output arrives whole.
+    // why: A retry, or a resend that withdraws words, throws away part of the reply drafted so far;
+    // the drafts stop there, and the output arrives whole.
     let retried = false;
     const seen: TurnEvent[] = [];
     for (;;) {
@@ -1778,7 +1779,9 @@ async function* executeAgentTool(args: {
         // why: A stopped agent throws before it returns its usage.
         if (spent) args.stages?.spent?.(spent);
       }
-      if (event.type === 'attempt') retried = true;
+      if (event.type === 'attempt' || (event.type === 'resend' && event.withdrawn > 0)) {
+        retried = true;
+      }
       if (event.type === 'text' || event.type === 'structured_draft') {
         if (!retried) yield { kind: 'draft', text: event.text };
         continue;

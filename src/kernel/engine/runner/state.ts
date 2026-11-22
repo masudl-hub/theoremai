@@ -81,6 +81,11 @@ interface StepExecutionState {
   stepCount: number;
   /** Model calls sent again this turn under the profile's resumption (`executeResumedStep`). */
   resumes: number;
+  /**
+   * The model call being sent goes on from the words of the one that failed before it
+   * (`partialReply` `continue`): its text joins the reply with no break.
+   */
+  goesOnFromFailedCall?: true;
   /** The files this turn's refused calls went without: each type the provider named once, or every file once. */
   mediaTry?: RefusedMediaTry;
   mediaRefused?: MediaRefused;

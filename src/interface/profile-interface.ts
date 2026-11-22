@@ -11,6 +11,7 @@ import {
   LIVE_ACTIVITY_HANDLINGS,
   LIVE_END_SENSITIVITIES,
   LIVE_START_SENSITIVITIES,
+  PARTIAL_REPLY_MODES,
   SPEECH_AUDIO_FORMATS,
   STEP_LIMIT_MODES,
   STREAM_MODES,
@@ -154,6 +155,7 @@ const resumption = z.object({
   allowContinue: z.array(z.enum(CONTINUE_STOP_KINDS)).optional(),
   autoContinue: z.array(z.enum(CONTINUE_STOP_KINDS)).optional(),
   maxContinues: z.number().optional(),
+  partialReply: z.enum(PARTIAL_REPLY_MODES).optional(),
 });
 
 const mediaTurnBehaviour = z.object({ resumption: resumption.optional() });

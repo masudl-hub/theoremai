@@ -709,6 +709,7 @@ export function createResearchScoutDraft(): StudioDraft {
       allowContinue: [],
       autoContinue: ['length', 'stream_incomplete', 'provider_error'],
       maxContinues: 3,
+      partialReply: 'retract',
       continueInstruction:
         'Your last reply was cut off before it finished. Continue from exactly where it stopped.',
       allowSteering: true,

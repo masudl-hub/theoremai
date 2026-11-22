@@ -115,6 +115,7 @@ export {
   stitchCookbook,
 } from './cookbooks/mod.ts';
 export {
+  type AutoContinueList,
   agentToolTarget,
   COMPACTION_DRAFT_DEFAULTS,
   createBlankDraft,
@@ -128,6 +129,7 @@ export {
   draftAllows,
   draftFacets,
   draftKey,
+  draftResendsFailedCalls,
   type EffortDraft,
   EXAMPLE_DECISION_STATE,
   EXAMPLE_EMBEDDING_QUERY,

@@ -33,6 +33,7 @@ import {
   CONTEXT_SENDERS,
   CONTINUE_STOP_KINDS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
+  PARTIAL_REPLY_MODES,
   PROFILE_FIELDS,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
@@ -41,7 +42,7 @@ import {
   profileFieldProblems,
   THINKING_LEVELS,
 } from '../schema.ts';
-import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
+import { isContinueStopKind, type ProfileTurnResumptionSpec, resendsFailedCalls } from '../stop.ts';
 import { assertSystemLines, systemLinesProblem } from '../system-lines.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
@@ -590,11 +591,42 @@ function assertContinueKindList(
 
 function assertResumption(
   profileId: string,
+  type: ProfileType,
   resumption: ProfileTurnResumptionSpec | undefined,
 ): void {
   if (!resumption) return;
   assertContinueKindList(profileId, 'allowContinue', resumption.allowContinue);
   assertContinueKindList(profileId, 'autoContinue', resumption.autoContinue);
+  assertPartialReply(profileId, type, resumption);
+}
+
+/**
+ * A text profile that sends failed calls again says what becomes of the words they wrote; one that
+ * does not sets no `partialReply`.
+ *
+ * why: Theorem holds no default for what a reader is shown: the profile chooses.
+ */
+function assertPartialReply(
+  profileId: string,
+  type: ProfileType,
+  { autoContinue, partialReply }: ProfileTurnResumptionSpec,
+): void {
+  const fail = (message: string) =>
+    new TheoremError('config', `Profile ${profileId}: turnBehaviour.resumption.${message}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  if (partialReply !== undefined && !PARTIAL_REPLY_MODES.some((mode) => mode === partialReply)) {
+    throw fail(`partialReply must be ${PARTIAL_REPLY_MODES.join(' or ')}; got '${partialReply}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
+  const resends = resendsFailedCalls(type, { autoContinue });
+  if (resends && partialReply === undefined) {
+    throw fail(
+      "partialReply is required when autoContinue names provider_error or stream_incomplete: say whether a failed call's words are taken back (retract) or kept and continued (continue)", // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (!resends && partialReply !== undefined) {
+    throw fail(
+      'partialReply does nothing unless this is a text profile whose autoContinue names provider_error or stream_incomplete', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -709,7 +741,7 @@ function assertTurnBehaviour(
   >,
 ): void {
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
-  assertResumption(profileId, tb?.resumption);
+  assertResumption(profileId, input.type, tb?.resumption);
 }
 
 function assertValidation(profileId: string, validation: ProfileValidationSpec | undefined): void {

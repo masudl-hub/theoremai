@@ -18,6 +18,7 @@ import {
   defaultToolSpec,
   draftAllows,
   draftFacets,
+  draftResendsFailedCalls,
   excludeFacet,
   includeFacet,
   modelBindingNodeId,
@@ -607,6 +608,57 @@ Deno.test('continuing set to Never compiles to an empty allow list, not the kern
   assertEquals(some.profile.turnBehaviour, {
     resumption: { allowContinue: ['length'], autoContinue: ['length'] },
   });
+});
+/** The resumption a compiled draft's profile holds. */
+function resumptionOf(draft: StudioDraft) {
+  const behaviour = compiled(draft).profile.turnBehaviour;
+  return behaviour && 'resumption' in behaviour ? behaviour.resumption : undefined;
+}
+Deno.test('a draft that sends failed calls again must say what becomes of their words', () => {
+  const text = includeFacet(createExampleDraft(), 'turnBehaviour');
+  const resends: StudioDraft = {
+    ...text,
+    turnBehaviour: {
+      ...text.turnBehaviour,
+      resumeEnabled: true,
+      autoContinueList: 'own',
+      autoContinue: ['provider_error'],
+      partialReply: '',
+    },
+  };
+  assertEquals(draftResendsFailedCalls(resends), true);
+  const result = compileStudio(resends, ON_OWN_KEYS);
+  if (result.ok) throw new Error('expected issues');
+  assertEquals(
+    result.issues.map(({ nodeId, field }) => ({ nodeId, field })),
+    [{ nodeId: 'turnBehaviour', field: 'partialReply' }],
+  );
+  for (const partialReply of ['retract', 'continue'] as const) {
+    assertEquals(
+      resumptionOf({ ...resends, turnBehaviour: { ...resends.turnBehaviour, partialReply } })
+        ?.partialReply,
+      partialReply,
+    );
+  }
+  const lengthOnly = resumptionOf({
+    ...resends,
+    turnBehaviour: { ...resends.turnBehaviour, autoContinue: ['length'], partialReply: 'retract' },
+  });
+  assertEquals('partialReply' in (lengthOnly ?? {}), false);
+});
+Deno.test('a continue-by-itself list the file left out stays left out when it compiles', () => {
+  const text = includeFacet(createExampleDraft(), 'turnBehaviour');
+  const leftOut = resumptionOf({
+    ...text,
+    turnBehaviour: {
+      ...text.turnBehaviour,
+      resumeEnabled: true,
+      autoContinueList: 'left_out',
+      autoContinue: ['provider_error'],
+      partialReply: '',
+    },
+  });
+  assertEquals('autoContinue' in (leftOut ?? {}), false);
 });
 Deno.test('the continue instruction and canary bind note compile into the profile labels', () => {
   const text = includeFacet(includeFacet(createExampleDraft(), 'turnBehaviour'), 'guardrails');

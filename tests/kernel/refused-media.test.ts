@@ -35,7 +35,14 @@ function mediaProfile(id: string, resends: boolean) {
     maxSteps: 4,
     tools: { allow: [] },
     ...(resends
-      ? { turnBehaviour: { resumption: { autoContinue: ['provider_error' as const] } } }
+      ? {
+          turnBehaviour: {
+            resumption: {
+              autoContinue: ['provider_error' as const],
+              partialReply: 'retract' as const,
+            },
+          },
+        }
       : {}),
     inputs: {
       text: true,
@@ -207,7 +214,9 @@ function documentProfile(id: string) {
     models: { gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite },
     maxSteps: 4,
     tools: { allow: [] },
-    turnBehaviour: { resumption: { autoContinue: ['provider_error' as const] } },
+    turnBehaviour: {
+      resumption: { autoContinue: ['provider_error' as const], partialReply: 'retract' as const },
+    },
     inputs: {
       text: true,
       attachments: { accept: ['text/plain', 'text/markdown', 'text/csv'] },

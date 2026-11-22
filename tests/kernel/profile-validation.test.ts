@@ -274,7 +274,10 @@ Deno.test('resumption lists name only continue stop kinds', () => {
     );
     check(
       said(
-        resumption({ [path]: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'] }),
+        resumption({
+          [path]: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'],
+          ...(path === 'autoContinue' ? { partialReply: 'retract' } : {}),
+        }),
       ),
       'defined',
       `${path} ok`,
@@ -286,7 +289,13 @@ Deno.test('resumption lists name only continue stop kinds', () => {
 Deno.test('autoContinue and allowContinue are picked apart', () => {
   const resumption = (over: Loose) => textProfile({ turnBehaviour: { resumption: over } });
   check(
-    said(resumption({ allowContinue: ['length'], autoContinue: ['length', 'stream_incomplete'] })),
+    said(
+      resumption({
+        allowContinue: ['length'],
+        autoContinue: ['length', 'stream_incomplete'],
+        partialReply: 'continue',
+      }),
+    ),
     'defined',
     'outside allowContinue',
   );
@@ -295,8 +304,42 @@ Deno.test('autoContinue and allowContinue are picked apart', () => {
     'defined',
     'inside',
   );
-  check(said(resumption({ autoContinue: ['provider_error'] })), 'defined', 'default allow');
+  check(
+    said(resumption({ autoContinue: ['provider_error'], partialReply: 'retract' })),
+    'defined',
+    'default allow',
+  );
   check(said(resumption({ allowContinue: [] })), 'defined', 'no Continue offered');
+});
+Deno.test('a profile that sends failed calls again says what becomes of their words, and only then', () => {
+  const resumption = (over: Loose) => textProfile({ turnBehaviour: { resumption: over } });
+  const prefix = 'Profile p: turnBehaviour.resumption.';
+  for (const kind of ['provider_error', 'stream_incomplete']) {
+    check(
+      said(resumption({ autoContinue: [kind] })),
+      `${prefix}partialReply is required when autoContinue names provider_error or stream_incomplete: say whether a failed call's words are taken back (retract) or kept and continued (continue)`,
+      `${kind} unset`,
+    );
+    for (const mode of ['retract', 'continue']) {
+      check(
+        said(resumption({ autoContinue: [kind], partialReply: mode })),
+        'defined',
+        `${kind} ${mode}`,
+      );
+    }
+  }
+  check(
+    said(resumption({ autoContinue: ['provider_error'], partialReply: 'rewrite' })),
+    `${prefix}partialReply must be retract or continue; got 'rewrite'`,
+    'not a mode',
+  );
+  for (const autoContinue of [['length'], [], undefined]) {
+    check(
+      said(resumption({ autoContinue, partialReply: 'retract' })),
+      `${prefix}partialReply does nothing unless this is a text profile whose autoContinue names provider_error or stream_incomplete`,
+      `no resend: ${String(autoContinue)}`,
+    );
+  }
 });
 Deno.test('the blocked-reply count is a non-negative integer', () => {
   const counts: Record<string, (value: number) => Loose> = {

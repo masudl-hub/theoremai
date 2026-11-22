@@ -342,6 +342,36 @@ Deno.test('a continue list the file leaves out opens as the kernel reads it, not
   assertEquals(read.draft.turnBehaviour.resumeEnabled, true);
 });
 
+Deno.test("what becomes of a failed call's words reads back, and a left-out continue-by-itself list stays left out", () => {
+  const draft = createExampleDraft();
+  const resends = {
+    ...draft,
+    turnBehaviour: {
+      ...draft.turnBehaviour,
+      resumeEnabled: true,
+      autoContinueList: 'own' as const,
+      autoContinue: ['provider_error' as const],
+      partialReply: 'continue' as const,
+    },
+  };
+  const compiled = compileStudio(resends, ON_OWN_KEYS);
+  assert(compiled.ok);
+  const read = readStudioSource(studioSource(compiled), draft);
+  assert(read.ok);
+  assertEquals(read.draft.turnBehaviour.partialReply, 'continue');
+  assertEquals(read.draft.turnBehaviour.autoContinueList, 'own');
+  const leftOut = studioSource(compiled)
+    .replace(/\n\s*autoContinue: \[[^\]]*\],/, '')
+    .replace(/\n\s*partialReply: '[a-z]+',/, '');
+  const back = readStudioSource(leftOut, draft);
+  assert(back.ok);
+  assertEquals(back.draft.turnBehaviour.autoContinueList, 'left_out');
+  assertEquals(back.draft.turnBehaviour.partialReply, '');
+  const again = compileStudio(back.draft, ON_OWN_KEYS);
+  assert(again.ok);
+  assertEquals(studioSource(again).includes('autoContinue'), false);
+});
+
 Deno.test('a live profile’s session settings read back', () => {
   const draft = setProfileType(createExampleDraft(), 'live', TEST_KEYS);
   draft.live = {

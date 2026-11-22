@@ -1046,6 +1046,7 @@ type BareEvent = Extract<
   {
     type:
       | 'attempt'
+      | 'resend'
       | 'media'
       | 'tokens'
       | 'guardrail'
@@ -1059,6 +1060,7 @@ type BareEvent = Extract<
 
 const BARE_EVENT_TYPES: ReadonlySet<string> = new Set<BareEvent['type']>([
   'attempt',
+  'resend',
   'media',
   'tokens',
   'guardrail',

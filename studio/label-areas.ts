@@ -104,6 +104,12 @@ export const LABEL_AREAS = [
     audience: 'model',
   },
   {
+    prefix: 'resume',
+    title: 'Failed calls',
+    note: "Going on from a failed call's words.",
+    audience: 'model',
+  },
+  {
     prefix: 'canary',
     title: 'Canary',
     note: "The note that binds each turn's canary.",

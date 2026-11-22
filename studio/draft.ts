@@ -8,6 +8,7 @@ import {
   type LabelKey,
   liveIngressChannelDefault,
   profileAllowsInject,
+  resendsFailedCalls,
   resolveGuardrailPolicy,
 } from '@theoremjs/agents';
 import {
@@ -43,6 +44,7 @@ import {
   type LiveActivityHandling,
   type LiveEndSensitivity,
   type LiveStartSensitivity,
+  type PartialReplyMode,
   PROFILE_GRAPH,
   PROFILE_TYPES,
   type ProfileGraphFacetId,
@@ -248,11 +250,22 @@ export interface OutputsDraft {
 
 export type ItemRuleOnFail = ProfileItemRule['onFail'];
 
+/**
+ * Whose `autoContinue` list the draft shows. `'own'`: the profile names it, and it is written.
+ * `'left_out'`: the profile leaves it out, and the list shown is the kernel's for a stop the host
+ * continues; left out, a turn sends no failed call again and repairs no cut itself, so it is not
+ * written until the list is edited.
+ */
+export type AutoContinueList = 'own' | 'left_out';
+
 export interface TurnBehaviourDraft {
   resumeEnabled: boolean;
   allowContinue: ContinueStopKind[];
   autoContinue: ContinueStopKind[];
+  autoContinueList: AutoContinueList;
   maxContinues: number | null;
+  /** What becomes of a failed call's words when it is sent again; `''` until picked. */
+  partialReply: PartialReplyMode | '';
   continueInstruction: string;
   allowSteering: boolean;
   atStepLimit: StepLimitMode;
@@ -844,7 +857,9 @@ export function createBlankDraft(): StudioDraft {
       resumeEnabled: false,
       allowContinue: [],
       autoContinue: [],
+      autoContinueList: 'own',
       maxContinues: null,
+      partialReply: '',
       continueInstruction: '',
       allowSteering: profileAllowsInject({ type: 'text' }),
       atStepLimit: 'stop',
@@ -1146,4 +1161,14 @@ export function includeFacet(draft: StudioDraft, id: ProfileGraphFacetId): Studi
 /** Its values stay on the draft for when it comes back. */
 export function excludeFacet(draft: StudioDraft, id: ProfileGraphFacetId): StudioDraft {
   return { ...draft, included: draft.included.filter((facet) => facet !== id) };
+}
+
+/** True when the profile the draft compiles to sends a failed model call again itself, so it says what becomes of its words. */
+export function draftResendsFailedCalls(draft: StudioDraft): boolean {
+  const turn = draft.turnBehaviour;
+  return (
+    turn.resumeEnabled &&
+    turn.autoContinueList === 'own' &&
+    resendsFailedCalls(draft.identity.profileType, { autoContinue: turn.autoContinue })
+  );
 }

@@ -720,9 +720,11 @@ export const FIELD_DOCS: Readonly<Record<string, string>> = {
   'turnBehaviour.resumption.allowContinue':
     "Which early stops the host offers the user a Continue for; the kernel doesn't refuse a continue after other stops.",
   'turnBehaviour.resumption.autoContinue':
-    'Which early stops are continued without asking, whether or not allowContinue offers a Continue for them. When set, a text turn sends a listed failed model call that gave no reply again itself; the host continues the rest. Naming length also repairs a call the output limit cut off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.',
+    'Which early stops are continued without asking, whether or not allowContinue offers a Continue for them. When set, a text turn sends a listed failed model call again itself; the host continues the rest. Naming length also repairs a call the output limit cut off: the model gets back what it wrote, or that it wrote nothing, and is asked again to fit.',
   'turnBehaviour.resumption.maxContinues':
     'How many times one reply may be continued; once set, each continue must say which one it is. Also how many model calls one text turn sends again itself, failed calls and cut-off repairs together (one when unset).',
+  'turnBehaviour.resumption.partialReply':
+    'What a text turn does with the words a failed model call already wrote, when autoContinue sends that call again: take them back, or keep them and have the model go on from where they stop. Required when autoContinue names provider_error or stream_incomplete.',
 };
 
 /** The doc of each export `API_EXPORTS` names, keyed by that name. */
@@ -770,6 +772,7 @@ export const OPTION_DOCS: Readonly<
     | 'LIVE_ACTIVITY_HANDLINGS'
     | 'LIVE_END_SENSITIVITIES'
     | 'LIVE_START_SENSITIVITIES'
+    | 'PARTIAL_REPLY_MODES'
     | 'PROFILE_TYPES'
     | 'SPEECH_AUDIO_FORMATS'
     | 'STEP_LIMIT_MODES'
@@ -862,6 +865,12 @@ export const OPTION_DOCS: Readonly<
   LIVE_START_SENSITIVITIES: {
     START_SENSITIVITY_LOW: 'Detects the start of speech less often.',
     START_SENSITIVITY_HIGH: 'Detects the start of speech more often.',
+  },
+  PARTIAL_REPLY_MODES: {
+    retract:
+      'The words leave the reply, with the sources they cited, and the call is sent again as it was: the model writes its reply from the start.',
+    continue:
+      'The words stay, with the sources they cite. The model reads them, with a note that its call failed there, and goes on from where they stop. A call that showed anything but words (a structured reply or its draft, a file) is taken back whole: only words can be continued.',
   },
   PROFILE_TYPES: {
     text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',

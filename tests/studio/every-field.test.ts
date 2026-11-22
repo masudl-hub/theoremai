@@ -313,6 +313,7 @@ const PROFILES = [
         allowContinue: ['length'],
         autoContinue: ['stream_incomplete'],
         maxContinues: 2,
+        partialReply: 'continue',
       },
       allowSteering: false,
       atStepLimit: 'answer',

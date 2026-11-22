@@ -819,6 +819,7 @@ function busyResearcher(busy: number, errorKind: ErrorKind = 'unavailable'): Tur
 const KEEPS_GOING: ProfileTurnResumptionSpec = {
   autoContinue: ['provider_error'],
   maxContinues: 1,
+  partialReply: 'retract',
 };
 
 Deno.test('a called agent whose model fails mid-work picks up where it stopped', async () => {
@@ -839,6 +840,54 @@ Deno.test('a called agent whose model fails mid-work picks up where it stopped',
     resumed.map((event) => event.attributes),
     [{ step: 2, resume: 1, stop: 'provider_error', error: 'HTTP 503: busy' }],
   );
+});
+
+/** The researcher writes `half`, then its model fails, then its next call writes `rest`. */
+function halfThenBusy(half: string, rest: string): TurnModel {
+  const caller = routedProvider();
+  let researcherStep = 0;
+  return {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!isResearcher(req)) {
+        yield* caller.complete(req);
+        return;
+      }
+      researcherStep += 1;
+      if (researcherStep === 1) {
+        yield { type: 'text', text: half };
+        yield { type: 'error', errorKind: 'unavailable', errorInternal: 'HTTP 503: busy' };
+        return;
+      }
+      yield { type: 'text', text: rest };
+    },
+  };
+}
+
+function draftText(events: TurnEvent[]): string {
+  return toolPhases(events, 'draft')
+    .map((tool) => (tool as { text: string }).text)
+    .join('');
+}
+
+Deno.test("a called agent's words withdrawn by a re-send end its drafts, and its answer is the re-sent call's", async () => {
+  const events = await collect(
+    scopeWith({}, [], KEEPS_GOING),
+    halfThenBusy('Soil', 'Soil reads 22%.'),
+  );
+  assertEquals(draftText(events), 'Soil');
+  const [done] = toolPhases(events, 'complete');
+  assertEquals((done as { output?: unknown }).output, { text: 'Soil reads 22%.' });
+});
+
+Deno.test("a called agent that goes on from its failed call's words keeps drafting them as one reply", async () => {
+  const events = await collect(
+    scopeWith({}, [], { ...KEEPS_GOING, partialReply: 'continue' }),
+    halfThenBusy('Soil reads', ' 22%.'),
+  );
+  assertEquals(draftText(events), 'Soil reads 22%.');
+  const [done] = toolPhases(events, 'complete');
+  assertEquals((done as { output?: unknown }).output, { text: 'Soil reads 22%.' });
 });
 
 Deno.test('a called agent still failing after its re-sends fails the call with the reason', async () => {

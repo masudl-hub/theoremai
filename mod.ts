@@ -328,6 +328,7 @@ export type {
   ContinueStopKind,
   CustomToolType,
   HttpMethod,
+  PartialReplyMode,
   StepLimitMode,
   StudioAuthType,
   ToolAccess,
@@ -363,6 +364,7 @@ export {
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
+  PARTIAL_REPLY_MODES,
   PROFILE_FIELDS,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
@@ -426,6 +428,7 @@ export {
   profileAllowsInject,
   profileAllowsSteering,
   profileTurnResumption,
+  resendsFailedCalls,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
 } from './src/kernel/stop.ts';

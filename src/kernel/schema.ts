@@ -227,6 +227,25 @@ export const STEP_LIMIT_MODES = [
   /** It is sent without tools, so it writes the answer from what the turn has gathered. */
   'answer',
 ] as const;
+/**
+ * What a text turn does with the words a failed model call already wrote, when it sends that call
+ * again, as `turnBehaviour.resumption.partialReply` sets it.
+ */
+export const PARTIAL_REPLY_MODES = [
+  /**
+   * The words leave the reply, with the sources they cited, and the call is sent again as it was:
+   * the model writes its reply from the start.
+   */
+  'retract',
+  /**
+   * The words stay, with the sources they cite. The model reads them, with a note that its call
+   * failed there, and goes on from where they stop. A call that showed anything but words (a
+   * structured reply or its draft, a file) is taken back whole: only words can be continued.
+   */
+  'continue',
+] as const;
+/** One of {@linkcode PARTIAL_REPLY_MODES}. */
+export type PartialReplyMode = (typeof PARTIAL_REPLY_MODES)[number];
 /** What happens to a list item its check refuses, as `outputs.validation.items.*.onFail` sets it. */
 export const ITEM_FAIL_ACTIONS = ['drop', 'fix'] as const;
 /** One of {@linkcode STEP_LIMIT_MODES}. */
@@ -973,6 +992,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     OPTION_DOCS.CONTINUE_STOP_KINDS,
   ),
   'turnBehaviour.resumption.maxContinues': field('number'),
+  'turnBehaviour.resumption.partialReply': field(
+    "'retract' | 'continue'",
+    PARTIAL_REPLY_MODES,
+    OPTION_DOCS.PARTIAL_REPLY_MODES,
+  ),
   'turnBehaviour.allowSteering': field('boolean'),
   'turnBehaviour.atStepLimit': field(
     "'stop' | 'answer'",

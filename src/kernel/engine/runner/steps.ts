@@ -3,6 +3,7 @@ import { addRequestDestinations, addResultDestinations } from '../../../guardrai
 import { TURN_REPLY } from '../../../guardrails/detect-reply.ts';
 import { addRequestUrls } from '../../../guardrails/egress-urls.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
+import { labelText } from '../../../guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
 import type { ErrorKind } from '../../../guardrails/theorem-error.ts';
@@ -20,6 +21,7 @@ import {
   isFailedStopKind,
   profileAllowsInject,
   profileTurnResumption,
+  resendsFailedCalls,
   shouldAutoContinue,
   stageAbortStop,
 } from '../../stop.ts';
@@ -39,7 +41,7 @@ import {
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
 import { profileToolsParallel } from '../../tools/resolve.ts';
 import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/types.ts';
-import type { ReasoningPart } from '../../turn-events.ts';
+import { isReplyEvent, type ReasoningPart } from '../../turn-events.ts';
 import type {
   Profile,
   ResolvedGeneration,
@@ -184,16 +186,8 @@ interface StepOutcome {
  */
 function resendsFailedCall(profile: Profile, stop: TurnStop): boolean {
   const policy = profileTurnResumption(profile);
-  return policy?.autoContinue !== undefined && shouldAutoContinue(stop, policy);
+  return resendsFailedCalls(profile.type, policy) && shouldAutoContinue(stop, policy);
 }
-
-/** The events that are a model call's reply, as opposed to its thoughts, usage, or failure. */
-const REPLY_EVENTS: ReadonlySet<TurnEvent['type']> = new Set([
-  'text',
-  'media',
-  'structured',
-  'citation',
-]);
 
 /** What one model call has given so far. */
 interface CallTally {
@@ -205,7 +199,6 @@ interface CallTally {
   stop?: TurnStop;
   /** why: A call's failure is the turn's only once the call is not sent again, so it waits for the call's end. */
   failures: TurnEventOf<'error'>[];
-  replied: boolean;
   /** Where the call's text begins in the attempt's reply (`StepExecutionState.replyText`). */
   replyAt?: number;
   /** The provider reported the output limit, whatever stop outranks it after. */
@@ -226,7 +219,6 @@ function tallyCallEvent(
   if (event.type === 'guardrail') call.guardrail(event.guardrail);
   if (event.type === 'structured') tally.latestStructured = event.structured;
   if (event.type === 'text') tally.text += event.text;
-  if (REPLY_EVENTS.has(event.type)) tally.replied = true;
   return false;
 }
 
@@ -318,6 +310,11 @@ function withCallBreak(
 ): TurnEventOf<'text'> {
   if (tally.text) return event;
   const before = state.replyText;
+  if (state.goesOnFromFailedCall) {
+    // why: The call goes on from the words of the one that failed: the reply runs on, unbroken.
+    tally.replyAt = before.length;
+    return event;
+  }
   const prose = generation.structured === null || answersByTool(generation);
   const breaks = before && prose && !/\s$/.test(before) && !/^\s/.test(event.text);
   tally.replyAt = before.length + (breaks ? CALL_BREAK.length : 0);
@@ -363,15 +360,18 @@ const PASSING_ERROR_KINDS: ReadonlySet<ErrorKind> = new Set([
 /**
  * The re-send a finished call is due, if any.
  *
- * A failure the same call would meet again is not sent again (`PASSING_ERROR_KINDS`).
+ * A failure the same call would meet again is not sent again (`PASSING_ERROR_KINDS`). What the
+ * call wrote before it failed is the profile's to keep or take back (`partialReply`,
+ * `resendFailedCall`).
  *
- * why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
- * nothing. A reply cut at `length` is not sent again, since the same call would be cut at the same
- * place: the attempt gate repairs it with guidance instead (`handleCutOffReply`).
+ * why: A failed call that made a tool call is not sent again: the call may have run, and running it
+ * twice is not the kernel's to choose. A reply cut at `length` is not sent again, since the same
+ * call would be cut at the same place: the attempt gate repairs it with guidance instead
+ * (`handleCutOffReply`).
  */
 function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepOutcome['resume'] {
   const { stop } = tally;
-  if (!mayResume || tally.replied || tally.calls.length > 0 || !stop) return undefined;
+  if (!mayResume || tally.calls.length > 0 || !stop) return undefined;
   if (!isFailedStopKind(stop.kind) || !resendsFailedCall(profile, stop)) return undefined;
   const failure = tally.failures[0];
   if (failure?.errorKind && !PASSING_ERROR_KINDS.has(failure.errorKind)) return undefined;
@@ -390,10 +390,7 @@ function mediaResumeOf(
   tally: CallTally,
 ): StepOutcome['resume'] {
   const { stop } = tally;
-  if (profile.type !== 'text') return undefined;
-  if (tally.replied || tally.calls.length > 0 || !stop || !isFailedStopKind(stop.kind)) {
-    return undefined;
-  }
+  if (tally.calls.length > 0 || !stop || !isFailedStopKind(stop.kind)) return undefined;
   const failure = tally.failures[0];
   if (failure?.errorKind !== 'unsupported' || !resendsFailedCall(profile, stop)) return undefined;
   return canDropMedia(state, failure.refusedMedia, state.mediaTry)
@@ -439,7 +436,6 @@ async function* executeAutonomousStep(
     reasoning: [],
     text: '',
     failures: [],
-    replied: false,
     cut: false,
   };
   const control: OutboundStreamControl = {
@@ -527,12 +523,76 @@ async function* executeAutonomousStep(
   };
 }
 
+/** Where the attempt stood before a model call: what a failed call's words are taken back to. */
+interface CallStart {
+  replyText: number;
+  released: number;
+  attemptEvents: number;
+}
+
+/**
+ * Runs one model call, and counts the reply events ({@linkcode isReplyEvent}) it gave the host:
+ * what a `resend` withdraws if the call fails and is sent again.
+ */
+async function* countedCall(
+  args: Parameters<typeof executeAutonomousStep>[0],
+  state: StepExecutionState,
+  buffer: { holdLate: boolean; holdVisible: boolean },
+): AsyncGenerator<TurnEvent, { outcome: StepOutcome; shown: TurnEvent[] }> {
+  const shown: TurnEvent[] = [];
+  const call = executeAutonomousStep(args, state, buffer);
+  for (;;) {
+    const next = await call.next();
+    if (next.done) return { outcome: next.value, shown };
+    if (isReplyEvent(next.value)) shown.push(next.value);
+    yield next.value;
+  }
+}
+
+/**
+ * Settles what a failed call wrote before it is sent again, as the profile's `partialReply` says,
+ * and returns the `resend` event that tells the host.
+ *
+ * Under `continue`, a call that showed words alone keeps them, and the sources they cite (held to
+ * the turn's end, never shown on their own): the words join the history as the model's, then the
+ * `resume.partial_reply` note, and the call sent again goes on from them with no break. Any other
+ * call (under `retract`, or one that showed a structured reply or its draft, or a file) is taken
+ * back whole: the attempt goes back to where it stood before the call, and the reply events the
+ * host got from it are withdrawn.
+ */
+function settleFailedCall(
+  args: { profile: Profile; stop: TurnStop },
+  failed: { outcome: StepOutcome; shown: TurnEvent[]; start: CallStart },
+  state: StepExecutionState,
+): TurnEventOf<'resend'> {
+  const { outcome, shown, start } = failed;
+  const wordsOnly = shown.every((event) => event.type === 'text');
+  const mode = profileTurnResumption(args.profile)?.partialReply;
+  if (mode === 'continue' && wordsOnly && outcome.text) {
+    recordReply(state, [{ role: 'assistant', content: outcome.text }], outcome.replyAt);
+    state.currentHistory.push({
+      role: 'user',
+      content: labelText('resume.partial_reply', {}, args.profile.labels),
+    });
+    state.goesOnFromFailedCall = true;
+    return { type: 'resend', stop: args.stop, withdrawn: 0 };
+  }
+  state.replyText = state.replyText.slice(0, start.replyText);
+  state.released = state.released.slice(0, start.released);
+  state.attemptEvents = [
+    ...state.attemptEvents.slice(0, start.attemptEvents),
+    ...state.attemptEvents.slice(start.attemptEvents).filter((event) => !isReplyEvent(event)),
+  ];
+  return { type: 'resend', stop: args.stop, withdrawn: shown.length };
+}
+
 /**
  * One step of a text turn. A model call that fails (`provider_error`,
  * `stream_incomplete`) on a kind the profile's own `turnBehaviour.resumption.autoContinue`
- * lists, having given no reply and no tool call, is sent again in the same turn
- * after a pause, up to `maxContinues` times a turn (once when the profile sets
- * none). The turn's history, its step count, and what it has read stay as they were.
+ * lists, having made no tool call, is sent again in the same turn after a pause, up to
+ * `maxContinues` times a turn (once when the profile sets none). What it wrote before it failed is
+ * kept or taken back as `partialReply` says (`settleFailedCall`), and a `resend` event tells the
+ * host. The turn's step count and what it has read stay as they were.
  * A call the provider refused while it carried files goes again without the files of each type
  * the provider named, once per type; when it names none, once a turn without every file, and
  * those files are reported as refused only if that call is accepted.
@@ -545,12 +605,26 @@ async function* executeResumedStep(
   const limit = profileTurnResumption(args.profile)?.maxContinues ?? 1;
   let droppedHere = false;
   for (;;) {
-    const mayResume = args.profile.type === 'text' && state.resumes < limit;
-    const outcome = yield* executeAutonomousStep({ ...args, mayResume }, state, buffer);
+    const mayResume = state.resumes < limit;
+    const start: CallStart = {
+      replyText: state.replyText.length,
+      released: state.released.length,
+      attemptEvents: state.attemptEvents.length,
+    };
+    const { outcome, shown } = yield* countedCall({ ...args, mayResume }, state, buffer);
+    state.goesOnFromFailedCall = undefined;
     if (!outcome.resume) {
       if (droppedHere) settleMediaTry(state);
       return outcome;
     }
+    const resend = settleFailedCall(
+      { profile: args.profile, stop: outcome.resume.stop },
+      { outcome, shown, start },
+      state,
+    );
+    // why: Not the attempt's: a buffered attempt replays its events, and the withdrawn ones are gone from them.
+    state.allEmittedEvents.push(resend);
+    yield resend;
     if (outcome.resume.dropMedia) {
       const failure = outcome.resume.failure;
       const said = failure?.errorInternal ?? failure?.error ?? '';

@@ -13,6 +13,7 @@ import {
   type ProfileGuardrailsSpec,
   type ProfileObservabilitySpec,
   type ProfileTurnBehaviourSpec,
+  type ProfileTurnResumptionSpec,
   type SpeechProfileDefinition,
   type TextProfileDefinition,
   TheoremError,
@@ -95,13 +96,13 @@ import type {
   StudioProfileType,
   StudioTurnProfileType,
   ToolSpecDraft,
-  TurnBehaviourDraft,
   UrlAllowDraft,
 } from './draft.ts';
 import {
   COMPACTION_DRAFT_DEFAULTS,
   draftAllows,
   draftFacets,
+  draftResendsFailedCalls,
   INLINE_LABELS,
   MODEL_LIMITS,
   TIMER_MAX_MS,
@@ -1197,25 +1198,37 @@ function compileOutputs(
   };
 }
 
-function compileResumption(turn: TurnBehaviourDraft, report: Report) {
+function compileResumption(draft: StudioDraft, report: Report): ProfileTurnResumptionSpec {
+  const turn = draft.turnBehaviour;
   // "Never" is written out, both lists: left out, the kernel offers every kind and continues two itself.
   if (!turn.resumeEnabled) return { allowContinue: [], autoContinue: [] };
   checkWhole(report, 'turnBehaviour', 'maxContinues', 'Max continues', turn.maxContinues, 1);
-  return {
-    // Both always written: left out, the kernel continues all three kinds and
-    // auto-continues length and stream_incomplete.
+  const resumption: ProfileTurnResumptionSpec = {
+    // Always written: left out, the kernel offers Continue on every kind.
     allowContinue: [...turn.allowContinue],
-    autoContinue: [...turn.autoContinue],
+    // Written once it is the profile's own: left out, the kernel's list differs from any list written.
+    ...(turn.autoContinueList === 'own' ? { autoContinue: [...turn.autoContinue] } : {}),
     ...(turn.maxContinues !== null ? { maxContinues: turn.maxContinues } : {}),
   };
+  if (!draftResendsFailedCalls(draft)) return resumption;
+  if (turn.partialReply === '') {
+    report(
+      'turnBehaviour',
+      "Pick what happens to a failed call's words: Auto sends a failed call again.",
+      'partialReply',
+    );
+    return resumption;
+  }
+  return { ...resumption, partialReply: turn.partialReply };
 }
 
 function compileTurnBehaviour(
-  turn: TurnBehaviourDraft,
+  draft: StudioDraft,
   withResumption: boolean,
   report: Report,
 ): ProfileTurnBehaviourSpec | undefined {
-  const resumption = withResumption ? compileResumption(turn, report) : undefined;
+  const turn = draft.turnBehaviour;
+  const resumption = withResumption ? compileResumption(draft, report) : undefined;
   const spec: ProfileTurnBehaviourSpec = {
     ...(resumption ? { resumption } : {}),
     ...(turn.allowSteering ? {} : { allowSteering: false }),
@@ -2245,7 +2258,7 @@ function assemble(
     ? compileTools(draft, allows, report, agentIdOf, agentInputOf)
     : { customTools: [] };
   const turnBehaviour = facets.has('turnBehaviour')
-    ? compileTurnBehaviour(draft.turnBehaviour, allows('turnBehaviour.resumption'), report)
+    ? compileTurnBehaviour(draft, allows('turnBehaviour.resumption'), report)
     : undefined;
   const guardrails = facets.has('guardrails')
     ? compileGuardrails(draft.guardrails, report)

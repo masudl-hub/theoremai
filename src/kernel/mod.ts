@@ -295,6 +295,7 @@ export {
   profileAllowsInject,
   profileAllowsSteering,
   profileTurnResumption,
+  resendsFailedCalls,
   shouldAutoContinue,
   turnStopFromClientStreamEnd,
 } from './stop.ts';

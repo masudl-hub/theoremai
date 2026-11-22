@@ -10,10 +10,12 @@ import {
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { PARTIAL_REPLY_MODES } from '../../src/kernel/schema.ts';
 import { keptReply } from '../../src/kernel/turn-events.ts';
 import type {
   ModelEvent,
   ModelRequest,
+  ProfileTurnResumptionSpec,
   ProfileValidationSpec,
   TurnEvent,
   TurnEventOf,
@@ -25,7 +27,11 @@ import { geminiModels } from '../fixtures/models.ts';
 
 function registerAnswerProfile(
   id: string,
-  options: { tools?: string[]; validation?: ProfileValidationSpec } = {},
+  options: {
+    tools?: string[];
+    validation?: ProfileValidationSpec;
+    resumption?: ProfileTurnResumptionSpec;
+  } = {},
 ): string {
   registerProfile(
     defineProfile({
@@ -41,6 +47,7 @@ function registerAnswerProfile(
         ...(options.validation ? { validation: options.validation } : {}),
       },
       guardrails: { quota: { perDay: 100 } },
+      ...(options.resumption ? { turnBehaviour: { resumption: options.resumption } } : {}),
     }),
   );
   return id;
@@ -274,6 +281,49 @@ Deno.test('a rewrite that never calls the answer tool removes the refused items 
     ['a claim needs a source'],
   );
 });
+
+for (const partialReply of PARTIAL_REPLY_MODES) {
+  Deno.test(`a failed call's answer draft is taken back whole when it is sent again (${partialReply})`, async () => {
+    const { model, requests } = scripted([
+      [
+        { type: 'text', text: 'Reading.' },
+        { type: 'tool_draft', callId: 'answer_1', name: ANSWER_TOOL, text: '{"message":"Dr' },
+        { type: 'error', errorKind: 'unavailable', errorInternal: 'HTTP 503: busy' },
+      ],
+      answered({ message: 'Dry' }),
+    ]);
+    const events = await collect(
+      registerAnswerProfile(`answer_resent_${partialReply}`, {
+        resumption: { autoContinue: ['provider_error'], maxContinues: 1, partialReply },
+      }),
+      model,
+    );
+    assertEquals(requests.length, 2);
+    assertEquals(
+      requests[1]?.history?.some((message) => message.role === 'assistant'),
+      false,
+    );
+    const resendAt = events.findIndex((e) => e.type === 'resend');
+    const shown = events.slice(0, resendAt).map((e) => e.type);
+    assertEquals(shown.includes('structured_draft'), true);
+    assertEquals(
+      of(events, 'resend').map((e) => e.withdrawn),
+      [shown.filter((type) => type === 'text' || type === 'structured_draft').length],
+    );
+    const kept = keptReply(events);
+    assertEquals(
+      of(kept, 'structured_draft')
+        .map((e) => e.text)
+        .join(''),
+      '{"message":"Dry"}',
+    );
+    assertEquals(of(kept, 'text'), []);
+    assertEquals(
+      of(kept, 'structured').map((e) => e.structured),
+      [{ message: 'Dry' }],
+    );
+  });
+}
 
 Deno.test('a structured turn without tools keeps its response format', async () => {
   const { model, requests } = scripted([

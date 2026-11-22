@@ -119,6 +119,7 @@ import {
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   type LabelKey,
   labelDefault,
+  type PartialReplyMode,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
   type ProfileGraphFacetId,
@@ -184,6 +185,7 @@ import {
   definitionOf,
   draftAllows,
   draftKey,
+  draftResendsFailedCalls,
   expandAccept,
   GOOGLE_BUILTIN_TOOLS,
   GOOGLE_IMAGE_ASPECT_RATIOS,
@@ -3667,6 +3669,7 @@ function ResumptionSection({
             resumeEnabled: allow.length > 0 || auto.length > 0,
             allowContinue: allow,
             autoContinue: auto,
+            autoContinueList: 'own',
           });
         }}
       />
@@ -3684,6 +3687,20 @@ function ResumptionSection({
               set({ maxContinues });
             }}
           />
+          {draftResendsFailedCalls(draft) && (
+            <ChoiceRow
+              label="Failed call's words"
+              path="turnBehaviour.resumption.partialReply"
+              field="partialReply"
+              isRequired
+              hasClear={false}
+              value={turn.partialReply}
+              options={catalogChoices<PartialReplyMode>('turnBehaviour.resumption.partialReply')}
+              onChange={(partialReply) => {
+                set({ partialReply });
+              }}
+            />
+          )}
           {takesContinueInstruction(draft) && (
             <TextAreaRow
               label="Instruction"

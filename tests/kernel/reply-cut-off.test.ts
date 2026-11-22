@@ -6,6 +6,7 @@ import { labelText } from '../../src/guardrails/labels.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import type { PartialReplyMode } from '../../src/kernel/schema.ts';
 import { keptReply } from '../../src/kernel/turn-events.ts';
 import type {
   ContinueStopKind,
@@ -19,7 +20,11 @@ import { geminiModels } from '../fixtures/models.ts';
 
 const CUT = 'Repot in spring, when the roots';
 
-function textProfile(id: string, autoContinue: ContinueStopKind[] = ['length']): string {
+function textProfile(
+  id: string,
+  autoContinue: ContinueStopKind[] = ['length'],
+  partialReply?: PartialReplyMode,
+): string {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -30,7 +35,7 @@ function textProfile(id: string, autoContinue: ContinueStopKind[] = ['length']):
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
       outputs: {},
-      turnBehaviour: { resumption: { autoContinue } },
+      turnBehaviour: { resumption: { autoContinue, ...(partialReply ? { partialReply } : {}) } },
       guardrails: { quota: { perDay: 100 } },
     }),
   );
@@ -254,7 +259,7 @@ Deno.test('a Chat Completions call cut off inside a tool call sends back every c
 
 Deno.test('a text reply cut off is not repaired when autoContinue does not name length', async () => {
   const { model, requests } = scripted([cutText, replied]);
-  const events = await collect(textProfile('cut_text_off', ['provider_error']), model);
+  const events = await collect(textProfile('cut_text_off', ['provider_error'], 'retract'), model);
   assertEquals(requests.length, 1);
   assertEquals(of(events, 'attempt'), []);
   assertEquals(replyText(events), CUT);

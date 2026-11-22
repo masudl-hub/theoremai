@@ -39,10 +39,15 @@ export type ComposerRowIcons = {
 };
 
 /**
- * A pill the app puts in the pill row after Theorem's own, drawn as they are: its words, and what
- * a click does. One without `onSelect` only shows.
+ * A pill the app puts in the pill row after Theorem's own, drawn as they are: its icon, its words,
+ * and what a click does. One without `icon` has words only; one without `onSelect` only shows.
  */
-export type ComposerPill = { id: string; label: string; onSelect?: () => void };
+export type ComposerPill = {
+  id: string;
+  label: string;
+  icon?: ReactNode;
+  onSelect?: () => void;
+};
 
 /** What waits to send: the count and label for the tray's header, and the content it folds. */
 export type ComposerTray = { count: number; label: string; content: ReactNode };
@@ -241,6 +246,7 @@ function PillRow(
         data-pill="app"
         style={PILL}
         label={pill.label}
+        icon={pill.icon}
         onClick={pill.onSelect}
       />
     )),

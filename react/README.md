@@ -592,7 +592,7 @@ function Dock({ chat, iface }) {
 
 `TheoremChatComposer` takes `layout`, `icons`, `pills`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, and `showToolDurations`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
 
-Use `pills` to show your own notice in the pill row of the `row` layout, for example "New from your agent" while the chat is closed. Each pill is `{ id, label, onSelect? }`. It comes after the working pill and the background calls, and looks like them. A click calls `onSelect`. A pill without `onSelect` only shows.
+Use `pills` to show your own notice in the pill row of the `row` layout, for example "New from your agent" while the chat is closed. Each pill is `{ id, label, icon?, onSelect? }`. It comes after the working pill and the background calls, and looks like them. The icon goes before the words. A click calls `onSelect`. A pill without `onSelect` only shows.
 
 The two pieces read one clock: `chat.turnClock`. So the working pill of the composer and the status line of the transcript show the same time. `chat.workingSince` is when the reply in progress started, less its waits for approval. For a reply that runs elsewhere, it is `chat.runningElsewhere.since`. `chat.shownBlocks` is what the transcript shows: `chat.blocks`, then `chat.streamBlocks`.
 

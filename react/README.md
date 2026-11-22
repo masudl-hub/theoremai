@@ -600,7 +600,7 @@ To draw one piece in your own way, use `ChatTranscript` and `ChatComposerBar` fr
 
 The composer bar has a selector for the model, its effort, and each option. When their values do not fit the bar, each selector shows only its icon, and a tooltip gives its name and value. When the icons do not fit either, the row scrolls inside the composer. A control you pass as `generationSelect` keeps its own look and scrolls with the row.
 
-A tool call that runs on in the background after its reply ends shows as running, with a "Background task" badge (`@theorem.transcript.tool_background`). The badge goes when the call's end reaches the transcript.
+A tool call that runs on in the background after its reply ends shows as running, with "⋅ running in the background" after its name (`@theorem.transcript.tool_background`). The words go when the call's end reaches the transcript.
 
 A failed tool call in `ChatTranscript` shows its failure once: the row shows the message the model read, and the details show its `code`, `kind`, and `details`.
 

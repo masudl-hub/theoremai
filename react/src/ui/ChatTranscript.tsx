@@ -912,7 +912,7 @@ function toolCallItem(
       return {
         ...base,
         status: 'running',
-        node: t('@theorem.transcript.tool_background'),
+        target: t('@theorem.transcript.tool_background'),
         ...rowDetail(t, tool, shows),
       };
     default:

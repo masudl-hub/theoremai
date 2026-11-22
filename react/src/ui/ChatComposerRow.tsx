@@ -38,17 +38,25 @@ export type ComposerRowIcons = {
   stop?: ReactNode;
 };
 
+/**
+ * A pill the app puts in the pill row after Theorem's own, drawn as they are: its words, and what
+ * a click does. One without `onSelect` only shows.
+ */
+export type ComposerPill = { id: string; label: string; onSelect?: () => void };
+
 /** What waits to send: the count and label for the tray's header, and the content it folds. */
 export type ComposerTray = { count: number; label: string; content: ReactNode };
 
 /** What the row composer draws; the bar works each piece out, so both layouts share it. */
 export type ComposerRowParts = {
-  /** The pill row: the working pill while a reply runs, then the background jobs. */
+  /** The pill row: the working pill while a reply runs, then the background jobs, then `pills`. */
   isWorking: boolean;
   /** When the reply in progress started; the working pill counts from it. */
   workingSince?: number;
   icons?: ComposerRowIcons;
   backgroundJobs: readonly BackgroundJob[];
+  /** The app's own pills, after the background jobs. */
+  pills?: readonly ComposerPill[];
   onStop: () => void;
   /** Contextual hint, at the end of the pill row. */
   hint?: ReactNode;
@@ -192,7 +200,7 @@ function WorkingPill({
 function PillRow(
   props: Pick<
     ComposerRowParts,
-    'isWorking' | 'workingSince' | 'icons' | 'backgroundJobs' | 'onStop' | 'hint'
+    'isWorking' | 'workingSince' | 'icons' | 'backgroundJobs' | 'pills' | 'onStop' | 'hint'
   >,
 ) {
   const t = useLabels();
@@ -223,6 +231,17 @@ function PillRow(
             />
           )
         }
+      />
+    )),
+    ...(props.pills ?? []).map((pill) => (
+      <Token
+        key={pill.id}
+        size="lg"
+        className="theorem-composer-pill"
+        data-pill="app"
+        style={PILL}
+        label={pill.label}
+        onClick={pill.onSelect}
       />
     )),
   ].filter(Boolean);
@@ -384,7 +403,8 @@ function RowStatus({ status }: { status?: ChatComposerStatus }) {
 /**
  * Theorem's one-row composer: the field, then the controls, the mic, and send, on one line.
  * Text that wraps moves the field onto its own line above them, the stacked layout. Above
- * it, the pill row: the reply in progress (stop is on its pill) and the background jobs.
+ * it, the pill row: the reply in progress (stop is on its pill), the background jobs, and the
+ * app's own pills.
  */
 export function ChatComposerRow(props: ComposerRowParts) {
   const stacked = useWrapped(props.editorRef, props.draftText);
@@ -395,6 +415,7 @@ export function ChatComposerRow(props: ComposerRowParts) {
         workingSince={props.workingSince}
         icons={props.icons}
         backgroundJobs={props.backgroundJobs}
+        pills={props.pills}
         onStop={props.onStop}
         hint={props.hint}
       />

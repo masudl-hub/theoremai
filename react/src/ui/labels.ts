@@ -282,6 +282,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Calls',
     description: 'The calls the agent an agent tool ran made, in its detail.',
   },
+  '@theorem.transcript.tool_background': {
+    defaultMessage: 'Background task',
+    description: "The badge on a tool call's row while it runs on in the background.",
+  },
   '@theorem.transcript.tool_output': {
     defaultMessage: 'Output',
     description: "A tool call's result, in its detail.",

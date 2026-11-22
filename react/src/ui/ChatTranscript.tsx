@@ -906,8 +906,15 @@ function toolCallItem(
         ),
       };
     case 'running':
-    case 'background':
       return { ...base, status: 'running', ...rowDetail(t, tool, shows) };
+    // why: The reply ended and the call goes on; the row says so until its end comes back.
+    case 'background':
+      return {
+        ...base,
+        status: 'running',
+        node: t('@theorem.transcript.tool_background'),
+        ...rowDetail(t, tool, shows),
+      };
     default:
       return { ...base, status: 'pending', ...rowDetail(t, tool, shows) };
   }

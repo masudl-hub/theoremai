@@ -73,7 +73,12 @@ import { stageComposerFiles } from '../client/composer-attachments.ts';
 import type { BackgroundJob } from '../client/transcript-groups.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
-import { ChatComposerRow, type ComposerRowIcons, type ComposerTray } from './ChatComposerRow.tsx';
+import {
+  ChatComposerRow,
+  type ComposerPill,
+  type ComposerRowIcons,
+  type ComposerTray,
+} from './ChatComposerRow.tsx';
 import { ComposerControls, ComposerSelector } from './ComposerControls.tsx';
 import { composerDrawerLabel, type LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -117,6 +122,8 @@ export type ChatComposerBarProps = {
   layout?: ComposerLayout;
   /** The tool calls running in the background; the `row` layout shows each as a pill. */
   backgroundJobs?: readonly BackgroundJob[];
+  /** The app's own pills; the `row` layout shows them after the background jobs. */
+  pills?: readonly ComposerPill[];
   /** When the reply in progress started, its approval waits skipped; the `row` layout's working pill counts from it. */
   workingSince?: number;
   /** Glyphs the `row` layout draws; each one left out keeps Theorem's. See {@link ComposerRowIcons}. */
@@ -1006,6 +1013,7 @@ function RowComposerBar({
       workingSince={props.workingSince}
       icons={props.icons}
       backgroundJobs={props.backgroundJobs ?? []}
+      pills={props.pills}
       onStop={props.onStop}
       hint={parts.hintNode}
       tray={parts.tray}

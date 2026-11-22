@@ -222,7 +222,7 @@ Each part of the look is a CSS custom property. Set it on any element above the 
 }
 ```
 
-The words are labels: `@theorem.composer.pill.working_for`, `@theorem.composer.pill.working` (before the start is known), `@theorem.composer.pill.stop`, `@theorem.composer.pill.background`, `@theorem.composer.tray.expand` and `@theorem.composer.tray.collapse`. See [Wording](#wording). For a rule that no property covers, each part has a class: `theorem-composer-row`, `theorem-composer-pills`, `theorem-composer-pill` (with `data-pill="working"` or `"background"`), `theorem-composer-tray` (with `data-open`) and `theorem-composer-surface`.
+The words are labels: `@theorem.composer.pill.working_for`, `@theorem.composer.pill.working` (before the start is known), `@theorem.composer.pill.stop`, `@theorem.composer.pill.background`, `@theorem.composer.tray.expand` and `@theorem.composer.tray.collapse`. See [Wording](#wording). For a rule that no property covers, each part has a class: `theorem-composer-row`, `theorem-composer-pills`, `theorem-composer-pill` (with `data-pill="working"`, `"background"` or `"app"`), `theorem-composer-tray` (with `data-open`) and `theorem-composer-surface`.
 
 ### Tool media
 
@@ -590,13 +590,17 @@ function Dock({ chat, iface }) {
 }
 ```
 
-`TheoremChatComposer` takes `layout`, `icons`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, and `showToolDurations`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
+`TheoremChatComposer` takes `layout`, `icons`, `pills`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, and `showToolDurations`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
+
+Use `pills` to show your own notice in the pill row of the `row` layout, for example "New from your agent" while the chat is closed. Each pill is `{ id, label, onSelect? }`. It comes after the working pill and the background calls, and looks like them. A click calls `onSelect`. A pill without `onSelect` only shows.
 
 The two pieces read one clock: `chat.turnClock`. So the working pill of the composer and the status line of the transcript show the same time. `chat.workingSince` is when the reply in progress started, less its waits for approval. For a reply that runs elsewhere, it is `chat.runningElsewhere.since`. `chat.shownBlocks` is what the transcript shows: `chat.blocks`, then `chat.streamBlocks`.
 
 To draw one piece in your own way, use `ChatTranscript` and `ChatComposerBar` from `/ui`, or draw from `chat.shownBlocks`. Pass `clock={chat.turnClock}` to `ChatTranscript` and `workingSince={chat.workingSince}` to `ChatComposerBar` so their times agree.
 
 The composer bar has a selector for the model, its effort, and each option. When their values do not fit the bar, each selector shows only its icon, and a tooltip gives its name and value. When the icons do not fit either, the row scrolls inside the composer. A control you pass as `generationSelect` keeps its own look and scrolls with the row.
+
+A tool call that runs on in the background after its reply ends shows as running, with a "Background task" badge (`@theorem.transcript.tool_background`). The badge goes when the call's end reaches the transcript.
 
 A failed tool call in `ChatTranscript` shows its failure once: the row shows the message the model read, and the details show its `code`, `kind`, and `details`.
 

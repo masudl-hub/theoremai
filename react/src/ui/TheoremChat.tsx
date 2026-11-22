@@ -36,7 +36,7 @@ import {
 } from '../hooks/use-theorem-chat.ts';
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
 import { ChatComposerBar, type ComposerLayout } from './ChatComposerBar.tsx';
-import type { ComposerRowIcons } from './ChatComposerRow.tsx';
+import type { ComposerPill, ComposerRowIcons } from './ChatComposerRow.tsx';
 import { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
@@ -247,6 +247,8 @@ export type TheoremChatComposerProps = {
   inputRef?: Ref<ChatComposerInputHandle>;
   layout?: ComposerLayout;
   icons?: ComposerRowIcons;
+  /** The app's own pills, in the `row` layout's pill row after the background jobs. */
+  pills?: readonly ComposerPill[];
 };
 
 /**
@@ -261,12 +263,14 @@ export function TheoremChatComposer({
   inputRef,
   layout,
   icons,
+  pills,
 }: TheoremChatComposerProps) {
   return (
     <ChatComposerBar
       iface={iface}
       layout={layout}
       icons={icons}
+      pills={pills}
       workingSince={chat.workingSince}
       backgroundJobs={chat.backgroundJobs}
       draftText={chat.draftText}

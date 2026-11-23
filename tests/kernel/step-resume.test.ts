@@ -282,7 +282,7 @@ Deno.test("continue: the failed call's words stay, and the model reads them with
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
-Deno.test('continue: the page shows the notice above the words, which stay one block', async () => {
+Deno.test('continue: the transcript keeps the notice, and the words stay one block', async () => {
   registerProfile(
     resumeProfile('resume_continue_notice', {
       autoContinue: ['provider_error'],

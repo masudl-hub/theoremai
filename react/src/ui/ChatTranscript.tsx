@@ -143,8 +143,8 @@ export type ChatTranscriptProps = {
   showWorkStatus?: boolean;
   /**
    * Whether a reply whose model call failed part-way, and went on from the words it had shown,
-   * shows the profile's notice above its words ("This reply was interrupted and picked up where it
-   * left off."). Default: true.
+   * shows the profile's notice in its status row, beside its time ("This reply was interrupted and
+   * picked up where it left off."). Default: true.
    */
   showResumedNotice?: boolean;
   /** The profile's labels (`iface.labels`): a stopped turn says why in its words. */
@@ -246,6 +246,16 @@ function Usage({ tokens }: { tokens: TurnUsage }) {
 }
 
 /** Why a turn stopped short, drawn as the delivery statuses are. */
+/** That a reply went on after its model call failed part-way, drawn as a stop is. */
+function Resumed({ label }: { label: string }) {
+  return (
+    <HStack gap={1} vAlign="center">
+      <Icon icon="info" size="xsm" color="inherit" />
+      <span>{label}</span>
+    </HStack>
+  );
+}
+
 function Stopped({ label }: { label: string }) {
   return (
     <HStack gap={1} vAlign="center">
@@ -355,13 +365,15 @@ function MessageChrome(props: {
   status?: ChatMessageStatus;
   /** Why its turn stopped short, worded: it says so where its status goes. */
   stopped?: string;
+  /** That the reply went on after its model call failed part-way, worded (the resend's notice). */
+  resumed?: string;
   error?: string;
   /** What the reply used, when the transcript shows usage. */
   usage?: TurnUsage;
   /** Whether the details show; a failure or a stop waits for it too, like any status. */
   revealed: boolean;
 }) {
-  const notice = turnNotice(props.error, props.stopped);
+  const notice = turnNotice(props.error, props.stopped, props.resumed);
   return (
     <ChatMessageMetadata
       style={{ opacity: props.revealed ? 1 : 0, transition: CHROME_FADE }}
@@ -374,10 +386,11 @@ function MessageChrome(props: {
   );
 }
 
-/** Why a turn failed or stopped short, said where its status goes. */
-function turnNotice(error?: string, stopped?: string): ReactNode {
+/** Why a turn failed, stopped short, or went on after a failed call, said where its status goes. */
+function turnNotice(error?: string, stopped?: string, resumed?: string): ReactNode {
   if (error !== undefined) return <Failed reason={error} />;
   if (stopped !== undefined) return <Stopped label={stopped} />;
+  if (resumed !== undefined) return <Resumed label={resumed} />;
   return undefined;
 }
 
@@ -785,18 +798,12 @@ function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: bo
 }
 
 /**
- * Non-streaming answer rows: structured output, media, and the notice of a reply that went on after
- * its call failed. Errors show on the message's status; citations coalesce in bodyRows.
+ * Non-streaming answer rows: structured output and media. Errors, and the notice of a reply that
+ * went on after its call failed, show on the message's status; citations coalesce in bodyRows.
  */
 function ResultBlock({ block }: { block: TranscriptBlock }) {
-  const showResumed = useContext(ShowResumedNotice);
   switch (block.kind) {
     case 'resumed':
-      return showResumed ? (
-        <Text size="sm" color="secondary">
-          {block.message}
-        </Text>
-      ) : null;
     case 'error':
     case 'citation':
       return null;
@@ -1199,6 +1206,8 @@ function AssistantTurn(props: {
   const t = useLabels();
   const chrome = useChromeReveal(props.isNewest === true);
   const showUsage = useContext(ShowUsage);
+  const showResumed = useContext(ShowResumedNotice);
+  const resumed = showResumed ? resumedNotice(props.blocks) : undefined;
   const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.workedMs);
   const { trace, gatedTools, body, hasTrace, hasSteps } = composeAssistantTurn(props.blocks, {
     ...(props.bodyKindPlacement !== undefined
@@ -1234,6 +1243,7 @@ function AssistantTurn(props: {
             copyText={copyText}
             error={props.error}
             stopped={props.stopped}
+            resumed={resumed}
             usage={showUsage ? props.usage : undefined}
             revealed={chrome.revealed}
           />
@@ -1263,6 +1273,12 @@ function AssistantTurn(props: {
       </VStack>
     </ChatMessage>
   );
+}
+
+/** The notice of a reply that went on after its model call failed part-way, if it did. */
+function resumedNotice(blocks: readonly TranscriptBlock[]): string | undefined {
+  for (const block of blocks) if (block.kind === 'resumed') return block.message;
+  return undefined;
 }
 
 function UserTurn(props: {

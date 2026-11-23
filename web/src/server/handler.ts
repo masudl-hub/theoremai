@@ -77,6 +77,7 @@ import {
   type ConversationLine,
   type ConversationView,
   type TheoremSavedMessage,
+  type TheoremSteerRequest,
   type TheoremStopRequest,
   type TheoremTurnInput,
   theoremConversationRequestSchema,
@@ -102,7 +103,6 @@ import {
   oneInbox,
   type Reply,
   type ReplyWiring,
-  replyUnreachable,
   unconversedAnswer,
 } from './conversation-core.ts';
 import type { TheoremConversationStore } from './conversation-store.ts';
@@ -118,10 +118,10 @@ import type { AppPrepare } from './turn-wiring.ts';
 export { theoremSession, theoremSessionId } from './session-identity.ts';
 
 import { jsonResponse } from './json-response.ts';
+import { createOwnInbox, type OwnInbox } from './own-inbox.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
 import { checkRequest } from './request-check.ts';
 import type { SessionToolOperation, TheoremSessionStore } from './session-store.ts';
-import { createMemorySteerInbox, type SteerInbox } from './steer-inbox.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -258,7 +258,7 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
    * Your app's own save of a person's message, for `/turn` and `/steer`. It saves the message
    * under `sent.id` one time, and in the same write takes the conversation in your `inbox` when
    * no reply holds it. `sent.ref` is the page's ref of the conversation, when it has one. Needs
-   * `inbox`. With it, a steer does not go to `steerInbox`.
+   * `inbox`. Without it, a steer goes to Theorem's own inbox of the reply that runs in this process.
    */
   intake?: (
     at: CoreContext,
@@ -279,8 +279,6 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
     challenge: Extract<ToolGate, { kind: 'auth' }>['authChallenge'],
     ctx: { request: Request; sessionId: string },
   ) => string | Promise<string>;
-  /** Default: in-process memory. Use a shared store when turns and steers can land on different instances. */
-  steerInbox?: SteerInbox;
   /**
    * Who reads this host's replies, and what an event keeps for them: forwarded to `forClient`
    * for each event and to `clientError` for a failure the handler catches.
@@ -319,7 +317,6 @@ export type TheoremHostHandlerOptions = Omit<
   TheoremHandlerOptions,
   | 'profile'
   | 'provider'
-  | 'steerInbox'
   | 'conversationStore'
   | 'prepare'
   | 'inbox'
@@ -402,7 +399,7 @@ type HandlerContext = {
   chat?: ChatContext;
   /** The conversation core over a request's state, with the app's own parts of a reply. */
   wire: (state: CoreState) => ConversationCore;
-  inbox: SteerInbox;
+  own: OwnInbox;
   sessions: SessionStateStore;
   pageToolBroker: PageToolBroker;
   credentials: MutableStore<TheoremCredentials>;
@@ -552,7 +549,7 @@ function coreOf(ctx: HandlerContext, chat: ChatContext, request: Request): Conve
   return ctx.wire({
     ...calls,
     chat,
-    steer: ctx.inbox,
+    own: ctx.own,
     options: {
       ...calls.options,
       provider: (_at, model) => providerFor(ctx, request, model),
@@ -849,11 +846,22 @@ async function steer(
     const saved: TheoremSavedMessage = { conversation: taken.ref, landsAs: [...taken.landsAs] };
     return jsonResponse(200, { ok: true, saved });
   }
-  // why: without `intake`, a steer reaches only a turn this server runs, by its id
-  if (!('turnId' in body)) throw replyUnreachable();
-  const steered = await core.steer(at, { turnId: body.turnId, id: body.id, input: body.input });
-  if (!steered) throw replyNotRunning(body);
-  return jsonResponse(200, { ok: true });
+  // why: A chat is named by its conversation; a run that keeps none is named by its `turnId`.
+  const target = steerTarget(body);
+  if (!(await core.steer(at, { ...target, id: body.id, input: body.input }))) {
+    throw replyNotRunning(body);
+  }
+  const saved: TheoremSavedMessage | undefined =
+    'ref' in target ? { conversation: target.ref, landsAs: [body.id] } : undefined;
+  return jsonResponse(200, { ok: true, ...(saved ? { saved } : {}) });
+}
+
+/** The reply a steer joins: the conversation the page names, else the run it started. */
+function steerTarget(body: TheoremSteerRequest): { ref: string } | { turnId: string } {
+  if (body.conversation !== undefined) return { ref: body.conversation };
+  // invariant: A body with no `conversation` is the `turnId` variant, which the schema checks.
+  if ('turnId' in body) return { turnId: body.turnId };
+  throw replyNotRunning(body);
 }
 
 /** The refusal of a steer or stop for a reply that is not running. */
@@ -973,7 +981,6 @@ export function createTheoremHandler<Item extends InboxItem = InboxItem>(
   }
   const { prepare, inbox, beforeSave, afterSave, compact } = options;
   return serve('createTheoremHandler', chat.profile, options, {
-    steerInbox: options.steerInbox,
     chat,
     wire: (state) =>
       createConversationCore<Item>({
@@ -1020,14 +1027,14 @@ function serve(
   name: string,
   profile: Profile,
   options: HandlerContext['options'],
-  chatOptions: { steerInbox?: SteerInbox; chat?: ChatContext; wire?: HandlerContext['wire'] } = {},
+  chatOptions: { chat?: ChatContext; wire?: HandlerContext['wire'] } = {},
 ): (request: Request) => Promise<Response> {
   requestByteLimit(options.maxRequestBytes);
   const ctx: HandlerContext = {
     options,
     ...sessionParts(name, profile, options),
     ...(chatOptions.chat ? { chat: chatOptions.chat } : {}),
-    inbox: chatOptions.steerInbox ?? createMemorySteerInbox(),
+    own: createOwnInbox(),
     wire: chatOptions.wire ?? createConversationCore,
   };
 

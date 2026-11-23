@@ -284,12 +284,12 @@ const transport = withPageToolDispatch(
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. The handler asks it one time for each run, when the run first reads it. |
 | `prepare` | Your app's own turn, from the one the handler builds (`TurnWiring.prepare` from `@theoremjs/agents`). Set what your app sets per turn, such as `system`, `credentials`, `onStage`, `onEvent` and `onAgentCall`; read your app data as `turn.host`. The handler keeps its profile and its abort. Your `onStage` runs before the handler's steering, and your `credentials` are read before the session's. An `execution` you return decides each call, and the session still records the same call; a `background` you return takes the place of the `background` option. A call held at a gate runs on, once answered, with the `host`, `onStage`, `credentials`, `execution` and `background` you give for that call's turn; that turn has `answersHeldCall`, and its `onEvent` is not called, because no new turn runs. |
-| `inbox`, `beforeSave`, `afterSave`, `compact` | Your app's own inbox and your steps around each save, as [the conversation core](#run-replies-with-no-page-request) takes them. Each is given the request's context: its `host` is what `host` returned for the request, so `await at.host`. With `inbox`, every reply the page starts runs under a hold of your conversation, and a wake tells the items that wait in it. A steer still reaches the running reply itself, and does not arrive in your inbox, unless you set `intake`. Do not set `inbox` with `lateResultsDecider`. |
+| `inbox`, `beforeSave`, `afterSave`, `compact` | Your app's own inbox and your steps around each save, as [the conversation core](#run-replies-with-no-page-request) takes them. Each is given the request's context: its `host` is what `host` returned for the request, so `await at.host`. With `inbox`, every reply the page starts runs under a hold of your conversation, and a wake tells the items that wait in it. A steer needs `intake`: it saves the message into your inbox. Without `intake`, the handler refuses the steer with a `config` error. Do not set `inbox` with `lateResultsDecider`. |
 | `onStage` | The server's own stage handler, on every call the handler runs, a host profile's included: after your app's (`prepare`), before steering. For a rule the server adds to whatever the app says, such as a question before each tool that writes. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
 | `pageStatesTurn` | Let the page say which prompt lines a turn gets, through `stated` on a turn or a live call. Set it only for a page you trust as yourself, such as a builder's own tool. Without it, a request with `stated` is refused. |
 | `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |
-| `sessionStore`, `steerInbox` | Where open gates are kept, and where steers and stops reach a running turn. Default: process memory, which reaches only turns this process runs. On more than one instance, give a shared `SteerInbox`. |
+| `sessionStore` | Where open gates are kept. Default: process memory. A steer and a stop need no store of their own: see [Steer and stop without your own inbox](#steer-and-stop-without-your-own-inbox). |
 | `lateResultsDecider` | Who tells the model that a background call ended: `TurnWiring.lateResultsDecider`. Set it on your `TurnWiring`, and the studio uses it too. Unset, no page wakes the chat and no reply reads a late result. `tellEveryResult` tells each result to the first reply that runs, and gives up a result two replies read without telling. See [the background section](#share-session-authority). |
 | `conversationLeaseMs` | How long a reply keeps its chat after it last renewed, in milliseconds. A running reply renews every third of it. A wake that finds another reply running tries again once this runs out. Default: `60000`. |
 | `onContinue` | Who runs the next reply when a reply ends with items that wait and may be told now. Return `'here'`, and the handler runs it in the same response. Return `'taken'`, and your app runs it with the conversation core's `followUp`. Unset, the handler lets the chat go, and the page wakes it. |
@@ -558,10 +558,10 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `release(at, { ref, hold })` | Lets the conversation go under that hold, with no follow-up. |
 | `read(at, { ref })` | Returns the conversation as a page draws it. |
 | `rewind(at, { ref, at })` | Cuts the conversation after transcript block `at`. |
-| `steer(at, { turnId, id, input })` | Puts `input` into a running turn. Returns `false` when the turn is not running. Throws what `message` throws for an `input` the profile does not take, such as text over `inputs.maxTextChars`. |
-| `stop(at, { turnId } \| { conversation })` | Stops a running reply: the turn `turnId` names, or the reply that holds `conversation`. Returns `false` when it is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and reads neither. Without one, only `{ turnId }` reaches a turn, and `{ conversation }` throws `session.reply_unreachable`. |
+| `steer(at, { ref, id, input } \| { turnId, id, input })` | Puts `input` into the inbox of the running reply: the one that holds the conversation `ref` names, or the run `turnId` names. Returns `false` when no reply runs there. Throws `session.reply_unreachable` when the store says a reply runs that this process does not hold, and what `message` throws for an `input` the profile does not take, such as text over `inputs.maxTextChars`. Throws a `config` error when you set `inbox`: use `intake`, which saves the message in your inbox. |
+| `stop(at, { turnId } \| { conversation })` | Stops a running reply: the turn `turnId` names, or the reply that holds `conversation`. Returns `false` when it is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and reads neither. Without one, Theorem's own stop reaches a reply that this process runs. For a reply the store says runs elsewhere, `{ conversation }` throws `session.reply_unreachable`. |
 
-The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `replyFeed`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
+The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `replyFeed`, `lateResultsDecider`, `conversationLeaseMs`, and `clientEvents`. These options take the run context in place of the `Request`:
 
 | Option | Use |
 | --- | --- |
@@ -648,9 +648,22 @@ A reply that opens with items from your inbox sends a `conversation` line with `
 
 Your store marks the items in `told` in its `write`. If an item in `told` that the reply was handed still waits when the run ends `continue`, the run lets the conversation go and fails with a `config` error, because each follow-up would tell that item again. `onError` receives the error.
 
+### Steer and stop without your own inbox
+
+Use this when you set no `inbox`, and a person sends a message into a reply that is running, or stops it. Theorem keeps its own conversation inbox for the reply. A steer is a message in that inbox, beside the ended background calls. A reply that holds the conversation takes one message at each `pre_turn`, `post_tool` and `before_end`, and the `stage` event names it in `injected`. A save of the reply that took it tells it once. A stop reaches the reply that holds the conversation.
+
+The inbox is named as follows:
+
+| Chat | Named by | Kept in |
+| --- | --- | --- |
+| A stored chat | The conversation id, and the session. | Process memory, and the session store for the ended calls. |
+| A chat that keeps no conversation (`providerContinuation.history: 'stateless'`) | The run: the `turnId` the page sent, and the session. | Process memory, for as long as the run lasts. |
+
+A page that has a conversation steers and stops by `{ conversation }`. The page's own turn also answers to its `turnId` while it runs, so a steer or stop that names only the turn reaches the same inbox. Both inboxes live in process memory, so a steer must reach the process that runs the reply. A message that waits when a stateless run ends is lost with the run, and the page sends it again. A steer with no reply running is refused with `session.turn_ended`.
+
 ### Stop a reply from any server
 
-Without `stop` in your `inbox`, a stop reaches a turn by its `turnId` in `steerInbox`. That reaches only a reply that a page turn started. Set `stop` to keep the stop in your own store. A stop then reaches the reply that holds the conversation, on any server, and from any channel or wake.
+Without `stop` in your `inbox`, Theorem's own stop reaches the replies that this process runs, by conversation or by `turnId`. Set `stop` to keep the stop in your own store. A stop then reaches the reply that holds the conversation, on any server, and from any channel or wake.
 
 ```ts
 const stop: HoldStop = {
@@ -685,8 +698,8 @@ const snapshot: ConversationSnapshot = {
 
 The view the page reads has the same `running`. While it is set, the chat's phase is `streaming` and `runningElsewhere` holds it, so the page acts as it does for its own reply:
 
-- The stop button sends `/stop` with `{ conversation }`. Your `inbox`'s `stop` stops the reply. Without one, the stop is refused with `session.reply_unreachable`, the page shows that error, and the reply still shows as working.
-- A steer sends `/steer` with `{ conversation }` and no `turnId`. `intake` saves it. Without `intake`, the steer is refused with `session.reply_unreachable`.
+- The stop button sends `/stop` with `{ conversation }`. Your `inbox`'s `stop` stops the reply. Without one, a reply that another process runs is refused with `session.reply_unreachable`, the page shows that error, and the reply still shows as working.
+- A steer sends `/steer` with `{ conversation }` and no `turnId`. `intake` saves it. Without `intake`, the steer is refused with `session.reply_unreachable` while the store says a reply runs that this process does not hold.
 - A message sent while it works waits in the queue. Send now stops the reply, then sends the message. When the stop is refused, the message stays in the composer.
 
 The page reads again at `heldUntil` once for each `heldUntil`. When your server's clock and the browser's differ, a hold can look lapsed to the page while your store still returns it. The page then waits for your `notifier.publish`, or for a read that returns a new `heldUntil`.

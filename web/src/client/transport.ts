@@ -140,7 +140,7 @@ export type TheoremTurnRequest = {
   effort?: string;
   /** For a host that lets its page choose (`pageStatesTurn`); any other host refuses it. */
   stated?: StatedTurn;
-  /** Client-generated id so mid-turn steers can find this turn's inbox. */
+  /** Client-generated id so a steer or stop sent while the reply goes on can find this reply. */
   turnId?: string;
   /**
    * The client's id for this message. A message keeps its id when the page sends it again, so a
@@ -202,7 +202,7 @@ export type TheoremInvokeRequest = {
   page?: PagePart;
   /** The ref of the conversation whose reply waits on the gate. */
   conversation?: string;
-  /** Client-generated id so steers sent while the reply goes on find its inbox. */
+  /** Client-generated id so a steer or stop sent while the reply goes on can find this reply. */
   turnId?: string;
   replay?: TheoremReplay;
 };
@@ -275,8 +275,9 @@ const theoremSavedMessage = z.object({
 true satisfies Equals<z.infer<typeof theoremSavedMessage>, TheoremSavedMessage>;
 
 /**
- * What the host did with a steer. With `saved`, the host keeps the message; without it, the steer
- * waits in the running turn, and the page sends it again when the turn ends without it.
+ * What the host did with a steer. With `saved`, the host keeps the message, and the page does not
+ * send it again. Without it, the steer is in the memory of a run that keeps no conversation, and the
+ * page sends it again when the run ends without it.
  */
 export type TheoremSteerReply = { saved?: TheoremSavedMessage };
 const theoremSteerReply = z.object({ saved: theoremSavedMessage.optional() });

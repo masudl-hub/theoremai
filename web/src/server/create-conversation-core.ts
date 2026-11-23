@@ -16,8 +16,8 @@ import {
   type ReplyWiring,
 } from './conversation-core.ts';
 import type { TheoremHandlerOptions } from './handler.ts';
+import { createOwnInbox } from './own-inbox.ts';
 import { type CallHooks, type CoreContext, sessionParts } from './session-calls.ts';
-import { createMemorySteerInbox } from './steer-inbox.ts';
 
 /**
  * Options for {@link createTheoremConversationCore}. Each option picked from
@@ -40,7 +40,6 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
   | 'notifyRetryMs'
   | 'lateResultsDecider'
   | 'conversationLeaseMs'
-  | 'steerInbox'
   | 'clientEvents'
 > &
   ReplyWiring<Item> & {
@@ -70,7 +69,7 @@ export function createTheoremConversationCore<Item extends InboxItem = InboxItem
     ...sessionParts(name, chat.profile, options),
     ...endingsOf(chat, options),
     chat,
-    steer: options.steerInbox ?? createMemorySteerInbox(),
+    own: createOwnInbox(),
     options: {
       prepare: options.prepare,
       onStage: options.onStage,

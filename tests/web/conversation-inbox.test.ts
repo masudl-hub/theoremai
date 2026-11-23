@@ -6,9 +6,11 @@ import {
   type ToolOperationOutcome,
   type TurnEvent,
 } from '../../mod.ts';
+import type { ConversationInbox } from '../../src/conversation/mod.ts';
 import { conversationScenarios } from '../../src/conversation/testing.ts';
 import {
   detachedEnding,
+  type SessionOwnInbox,
   sessionConversationInbox,
 } from '../../web/src/server/conversation-inbox.ts';
 import {
@@ -16,12 +18,31 @@ import {
   emptyConversation,
   type StoredConversation,
 } from '../../web/src/server/conversation-store.ts';
+import type { OwnItem } from '../../web/src/server/own-inbox.ts';
 import { sessionStateStore } from '../../web/src/server/session-authority.ts';
 import { createMemorySessionStore } from '../../web/src/server/session-store.ts';
 import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
 import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
 
 const LEASE_MS = 30_000;
+
+const lateOnly = (items: readonly OwnItem[]): LateResultItem[] =>
+  items.filter((item): item is LateResultItem => item.kind === 'late_result');
+
+/** The session inbox as the scenarios and these tests read it: the ended calls only, no messages. */
+function lateResults(inbox: SessionOwnInbox): ConversationInbox<LateResultItem> {
+  return {
+    ...inbox,
+    read: async (key) => {
+      const read = await inbox.read(key);
+      return { ...read, items: lateOnly(read.items) };
+    },
+    hand: async (key, hold, handover, ids) => lateOnly(await inbox.hand(key, hold, handover, ids)),
+    resume: async (key, hold, paused, handover) =>
+      lateOnly(await inbox.resume(key, hold, paused, handover)),
+    giveUp: async (key, hold, ids) => lateOnly(await inbox.giveUp(key, hold, ids)),
+  };
+}
 const SESSION = 'session';
 
 /** A detached call in the chat's transcript, and its end in the session, as a turn leaves them. */
@@ -117,6 +138,7 @@ for (const scenario of conversationScenarios<LateResultItem>({
     const inbox = sessionConversationInbox({
       sessions,
       sessionId: SESSION,
+      shelf: new Map(),
       leaseMs: LEASE_MS,
       now: () => clock,
       conversation: async (key) => {
@@ -137,7 +159,7 @@ for (const scenario of conversationScenarios<LateResultItem>({
       });
     };
     return {
-      inbox,
+      inbox: lateResults(inbox),
       conversation,
       async arrive(id) {
         const block = await arrived(sessions, id);
@@ -222,6 +244,7 @@ async function oneEndedCall() {
   const inbox = sessionConversationInbox({
     sessions,
     sessionId: SESSION,
+    shelf: new Map(),
     leaseMs: LEASE_MS,
     conversation: (key) => Promise.resolve(key === stored.id ? stored : undefined),
     readable: () => Promise.resolve(true),
@@ -232,7 +255,7 @@ async function oneEndedCall() {
     sessions.mutate(SESSION, (state) => {
       delete state.operations.op;
     });
-  return { inbox, key: stored.id, drop };
+  return { inbox: lateResults(inbox), key: stored.id, drop };
 }
 
 Deno.test('session inbox: an end the session dropped is read as unresolved, with its handovers', async () => {

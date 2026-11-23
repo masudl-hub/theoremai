@@ -6,11 +6,13 @@
  * @module
  */
 export {
-  createMemorySteerInbox,
+  createOwnInbox,
   createSealedConversationStore,
   liveSessionOpen,
   parseLiveOpenMessage,
-  steerUnitOf,
+  personMessageOf,
+  scopedStop,
+  steerRun,
 } from '@theoremjs/web/server';
 export { browserExecution } from './browser-execution.ts';
 export { attachStudioLiveSession } from './live-session-bridge.ts';

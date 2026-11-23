@@ -19,14 +19,16 @@ import {
   checkRequest,
   createMemoryPageToolBroker,
   createMemorySessionStore,
-  createMemorySteerInbox,
+  createOwnInbox,
   createSealedConversationStore,
   createTheoremSessionBoundary,
+  type OwnInbox,
   type PageToolBroker,
   pageToolResultSchema,
+  personMessageOf,
   readBody,
-  type SteerInbox,
-  steerUnitOf,
+  scopedStop,
+  steerRun,
   type TheoremSessionBoundary,
   type TheoremSessionStore,
   theoremConversationRequestSchema,
@@ -41,6 +43,7 @@ import {
 import { newConversationKey } from '../conversation-key.ts';
 import { FORWARD_ROUTE } from '../forwarded-fetch.ts';
 import type { LentKeys } from '../lent-keys.ts';
+import { STUDIO_RUN_SCOPE } from '../policy.ts';
 import type { StructuredRegistration, ToolRegistration } from '../registrations.ts';
 import {
   rewindStudio,
@@ -94,10 +97,10 @@ export type StudioDraftHandlerOptions = {
   /** Where page tool results wait for their run. Default: in memory. */
   pageToolBroker?: PageToolBroker;
   /**
-   * Where a running chat's steers queue, by the inbox id the run sends its page. A host on several
-   * isolates needs one store they all reach. Default: in memory.
+   * Where a running chat's steers queue, by the inbox id the run sends its page, and where its stop
+   * waits. The runs of this handler share it, so a steer reaches a run of this isolate only.
    */
-  steer?: SteerInbox;
+  own?: OwnInbox;
   /** The key chat conversations are sealed with. Default: a new one, for this handler's lifetime. */
   conversationKey?: string;
   /**
@@ -174,7 +177,7 @@ export function createStudioDraftHandler(
   const resolveHost = options.resolveHost ?? lent?.resolveHost;
   const sessionStore = options.sessionStore ?? createMemorySessionStore();
   const pageToolBroker = options.pageToolBroker ?? createMemoryPageToolBroker();
-  const steer = options.steer ?? createMemorySteerInbox();
+  const own = options.own ?? createOwnInbox();
   const conversationStore = createSealedConversationStore({
     keys: { 1: options.conversationKey ?? newConversationKey() },
     keyVersion: 1,
@@ -266,7 +269,7 @@ export function createStudioDraftHandler(
             request: checkRequest(theoremTurnRequestSchema, draft, 'request body'),
             conversations: conversationsOf(boundary),
             signal: request.signal,
-            steer,
+            own,
           }),
         ),
       ),
@@ -344,7 +347,9 @@ export function createStudioDraftHandler(
           'request body',
         );
         // why: the studio's turns run on this server, each by its id; a steer by the conversation reaches none
-        const opened = 'turnId' in asked && (await steer.enqueue(asked.turnId, steerUnitOf(asked)));
+        const opened =
+          'turnId' in asked &&
+          steerRun(own, STUDIO_RUN_SCOPE, asked.turnId, personMessageOf(asked));
         if (!opened) {
           // labels-exempt: internal diagnostic; the user reads session.turn_ended
           throw new TheoremError('request', 'steer: no open run has this inbox', {
@@ -364,7 +369,8 @@ export function createStudioDraftHandler(
           await readBody(request, z.unknown()),
           'request body',
         );
-        const stopped = 'turnId' in asked && (await steer.stop(asked.turnId));
+        const stopped =
+          'turnId' in asked && (await scopedStop(own.stop, STUDIO_RUN_SCOPE).ask(asked.turnId));
         if (!stopped) {
           // labels-exempt: internal diagnostic; the user reads session.turn_ended
           throw new TheoremError('request', 'stop: no open run has this inbox', {

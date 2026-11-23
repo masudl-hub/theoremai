@@ -16,7 +16,7 @@ import {
 } from '../../studio/mod.ts';
 import { type StudioRuntime, streamStudioTurn } from '../../studio/runtime.ts';
 import { createSealedConversationStore } from '../../web/src/server/conversation-store.ts';
-import { createMemorySteerInbox } from '../../web/src/server/steer-inbox.ts';
+import { createOwnInbox } from '../../web/src/server/own-inbox.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
@@ -92,7 +92,7 @@ async function run(runtime: StudioRuntime): Promise<TurnEvent[]> {
       store: createSealedConversationStore({ keys: { 1: newConversationKey() }, keyVersion: 1 }),
     },
     signal: new AbortController().signal,
-    steer: createMemorySteerInbox(),
+    own: createOwnInbox(),
     runtime,
   })) {
     if (line.type !== 'trace' && line.type !== 'steer_inbox' && line.type !== 'conversation') {
@@ -142,7 +142,7 @@ Deno.test('a turn that fails sends its traces ahead of the failure, where the pa
         store: createSealedConversationStore({ keys: { 1: newConversationKey() }, keyVersion: 1 }),
       },
       signal: new AbortController().signal,
-      steer: createMemorySteerInbox(),
+      own: createOwnInbox(),
       runtime: {
         mode: 'byok',
         provider: (): TurnModel => ({

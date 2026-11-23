@@ -418,12 +418,12 @@ Deno.test('a follow-up under a hold that lost the conversation runs nothing', as
   assertEquals(seen.length, 1);
 });
 
-Deno.test('a follow-up on a core that holds no conversation runs nothing', async () => {
+Deno.test('a follow-up under a hold the core never gave runs nothing and ends lost', async () => {
   const { core, seen } = harness();
   const ref = refOf((await say(core, 'hello')).lines);
   const next = await drain(await core.followUp(at(), { ref, hold: 'no-hold' }));
   assertEquals(next.lines, []);
-  assertEquals(next.end, { outcome: 'released' });
+  assertEquals(next.end, { outcome: 'lost' });
   assertEquals(seen.length, 1);
 });
 

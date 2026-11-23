@@ -449,7 +449,7 @@ Deno.test("steer reaches only this session's running turn, and only while it run
       }),
     'session.turn_ended',
   );
-  // Without intake, a steer by the conversation can't reach a reply this server doesn't run.
+  // A steer by the conversation reaches the reply that holds it; none runs now.
   await assertRefused(
     () =>
       transport.steer({
@@ -457,7 +457,7 @@ Deno.test("steer reaches only this session's running turn, and only while it run
         id: 'steer-elsewhere',
         input: { text: 'elsewhere' },
       }),
-    'session.reply_unreachable',
+    'session.turn_ended',
   );
 });
 Deno.test('bad requests get 4xx JSON errors', async () => {
@@ -1825,9 +1825,7 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
   for (const edit of [false, true]) {
     executed.length = 0;
     seen.length = 0;
-    const { createMemorySessionStore, createMemorySteerInbox } = await import(
-      '../../web/src/server/mod.ts'
-    );
+    const { createMemorySessionStore } = await import('../../web/src/server/mod.ts');
     const { interfaceFromProfile, emptyInterfaceTurnSession } = await import(
       '../../src/interface/mod.ts'
     );
@@ -1870,7 +1868,6 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
       session: () => 'same-session',
       sessionStore: store,
       conversationStore: conversations,
-      steerInbox: createMemorySteerInbox(),
     };
     let handler = createTheoremHandler(options);
     const direct = transportFor((request) => handler(request));

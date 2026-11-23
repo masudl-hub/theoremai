@@ -17,7 +17,7 @@ import {
   createSealedConversationStore,
   unknownConversation,
 } from '../../web/src/server/conversation-store.ts';
-import { createMemorySteerInbox } from '../../web/src/server/steer-inbox.ts';
+import { createOwnInbox } from '../../web/src/server/own-inbox.ts';
 
 function concierge() {
   const compiled = compileWorkspace(workspaceFromDraft(createExampleDraft()), ON_OWN_KEYS);
@@ -54,7 +54,7 @@ async function message(
     request: { input: { text: 'What is my cat called?' }, ...request },
     conversations: { sessionId: 'visitor', store },
     signal: new AbortController().signal,
-    steer: createMemorySteerInbox(),
+    own: createOwnInbox(),
     runtime: { mode: 'byok', provider: model(sent) },
   })) {
     lines.push(line as { type: string });

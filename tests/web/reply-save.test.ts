@@ -125,7 +125,7 @@ function steps(
   } = (reply) => ({ blocks: reply.blocks, told: [] }),
 ) {
   const seen: ReplyToSave[] = [];
-  const after: { ended: string; told: readonly string[] }[] = [];
+  const after: { ended: string; told: readonly string[]; landed: readonly string[] }[] = [];
   const compacted: number[] = [];
   const reported: unknown[] = [];
   const saving: ReplySaving = {
@@ -224,7 +224,7 @@ Deno.test('the app shapes a reply before its save, and the store is told what it
     appended: shapedBlocks,
   });
   assertEquals(writes[0].next.transcript, shapedBlocks);
-  assertEquals(app.after, [{ ended: 'committed', told: ['item-1'] }]);
+  assertEquals(app.after, [{ ended: 'committed', told: ['item-1'], landed: ['steer-1'] }]);
   const ref = lines.findLast((line) => line.type === 'conversation');
   assert(ref?.type === 'conversation');
   const kept = await store.read(PERSON, ref.ref);
@@ -256,7 +256,7 @@ Deno.test('a reply that fails is worded by the app that shapes it, from the fail
   assertEquals(app.seen[0].failure?.type, 'error');
   assertEquals(kinds(app.seen[0].blocks), ['user-text', 'text'], 'the core adds no error block');
   assertEquals(writes[0].context?.ended, 'failed');
-  assertEquals(app.after, [{ ended: 'failed', told: [] }]);
+  assertEquals(app.after, [{ ended: 'failed', told: [], landed: [] }]);
 });
 
 Deno.test('a shaping step that throws on a failed reply saves nothing and keeps the failure', async () => {

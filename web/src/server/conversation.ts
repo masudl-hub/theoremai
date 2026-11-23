@@ -422,7 +422,11 @@ async function saveReply(
     runner.saving?.report(err);
   }
   try {
-    await runner.saving?.after?.({ ended: saving.ended, told: reply.context.told });
+    await runner.saving?.after?.({
+      ended: saving.ended,
+      told: reply.context.told,
+      landed: landedIn(saving.events),
+    });
   } catch (err) {
     runner.saving?.report(err);
   }
@@ -549,7 +553,11 @@ export type ReplySaving = {
   /** Shapes the reply before each save. */
   before?: (reply: ReplyToSave) => Promise<ShapedReply>;
   /** Runs once a save is written. What it throws is reported, and the save stands. */
-  after?: (saved: { ended: ReplyEnd; told: readonly string[] }) => Promise<void>;
+  after?: (saved: {
+    ended: ReplyEnd;
+    told: readonly string[];
+    landed: readonly string[];
+  }) => Promise<void>;
   /**
    * Runs once any write of the reply lands, with the blocks it added: saves the end of each call
    * among them that went on in the background and has ended already. What it throws is reported.

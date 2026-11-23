@@ -63,7 +63,7 @@ export type {
   SaveHooks,
   WakeArgs,
 } from './conversation-core.ts';
-export { followedUp } from './conversation-core.ts';
+export { followedUp, type NamedHold, namedRun } from './conversation-core.ts';
 export { type ChatReader, detachedEnding } from './conversation-inbox.ts';
 export {
   type ConversationSnapshot,
@@ -118,6 +118,15 @@ export {
 export { createTheoremMcpHandler, type TheoremMcpHandlerOptions } from './mcp-handler.ts';
 export { createMemoryNotifier, type TheoremNotifier } from './notifier.ts';
 export {
+  createOwnInbox,
+  type OwnInbox,
+  openRun,
+  personMessageOf,
+  type RunInbox,
+  scopedStop,
+  steerRun,
+} from './own-inbox.ts';
+export {
   createMemoryPageToolBroker,
   type PageToolBroker,
   type PageToolResult,
@@ -150,14 +159,6 @@ export {
   type TheoremSessionStore,
   theoremSessionStateSchema,
 } from './session-store.ts';
-export {
-  createMemorySteerInbox,
-  type SteerInbox,
-  type SteerUnit,
-  steerStage,
-  steerUnitOf,
-  stopOnRequest,
-} from './steer-inbox.ts';
 export { tellEveryResult } from './tell-every-result.ts';
 export { sessionToolCoordinator } from './tool-operations.ts';
 export { kernelTurnInput, liveSessionOpen } from './turn-input.ts';

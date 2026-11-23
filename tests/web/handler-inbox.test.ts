@@ -285,7 +285,7 @@ Deno.test("a page's wake tells an item that waits in the app's inbox", async () 
   assertEquals(steps, ['before:committed', 'after:committed:note-1']);
 });
 
-Deno.test("a steer reaches the running reply itself, not the app's inbox", async () => {
+Deno.test('a steer under an app inbox with no intake is refused, and the reply goes on', async () => {
   let free = () => {};
   const script: Script = {
     until: new Promise<void>((resolve) => {
@@ -297,16 +297,18 @@ Deno.test("a steer reaches the running reply itself, not the app's inbox", async
     transport.turn({ input: { text: 'first' }, turnId: 'turn-1' }, onLine),
   );
   while (read.length === 0) await new Promise((resolve) => setTimeout(resolve, 1));
-  await transport.steer({
-    turnId: 'turn-1',
-    id: 'steer-1',
-    input: { text: 'steered' },
-  });
+  const refused = await transport
+    .steer({ turnId: 'turn-1', id: 'steer-1', input: { text: 'steered' } })
+    .then(
+      () => null,
+      (error: unknown) => error,
+    );
+  assert(refused !== null, 'a steer with no intake was taken');
   free();
   const lines = await turn;
   assertEquals(
     lines.flatMap((line) => (line.type === 'stage' ? (line.injected ?? []) : [])),
-    [{ id: 'steer-1', messages: [{ role: 'user', content: 'steered' }] }],
+    [],
   );
   assertEquals((await inbox.read(KEEPER)).items, []);
 });

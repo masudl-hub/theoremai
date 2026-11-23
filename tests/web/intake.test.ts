@@ -725,8 +725,9 @@ Deno.test("a page stops a reply that runs elsewhere through the app's stop, and 
 });
 
 Deno.test("a stop by the conversation, with no app stop, can't reach the reply and says so, not that it ended", async () => {
-  const made = app();
-  await made.run((onLine) => made.transport.turn({ id: 'm1', input: { text: 'first' } }, onLine));
+  const elsewhere: { running?: RunningReply } = {};
+  const made = app({}, {}, { elsewhere });
+  await runningElsewhere(made, elsewhere);
   const refused = await assertRejects(() => made.transport.stop({ conversation: made.refOf() }));
   assert(refused instanceof TheoremStreamError);
   assertEquals(refused.copy, { key: 'session.reply_unreachable' });

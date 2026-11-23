@@ -2,7 +2,6 @@ import { assertEquals } from '@std/assert';
 import { defaultKernelScope, type ProfileDefinition, TheoremError } from '../../mod.ts';
 import {
   createMemoryConversationStore,
-  createMemorySteerInbox,
   createTheoremConversationCore,
 } from '../../web/src/server/mod.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -22,12 +21,10 @@ const PROFILE: ProfileDefinition = {
 };
 
 Deno.test('the core refuses a steer over inputs.maxTextChars, with no handler in front', async () => {
-  const steerInbox = createMemorySteerInbox();
   const core = createTheoremConversationCore({
     operationRetentionMs: TEST_OPERATION_RETENTION_MS,
     profile: PROFILE,
     provider: () => fixtureHostOptions({ complete: () => (async function* () {})() }),
-    steerInbox,
     conversationStore: createMemoryConversationStore(),
   });
   const at = { sessionId: 's-1', signal: new AbortController().signal };

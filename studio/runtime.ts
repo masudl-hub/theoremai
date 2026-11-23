@@ -4,6 +4,7 @@ import {
   type ProfileDefinition,
   registerTraceDestination,
   resolveObservabilityPolicy,
+  type StageHandler,
   TheoremError,
   type TraceRecord,
   type TurnEvent,
@@ -47,22 +48,22 @@ import {
   checkRequest,
   conversationView,
   messageReply,
+  namedRun,
   type OpenedConversation,
+  type OwnInbox,
   openConversation,
+  openRun,
   postedMessage,
   type ReplyLine,
   type ReplyRunner,
   readerConversationHost,
   rewindConversation,
-  type SteerInbox,
   startConversation,
   statelessRefusal,
-  steerStage,
-  stopOnRequest,
   type TheoremConversationStore,
   waitingCalls,
 } from '@theoremjs/web/server';
-import { STUDIO_TRACE_DESTINATION } from './policy.ts';
+import { STUDIO_RUN_SCOPE, STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { studioReader } from './reader.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import type { StudioRunPayload } from './run-payload.ts';
@@ -164,7 +165,7 @@ function studioRunner(args: {
   effort?: string;
   stated?: StatedTurn;
   signal: AbortSignal;
-  onStage?: ReturnType<typeof steerStage>;
+  onStage?: StageHandler;
 }): ReplyRunner {
   const { scope, profile, runtime, metadata, signal } = args;
   return {
@@ -242,6 +243,9 @@ function answerPaused(
   );
 }
 
+/** How long a studio run's hold keeps its inbox after it last renewed, in milliseconds. */
+const STUDIO_LEASE_MS = 60_000;
+
 /**
  * One message, run against the conversation the host keeps: the paused calls it
  * walks away from settle first, then the reply runs.
@@ -252,7 +256,7 @@ export async function* streamStudioTurn(
     conversations: StudioConversations;
     signal: AbortSignal;
     /** Where the turn's mid-turn steers queue, and its stop arrives. */
-    steer: SteerInbox;
+    own: OwnInbox;
   },
 ): AsyncGenerator<ReplyLine | StudioTraceLine | StudioSteerLine> {
   const { request, runtime } = args;
@@ -287,51 +291,61 @@ export async function* streamStudioTurn(
 
   // Random and picked here, so only the run's own browser can steer it.
   const inbox = globalThis.crypto.randomUUID();
-  await args.steer.open(inbox);
-  const stop = new AbortController();
-  stopOnRequest(args.steer, inbox, stop);
-  const signal = AbortSignal.any([args.signal, stop.signal]);
+  const run = openRun(args.own, STUDIO_RUN_SCOPE, inbox, STUDIO_LEASE_MS);
   const steerLine: StudioSteerLine = { type: 'steer_inbox', inbox };
   yield steerLine;
   try {
-    yield* withRunTraces((metadata): AsyncIterable<ReplyLine> => {
-      const runner = studioRunner({
-        scope,
-        profile,
-        runtime,
-        metadata,
-        sessionPermissions,
-        ...(request.model ? { model: request.model } : {}),
-        ...(request.effort ? { effort: request.effort } : {}),
-        ...(request.stated ? { stated: request.stated } : {}),
-        signal,
-        onStage: bothStages(
-          steerStage(args.steer, inbox),
-          toolReaderStage(toolReaders(args.customTools), async (reader, state) => {
-            await runtime.onReaderCall?.();
-            return scope.runDecision(
-              { profile: reader.profile, state, questions: reader.questions, signal },
-              runtimeProvider(runtime, scope, scope.profiles.get(reader.profile)),
-            );
-          }),
+    yield* withRunTraces(
+      (metadata): AsyncIterable<ReplyLine> =>
+        namedRun(
+          {
+            own: args.own,
+            scope: STUDIO_RUN_SCOPE,
+            name: inbox,
+            run,
+            leaseMs: STUDIO_LEASE_MS,
+            signal: args.signal,
+          },
+          ({ stage, signal }) => {
+            const runner = studioRunner({
+              scope,
+              profile,
+              runtime,
+              metadata,
+              sessionPermissions,
+              ...(request.model ? { model: request.model } : {}),
+              ...(request.effort ? { effort: request.effort } : {}),
+              ...(request.stated ? { stated: request.stated } : {}),
+              signal,
+              onStage: bothStages(
+                stage,
+                toolReaderStage(toolReaders(args.customTools), async (reader, state) => {
+                  await runtime.onReaderCall?.();
+                  return scope.runDecision(
+                    { profile: reader.profile, state, questions: reader.questions, signal },
+                    runtimeProvider(runtime, scope, scope.profiles.get(reader.profile)),
+                  );
+                }),
+              ),
+            });
+            if (!host || !opened) {
+              return runner.run({
+                input: message.input,
+                model: request.model,
+                effort: request.effort,
+                ...(request.stated ? { stated: request.stated } : {}),
+              });
+            }
+            const walkAway = walked.map(({ reference, invoke }) => ({
+              ...reference,
+              events: scope.invokeTool({ ...invoke, metadata, signal }),
+            }));
+            return messageReply({ host, opened, message, walkAway, runner });
+          },
         ),
-      });
-      if (!host || !opened) {
-        return runner.run({
-          input: message.input,
-          model: request.model,
-          effort: request.effort,
-          ...(request.stated ? { stated: request.stated } : {}),
-        });
-      }
-      const walkAway = walked.map(({ reference, invoke }) => ({
-        ...reference,
-        events: scope.invokeTool({ ...invoke, metadata, signal }),
-      }));
-      return messageReply({ host, opened, message, walkAway, runner });
-    });
+    );
   } finally {
-    await args.steer.close(inbox);
+    run.close();
   }
 }
 

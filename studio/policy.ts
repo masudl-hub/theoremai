@@ -156,3 +156,6 @@ export function modelBindingViolation(
   }
   return null;
 }
+
+/** The scope of the studio's runs in the own inbox: a run's id is random, and only its browser knows it. */
+export const STUDIO_RUN_SCOPE = 'studio';

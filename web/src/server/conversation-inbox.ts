@@ -1,7 +1,8 @@
 /**
- * The handler's conversation inbox: each chat's late results, kept in the session store. An item
- * is a detached call that ended; the transcript says whether a saved reply told it, and the
- * session keeps who holds the chat and which replies were handed what.
+ * The handler's conversation inbox: each chat's late results, kept in the session store, and the
+ * person's messages, kept in memory. A late result is a detached call that ended; the transcript
+ * says whether a saved reply told it, and the session keeps who holds the chat and which replies
+ * were handed what. A message is told once a saved reply landed it.
  *
  * @module
  */
@@ -19,6 +20,7 @@ import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import { type ClientTurnOptions, forClient } from '@theoremjs/agents/host';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import type { DetachedEnding, StoredConversation } from './conversation-store.ts';
+import { type MessageShelf, type OwnItem, ownKey, type PersonMessage } from './own-inbox.ts';
 import type { MutableStore } from './session-authority.ts';
 import type {
   SessionConversationInbox,
@@ -123,8 +125,35 @@ export type SessionConversationInboxOptions = {
   readable: (operation: SettledOperation) => Promise<boolean>;
   /** The profile's labels, for the words of an end the session does not hold. */
   labels: Profile['labels'];
+  /** The person's messages, by session and chat: the handler's, so every request reads them. */
+  shelf: MessageShelf;
   now?: () => number;
 };
+
+/** The inbox of one session's chats, and the save that tells a message. */
+export type SessionOwnInbox = ConversationInbox<OwnItem> & {
+  /** Marks the messages `ids` told: a saved reply landed them. */
+  settle(key: string, ids: readonly string[]): Promise<void>;
+};
+
+/**
+ * Saves the person's message for the reply that holds the chat, and moves the inbox's version so a
+ * hold that is about to let go reads it.
+ */
+export async function arrivePersonMessage(
+  options: Pick<SessionConversationInboxOptions, 'sessions' | 'sessionId' | 'shelf'>,
+  key: string,
+  message: PersonMessage,
+): Promise<void> {
+  const scoped = ownKey(options.sessionId, key);
+  const kept = options.shelf.get(scoped) ?? new Map<string, PersonMessage>();
+  kept.set(message.id, message);
+  options.shelf.set(scoped, kept);
+  await options.sessions.mutate(options.sessionId, (state) => {
+    state.inbox ??= { version: 0, conversations: {} };
+    state.inbox.version += 1;
+  });
+}
 
 /** The operation ids a chat's saved replies told, those its paused reply holds, and its untold calls. */
 function transcriptState(conversation: StoredConversation | undefined) {
@@ -166,7 +195,7 @@ function operationOf(state: TheoremSessionState, id: string): SessionToolOperati
 /** Creates the {@link ConversationInbox} of one session's chats, keyed by `StoredConversation.id`. */
 export function sessionConversationInbox(
   options: SessionConversationInboxOptions,
-): ConversationInbox<LateResultItem> {
+): SessionOwnInbox {
   const { sessions, sessionId, leaseMs } = options;
   const now = options.now ?? Date.now;
 
@@ -195,6 +224,23 @@ export function sessionConversationInbox(
     handovers: [...(entry?.handovers ?? [])],
     outcome,
   });
+  const messageItem = (message: PersonMessage, entry: SessionInboxEntry | undefined) => ({
+    ...message,
+    handovers: [...(entry?.handovers ?? [])],
+  });
+  const shelfKey = (key: string) => ownKey(sessionId, key);
+  /** The person's messages that wait: not told, not given up, and no live hold has them. */
+  const waitingMessages = (
+    inbox: SessionConversationInbox,
+    key: string,
+    at: number,
+  ): PersonMessage[] =>
+    [...(options.shelf.get(shelfKey(key))?.values() ?? [])].filter((message) => {
+      const entry = Object.hasOwn(inbox.entries, message.id)
+        ? inbox.entries[message.id]
+        : undefined;
+      return !entry?.givenUp && !(entry && heldLive(inbox, entry, at));
+    });
   /** The call's end; undefined while it runs. */
   const endOf = (state: TheoremSessionState, call: DetachedCall) =>
     detachedEnd(call, operationOf(state, call.operationId), options.labels);
@@ -246,15 +292,23 @@ export function sessionConversationInbox(
   ) => {
     const { calls } = await untoldCalls(key);
     const wanted = calls.filter((call) => ids.includes(call.operationId));
-    return change(key, (inbox, state, at) => {
+    return change(key, (inbox, state, at): OwnItem[] => {
       if (!has(inbox, hold, at)) return [];
-      return wanted.flatMap((call) => {
+      const ended = wanted.flatMap((call): OwnItem[] => {
         const outcome = waiting(inbox, state, call, at);
         if (!outcome) return [];
         const entry = entryOf(inbox, call.operationId);
         act(entry, at);
         return [item(call.operationId, outcome, entry)];
       });
+      const messages = waitingMessages(inbox, key, at)
+        .filter((message) => ids.includes(message.id))
+        .map((message) => {
+          const entry = entryOf(inbox, message.id);
+          act(entry, at);
+          return messageItem(message, entry);
+        });
+      return [...messages, ...ended];
     });
   };
   const lease = (inbox: SessionConversationInbox, hold: string, at: number) => {
@@ -282,12 +336,14 @@ export function sessionConversationInbox(
         return true;
       });
     },
-    async read(key): Promise<InboxRead<LateResultItem>> {
+    async read(key): Promise<InboxRead<OwnItem>> {
       const { calls } = await untoldCalls(key);
       const state = await sessions.read(sessionId);
       const inbox = state.inbox?.conversations[key] ?? { leasedUntil: 0, entries: {} };
       const at = now();
-      const items: LateResultItem[] = [];
+      const items: OwnItem[] = waitingMessages(inbox, key, at).map((message) =>
+        messageItem(message, inbox.entries[message.id]),
+      );
       for (const call of calls) {
         const id = call.operationId;
         const outcome = waiting(inbox, state, call, at);
@@ -305,7 +361,11 @@ export function sessionConversationInbox(
         for (const id of ids) {
           const entry = Object.hasOwn(inbox.entries, id) ? inbox.entries[id] : undefined;
           if (entry?.handed?.hold !== hold || entry.handed.reply !== reply) continue;
-          if (chat.told.has(id)) {
+          const kept =
+            options.shelf.get(shelfKey(key))?.has(id) ||
+            chat.untold.some((call) => call.operationId === id);
+          const gone = chat.told.has(id) || !kept;
+          if (gone) {
             delete inbox.entries[id];
             continue;
           }
@@ -326,6 +386,14 @@ export function sessionConversationInbox(
           handTo(entry, hold, handover, at);
           return [item(call.operationId, outcome, entry)];
         });
+      });
+    },
+    async settle(key, ids) {
+      const kept = options.shelf.get(shelfKey(key));
+      for (const id of ids) kept?.delete(id);
+      if (kept?.size === 0) options.shelf.delete(shelfKey(key));
+      await change(key, (inbox) => {
+        for (const id of ids) delete inbox.entries[id];
       });
     },
     giveUp(key, hold, ids) {

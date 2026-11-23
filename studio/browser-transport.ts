@@ -20,6 +20,7 @@ import {
   withFailedTraces,
 } from '@theoremjs/web/client';
 import type { ReplyLine } from '@theoremjs/web/server';
+import { STUDIO_RUN_SCOPE } from './policy.ts';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import type { StudioRuntimeBase } from './runtime-scope.ts';
@@ -175,7 +176,7 @@ export function createBrowserStudioTransport(
   const session = browserEngine().then((run) => ({
     run,
     ...withBrowserExecution(runtime, run),
-    steer: run.createMemorySteerInbox(),
+    own: run.createOwnInbox(),
     conversations: pageConversations(run, options.conversationKey),
   }));
   // why: a failed load surfaces on the run that awaits it, not as an unhandled rejection.
@@ -203,14 +204,14 @@ export function createBrowserStudioTransport(
     async turn(request, onEvent, signal) {
       try {
         await deliver(
-          after(session, ({ run, runtime: inPage, conversations, steer }) =>
+          after(session, ({ run, runtime: inPage, conversations, own }) =>
             run.streamStudioTurn({
               ...compiled,
               runtime: inPage,
               request,
               conversations,
               signal: runSignal(runtime, signal),
-              steer,
+              own,
             }),
           ),
           payload,
@@ -254,8 +255,8 @@ export function createBrowserStudioTransport(
     async steer(request) {
       // why: the studio runs every turn on this page, so a steer names one by its id
       const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
-      const { run, steer } = await session;
-      if (!inbox || !(await steer.enqueue(inbox, run.steerUnitOf(request)))) {
+      const { run, own } = await session;
+      if (!inbox || !run.steerRun(own, STUDIO_RUN_SCOPE, inbox, run.personMessageOf(request))) {
         throw new TheoremError('request', 'The turn has ended', {
           copy: { key: 'session.turn_ended' },
         }); // labels-exempt: internal diagnostic
@@ -264,8 +265,8 @@ export function createBrowserStudioTransport(
     },
     async stop(request) {
       const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
-      const { steer } = await session;
-      if (!inbox || !(await steer.stop(inbox))) {
+      const { run, own } = await session;
+      if (!inbox || !(await run.scopedStop(own.stop, STUDIO_RUN_SCOPE).ask(inbox))) {
         throw new TheoremError('request', 'The turn has ended', {
           copy: { key: 'session.turn_ended' },
         }); // labels-exempt: internal diagnostic

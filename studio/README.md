@@ -302,7 +302,7 @@ With `lent`, the handler also runs chats, calls, decisions, and embeddings. A dr
 | `spend` | Spends one `decision`, `call`, or `agent` turn for whoever sent the request, before it runs. Throw a `TheoremError` to refuse it; the screen shows its wording. Default: nothing is counted. |
 | `resolveHost` | Resolves the names the connection test calls, so the network guard refuses one that answers a private address. Workers have no DNS lookup: pass `dnsOverHttpsResolver(...)`. Default: `lent.resolveHost`. |
 | `onProbePassed` | Gets each probed text that some guardrail boundary let through, after the reply. |
-| `sessionStore`, `pageToolBroker`, `steer` | Where visitor sessions, page tool results, and a running chat's steers are kept. Default: in memory. A host on several isolates needs stores they all reach. |
+| `sessionStore`, `pageToolBroker`, `own` | Where visitor sessions, page tool results, and a running chat's steers and stops are kept. Default: in memory. A host on several isolates needs stores they all reach. |
 | `conversationKey` | The key chat conversations are sealed with. Default: a new one for this handler's lifetime. A restart, or another isolate, then cannot open a chat, and the chat continues from the page's transcript. Pass one key to every isolate to keep each conversation on the server. |
 | `draftNetwork` | True only when the handler serves the builder alone, on their own machine, as the command's does. A connection test then keeps to the draft's network guardrail. Otherwise it reaches public hosts only. |
 

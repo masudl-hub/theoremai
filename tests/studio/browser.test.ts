@@ -16,7 +16,7 @@ import { withPageToolDispatch } from '../../web/src/client/page-dispatch.ts';
 import type { ChatLine, ClientTurnEvent } from '../../web/src/client/transport.ts';
 import { issuedOperationId } from '../../web/src/client/turn-client.ts';
 import { createSealedConversationStore } from '../../web/src/server/conversation-store.ts';
-import { createMemorySteerInbox } from '../../web/src/server/steer-inbox.ts';
+import { createOwnInbox } from '../../web/src/server/own-inbox.ts';
 import { replyText } from '../fixtures/reply.ts';
 
 function payload() {
@@ -60,7 +60,7 @@ Deno.test('browser and HTTP studio transports preserve turn events and traces', 
           }),
         },
         signal: new AbortController().signal,
-        steer: createMemorySteerInbox(),
+        own: createOwnInbox(),
         runtime,
       }))
         lines.push(line);

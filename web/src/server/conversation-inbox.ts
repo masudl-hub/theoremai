@@ -70,9 +70,7 @@ export function detachedEnd(
  * apart. A block saved before `detached` was kept has only its background phase. Undefined for a
  * call that never detached.
  */
-export function detachedAt(
-  tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool'],
-): number | undefined {
+function detachedAt(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): number | undefined {
   return tool.detached?.at ?? (tool.state?.phase === 'background' ? tool.state.at : undefined);
 }
 

@@ -41,7 +41,7 @@ export interface PersonMessage extends InboxItem<'person_message'> {
 export type OwnItem = LateResultItem | PersonMessage;
 
 /** Whether `item` is a person's message. */
-export function isPersonMessage(item: OwnItem): item is PersonMessage {
+function isPersonMessage(item: OwnItem): item is PersonMessage {
   return item.kind === 'person_message';
 }
 
@@ -74,7 +74,7 @@ export type MemoryHoldStop = HoldStop & {
 type RunningHold = { stopped: boolean; settle: Set<(stopped: boolean) => void> };
 
 /** Creates the memory stop. A stop asked reaches every model run of the conversation under way. */
-export function createMemoryHoldStop(): MemoryHoldStop {
+function createMemoryHoldStop(): MemoryHoldStop {
   const holds = new Map<string, Map<string, RunningHold>>();
   const holdOf = (conversation: string, hold: string): RunningHold => {
     const byHold = holds.get(conversation) ?? new Map<string, RunningHold>();

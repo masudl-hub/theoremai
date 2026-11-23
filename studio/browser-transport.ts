@@ -257,9 +257,7 @@ export function createBrowserStudioTransport(
       const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
       const { run, own } = await session;
       if (!inbox || !run.steerRun(own, STUDIO_RUN_SCOPE, inbox, run.personMessageOf(request))) {
-        throw new TheoremError('request', 'The turn has ended', {
-          copy: { key: 'session.turn_ended' },
-        }); // labels-exempt: internal diagnostic
+        throw turnEnded();
       }
       return {};
     },
@@ -267,9 +265,7 @@ export function createBrowserStudioTransport(
       const inbox = 'turnId' in request ? inboxes.get(request.turnId) : undefined;
       const { run, own } = await session;
       if (!inbox || !(await run.scopedStop(own.stop, STUDIO_RUN_SCOPE).ask(inbox))) {
-        throw new TheoremError('request', 'The turn has ended', {
-          copy: { key: 'session.turn_ended' },
-        }); // labels-exempt: internal diagnostic
+        throw turnEnded();
       }
     },
     traces,
@@ -408,4 +404,12 @@ export function createBrowserStudioEmbeddingTransport(
     },
     traces,
   };
+}
+
+/** The refusal of a steer or stop for a turn that is not running. */
+function turnEnded(): TheoremError {
+  // labels-exempt: internal diagnostic; the user reads session.turn_ended
+  return new TheoremError('request', 'The turn has ended', {
+    copy: { key: 'session.turn_ended' },
+  });
 }

@@ -352,11 +352,23 @@ async function* unheld(lines: AsyncIterable<ReplyLine>): Reply {
   return { outcome: 'released' };
 }
 
+/** Aborts `target` when the stop asks for the reply; `over` ends the wait. */
+function abortOnStop(
+  stop: { stopped(over: AbortSignal): Promise<boolean> },
+  over: AbortSignal,
+  target: AbortController,
+  onError: (err: unknown) => void,
+): void {
+  stop.stopped(over).then((stopped) => {
+    if (stopped) target.abort();
+  }, onError);
+}
+
 /**
  * The refusal of a stop or steer by conversation for a reply the store says runs, which this
  * process does not hold. Not `turn_ended`: the reply may still be running.
  */
-export function replyUnreachable(): TheoremError {
+function replyUnreachable(): TheoremError {
   // labels-exempt: internal diagnostic; the user reads session.reply_unreachable
   return new TheoremError('request', 'this host cannot reach a reply that runs elsewhere', {
     copy: { key: 'session.reply_unreachable' },
@@ -874,12 +886,7 @@ async function* chatTurn<Item extends InboxItem>(
   const provider = await ctx.options.provider(at, turn.model);
   const host = await at.host;
   const over = new AbortController();
-  held.stop.stopped(over.signal).then(
-    (stopped) => {
-      if (stopped) stop.abort();
-    },
-    (err) => ctx.options.onError?.(err, at),
-  );
+  abortOnStop(held.stop, over.signal, stop, (err) => ctx.options.onError?.(err, at));
   const landed: string[] = [];
   try {
     const onStage = stagesInOrder(
@@ -1285,12 +1292,7 @@ export function namedRun(
   return namedHolding(args, (held) => {
     const stop = new AbortController();
     const over = new AbortController();
-    held.stop.stopped(over.signal).then(
-      (stopped) => {
-        if (stopped) stop.abort();
-      },
-      (err) => args.onError?.(err),
-    );
+    abortOnStop(held.stop, over.signal, stop, (err) => args.onError?.(err));
     const signal = AbortSignal.any([args.signal, stop.signal, held.run.signal]);
     return (async function* () {
       const landed: string[] = [];

@@ -408,17 +408,25 @@ function chatInbox<Item extends InboxItem>(
   return { inbox, key: opened.conversation.id, leaseMs };
 }
 
-/** The values `produce` sends, as it sends them, then its end or what it threw. */
+/**
+ * The values `produce` sends, as it sends them, then its end or what it threw. `send` settles once
+ * the consumer has taken the value and gone on past it, so the producer never runs ahead of what
+ * the consumer has handled. A producer awaits each `send`. When the consumer stops early, each
+ * `send` still waiting settles.
+ */
 async function* sent<T, R>(
-  produce: (send: (value: T) => void) => Promise<R>,
+  produce: (send: (value: T) => Promise<void>) => Promise<R>,
 ): AsyncGenerator<T, R> {
-  const queue: T[] = [];
+  const queue: { value: T; handled: () => void }[] = [];
   let ended: { failed: false; value: R } | { failed: true; failure: unknown } | undefined;
   let wake = () => {};
-  produce((value) => {
-    queue.push(value);
-    wake();
-  }).then(
+  produce(
+    (value) =>
+      new Promise<void>((handled) => {
+        queue.push({ value, handled });
+        wake();
+      }),
+  ).then(
     (value) => {
       ended = { failed: false, value };
       wake();
@@ -428,16 +436,22 @@ async function* sent<T, R>(
       wake();
     },
   );
-  for (;;) {
-    if (queue.length > 0) {
-      yield queue.splice(0, 1)[0];
-      continue;
+  try {
+    for (;;) {
+      const next = queue.shift();
+      if (next) {
+        yield next.value;
+        next.handled();
+        continue;
+      }
+      if (ended?.failed) throw ended.failure;
+      if (ended) return ended.value;
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
     }
-    if (ended?.failed) throw ended.failure;
-    if (ended) return ended.value;
-    await new Promise<void>((resolve) => {
-      wake = resolve;
-    });
+  } finally {
+    for (const waiting of queue.splice(0)) waiting.handled();
   }
 }
 
@@ -472,7 +486,7 @@ type Holding<Item extends InboxItem> = {
   run(
     start: ReplyStart,
     lines: (held: HeldRun<Item>) => AsyncIterable<ReplyLine>,
-    send: (line: ReplyLine) => void,
+    send: (line: ReplyLine) => Promise<void>,
   ): Promise<ConversationRun>;
   /** Lets the chat go under `hold`, reading again each time an item arrives first. */
   letGo(hold: string): Promise<void>;
@@ -527,11 +541,11 @@ function holdingOver<Kept extends InboxItem, Item extends InboxItem>(
           const ref = chat.ref();
           // why: The page moves a message it shows as waiting into the reply that reads it, as the reply starts.
           if (run.opened.length > 0 && ref !== null) {
-            send({ type: 'conversation', ref, opened: run.opened.map((item) => item.id) });
+            await send({ type: 'conversation', ref, opened: run.opened.map((item) => item.id) });
           }
           for await (const line of lines(held)) {
             chat.seen(line);
-            send(line);
+            await send(line);
           }
         },
         gaveUp: kept.gaveUp,

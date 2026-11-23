@@ -617,3 +617,26 @@ Deno.test("a block's host values reach the page that reads the conversation", as
     ],
   );
 });
+
+Deno.test('a stage after a line sees that line as delivered, however slowly the page takes it', async () => {
+  let delivered = 0;
+  const seenAtStage: number[] = [];
+  const { core } = harness({
+    onStage: ({ stage }) => {
+      if (stage === 'before_end') seenAtStage.push(delivered);
+      return undefined;
+    },
+  });
+  const reply = await core.message(at(), { input: { text: 'hello' } });
+  for (;;) {
+    const next = await reply.next();
+    if (next.done) break;
+    if (next.value.type === 'text') {
+      // why: The page's own send of the line takes time, as a phone's does.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      delivered += 1;
+    }
+  }
+  assertEquals(delivered, 1);
+  assertEquals(seenAtStage, [1]);
+});

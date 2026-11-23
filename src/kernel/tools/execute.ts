@@ -1779,7 +1779,7 @@ async function* executeAgentTool(args: {
         // why: A stopped agent throws before it returns its usage.
         if (spent) args.stages?.spent?.(spent);
       }
-      if (event.type === 'attempt' || (event.type === 'resend' && event.withdrawn > 0)) {
+      if (event.type === 'attempt' || (event.type === 'resend' && event.withdrawn)) {
         retried = true;
       }
       if (event.type === 'text' || event.type === 'structured_draft') {

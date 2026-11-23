@@ -601,8 +601,7 @@ function assertResumption(
 }
 
 /**
- * A text profile that sends failed calls again says what becomes of the words they wrote; one that
- * does not sets no `partialReply`.
+ * A text profile that sends failed calls again says what becomes of the words they wrote.
  *
  * why: Theorem holds no default for what a reader is shown: the profile chooses.
  */
@@ -616,15 +615,9 @@ function assertPartialReply(
   if (partialReply !== undefined && !PARTIAL_REPLY_MODES.some((mode) => mode === partialReply)) {
     throw fail(`partialReply must be ${PARTIAL_REPLY_MODES.join(' or ')}; got '${partialReply}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const resends = resendsFailedCalls(type, { autoContinue });
-  if (resends && partialReply === undefined) {
+  if (resendsFailedCalls(type, { autoContinue }) && partialReply === undefined) {
     throw fail(
       "partialReply is required when autoContinue names provider_error or stream_incomplete: say whether a failed call's words are taken back (retract) or kept and continued (continue)", // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
-  if (!resends && partialReply !== undefined) {
-    throw fail(
-      'partialReply does nothing unless this is a text profile whose autoContinue names provider_error or stream_incomplete', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }

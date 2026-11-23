@@ -180,12 +180,6 @@ function resendsOf(events: TurnEvent[]) {
   return events.flatMap((event) => (event.type === 'resend' ? [event.withdrawn] : []));
 }
 
-/** How many text events reached the reader before the first resend. */
-function shownBefore(events: TurnEvent[]): number {
-  const resend = events.findIndex((event) => event.type === 'resend');
-  return events.slice(0, resend).filter((event) => event.type === 'text').length;
-}
-
 function keptText(events: TurnEvent[]): string {
   return replyOf(keptReply(events));
 }
@@ -206,7 +200,7 @@ Deno.test('retract: a call that failed part-way is sent again as it was, and its
   assertEquals(requests[1]?.history, requests[0]?.history);
   assertEquals(finalStop(events)?.kind, 'completed');
   assertEquals(errorsOf(events), []);
-  assertEquals(resendsOf(events), [shownBefore(events)]);
+  assertEquals(resendsOf(events), [true]);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -221,7 +215,7 @@ Deno.test("retract: the failed call's words are withdrawn, and the sources they 
     [{ type: 'text', text: 'Soil reads' }, CITED, ...CUT_SHORT],
     ANSWER,
   ]);
-  assertEquals(resendsOf(events), [2]);
+  assertEquals(resendsOf(events), [true]);
   assertEquals(
     keptReply(events).filter((event) => event.type === 'citation'),
     [],
@@ -257,7 +251,7 @@ Deno.test('a failed call that showed nothing is sent again with nothing withdraw
     }),
   );
   const { events } = await runScript('resume_retract_empty', [BUSY, ANSWER]);
-  assertEquals(resendsOf(events), [0]);
+  assertEquals(resendsOf(events), [false]);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -282,7 +276,7 @@ Deno.test("continue: the failed call's words stay, and the model reads them with
   ]);
   assertEquals(finalStop(events)?.kind, 'completed');
   assertEquals(errorsOf(events), []);
-  assertEquals(resendsOf(events), [0]);
+  assertEquals(resendsOf(events), [false]);
   assertEquals(replyOf(events), 'Soil reads 22%.');
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
@@ -299,7 +293,7 @@ Deno.test('continue: a failed call that showed more than words is withdrawn whol
     ANSWER,
   ]);
   assertEquals(requests[1]?.history, requests[0]?.history);
-  assertEquals(resendsOf(events), [shownBefore(events) + 1]);
+  assertEquals(resendsOf(events), [true]);
   assertEquals(
     keptReply(events).filter((event) => event.type === 'media'),
     [],
@@ -318,7 +312,7 @@ Deno.test('continue: the sources the kept words cite stay with them', async () =
     [{ type: 'text', text: 'Soil reads' }, CITED, ...BUSY],
     GOES_ON,
   ]);
-  assertEquals(resendsOf(events), [0]);
+  assertEquals(resendsOf(events), [false]);
   assertEquals(keptReply(events).filter((event) => event.type === 'citation').length, 1);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
@@ -332,7 +326,7 @@ Deno.test('continue: a failed call that wrote nothing is sent again as it was', 
   );
   const { events, requests } = await runScript('resume_continue_empty', [BUSY, ANSWER]);
   assertEquals(requests[1]?.history, requests[0]?.history);
-  assertEquals(resendsOf(events), [0]);
+  assertEquals(resendsOf(events), [false]);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -362,9 +356,7 @@ for (const partialReply of ['retract', 'continue'] as const) {
             { role: 'user', content: labelText('resume.partial_reply') },
           ],
     );
-    const resendAt = events.findIndex((event) => event.type === 'resend');
-    const stepTwo = events.slice(0, resendAt).filter((event) => event.type === 'text');
-    assertEquals(resendsOf(events), [partialReply === 'retract' ? stepTwo.length - 1 : 0]);
+    assertEquals(resendsOf(events), [partialReply === 'retract']);
     assertEquals(JSON.stringify(foldTurnEvents(events)).split('Checking.').length - 1, 1);
   });
 }
@@ -384,15 +376,7 @@ Deno.test('retract: each of two failed calls takes back only its own words', asy
   ]);
   assertEquals(requests.length, 3);
   assertEquals(requests[2]?.history, requests[0]?.history);
-  const [first, second] = events.flatMap((event, index) =>
-    event.type === 'resend' ? [index] : [],
-  );
-  const textBetween = (from: number, to: number) =>
-    events.slice(from, to).filter((event) => event.type === 'text').length;
-  assertEquals(resendsOf(events), [
-    textBetween(0, first ?? 0),
-    textBetween(first ?? 0, second ?? 0),
-  ]);
+  assertEquals(resendsOf(events), [true, true]);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -417,13 +401,7 @@ Deno.test('continue: a second failed call that showed a file takes back only its
   ];
   assertEquals(requests[1]?.history, withFirst);
   assertEquals(requests[2]?.history, withFirst);
-  const [first, second] = events.flatMap((event, index) =>
-    event.type === 'resend' ? [index] : [],
-  );
-  const secondShown = events
-    .slice(first ?? 0, second ?? 0)
-    .filter((event) => event.type === 'text' || event.type === 'media').length;
-  assertEquals(resendsOf(events), [0, secondShown]);
+  assertEquals(resendsOf(events), [false, true]);
   assertEquals(
     keptReply(events).filter((event) => event.type === 'media'),
     [],

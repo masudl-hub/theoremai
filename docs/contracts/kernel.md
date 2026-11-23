@@ -665,7 +665,7 @@ The kernel validates protocol events before it releases them or executes client 
 | `structured_draft` | The next piece of a structured reply's JSON, `text`, read at `reply` as the reply's text and then at `reply_structured`, where the whole is read: a match there stops the drafts. A preview only: the `structured` event that follows is the reply. Sent only under `sse`, and not when the reply was held for its verdict |
 | `structured` | Parsed JSON object when the profile names a structured schema; `removed` lists what item rules took out, `failed` the fields still invalid when validation ran out of retries |
 | `attempt` | The turn threw the reply so far away and asks again: `attempt` counts the retries (1 for the first), `reason` is `validation`, or `egress`. The text, media, structured, and citation events before it in the turn are not the reply. `keptReply(events)` drops them; `foldTurnEvents`, `appendAssistantEventsToHistory` (one assistant message per reply) and an agent tool's output read only the kept reply |
-| `resend` | The turn sends a failed model call again ([Resume policy](#resume-policy)). `withdrawn` counts the reply events (text, media, structured, structured draft, citation) of the failed call that are not the reply: the last `withdrawn` of them before it in the turn. `keptReply(events)` drops them, and so does every reader built on it. `0` when the call showed nothing, or when `partialReply: 'continue'` keeps its words |
+| `resend` | The turn sends a failed model call again ([Resume policy](#resume-policy)). `withdrawn: true` takes back the failed call's reply events (text, media, structured, structured draft, citation): every one since the last `tool`, `resend`, or `attempt` event, or the turn's start. `keptReply(events)` drops them, and so does every reader built on it. `false` when the call showed nothing, or when `partialReply: 'continue'` keeps its words |
 | `late_results` | The message `lateResults` put in the conversation, `text`, the calls whose results it holds, `operationIds`, where it landed, `stage` and `step`, and `inReply`, which is true when it landed inside a reply. A history built from events takes it as a role `user` message where the turn put it. See [Late results](#late-results) |
 | `media` | Generated image/audio bytes + mime |
 | `grounding` | Google search metadata: Live `groundingMetadata`, and Interactions tool results (`google_search_result` `search_suggestions` → `searchHtml`). Maps sources add normalized `chunks[].maps` (`title` / `uri` / `placeId`); the raw payload rides on `metadata`. The sources themselves travel as `citation` |
@@ -1142,8 +1142,7 @@ a compactor's are. Host abort cancels both turns.
 
 **Events and trace.** The called agent's reply (its `text` and
 `structured_draft`) streams as the call's `draft` phases, until the agent
-retries its reply (`attempt`) or a `resend` takes back what it showed (`withdrawn`
-above 0). The call's output is the agent's kept reply. Its other events stream as the call's
+retries its reply (`attempt`) or a `resend` takes back what it showed (`withdrawn`). The call's output is the agent's kept reply. Its other events stream as the call's
 `progress` (`data: { agent, event }`). Its `invoke_agent` span is a child of the
 call's `execute_tool` span in the caller's record, sharing its canaries.
 
@@ -1682,7 +1681,7 @@ Profile `turnBehaviour` (top-level on chat/image/speech):
 | --- | --- |
 | `resumption.allowContinue` | Stops after which the host offers the user a Continue (`isResumeableStop`); host UI policy, not enforced on `continueFrom`; omitted → all three; `[]` → none |
 | `resumption.autoContinue` | Stops continued without asking; omitted → length and stream_incomplete, `[]` → none. When set, a text turn sends a listed failed model call again itself ([Resume policy](#resume-policy)); the host continues the rest once on its own |
-| `resumption.partialReply` | **Text only.** What becomes of the words a failed call wrote when the turn sends it again: `'retract'` takes them back, with the sources they cited, and sends the call as it was; `'continue'` keeps them and their sources, and the model reads them with the `resume.partial_reply` note and goes on. A call that showed a structured reply or its draft, or a file, is taken back whole in either mode. Required when `autoContinue` names `provider_error` or `stream_incomplete`; refused otherwise |
+| `resumption.partialReply` | **Text only.** What becomes of the words a failed call wrote when the turn sends it again: `'retract'` takes them back, with the sources they cited, and sends the call as it was; `'continue'` keeps them and their sources, and the model reads them with the `resume.partial_reply` note and goes on. A call that showed a structured reply or its draft, or a file, is taken back whole in either mode. Required when `autoContinue` names `provider_error` or `stream_incomplete` |
 | `resumption.maxContinues` | How many times one reply may be continued (enforced); omitted → no cap. Also how many failed model calls one text turn sends again itself; omitted → one |
 | `allowSteering` | **Text and live.** Gates **inject** via `profileAllowsInject` / stages. Stage events always emit. Image/speech must omit |
 | `atStepLimit` | **Text only.** What the last model call under `maxSteps` may do. Omitted or `'stop'`: it may call tools; if it does they run and the turn ends with stop `step_limit` and no answer (no `before_end`, no `done.tools`, no `providerState`). `'answer'`: that call is sent with no function tools and no builtins, so it writes the answer from the turn's history. Rejected with `maxSteps: 1` |
@@ -1978,7 +1977,7 @@ A text turn sends a failed model call again itself. The call must have stopped a
 `provider_error` or `stream_incomplete`, and the profile must set `autoContinue` and list
 that stop in it. The turn first emits a `resend` event. What the call wrote is then
 taken back or kept, as `partialReply` says: under `'retract'` the call is sent as it
-was and `withdrawn` counts what it showed; under `'continue'` its words, and the
+was and `withdrawn` takes back what it showed; under `'continue'` its words, and the
 sources they cite, stay, and the call is sent with them as an assistant message and
 the `resume.partial_reply` label as a user message after it. A call that showed a
 structured reply or its draft, or a file, is taken back whole in either mode. A failure the

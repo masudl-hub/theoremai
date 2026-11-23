@@ -333,13 +333,6 @@ Deno.test('a profile that sends failed calls again says what becomes of their wo
     `${prefix}partialReply must be retract or continue; got 'rewrite'`,
     'not a mode',
   );
-  for (const autoContinue of [['length'], [], undefined]) {
-    check(
-      said(resumption({ autoContinue, partialReply: 'retract' })),
-      `${prefix}partialReply does nothing unless this is a text profile whose autoContinue names provider_error or stream_incomplete`,
-      `no resend: ${String(autoContinue)}`,
-    );
-  }
 });
 Deno.test('the blocked-reply count is a non-negative integer', () => {
   const counts: Record<string, (value: number) => Loose> = {

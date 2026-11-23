@@ -531,7 +531,7 @@ interface CallStart {
 }
 
 /**
- * Runs one model call, and counts the reply events ({@linkcode isReplyEvent}) it gave the host:
+ * Runs one model call, and keeps the reply events ({@linkcode isReplyEvent}) it gave the host:
  * what a `resend` withdraws if the call fails and is sent again.
  */
 async function* countedCall(
@@ -575,7 +575,7 @@ function settleFailedCall(
       content: labelText('resume.partial_reply', {}, args.profile.labels),
     });
     state.goesOnFromFailedCall = true;
-    return { type: 'resend', stop: args.stop, withdrawn: 0 };
+    return { type: 'resend', stop: args.stop, withdrawn: false };
   }
   state.replyText = state.replyText.slice(0, start.replyText);
   state.released = state.released.slice(0, start.released);
@@ -583,7 +583,7 @@ function settleFailedCall(
     ...state.attemptEvents.slice(0, start.attemptEvents),
     ...state.attemptEvents.slice(start.attemptEvents).filter((event) => !isReplyEvent(event)),
   ];
-  return { type: 'resend', stop: args.stop, withdrawn: shown.length };
+  return { type: 'resend', stop: args.stop, withdrawn: shown.length > 0 };
 }
 
 /**

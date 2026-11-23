@@ -308,7 +308,7 @@ for (const partialReply of PARTIAL_REPLY_MODES) {
     assertEquals(shown.includes('structured_draft'), true);
     assertEquals(
       of(events, 'resend').map((e) => e.withdrawn),
-      [shown.filter((type) => type === 'text' || type === 'structured_draft').length],
+      [true],
     );
     const kept = keptReply(events);
     assertEquals(

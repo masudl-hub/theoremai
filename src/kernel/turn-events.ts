@@ -1060,11 +1060,11 @@ export type TurnEvent =
   /**
    * A model call failed on a stop the profile's `turnBehaviour.resumption.autoContinue` lists, and
    * is sent again. `stop` is how it ended. Its failure is not the turn's unless the call sent again
-   * fails too. The last `withdrawn` reply events ({@linkcode isReplyEvent}) are that failed call's,
-   * and are not the reply: {@linkcode keptReply} drops them. What the call wrote that stays is set
+   * fails too. `withdrawn`: the failed call's reply events ({@linkcode isReplyEvent}), every one
+   * since the last `tool`, `resend` or `attempt` event, are not the reply: {@linkcode keptReply} drops them. What the call wrote that stays is set
    * by `turnBehaviour.resumption.partialReply`.
    */
-  | { type: 'resend'; stop: TurnStop; withdrawn: number }
+  | { type: 'resend'; stop: TurnStop; withdrawn: boolean }
   /**
    * The message `lateResults` put in the conversation, role `user`. It enters a history built from
    * events like any other message. `operationIds` are the calls whose results it holds; `stage` and
@@ -1294,7 +1294,7 @@ const TURN_EVENTS = {
   resend: z.object({
     type: z.literal('resend'),
     stop: turnStop,
-    withdrawn: z.number().int().nonnegative(),
+    withdrawn: z.boolean(),
   }),
   late_results: z.object({
     type: z.literal('late_results'),
@@ -1447,17 +1447,13 @@ export function isReplyEvent(event: TurnEvent): boolean {
   );
 }
 
-/** `reply` without its last `count` reply events. */
-function withoutLastReplies(reply: readonly TurnEvent[], count: number): TurnEvent[] {
-  const out = [...reply];
-  let left = count;
-  for (let index = out.length - 1; index >= 0 && left > 0; index -= 1) {
-    const event = out[index];
-    if (!event || !isReplyEvent(event)) continue;
-    out.splice(index, 1);
-    left -= 1;
-  }
-  return out;
+/** Events that end a model call's reply: what a `resend` takes back reaches no further. */
+const CALL_BOUNDARIES: ReadonlySet<TurnEvent['type']> = new Set(['tool', 'resend', 'attempt']);
+
+/** `reply` without the reply events of its last model call. */
+function withoutLastCall(reply: readonly TurnEvent[]): TurnEvent[] {
+  const start = reply.findLastIndex((event) => CALL_BOUNDARIES.has(event.type)) + 1;
+  return [...reply.slice(0, start), ...reply.slice(start).filter((event) => !isReplyEvent(event))];
 }
 
 /**
@@ -1484,7 +1480,7 @@ function cutReply(reply: readonly TurnEvent[], released: number): TurnEvent[] {
  * `events` without the replies a retry threw away: each `attempt` drops the reply events
  * ({@linkcode isReplyEvent}) before it, back to the turn's start or its last `done`. A `stage` event
  * with `released` keeps only that much of the reply's text, and drops what followed it. A `resend`
- * drops its `withdrawn` reply events before it. Tool calls, thoughts and everything else stay, since
+ * with `withdrawn` drops the reply events of the call before it. Tool calls, thoughts and everything else stay, since
  * they happened.
  */
 export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
@@ -1498,8 +1494,8 @@ export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
     if (event.type === 'stage' && event.released !== undefined) {
       kept.push(...cutReply(kept.splice(turnStart), event.released));
     }
-    if (event.type === 'resend' && event.withdrawn > 0) {
-      kept.push(...withoutLastReplies(kept.splice(turnStart), event.withdrawn));
+    if (event.type === 'resend' && event.withdrawn) {
+      kept.push(...withoutLastCall(kept.splice(turnStart)));
     }
     kept.push(event);
     if (event.type === 'done') turnStart = kept.length;

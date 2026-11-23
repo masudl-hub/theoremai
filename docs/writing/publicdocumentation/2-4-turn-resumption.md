@@ -55,11 +55,11 @@ The `resumption` block controls whether recoveries are automatic or require user
 * **`allowContinue`**: Lists stop kinds for which your frontend UI should display a "Continue" button. The kernel allows manual continuation calls after these stops.
 * **`autoContinue`**: Lists stop kinds that Theorem resumes automatically without user intervention. When set, dropped connections retry immediately up to `maxContinues`.
 * **`maxContinues`**: Maximum number of continuation attempts permitted for a single exchange (default: `1`).
-* **`partialReply`**: What becomes of the words a failed call wrote before Theorem sends it again. Required on a text profile whose `autoContinue` names `provider_error` or `stream_incomplete`, and refused on any other.
+* **`partialReply`**: What becomes of the words a failed call wrote before Theorem sends it again. Required on a text profile whose `autoContinue` names `provider_error` or `stream_incomplete`; any other profile ignores it.
   * `'retract'`: The words leave the reply, with the sources they cited, and the call is sent again as it was. The model writes its reply from the start.
   * `'continue'`: The words stay, with the sources they cite. The model reads them, with the `resume.partial_reply` note that its call failed there, and goes on from where they stop.
 
-  A call that showed anything but words (a structured reply or its draft, a file) is taken back whole in either mode. Each re-send is a `resend` event, and its `withdrawn` counts the reply events it took back. `keptReply(events)` and every reader built on it (`foldTurnEvents`, `appendAssistantEventsToHistory`, an agent tool's output) leave them out.
+  A call that showed anything but words (a structured reply or its draft, a file) is taken back whole in either mode. Each re-send is a `resend` event, and `withdrawn: true` takes back every reply event the failed call showed. `keptReply(events)` and every reader built on it (`foldTurnEvents`, `appendAssistantEventsToHistory`, an agent tool's output) leave them out.
 
 ### Executing a Continuation Turn
 

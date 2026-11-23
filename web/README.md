@@ -295,6 +295,7 @@ const transport = withPageToolDispatch(
 | `onContinue` | Who runs the next reply when a reply ends with items that wait and may be told now. Return `'here'`, and the handler runs it in the same response. Return `'taken'`, and your app runs it with the conversation core's `followUp`. Unset, the handler lets the chat go, and the page wakes it. |
 | `intake` | Your app's own save of each message the page sends, on `/turn` and `/steer`. Set it when a message must be in your database before any reply runs. Needs `inbox`. See [Save a page's message in your own write](#save-a-pages-message-in-your-own-write). |
 | `notifier`, `notifyRetryMs` | Tell an open page that a background call ended, and how long the page waits to reopen a cut stream. Unset, the page reads the end on its next turn or reload. See [the background section](#share-session-authority). |
+| `replyFeed` | Lets every page open on a conversation draw a running reply's lines live, whoever started it. Needs `notifier`. Unset, a page that did not start the reply reads it once it ends. See [Follow a running reply](#follow-a-running-reply). |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
 | `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`, and the next message or the next wake cancels the call. Unset, a gate waits until it is answered. |
@@ -560,7 +561,7 @@ async function received(sessionId: string, text: string, ref: string | undefined
 | `steer(at, { turnId, id, input })` | Puts `input` into a running turn. Returns `false` when the turn is not running. Throws what `message` throws for an `input` the profile does not take, such as text over `inputs.maxTextChars`. |
 | `stop(at, { turnId } \| { conversation })` | Stops a running reply: the turn `turnId` names, or the reply that holds `conversation`. Returns `false` when it is not running. When your `inbox` has a `stop`, it stops the reply that holds the conversation, and reads neither. Without one, only `{ turnId }` reaches a turn, and `{ conversation }` throws `session.reply_unreachable`. |
 
-The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
+The core takes these options from [Server options](#server-options), with the same meaning: `profile`, `onStage`, `sessionStore`, `conversationStore`, `credentialStore`, `gateTtlMs`, `operationRetentionMs`, `pageToolBroker`, `pageToolTimeoutMs`, `notifier`, `notifyRetryMs`, `replyFeed`, `lateResultsDecider`, `conversationLeaseMs`, `steerInbox`, and `clientEvents`. These options take the run context in place of the `Request`:
 
 | Option | Use |
 | --- | --- |
@@ -691,6 +692,31 @@ The view the page reads has the same `running`. While it is set, the chat's phas
 The page reads again at `heldUntil` once for each `heldUntil`. When your server's clock and the browser's differ, a hold can look lapsed to the page while your store still returns it. The page then waits for your `notifier.publish`, or for a read that returns a new `heldUntil`.
 
 Call `notifier.publish` after each save that ends the reply. The page reads the conversation again. When `running` is gone, the queue sends its next message, unless the person stopped the reply.
+
+### Follow a running reply
+
+A page open on a conversation draws a reply that another page started, or that your app runs with no page request, as it happens: the steps, the pill and the words. Pass `replyFeed` with `notifier` to `createTheoremHandler` or `createTheoremConversationCore`. Without `notifier`, the setup fails with a `config` error.
+
+```ts
+import { createMemoryNotifier, createMemoryReplyFeed } from '@theoremjs/web/server';
+
+createTheoremHandler({
+  // ...
+  notifier: createMemoryNotifier(),
+  replyFeed: createMemoryReplyFeed(),
+});
+```
+
+Every reply that runs under a hold writes each of its lines to the feed, and calls `notifier.publish(sessionId)` when it starts and when it ends. This covers a message, an answer, a wake and a follow-up, from a page or from the core. The conversation read says `follow: true`, and a page that sees `running` and has no reply of its own posts `POST <base>/follow` with `{ conversation }`. The stream is the line stream of `/turn`, with the same `tools.showData` filter. It starts from the first line of the reply, so a page that joins late draws the whole reply, and ends with the reply. The page then reads the conversation as before. Stop and steer by conversation work as they do for any reply the page did not start. The chat draws the followed reply with the same `streaming` state as its own, so no host switch is added.
+
+`TheoremReplyFeed` is yours to implement:
+
+- `start(conversation, reply)` opens a reply. It replaces the earlier reply of that conversation, and ends that reply's followers.
+- `append(conversation, reply, line)` adds a line.
+- `end(conversation, reply)` closes it and ends its followers.
+- `follow(conversation, listener)` calls `listener.line` with every line so far, then each new line, then `listener.end`. With no reply open, it calls `end` at once. It returns the function that stops the listening.
+
+`conversation` is the conversation's id, which stays the same across writes, where the reference changes. Theorem sets no size, retention or timing. `createMemoryReplyFeed` keeps every line of the current reply of each conversation in the process, with no cap, and reaches only the pages of that process. On more than one instance, give a shared `TheoremReplyFeed`. A feed that throws never changes the reply: the error goes to `onError`. `running` is the store's, as in [the section on a running reply](#share-session-authority): the feed does not set it. Without `running`, the page does not follow.
 
 ### Shape the save that ends a reply
 

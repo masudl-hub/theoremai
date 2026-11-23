@@ -16,6 +16,8 @@ import { type PageToolBroker, pageToolResultSchema, sessionPageDispatch } from '
  * - `POST <base>/notify`  → NDJSON that stays open: one line now, and one for each `publish` under
  *                            this session: a background call ended, or the app saved a reply.
  *                            Set `notifier` to serve it
+ * - `POST <base>/follow`  → NDJSON for the reply that runs on a conversation now, whoever started
+ *                            it: its lines from the first, until it ends. Set `replyFeed` to serve it
  * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
  * - `POST <base>/wake`    → NDJSON for a reply to no message: the model takes up the results of
  *                            background calls that ended since it last ran. Empty when none waits
@@ -78,6 +80,7 @@ import {
   type TheoremStopRequest,
   type TheoremTurnInput,
   theoremConversationRequestSchema,
+  theoremFollowRequestSchema,
   theoremInvokeRequestSchema,
   theoremNotifyRequestSchema,
   theoremRewindRequestSchema,
@@ -105,6 +108,7 @@ import {
 import type { TheoremConversationStore } from './conversation-store.ts';
 import type { TheoremCredentialStore, TheoremCredentials } from './credential-store.ts';
 import type { TheoremNotifier } from './notifier.ts';
+import type { TheoremReplyFeed } from './reply-feed.ts';
 import type { MutableStore, SessionStateStore } from './session-authority.ts';
 import { type CallsContext, type CoreContext, callEvents, sessionParts } from './session-calls.ts';
 import { type Session, theoremSession } from './session-identity.ts';
@@ -214,6 +218,12 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
    */
   notifier?: TheoremNotifier;
   /**
+   * Where the lines of a running reply go, so every page open on the conversation draws the reply
+   * live, whoever started it. Needs `notifier`, which tells the pages when a reply starts and ends.
+   * `createMemoryReplyFeed` for one instance.
+   */
+  replyFeed?: TheoremReplyFeed;
+  /**
    * How long an open page waits to reopen `notifier`'s stream after it ends, in milliseconds.
    * Hosting platforms cut long responses. Unset, the page does not reopen it.
    */
@@ -317,6 +327,7 @@ export type TheoremHostHandlerOptions = Omit<
   | 'afterSave'
   | 'compact'
   | 'notifier'
+  | 'replyFeed'
   | 'notifyRetryMs'
   | 'conversationLeaseMs'
 > & {
@@ -369,6 +380,7 @@ function routeOf(request: Request): string {
     last === 'stop' ||
     last === 'conversation' ||
     last === 'notify' ||
+    last === 'follow' ||
     last === 'rewind' ||
     last === 'wake' ||
     last === 'call' ||
@@ -546,6 +558,7 @@ function coreOf(ctx: HandlerContext, chat: ChatContext, request: Request): Conve
       provider: (_at, model) => providerFor(ctx, request, model),
       conversationLeaseMs: ctx.options.conversationLeaseMs,
       notifyRetryMs: ctx.options.notifyRetryMs,
+      replyFeed: ctx.options.replyFeed,
       clientEvents: ctx.options.clientEvents,
     },
   });
@@ -734,6 +747,24 @@ async function wake(
   return eventStream(ctx, request, () => pageRun(ctx, request, core, at, reply));
 }
 
+/**
+ * The lines of the reply that runs on the conversation now, whoever started it: the same lines,
+ * encoded the same way, as the reply's own stream. The stream ends with the reply, and the page
+ * reads the saved conversation.
+ */
+async function follow(
+  ctx: HandlerContext,
+  chat: ChatContext,
+  request: Request,
+  session: Session,
+): Promise<Response> {
+  const body = await readBody(request, theoremFollowRequestSchema, ctx.options.maxRequestBytes);
+  const lines = await coreOf(ctx, chat, request).follow(contextOf(ctx, request, session.id), {
+    ref: body.conversation,
+  });
+  return eventStream(ctx, request, () => lines);
+}
+
 const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
 
 /**
@@ -920,6 +951,10 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
     const { notifier } = ctx.options;
     if (!notifier || !chat.conversations) return refused(ctx);
     return notify(ctx, request, session, notifier);
+  }
+  if (target === 'follow') {
+    if (!ctx.options.replyFeed || !chat.conversations) return refused(ctx);
+    return follow(ctx, chat, request, session);
   }
   if (target === 'rewind') return rewind(ctx, chat, request, session);
   if (target === 'wake') return wake(ctx, chat, request, session);

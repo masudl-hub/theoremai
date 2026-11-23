@@ -86,6 +86,7 @@ import {
   unknownConversation,
 } from './conversation-store.ts';
 import { sessionPageDispatch } from './page-dispatch.ts';
+import type { TheoremReplyFeed } from './reply-feed.ts';
 import {
   announced,
   backgroundWiring,
@@ -274,7 +275,19 @@ export type ReplyWiring<Item extends InboxItem = InboxItem> = SaveHooks<Item> & 
 };
 
 /** Refuses an app's inbox beside a decider for the session's: one inbox holds what a reply is told. */
-export function oneInbox(options: { inbox?: unknown; lateResultsDecider?: unknown }): void {
+export function oneInbox(options: {
+  inbox?: unknown;
+  lateResultsDecider?: unknown;
+  replyFeed?: unknown;
+  notifier?: unknown;
+}): void {
+  if (options.replyFeed !== undefined && options.notifier === undefined) {
+    // labels-exempt: builder config error; the user reads error.config
+    throw new TheoremError(
+      'config',
+      '`replyFeed` needs `notifier`: the notifier tells the pages that a reply starts and ends',
+    );
+  }
   if (options.inbox === undefined || options.lateResultsDecider === undefined) return;
   // labels-exempt: builder config error; the user reads error.config
   throw new TheoremError(
@@ -295,6 +308,8 @@ export type CoreState<Item extends InboxItem = InboxItem> = Omit<CallsContext, '
       ) => ProviderHostOptions | Promise<ProviderHostOptions>;
       conversationLeaseMs?: number;
       notifyRetryMs?: number;
+      /** Where a running reply's lines go for the pages that follow it. Needs `notifier`. */
+      replyFeed?: TheoremReplyFeed;
       clientEvents?: ClientTurnOptions;
     };
 };
@@ -615,25 +630,132 @@ function heldLines<Item extends InboxItem>(
   reply: (held: HeldRun<Item> | undefined, ref: () => string | null) => AsyncIterable<ReplyLine>,
 ): Reply {
   const holding = holdingOf(ctx, at, host, opened);
-  if (!holding) return unheld(reply(undefined, () => opened.ref));
-  return sent<ReplyLine, RunEnd>(async (send) => {
-    const run = await holding.run(start, (held) => reply(held, holding.ref), send);
-    if (run.outcome === 'held') return { outcome: 'held', leasedUntil: run.leasedUntil };
-    if (run.outcome === 'continue') {
-      const ref = holding.ref();
-      if (ref !== null && !(await isPaused(host, ref, opened.conversation))) {
-        return {
-          outcome: 'continue',
-          ref,
-          hold: run.hold,
-          ...(run.failure === undefined ? {} : { failure: run.failure }),
-        };
+  const feed = (lines: Reply) => fed(ctx, at, opened.conversation.id, lines);
+  if (!holding) return feed(unheld(reply(undefined, () => opened.ref)));
+  return feed(
+    sent<ReplyLine, RunEnd>(async (send) => {
+      const run = await holding.run(start, (held) => reply(held, holding.ref), send);
+      if (run.outcome === 'held') return { outcome: 'held', leasedUntil: run.leasedUntil };
+      if (run.outcome === 'continue') {
+        const ref = holding.ref();
+        if (ref !== null && !(await isPaused(host, ref, opened.conversation))) {
+          return {
+            outcome: 'continue',
+            ref,
+            hold: run.hold,
+            ...(run.failure === undefined ? {} : { failure: run.failure }),
+          };
+        }
+        await holding.letGo(run.hold);
       }
-      await holding.letGo(run.hold);
+      if (run.failure !== undefined) throw run.failure;
+      return { outcome: run.outcome === 'lost' ? 'lost' : 'released' };
+    }),
+  );
+}
+
+/**
+ * `lines`, each also sent to the reply feed under the conversation's id, and the pages told when
+ * the reply starts and ends. A reply that yields no line (nothing waited to tell, or the chat
+ * was held) starts nothing. The feed's failure goes to `onError`, never into the reply.
+ * invariant: The reply ends in the feed however `lines` ends: its end, a throw, or the caller
+ * stopping the read, so a follower is never left waiting for a reply that is over.
+ */
+async function* fed<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  conversation: string,
+  lines: Reply,
+): Reply {
+  const { replyFeed: feed, notifier } = ctx.options;
+  if (!feed) return yield* lines;
+  const reply = crypto.randomUUID();
+  const tell = async (step: () => void | Promise<void>) => {
+    try {
+      await step();
+    } catch (err) {
+      ctx.options.onError?.(err, at);
     }
-    if (run.failure !== undefined) throw run.failure;
-    return { outcome: run.outcome === 'lost' ? 'lost' : 'released' };
+  };
+  let begun = false;
+  let over = false;
+  try {
+    for (;;) {
+      const next = await lines.next();
+      if (next.done) {
+        over = true;
+        return next.value;
+      }
+      if (!begun) {
+        begun = true;
+        await tell(() => feed.start(conversation, reply));
+        await tell(() => notifier?.publish(at.sessionId));
+      }
+      await tell(() => feed.append(conversation, reply, next.value));
+      yield next.value;
+    }
+  } finally {
+    if (!over) await lines.return({ outcome: 'released' }).catch(() => undefined);
+    if (begun) {
+      await tell(() => feed.end(conversation, reply));
+      await tell(() => notifier?.publish(at.sessionId));
+    }
+  }
+}
+
+/**
+ * The lines of the reply that runs on the conversation under `args.ref`, from its first, then
+ * each as it comes, until it ends or `at.signal` aborts. Ends at once when no reply runs.
+ */
+async function follow<Item extends InboxItem>(
+  ctx: CoreState<Item>,
+  at: CoreContext,
+  args: { ref: string },
+): Promise<AsyncGenerator<ReplyLine>> {
+  const feed = ctx.options.replyFeed;
+  if (!feed) {
+    // labels-exempt: builder config error; the user reads error.config
+    throw new TheoremError('config', 'following a reply needs `replyFeed`');
+  }
+  const host = conversationHost(ctx, at);
+  if (!host) throw statelessRefusal('follow');
+  const opened = await openConversation(host, args.ref, { kind: 'read' });
+  const queue: ReplyLine[] = [];
+  let over = false;
+  let wake = () => {};
+  const stop = await feed.follow(opened.conversation.id, {
+    line(line) {
+      queue.push(line);
+      wake();
+    },
+    end() {
+      over = true;
+      wake();
+    },
   });
+  const leave = () => {
+    over = true;
+    wake();
+  };
+  if (at.signal.aborted) leave();
+  else at.signal.addEventListener('abort', leave, { once: true });
+  return (async function* () {
+    try {
+      for (;;) {
+        if (queue.length > 0) {
+          yield queue.splice(0, 1)[0];
+          continue;
+        }
+        if (over) return;
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      }
+    } finally {
+      at.signal.removeEventListener('abort', leave);
+      stop();
+    }
+  })();
 }
 
 /**
@@ -907,7 +1029,7 @@ async function* waiting(waits: { until?: number }): Reply {
 
 /**
  * A reply to no message under `held`, on the chat as it stands now. The page that woke draws it;
- * any other page open on the session reads it once it ends.
+ * with a `replyFeed`, any other page open on the session follows it, and without one reads it once it ends.
  */
 async function* wakeReplyLines<Item extends InboxItem>(
   ctx: CoreState<Item>,
@@ -949,11 +1071,18 @@ async function currentView<Item extends InboxItem>(
 ): Promise<ConversationView> {
   const { conversation, running } = opened;
   const view = { ...conversationView(host, conversation), ...(running ? { running } : {}) };
+  const { replyFeed, inbox } = ctx.options;
+  const following = replyFeed ? { follow: true as const } : {};
   // why: a session's late results come from detached calls only, ended or not; an app's items come from anywhere
-  if (!view.transcript.some(wasDetached) && !ctx.options.inbox) return view;
+  if (!view.transcript.some(wasDetached) && !inbox && !replyFeed) return view;
   const wake = (await wakeDue(ctx, at, host, ref, conversation)) ? { wake: true as const } : {};
   if (!view.transcript.some(isDetachedBlock)) {
-    return { ...view, ...(ctx.options.inbox ? notifyOffer(ctx) : {}), ...wake };
+    return {
+      ...view,
+      ...(inbox || replyFeed ? notifyOffer(ctx) : {}),
+      ...following,
+      ...wake,
+    };
   }
   const { operations } = await ctx.sessions.read(at.sessionId);
   const transcript = await Promise.all(
@@ -962,8 +1091,9 @@ async function currentView<Item extends InboxItem>(
     ),
   );
   // why: an app's inbox saves replies the page did not ask for, so its page always listens
-  const listens = ctx.options.inbox !== undefined || transcript.some(isDetachedBlock);
-  return { ...view, transcript, ...(listens ? notifyOffer(ctx) : {}), ...wake };
+  const listens =
+    inbox !== undefined || replyFeed !== undefined || transcript.some(isDetachedBlock);
+  return { ...view, transcript, ...(listens ? notifyOffer(ctx) : {}), ...following, ...wake };
 }
 
 /** The view's offer to listen on `/notify`: none without a notifier. */
@@ -1334,6 +1464,12 @@ export type ConversationCore = {
   /** The conversation cut after block `at`; a reply that waits on gates is walked away from first. */
   rewind(at: CoreContext, args: { ref: string; at: number }): Promise<TheoremRewound>;
   /**
+   * The lines of the reply that runs on the conversation now, whoever started it: from its first
+   * line, then each as it comes, until it ends or `at.signal` aborts. Ends at once when no reply
+   * runs. Throws `config` without `replyFeed`.
+   */
+  follow(at: CoreContext, args: { ref: string }): Promise<AsyncGenerator<ReplyLine>>;
+  /**
    * Puts a steer into a running turn, as the one user message the model reads. Throws what
    * `message` throws for an input the profile does not take, such as text over its limit, and
    * puts nothing in. False when the turn is not running.
@@ -1367,6 +1503,7 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
     release: (at, args) => release(state, at, args),
     read: (at, args) => read(state, at, args),
     rewind: (at, args) => rewind(state, at, args),
+    follow: (at, args) => follow(state, at, args),
     steer: async (at, { turnId, ...steer }) => {
       postedMessage(chatInterface(state.chat), steer.input);
       return await state.steer.enqueue(inboxKey(at.sessionId, turnId), steerUnitOf(steer));

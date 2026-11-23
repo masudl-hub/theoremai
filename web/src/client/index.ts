@@ -228,6 +228,7 @@ export {
   readNdjsonStream,
   type StatedTurn,
   type TheoremConversationRequest,
+  type TheoremFollowRequest,
   type TheoremInvokeRequest,
   type TheoremReplay,
   type TheoremRewindRequest,

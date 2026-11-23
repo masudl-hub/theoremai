@@ -12,6 +12,7 @@ export { transcriptBlockSchema } from '../client/transcript-schema.ts';
 export {
   type StatedTurn,
   theoremConversationRequestSchema,
+  theoremFollowRequestSchema,
   theoremInvokeRequestSchema,
   theoremNotifyRequestSchema,
   theoremReplaySchema,
@@ -123,6 +124,11 @@ export {
   pageToolResultSchema,
   sessionPageDispatch,
 } from './page-dispatch.ts';
+export {
+  createMemoryReplyFeed,
+  type ReplyFeedListener,
+  type TheoremReplyFeed,
+} from './reply-feed.ts';
 export { checkRequest, parseLiveClientMessage, parseLiveOpenMessage } from './request-check.ts';
 export { sessionStateStore } from './session-authority.ts';
 export {

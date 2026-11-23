@@ -357,6 +357,8 @@ export type ConversationView = {
   running?: RunningReply;
   /** The host pushes the end of a call that still runs. `retryMs` is its wait to reopen the push. */
   notify?: { retryMs?: number };
+  /** The host streams the lines of a reply that runs elsewhere (`transport.follow`). */
+  follow?: true;
   /** Results wait that no reply has read: the page wakes the conversation (`transport.wake`). */
   wake?: true;
 };
@@ -367,6 +369,7 @@ const conversationView = z.object({
     .optional(),
   running: runningReply.optional(),
   notify: z.object({ retryMs: z.number().optional() }).optional(),
+  follow: z.literal(true).optional(),
   wake: z.literal(true).optional(),
 });
 true satisfies Equals<z.infer<typeof conversationView>, ConversationView>;
@@ -378,6 +381,13 @@ true satisfies Equals<z.infer<typeof theoremConversationRequest>, TheoremConvers
 /** A `/conversation` body as `createTheoremHandler` reads it. */
 export const theoremConversationRequestSchema: z.ZodType<TheoremConversationRequest> =
   theoremConversationRequest;
+
+/** Follow the reply that runs on a conversation now: a `/follow` body. */
+export type TheoremFollowRequest = { conversation: string };
+const theoremFollowRequest = z.object({ conversation: z.string().min(1) });
+true satisfies Equals<z.infer<typeof theoremFollowRequest>, TheoremFollowRequest>;
+/** A `/follow` body as `createTheoremHandler` reads it. */
+export const theoremFollowRequestSchema: z.ZodType<TheoremFollowRequest> = theoremFollowRequest;
 
 /**
  * Wake the conversation: the model takes up the results of its background calls that ended and it
@@ -465,6 +475,11 @@ export interface TheoremTransport {
   ): Promise<ConversationView>;
   /** Calls `changed` for each line of the host's push, and settles when the push ends. */
   notify?(changed: () => void, signal: AbortSignal): Promise<void>;
+  /**
+   * Streams the lines of the reply that runs on the conversation now, whoever started it, from its
+   * first line until it ends. No line at all when none runs.
+   */
+  follow?(request: TheoremFollowRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   /** Streams the reply a wake runs; no line at all when the host had nothing to wake for. */
   wake?(request: TheoremWakeRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   /** The conversation cut after a transcript block, under the ref the host issued for it. */
@@ -817,6 +832,8 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
       fetchConversation(`${base}/conversation`, body, { ...options, signal }),
     wake: (body, onLine, signal) =>
       postNdjson(`${base}/wake`, body, CHAT_LINES, onLine, { ...options, signal }),
+    follow: (body, onLine, signal) =>
+      postNdjson(`${base}/follow`, body, CHAT_LINES, onLine, { ...options, signal }),
     notify: (changed, signal) =>
       postNdjson(
         `${base}/notify`,

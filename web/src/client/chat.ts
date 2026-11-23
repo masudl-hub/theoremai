@@ -39,7 +39,7 @@ import { type ClientFailure, clientFailure, type TurnFailure, turnFailure } from
 import { followGenerationDefaults } from './generation-selection.ts';
 import { type PageTools, warnPageToolMismatch } from './live/live-page-tool.ts';
 import { withPageToolDispatch } from './page-dispatch.ts';
-import { sessionAfter, stampWorked, stoppedReply } from './run-commit.ts';
+import { sessionAfter, stampWorked, stoppedReply, streamFoldedTurn } from './run-commit.ts';
 import {
   extractInlineEncodedAttachments,
   keepsConversation,
@@ -392,6 +392,14 @@ function steerInput(draft: UserTurnDraft): TheoremSteerRequest['input'] {
   };
 }
 
+/** A reply that runs elsewhere, drawn from the host's lines: its prompt and the reply so far. */
+type Following = {
+  since: number;
+  abort: AbortController;
+  prompt: TranscriptBlock[];
+  partial: TranscriptBlock[];
+};
+
 class Chat implements ChatController {
   #options: ChatOptions;
   #state: ChatState;
@@ -426,6 +434,12 @@ class Chat implements ChatController {
   /** What the last view said about the host's push; unset, nothing is listened for. */
   #notify: ConversationView['notify'];
   #listening: AbortController | null = null;
+  /** The reply that runs elsewhere, as this page draws it from the host's lines. */
+  #following: Following | null = null;
+  /** The `since` of the last reply whose lines this page began to read: one read of each reply. */
+  #followedSince: number | null = null;
+  /** The last view said the host streams the lines of a reply that runs elsewhere. */
+  #followOffered = false;
   /** The last view said results wait that no reply has read: the chat wakes once it is idle. */
   #wakeDue = false;
   /** The ids a reply names the run's message by, once the host said it saved the message itself. */
@@ -479,10 +493,12 @@ class Chat implements ChatController {
     }
     this.#followPush();
     this.#followHold();
+    this.#followReply();
     return () => {
       this.#listeners.delete(listener);
       this.#followPush();
       this.#followHold();
+      this.#followReply();
     };
   };
 
@@ -567,6 +583,81 @@ class Chat implements ChatController {
       },
       Math.max(0, running.heldUntil - Date.now()),
     );
+  }
+
+  /**
+   * Draws the reply that runs elsewhere from the host's lines, while someone is here to see it:
+   * the same reducer the page that started it uses. It stays `runningElsewhere`, so stop and steer
+   * go by the conversation. The host ends the lines with the reply, and the page reads the saved
+   * conversation then.
+   */
+  #followReply(): void {
+    const running = this.#state.runningElsewhere;
+    const { iface, transport } = this.#options;
+    const wanted =
+      running !== null &&
+      this.#followOffered &&
+      this.#listeners.size > 0 &&
+      !this.#busy &&
+      iface !== undefined &&
+      transport.follow !== undefined;
+    const current = this.#following;
+    if (current && (!wanted || current.since !== running.since)) {
+      this.#following = null;
+      current.abort.abort();
+      this.#endFollow();
+    }
+    if (!wanted || this.#following || this.#followedSince === running.since) return;
+    const ref = this.#conversation;
+    if (ref === undefined) return;
+    const following = {
+      since: running.since,
+      abort: new AbortController(),
+      prompt: running.prompt,
+      partial: [] as TranscriptBlock[],
+    };
+    this.#following = following;
+    void this.#streamFollowed(following, ref);
+  }
+
+  async #streamFollowed(following: Following, ref: string): Promise<void> {
+    const { iface, transport } = this.#options;
+    if (!iface || !transport.follow) return;
+    const follow = transport.follow.bind(transport);
+    let lines = 0;
+    try {
+      await streamFoldedTurn({
+        iface,
+        events: [],
+        view: {
+          blocks: (partial) => {
+            if (this.#following !== following) return;
+            lines += 1;
+            this.#followedSince = following.since;
+            following.partial = partial;
+            if (!this.#state.streaming) this.#set({ streaming: true });
+            this.#streamFrame([...following.prompt, ...partial]);
+          },
+          skipped: (error) => this.#set({ failure: clientFailure(error, iface.labels) }),
+        },
+        stream: (onLine) => follow({ conversation: ref }, onLine, following.abort.signal),
+      });
+    } catch {
+      // why: A cut follow leaves the page as the last read drew it; the next read shows where the reply stands.
+    }
+    if (this.#following !== following) return;
+    this.#following = null;
+    this.#endFollow();
+    // why: A host with no reply to follow yet (it began a moment later) says nothing has changed; its push says when.
+    if (lines > 0 && !following.abort.signal.aborted) void this.refresh();
+  }
+
+  /** Nothing follows: the frame in flight is dropped or drawn, and the reply no longer shows as streaming. */
+  #endFollow(): void {
+    this.#frame?.();
+    this.#frame = null;
+    this.#frameBlocks = null;
+    if (this.#state.streaming) this.#set({ streaming: false });
   }
 
   async #listen(listening: AbortController): Promise<void> {
@@ -988,19 +1079,28 @@ class Chat implements ChatController {
     const after = view.paused?.blocks ?? view.running?.prompt ?? [];
     const drawn = [...view.transcript, ...after].map((block) => block.id);
     const ended = this.#state.runningElsewhere !== null && view.running === undefined;
+    if (this.#following && view.running?.since === this.#following.since) {
+      this.#following.prompt = view.running.prompt;
+    }
     this.#set({
       // why: A saved message the conversation now shows is no longer waiting.
       pendingMessages: takeSavedComposerPending(this.#state.pendingMessages, drawn).remaining,
       blocks,
-      streamBlocks: keepIds(shown.slice(blocks.length), after),
+      // why: A reply this page follows draws from the host's lines, over the prompt as the read now shows it.
+      streamBlocks:
+        this.#following && view.running?.since === this.#following.since
+          ? [...view.running.prompt, ...this.#following.partial]
+          : keepIds(shown.slice(blocks.length), after),
       // why: A reply at rest leaves the run's own events (tokens, an ask); a paused one, the host's.
       session: this.#sessionAfter(session, view.paused?.events ?? events),
       chatStarted: view.transcript.length > 0 || after.length > 0 || view.running !== undefined,
       runningElsewhere: view.running ?? null,
     });
     this.#wakeDue = view.wake === true;
+    this.#followOffered = view.follow === true;
     this.#setPush(view.notify);
     this.#followHold();
+    this.#followReply();
     // why: The reply that ran elsewhere ended as a reply here ends: the queue sends on, unless it was stopped.
     if (ended && !this.#busy) {
       this.#runEnded(!this.#stopped);

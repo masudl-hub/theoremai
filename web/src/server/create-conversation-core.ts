@@ -36,6 +36,7 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
   | 'pageToolBroker'
   | 'pageToolTimeoutMs'
   | 'notifier'
+  | 'replyFeed'
   | 'notifyRetryMs'
   | 'lateResultsDecider'
   | 'conversationLeaseMs'
@@ -76,6 +77,7 @@ export function createTheoremConversationCore<Item extends InboxItem = InboxItem
       pageToolTimeoutMs: options.pageToolTimeoutMs,
       notifier: options.notifier,
       notifyRetryMs: options.notifyRetryMs,
+      replyFeed: options.replyFeed,
       lateResultsDecider: options.lateResultsDecider,
       conversationLeaseMs: options.conversationLeaseMs,
       clientEvents: options.clientEvents,

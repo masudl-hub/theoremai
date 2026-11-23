@@ -198,6 +198,7 @@ export type TranscriptBlockKind =
   | 'evidence'
   | 'guardrail'
   | 'late-results'
+  | 'resumed'
   | 'error'
   | 'turn-done';
 
@@ -375,6 +376,16 @@ export interface LateResultsBlock extends TranscriptBlockBase {
   inReply: boolean;
 }
 
+/**
+ * A reply whose model call failed part-way and went on from the words it had shown
+ * (`resend` with reply `continued`): `message` is the profile's notice. It comes before the words it
+ * marks, as a guardrail's decision does, so the words stay one block.
+ */
+export interface ResumedBlock extends TranscriptBlockBase {
+  kind: 'resumed';
+  message: string;
+}
+
 export interface ErrorBlock extends TranscriptBlockBase {
   kind: 'error';
   message: string;
@@ -409,6 +420,7 @@ export type TranscriptBlock =
   | EvidenceBlock
   | GuardrailBlock
   | LateResultsBlock
+  | ResumedBlock
   | ErrorBlock
   | TurnDoneBlock;
 

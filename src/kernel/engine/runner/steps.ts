@@ -575,7 +575,7 @@ function settleFailedCall(
       content: labelText('resume.partial_reply', {}, args.profile.labels),
     });
     state.goesOnFromFailedCall = true;
-    return { type: 'resend', stop: args.stop, withdrawn: false };
+    return { type: 'resend', stop: args.stop, reply: 'continued' };
   }
   state.replyText = state.replyText.slice(0, start.replyText);
   state.released = state.released.slice(0, start.released);
@@ -583,7 +583,7 @@ function settleFailedCall(
     ...state.attemptEvents.slice(0, start.attemptEvents),
     ...state.attemptEvents.slice(start.attemptEvents).filter((event) => !isReplyEvent(event)),
   ];
-  return { type: 'resend', stop: args.stop, withdrawn: shown.length > 0 };
+  return { type: 'resend', stop: args.stop, reply: shown.length > 0 ? 'retracted' : 'unshown' };
 }
 
 /**

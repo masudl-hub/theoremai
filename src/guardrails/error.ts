@@ -165,10 +165,16 @@ function toErrorEvent(err: unknown): ProducedError {
   };
 }
 
-/** Wording already set (host copy) is kept. */
+/**
+ * The event with the user's wording added: an error's, a failed tool call's, and the notice of a
+ * reply that went on after its call failed. Wording already set (host copy) is kept.
+ */
 function withPublicLabels(event: TurnEvent, labels?: LabelOverrides): TurnEvent {
   if (event.type === 'error' && event.error === undefined) {
     return { ...event, error: wording(event.errorKind, event.errorCopy, labels) };
+  }
+  if (event.type === 'resend' && event.reply === 'continued' && event.notice === undefined) {
+    return { ...event, notice: labelText('resume.reply_continued', {}, labels) };
   }
   if (
     event.type === 'tool' &&

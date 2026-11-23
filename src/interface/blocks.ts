@@ -61,10 +61,10 @@ function appendText(
 }
 
 /**
- * A decision made while text streams goes ahead of that text's block, so the block stays last and
- * the rest of the text joins it.
+ * A decision made while text streams, or the notice of a call that failed and went on, goes ahead
+ * of that text's block, so the block stays last and the rest of the text joins it.
  */
-function addGuardrailBlock(blocks: TranscriptBlock[], block: TranscriptBlock): void {
+function addAheadOfText(blocks: TranscriptBlock[], block: TranscriptBlock): void {
   const last = blocks.at(-1);
   const streaming = last?.kind === 'text' || last?.kind === 'thought';
   blocks.splice(streaming ? blocks.length - 1 : blocks.length, 0, block);
@@ -350,11 +350,20 @@ function foldTurnEvents(
         foldCitation(blocks, event, idPrefix);
         break;
       case 'guardrail':
-        addGuardrailBlock(blocks, {
+        addAheadOfText(blocks, {
           id: nextBlockId(idPrefix),
           kind: 'guardrail',
           guardrail: event.guardrail,
         });
+        break;
+      case 'resend':
+        if (event.reply === 'continued' && event.notice) {
+          addAheadOfText(blocks, {
+            id: nextBlockId(idPrefix),
+            kind: 'resumed',
+            message: event.notice,
+          });
+        }
         break;
       case 'stage':
         for (const steer of event.injected ?? []) blocks.push(...injectedBlocks(steer, idPrefix));

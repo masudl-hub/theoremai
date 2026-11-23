@@ -1,5 +1,6 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+import { withPublicLabels } from '../../src/guardrails/error.ts';
 import { labelText } from '../../src/guardrails/labels.ts';
 import { foldTurnEvents } from '../../src/interface/blocks.ts';
 import { appendAssistantEventsToHistory } from '../../src/interface/history.ts';
@@ -177,7 +178,7 @@ const GOES_ON: ModelEvent[] = [
 ];
 
 function resendsOf(events: TurnEvent[]) {
-  return events.flatMap((event) => (event.type === 'resend' ? [event.withdrawn] : []));
+  return events.flatMap((event) => (event.type === 'resend' ? [event.reply] : []));
 }
 
 function keptText(events: TurnEvent[]): string {
@@ -200,7 +201,7 @@ Deno.test('retract: a call that failed part-way is sent again as it was, and its
   assertEquals(requests[1]?.history, requests[0]?.history);
   assertEquals(finalStop(events)?.kind, 'completed');
   assertEquals(errorsOf(events), []);
-  assertEquals(resendsOf(events), [true]);
+  assertEquals(resendsOf(events), ['retracted']);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -215,7 +216,7 @@ Deno.test("retract: the failed call's words are withdrawn, and the sources they 
     [{ type: 'text', text: 'Soil reads' }, CITED, ...CUT_SHORT],
     ANSWER,
   ]);
-  assertEquals(resendsOf(events), [true]);
+  assertEquals(resendsOf(events), ['retracted']);
   assertEquals(
     keptReply(events).filter((event) => event.type === 'citation'),
     [],
@@ -251,7 +252,7 @@ Deno.test('a failed call that showed nothing is sent again with nothing withdraw
     }),
   );
   const { events } = await runScript('resume_retract_empty', [BUSY, ANSWER]);
-  assertEquals(resendsOf(events), [false]);
+  assertEquals(resendsOf(events), ['unshown']);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -276,9 +277,38 @@ Deno.test("continue: the failed call's words stay, and the model reads them with
   ]);
   assertEquals(finalStop(events)?.kind, 'completed');
   assertEquals(errorsOf(events), []);
-  assertEquals(resendsOf(events), [false]);
+  assertEquals(resendsOf(events), ['continued']);
   assertEquals(replyOf(events), 'Soil reads 22%.');
   assertEquals(keptText(events), 'Soil reads 22%.');
+});
+
+Deno.test('continue: the page shows the notice above the words, which stay one block', async () => {
+  registerProfile(
+    resumeProfile('resume_continue_notice', {
+      autoContinue: ['provider_error'],
+      partialReply: 'continue',
+    }),
+  );
+  const { events } = await runScript('resume_continue_notice', [
+    [{ type: 'text', text: 'Soil reads' }, ...BUSY],
+    GOES_ON,
+  ]);
+  const shown = foldTurnEvents(events.map((event) => withPublicLabels(event)));
+  assertEquals(
+    shown.flatMap((block): string[] => {
+      if (block.kind === 'resumed') return [`resumed: ${block.message}`];
+      if (block.kind === 'text') return [`text: ${block.text}`];
+      return [];
+    }),
+    [`resumed: ${labelText('resume.reply_continued')}`, 'text: Soil reads 22%.'],
+  );
+});
+
+Deno.test('a resend that kept no words shows no notice', () => {
+  for (const reply of ['retracted', 'unshown'] as const) {
+    const event = withPublicLabels({ type: 'resend', stop: { kind: 'provider_error' }, reply });
+    assertEquals('notice' in event, false);
+  }
 });
 
 Deno.test('continue: a failed call that showed more than words is withdrawn whole and sent again as it was', async () => {
@@ -293,7 +323,7 @@ Deno.test('continue: a failed call that showed more than words is withdrawn whol
     ANSWER,
   ]);
   assertEquals(requests[1]?.history, requests[0]?.history);
-  assertEquals(resendsOf(events), [true]);
+  assertEquals(resendsOf(events), ['retracted']);
   assertEquals(
     keptReply(events).filter((event) => event.type === 'media'),
     [],
@@ -312,7 +342,7 @@ Deno.test('continue: the sources the kept words cite stay with them', async () =
     [{ type: 'text', text: 'Soil reads' }, CITED, ...BUSY],
     GOES_ON,
   ]);
-  assertEquals(resendsOf(events), [false]);
+  assertEquals(resendsOf(events), ['continued']);
   assertEquals(keptReply(events).filter((event) => event.type === 'citation').length, 1);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
@@ -326,7 +356,7 @@ Deno.test('continue: a failed call that wrote nothing is sent again as it was', 
   );
   const { events, requests } = await runScript('resume_continue_empty', [BUSY, ANSWER]);
   assertEquals(requests[1]?.history, requests[0]?.history);
-  assertEquals(resendsOf(events), [false]);
+  assertEquals(resendsOf(events), ['unshown']);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -356,7 +386,7 @@ for (const partialReply of ['retract', 'continue'] as const) {
             { role: 'user', content: labelText('resume.partial_reply') },
           ],
     );
-    assertEquals(resendsOf(events), [partialReply === 'retract']);
+    assertEquals(resendsOf(events), [partialReply === 'retract' ? 'retracted' : 'continued']);
     assertEquals(JSON.stringify(foldTurnEvents(events)).split('Checking.').length - 1, 1);
   });
 }
@@ -376,7 +406,7 @@ Deno.test('retract: each of two failed calls takes back only its own words', asy
   ]);
   assertEquals(requests.length, 3);
   assertEquals(requests[2]?.history, requests[0]?.history);
-  assertEquals(resendsOf(events), [true, true]);
+  assertEquals(resendsOf(events), ['retracted', 'retracted']);
   assertEquals(keptText(events), 'Soil reads 22%.');
 });
 
@@ -401,7 +431,7 @@ Deno.test('continue: a second failed call that showed a file takes back only its
   ];
   assertEquals(requests[1]?.history, withFirst);
   assertEquals(requests[2]?.history, withFirst);
-  assertEquals(resendsOf(events), [false, true]);
+  assertEquals(resendsOf(events), ['continued', 'retracted']);
   assertEquals(
     keptReply(events).filter((event) => event.type === 'media'),
     [],

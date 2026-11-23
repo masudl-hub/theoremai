@@ -1021,6 +1021,15 @@ export interface InvalidField {
   error: string;
 }
 
+/**
+ * What became of a failed call's reply when it is sent again (`resend`):
+ * - `retracted`: the call's reply events ({@linkcode isReplyEvent}), every one since the last
+ *   `tool`, `resend` or `attempt` event, are not the reply; {@linkcode keptReply} drops them.
+ * - `continued`: the call showed only words, they stay, and the call sent again goes on from them.
+ * - `unshown`: the call had shown nothing, so there is nothing to keep or take back.
+ */
+export type ResendReply = 'retracted' | 'continued' | 'unshown';
+
 /** Why a turn threw an attempt's reply away and asked again. */
 export type AttemptReason = 'validation' | 'egress';
 
@@ -1060,11 +1069,12 @@ export type TurnEvent =
   /**
    * A model call failed on a stop the profile's `turnBehaviour.resumption.autoContinue` lists, and
    * is sent again. `stop` is how it ended. Its failure is not the turn's unless the call sent again
-   * fails too. `withdrawn`: the failed call's reply events ({@linkcode isReplyEvent}), every one
-   * since the last `tool`, `resend` or `attempt` event, are not the reply: {@linkcode keptReply} drops them. What the call wrote that stays is set
-   * by `turnBehaviour.resumption.partialReply`.
+   * fails too. `reply` is what became of the words and other reply events the call had shown, as
+   * `turnBehaviour.resumption.partialReply` sets it (a {@linkcode ResendReply}). `notice` is the
+   * profile's words for a `continued` reply (`resume.reply_continued`), which the host adds where the
+   * event reaches it.
    */
-  | { type: 'resend'; stop: TurnStop; withdrawn: boolean }
+  | { type: 'resend'; stop: TurnStop; reply: ResendReply; notice?: string }
   /**
    * The message `lateResults` put in the conversation, role `user`. It enters a history built from
    * events like any other message. `operationIds` are the calls whose results it holds; `stage` and
@@ -1294,7 +1304,8 @@ const TURN_EVENTS = {
   resend: z.object({
     type: z.literal('resend'),
     stop: turnStop,
-    withdrawn: z.boolean(),
+    reply: z.enum(['retracted', 'continued', 'unshown']),
+    notice: z.string().optional(),
   }),
   late_results: z.object({
     type: z.literal('late_results'),
@@ -1480,7 +1491,7 @@ function cutReply(reply: readonly TurnEvent[], released: number): TurnEvent[] {
  * `events` without the replies a retry threw away: each `attempt` drops the reply events
  * ({@linkcode isReplyEvent}) before it, back to the turn's start or its last `done`. A `stage` event
  * with `released` keeps only that much of the reply's text, and drops what followed it. A `resend`
- * with `withdrawn` drops the reply events of the call before it. Tool calls, thoughts and everything else stay, since
+ * whose reply was `retracted` drops the reply events of the call before it. Tool calls, thoughts and everything else stay, since
  * they happened.
  */
 export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
@@ -1494,7 +1505,7 @@ export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
     if (event.type === 'stage' && event.released !== undefined) {
       kept.push(...cutReply(kept.splice(turnStart), event.released));
     }
-    if (event.type === 'resend' && event.withdrawn) {
+    if (event.type === 'resend' && event.reply === 'retracted') {
       kept.push(...withoutLastCall(kept.splice(turnStart)));
     }
     kept.push(event);

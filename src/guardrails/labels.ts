@@ -108,6 +108,7 @@ export const LABEL_KEYS = [
   'repair.nothing_written',
   'repair.nothing_written_guidance',
   'resume.partial_reply',
+  'resume.reply_continued',
   'repair.prompt_header',
   'repair.prompt_intro',
   'repair.prompt_instructions',
@@ -528,6 +529,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     'You reached the output limit before any reply or tool call came through. Spend less of the limit thinking, and keep any tool call short enough to fit, or split it into smaller calls.',
   'resume.partial_reply':
     'Your reply above stopped part-way because the model call failed. The person already has what you wrote. Go on from exactly where it stopped, without repeating any of it.',
+  'resume.reply_continued': 'This reply was interrupted and picked up where it left off.',
   'repair.prompt_header': '## OUTPUT REPAIR REQUEST',
   'repair.prompt_intro':
     'The previous assistant output was rejected by a host validator and must be revised.',
@@ -829,6 +831,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'Sent to the model when it reached the output limit before writing anything, asking it to think less and answer.',
   'resume.partial_reply':
     "Sent to the model after the words of its call that failed part-way, when the profile's turnBehaviour.resumption.partialReply is continue, asking it to go on from where they stop.",
+  'resume.reply_continued':
+    "Shown to the user at a reply whose model call failed part-way and went on from its words (turnBehaviour.resumption.partialReply continue): the resend event's notice.",
   'repair.prompt_header':
     'The heading that opens the repair request sent to the model after a validator or the egress check rejects its output.',
   'repair.prompt_intro':

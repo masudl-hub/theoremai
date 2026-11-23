@@ -141,6 +141,12 @@ export type ChatTranscriptProps = {
    * the time ("Worked"); any other reply shows none.
    */
   showWorkStatus?: boolean;
+  /**
+   * Whether a reply whose model call failed part-way, and went on from the words it had shown,
+   * shows the profile's notice above its words ("This reply was interrupted and picked up where it
+   * left off."). Default: true.
+   */
+  showResumedNotice?: boolean;
   /** The profile's labels (`iface.labels`): a stopped turn says why in its words. */
   labels?: LabelOverrides;
 };
@@ -156,6 +162,9 @@ const ShowToolDurations = createContext(true);
 
 /** Whether a reply shows its work status (`ChatTranscriptProps.showWorkStatus`). */
 const ShowWorkStatus = createContext(true);
+
+/** Whether a reply that went on after its call failed shows its notice (`ChatTranscriptProps.showResumedNotice`). */
+const ShowResumedNotice = createContext(true);
 
 /** What a tool call's row shows beside its label. */
 type ToolRowShows = { usage: boolean; detail: boolean; duration: boolean };
@@ -775,9 +784,19 @@ function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: bo
   return <ResultBlock block={block} />;
 }
 
-/** Non-streaming answer rows: errors, structured output, and media. Citations coalesce in bodyRows. */
+/**
+ * Non-streaming answer rows: structured output, media, and the notice of a reply that went on after
+ * its call failed. Errors show on the message's status; citations coalesce in bodyRows.
+ */
 function ResultBlock({ block }: { block: TranscriptBlock }) {
+  const showResumed = useContext(ShowResumedNotice);
   switch (block.kind) {
+    case 'resumed':
+      return showResumed ? (
+        <Text size="sm" color="secondary">
+          {block.message}
+        </Text>
+      ) : null;
     case 'error':
     case 'citation':
       return null;
@@ -1309,7 +1328,9 @@ export function ChatTranscript(props: ChatTranscriptProps) {
         <ShowToolData.Provider value={props.showToolData !== false}>
           <ShowToolDurations.Provider value={props.showToolDurations !== false}>
             <ShowWorkStatus.Provider value={props.showWorkStatus !== false}>
-              <ChatTranscriptBody {...props} />
+              <ShowResumedNotice.Provider value={props.showResumedNotice !== false}>
+                <ChatTranscriptBody {...props} />
+              </ShowResumedNotice.Provider>
             </ShowWorkStatus.Provider>
           </ShowToolDurations.Provider>
         </ShowToolData.Provider>

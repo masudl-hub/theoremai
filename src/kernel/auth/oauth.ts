@@ -1,4 +1,4 @@
-import { kindOfHttpStatus } from '../../guardrails/error.ts';
+import { isTimeoutError, kindOfHttpStatus } from '../../guardrails/error.ts';
 import { fetchGuarded } from '../../guardrails/network.ts';
 import { TheoremError } from '../../guardrails/theorem-error.ts';
 import { isRecord } from '../util/record.ts';
@@ -15,8 +15,10 @@ import type {
   ExchangePkceCodeOptions,
   ExchangePkceCodeResult,
   OAuth2Credential,
+  OAuthCall,
   OAuthEndpoints,
   OAuthRevocation,
+  OAuthRevokeResult,
   OAuthTokens,
   OAuthTransportOptions,
   PkceFlowResult,
@@ -27,11 +29,41 @@ import type {
 
 const HTTP_NOT_FOUND = 404;
 
+/** The requests a helper has sent so far; each is added as it is sent, answered or not. */
+type CallLog = OAuthCall[];
+
+/** The URL without its query or fragment, which can carry a code or a token. */
+function callEndpoint(input: RequestInfo | URL): string {
+  const url = new URL(input instanceof Request ? input.url : input);
+  return `${url.origin}${url.pathname}`;
+}
+
+/** A `fetch` that notes in `log` each request it sends, with the status it was answered or why it was not. */
+function recordingFetch(send: typeof fetch, log: CallLog): typeof fetch {
+  return async (input, init) => {
+    const call = { method: init?.method ?? 'GET', endpoint: callEndpoint(input) };
+    let response: Response;
+    try {
+      response = await send(input, init);
+    } catch (err) {
+      log.push({
+        ...call,
+        outcome: 'no_answer',
+        reason: isTimeoutError(err) ? 'timeout' : 'network',
+      });
+      throw err;
+    }
+    log.push({ ...call, outcome: 'answered', status: response.status });
+    return response;
+  };
+}
+
 /** Never follows a redirect: it would carry codes and refresh tokens somewhere nobody vetted. */
 function oauthFetch(
   url: string,
   init: { method?: string; headers: Record<string, string>; body?: string },
   transport: OAuthTransportOptions,
+  log: CallLog,
 ): Promise<Response> {
   const timeout = transport.timeoutMs;
   const signal = timeout === undefined ? {} : { signal: AbortSignal.timeout(timeout) };
@@ -42,7 +74,7 @@ function oauthFetch(
       policy: transport.network,
       followRedirects: false,
       resolveHost: transport.resolveHost,
-      ...(transport.fetchFn ? { fetchFn: transport.fetchFn } : {}),
+      fetchFn: recordingFetch(transport.fetchFn ?? fetch, log),
     },
   );
 }
@@ -155,15 +187,24 @@ async function metadataObject(response: Response, url: string): Promise<Record<s
 }
 
 /** `undefined` on HTTP 404. RFC 9728 §3.3: a `resource` not identical to `resourceUrl` is refused. */
-export async function discoverResourceMetadata(
+export function discoverResourceMetadata(
   resourceUrl: string,
   transport: OAuthTransportOptions = {},
+): Promise<ProtectedResourceMetadata | undefined> {
+  return resourceMetadata(resourceUrl, transport, []);
+}
+
+async function resourceMetadata(
+  resourceUrl: string,
+  transport: OAuthTransportOptions,
+  log: CallLog,
 ): Promise<ProtectedResourceMetadata | undefined> {
   const metadataUrl = wellKnownUrl(httpsUrl(resourceUrl, 'resource'), 'oauth-protected-resource');
   const response = await oauthFetch(
     metadataUrl,
     { headers: { Accept: 'application/json' } },
     transport,
+    log,
   );
   if (response.status === HTTP_NOT_FOUND) {
     await response.body?.cancel();
@@ -247,16 +288,29 @@ function authServerMetadataUrls(issuer: URL): string[] {
 }
 
 /** A non-OK URL moves on to the next; metadata that answers but fails validation is refused outright. */
-export async function discoverAuthServerMetadata(
+export function discoverAuthServerMetadata(
   issuer: string,
   transport: OAuthTransportOptions = {},
+): Promise<AuthorizationServerMetadata> {
+  return authServerMetadata(issuer, transport, []);
+}
+
+async function authServerMetadata(
+  issuer: string,
+  transport: OAuthTransportOptions,
+  log: CallLog,
 ): Promise<AuthorizationServerMetadata> {
   const issuerUrl = httpsUrl(issuer, 'issuer');
   if (issuerUrl.search) {
     throw new Error(`OAuth issuer "${issuer}" must not have a query`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   for (const url of authServerMetadataUrls(issuerUrl)) {
-    const response = await oauthFetch(url, { headers: { Accept: 'application/json' } }, transport);
+    const response = await oauthFetch(
+      url,
+      { headers: { Accept: 'application/json' } },
+      transport,
+      log,
+    );
     if (!response.ok) {
       await response.body?.cancel();
       continue;
@@ -271,9 +325,10 @@ async function discoverEndpoints(
   resourceServerUrl: string,
   transport: OAuthTransportOptions,
 ): Promise<OAuthEndpoints> {
-  const resourceMeta = await discoverResourceMetadata(resourceServerUrl, transport);
+  const log: CallLog = [];
+  const resourceMeta = await resourceMetadata(resourceServerUrl, transport, log);
   const issuer = resourceMeta?.authorization_servers[0] ?? resourceServerUrl;
-  const asMeta = await discoverAuthServerMetadata(issuer, transport);
+  const asMeta = await authServerMetadata(issuer, transport, log);
   if (!asMeta.code_challenge_methods_supported?.includes('S256')) {
     throw new Error(
       `Authorization server "${issuer}" does not advertise S256 PKCE (code_challenge_methods_supported)`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -422,6 +477,8 @@ const REFUSED_GRANT = new Set(['invalid_grant', 'invalid_client']);
 export class OAuthTokenError extends TheoremError {
   /** The endpoint's HTTP status. */
   readonly status: number;
+  /** Every request the helper sent, in order, up to and including the one refused. */
+  readonly calls: readonly OAuthCall[];
   /** The RFC 6749 §5.2 `error` code, when the body carried a well-formed one. */
   readonly error?: string;
   /** The RFC 6749 §5.2 `error_description`, when it is printable ASCII. */
@@ -429,14 +486,49 @@ export class OAuthTokenError extends TheoremError {
 
   constructor(
     message: string,
-    refusal: { status: number; error?: string; errorDescription?: string },
+    refusal: {
+      status: number;
+      calls: readonly OAuthCall[];
+      error?: string;
+      errorDescription?: string;
+    },
   ) {
     const refused = refusal.error !== undefined && REFUSED_GRANT.has(refusal.error);
     super(refused ? 'auth' : kindOfHttpStatus(refusal.status), message);
     this.name = 'OAuthTokenError';
     this.status = refusal.status;
+    this.calls = refusal.calls;
     if (refusal.error !== undefined) this.error = refusal.error;
     if (refusal.errorDescription !== undefined) this.errorDescription = refusal.errorDescription;
+  }
+}
+
+/** The requests sent before a failure that is not an `OAuthTokenError`; the failure itself is thrown as it was. */
+const callsBeforeFailure = new WeakMap<object, readonly OAuthCall[]>();
+
+/**
+ * The requests a sign-in helper sent before it threw `err`, in order. An `OAuthTokenError` holds
+ * them as `calls`; any other failure thrown after a request was sent, such as a timeout, a
+ * network failure or an answer that was not usable, keeps its own type and is read here. Empty
+ * when the helper threw before it sent a request, or for a value that was not thrown by one.
+ */
+export function callsOfOAuthError(err: unknown): readonly OAuthCall[] {
+  if (err instanceof OAuthTokenError) return err.calls;
+  return typeof err === 'object' && err !== null ? (callsBeforeFailure.get(err) ?? []) : [];
+}
+
+/** Runs a helper that fills `log`, and notes the log against any failure after a request was sent. */
+async function withCalls<T>(
+  run: (log: CallLog) => Promise<T>,
+): Promise<{ value: T; calls: readonly OAuthCall[] }> {
+  const log: CallLog = [];
+  try {
+    return { value: await run(log), calls: log };
+  } catch (err) {
+    if (typeof err === 'object' && err !== null && !(err instanceof OAuthTokenError)) {
+      if (log.length > 0) callsBeforeFailure.set(err, [...log]);
+    }
+    throw err;
   }
 }
 
@@ -444,6 +536,7 @@ async function tokenEndpointError(
   response: Response,
   failed: string,
   endpoint: string,
+  log: CallLog,
 ): Promise<OAuthTokenError> {
   const body = await tokenErrorBody(response);
   const said =
@@ -454,6 +547,7 @@ async function tokenEndpointError(
         : `: ${body.error} (${body.errorDescription})`;
   return new OAuthTokenError(`${failed} at ${endpoint} (HTTP ${response.status})${said}`, {
     status: response.status,
+    calls: [...log],
     ...body,
   });
 }
@@ -534,6 +628,20 @@ async function requestToken(
   requested: readonly string[],
   previous?: { refreshToken: string; scope?: string },
 ): Promise<ExchangePkceCodeResult> {
+  const { value, calls } = await withCalls((log) =>
+    requestTokenLogged(transport, grant, params, requested, previous, log),
+  );
+  return { ...value, calls };
+}
+
+async function requestTokenLogged(
+  transport: OAuthTransportOptions,
+  grant: TokenGrant,
+  params: Record<string, string>,
+  requested: readonly string[],
+  previous: { refreshToken: string; scope?: string } | undefined,
+  log: CallLog,
+): Promise<Omit<ExchangePkceCodeResult, 'calls'>> {
   const { clientSecret, ...issued } = grant;
   const body = new URLSearchParams({
     ...params,
@@ -549,10 +657,11 @@ async function requestToken(
       body: body.toString(),
     },
     transport,
+    log,
   );
   if (!response.ok) {
     const failed = previous ? 'Token refresh failed' : 'Token exchange failed'; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    throw await tokenEndpointError(response, failed, grant.tokenEndpoint);
+    throw await tokenEndpointError(response, failed, grant.tokenEndpoint, log);
   }
   const tokens = parseTokenResponse(await response.json(), grant.tokenEndpoint);
   assertGrantWithin(tokens.scope, requested, grant.tokenEndpoint);
@@ -650,6 +759,7 @@ async function revokeOne(
   token: string,
   hint: 'refresh_token' | 'access_token',
   options: RevokeOAuthTokenOptions,
+  log: CallLog,
 ): Promise<RevocationAnswer> {
   const body = new URLSearchParams({
     token,
@@ -665,12 +775,13 @@ async function revokeOne(
       body: body.toString(),
     },
     options,
+    log,
   );
   if (response.ok) {
     await response.body?.cancel();
     return 'revoked';
   }
-  const failure = await tokenEndpointError(response, 'Token revocation failed', endpoint); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  const failure = await tokenEndpointError(response, 'Token revocation failed', endpoint, log); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   if (failure.error === 'unsupported_token_type') return 'unsupported_token_type';
   if (failure.error !== undefined && ALREADY_INVALID.has(failure.error)) return 'already_invalid';
   throw failure;
@@ -682,23 +793,40 @@ async function revokeOne(
  * when there is no refresh token or the server does not revoke refresh tokens. The endpoint is
  * `revocationEndpoint` when given, else the issuer's `revocation_endpoint` metadata.
  *
- * @returns `revoked` on HTTP 200, which per §2.2 also answers a token the server already
- * dropped; `already_invalid` when the server says so with `invalid_token` or `invalid_grant`;
- * `unsupported` when the issuer names no revocation endpoint or revokes neither token type.
- * Any other refusal throws `OAuthTokenError`.
+ * @returns `revocation`: `revoked` on HTTP 200, which per §2.2 also answers a token the server
+ * already dropped; `already_invalid` when the server says so with `invalid_token` or
+ * `invalid_grant`; `unsupported` when the issuer names no revocation endpoint or revokes neither
+ * token type. `calls`: every request sent. Any other refusal throws `OAuthTokenError`, whose
+ * `calls` hold the requests up to the refused one.
  */
-export async function revokeOAuthToken(options: RevokeOAuthTokenOptions): Promise<OAuthRevocation> {
+export async function revokeOAuthToken(
+  options: RevokeOAuthTokenOptions,
+): Promise<OAuthRevokeResult> {
+  const { value, calls } = await withCalls((log) => revokeLogged(options, log));
+  return { revocation: value, calls };
+}
+
+async function revokeLogged(
+  options: RevokeOAuthTokenOptions,
+  log: CallLog,
+): Promise<OAuthRevocation> {
   const { credential } = options;
   const endpoint =
     options.revocationEndpoint === undefined
-      ? (await discoverAuthServerMetadata(credential.issuer, options)).revocation_endpoint
+      ? (await authServerMetadata(credential.issuer, options, log)).revocation_endpoint
       : httpsUrl(options.revocationEndpoint, 'revocation_endpoint').href;
   if (endpoint === undefined) return 'unsupported';
   if (credential.refreshToken) {
-    const answer = await revokeOne(endpoint, credential.refreshToken, 'refresh_token', options);
+    const answer = await revokeOne(
+      endpoint,
+      credential.refreshToken,
+      'refresh_token',
+      options,
+      log,
+    );
     if (answer !== 'unsupported_token_type') return answer;
   }
-  const answer = await revokeOne(endpoint, credential.accessToken, 'access_token', options);
+  const answer = await revokeOne(endpoint, credential.accessToken, 'access_token', options, log);
   return answer === 'unsupported_token_type' ? 'unsupported' : answer;
 }
 

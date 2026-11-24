@@ -117,6 +117,17 @@ OAuth access tokens expire. When a tool with an OAuth credential executes, Theor
 
 The error also has the HTTP `status` and the server's `error` code. A request that gets no answer throws a `TheoremError` with kind `network`. Pass `timeoutMs` to limit how long each request may take, its body included; past it the call throws a `TimeoutError` (kind `timeout`). Without it, there is no limit.
 
+### Log the requests a sign-in sends
+
+Use `calls` when your app keeps a record of each request it makes to a service. `exchangeOAuthPkce`, `refreshOAuthToken`, and `revokeOAuthToken` return every request they sent, in order. Each call has the `method`, the `endpoint` (origin and path, never the query), and an `outcome`:
+
+* `answered`: the server answered. `status` is its HTTP status, for a success and a refusal.
+* `no_answer`: the request got no answer. `reason` is `network` or `timeout`.
+
+`OAuthTokenError.calls` holds the calls up to the refused one. For any other failure after a request was sent, such as a timeout, `callsOfOAuthError(err)` returns the calls.
+
+When Theorem renews an expired token during a send, `sealedCredentialHost().prepare()` returns the requests as `renewal.calls`. Calls that share one renewal each get the same `calls`; log them from the call whose `renewal.madeBy` is `this_call`.
+
 ---
 
 ## Disconnect a Sign-in
@@ -126,8 +137,8 @@ When the user disconnects a service, call `revokeOAuthToken` so the provider als
 ```ts
 import { revokeOAuthToken } from '@theoremjs/agents/kernel';
 
-const outcome = await revokeOAuthToken({ credential, clientSecret });
-// 'revoked' | 'already_invalid' | 'unsupported'
+const { revocation, calls } = await revokeOAuthToken({ credential, clientSecret });
+// revocation: 'revoked' | 'already_invalid' | 'unsupported'
 await userCredentials.delete(slot);
 ```
 

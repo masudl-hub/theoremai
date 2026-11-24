@@ -394,7 +394,18 @@ Deno.test('a sealed prepare refreshes an expired token on its own side and tells
     Promise.resolve(json({ access_token: KEY, token_type: 'Bearer', expires_in: 3600 }));
   const host = sealedOver(source, fetchFn);
   const ready = await host.prepare('weather');
-  assertEquals(ready.state === 'ready' ? ready.refreshed : ready.state, true);
+  assertEquals(ready.state === 'ready' ? ready.renewal : ready.state, {
+    state: 'renewed',
+    madeBy: 'this_call',
+    calls: [
+      {
+        method: 'POST',
+        endpoint: 'https://auth.weather.example/token',
+        outcome: 'answered',
+        status: 200,
+      },
+    ],
+  });
   assertEquals(JSON.stringify(ready).includes(KEY), false);
   assertEquals(JSON.stringify(ready).includes('old-refresh'), false);
   const stored = await source.get('weather');
@@ -474,7 +485,20 @@ Deno.test('a refresh the token server refuses says why without anything it was s
     );
   const ready = await sealedOver(source, fetchFn).prepare('weather');
   assertEquals(ready.state === 'unusable' ? ready.reason : ready.state, 'refresh_failed');
-  const detail = ready.state === 'unusable' ? (ready.detail ?? '') : '';
+  const detail =
+    ready.state === 'unusable' && ready.reason === 'refresh_failed' ? ready.detail : '';
+  assertEquals(ready.state === 'unusable' ? ready.renewal : ready.state, {
+    state: 'failed',
+    madeBy: 'this_call',
+    calls: [
+      {
+        method: 'POST',
+        endpoint: 'https://auth.weather.example/token',
+        outcome: 'answered',
+        status: 400,
+      },
+    ],
+  });
   assertEquals(detail.includes('invalid_grant'), true);
   for (const secret of ['old-refresh', 'client-secret', 'old-access']) {
     assertEquals({ [secret]: detail.includes(secret) }, { [secret]: false });
@@ -560,8 +584,8 @@ Deno.test('an empty sealed slot prepares as absent, and a key with no expiry is 
   const keyed = sealedOver(memoryCredentialSource({ weather: BEARER_KEY }), weather().fetchFn);
   const ready = await keyed.prepare('weather');
   assertEquals(
-    ready.state === 'ready' ? { refreshed: ready.refreshed, resource: ready.resource } : ready,
-    { refreshed: false, resource: RESOURCE },
+    ready.state === 'ready' ? { renewal: ready.renewal, resource: ready.resource } : ready,
+    { renewal: { state: 'none' }, resource: RESOURCE },
   );
 });
 

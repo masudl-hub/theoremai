@@ -154,10 +154,33 @@ export interface ExchangePkceCodeOptions extends OAuthTransportOptions {
   clientSecret?: string;
 }
 
-/** The tokens and credential a PKCE exchange yields. */
+/**
+ * One HTTP request a sign-in helper sent. `endpoint` is the origin and path, never the query,
+ * which can carry a code or a token. Read `outcome` first: a request the server answered has a
+ * `status`; one that got no answer has the `reason`, and no status.
+ */
+export type OAuthCall = {
+  method: string;
+  endpoint: string;
+} & (
+  | {
+      outcome: 'answered';
+      /** The HTTP status the server answered, success or not. */
+      status: number;
+    }
+  | {
+      outcome: 'no_answer';
+      /** `timeout` when `timeoutMs` ran out; `network` for any other failure to get an answer. */
+      reason: 'network' | 'timeout';
+    }
+);
+
+/** The tokens and credential a PKCE exchange or a refresh yields. */
 export interface ExchangePkceCodeResult {
   tokens: OAuthTokens;
   credential: OAuth2Credential;
+  /** Every request the helper sent, in order. */
+  calls: readonly OAuthCall[];
 }
 
 /** Options for refreshing an OAuth access token. */
@@ -184,3 +207,43 @@ export interface RevokeOAuthTokenOptions extends OAuthTransportOptions {
 
 /** What the authorization server did with a revoked sign-in. */
 export type OAuthRevocation = 'revoked' | 'already_invalid' | 'unsupported';
+
+/** The answer to a revocation and the requests that led to it. */
+export interface OAuthRevokeResult {
+  revocation: OAuthRevocation;
+  /**
+   * Every request sent, in order: the metadata lookups when the endpoint was not given, then
+   * the refresh token's revocation, then the access token's. `unsupported` for want of an
+   * endpoint has only the lookups.
+   */
+  calls: readonly OAuthCall[];
+}
+
+/**
+ * A token renewal that a credential's readiness did not need or did not attempt: the token was
+ * not expired, or it could not be renewed at all.
+ */
+export interface NoRenewal {
+  state: 'none';
+}
+
+/**
+ * Who sent a renewal's requests. Calls that find the same expired token share one renewal, so a
+ * host that logs `calls` from every caller logs them twice. `this_call` made the requests;
+ * `another_call` joined a renewal that was already running and holds the same `calls`.
+ */
+export type RenewalMaker = 'this_call' | 'another_call';
+
+/** A renewal that stored a new credential. */
+export interface RenewedCredential {
+  state: 'renewed';
+  madeBy: RenewalMaker;
+  calls: readonly OAuthCall[];
+}
+
+/** A renewal the token server refused or never answered. `calls` is empty when none was sent. */
+export interface FailedRenewal {
+  state: 'failed';
+  madeBy: RenewalMaker;
+  calls: readonly OAuthCall[];
+}

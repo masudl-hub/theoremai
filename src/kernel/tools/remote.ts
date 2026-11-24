@@ -234,7 +234,7 @@ async function* readToolAuth(
     if (sealed.state === 'unusable') {
       return yield* unusableResult(toolName, authConfig, sealed, bound, base);
     }
-    if (sealed.refreshed) yield refreshedEvent(base, slot);
+    if (sealed.renewal.state === 'renewed') yield refreshedEvent(base, slot);
     return {
       auth: 'signed_in',
       signedIn: {
@@ -256,7 +256,7 @@ async function* readToolAuth(
   if (ready.state === 'unusable') {
     return yield* unusableResult(toolName, authConfig, ready, bound, base);
   }
-  if (ready.refreshed) yield refreshedEvent(base, slot);
+  if (ready.renewal.state === 'renewed') yield refreshedEvent(base, slot);
   const { credential } = ready;
   return {
     auth: 'signed_in',

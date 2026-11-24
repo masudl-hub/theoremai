@@ -1081,7 +1081,7 @@ Deno.test('a revocation posts the refresh token first, as a form with the client
     clientSecret: 'shh',
     fetchFn,
   });
-  check(outcome, 'revoked', 'outcome');
+  check(outcome.revocation, 'revoked', 'outcome');
   check(
     posted,
     [{ token: 'rt', token_type_hint: 'refresh_token', client_id: 'client', client_secret: 'shh' }],
@@ -1093,7 +1093,8 @@ Deno.test('a sign-in without a refresh token revokes its access token', async ()
   const { fetchFn, posted } = revocations(() => new Response('', { status: 200 }));
   const { refreshToken: _, ...accessOnly } = SIGNED_IN;
   check(
-    await revokeOAuthToken({ credential: accessOnly, revocationEndpoint: REVOKE, fetchFn }),
+    (await revokeOAuthToken({ credential: accessOnly, revocationEndpoint: REVOKE, fetchFn }))
+      .revocation,
     'revoked',
     'outcome',
   );
@@ -1104,11 +1105,13 @@ Deno.test('a server that does not revoke refresh tokens gets the access token in
   const unsupported = () => json({ error: 'unsupported_token_type' }, 400);
   const once = revocations(unsupported, () => new Response('', { status: 200 }));
   check(
-    await revokeOAuthToken({
-      credential: SIGNED_IN,
-      revocationEndpoint: REVOKE,
-      fetchFn: once.fetchFn,
-    }),
+    (
+      await revokeOAuthToken({
+        credential: SIGNED_IN,
+        revocationEndpoint: REVOKE,
+        fetchFn: once.fetchFn,
+      })
+    ).revocation,
     'revoked',
     'access token revoked',
   );
@@ -1119,11 +1122,13 @@ Deno.test('a server that does not revoke refresh tokens gets the access token in
   );
   const neither = revocations(unsupported, unsupported);
   check(
-    await revokeOAuthToken({
-      credential: SIGNED_IN,
-      revocationEndpoint: REVOKE,
-      fetchFn: neither.fetchFn,
-    }),
+    (
+      await revokeOAuthToken({
+        credential: SIGNED_IN,
+        revocationEndpoint: REVOKE,
+        fetchFn: neither.fetchFn,
+      })
+    ).revocation,
     'unsupported',
     'neither type',
   );
@@ -1133,7 +1138,8 @@ Deno.test('a token the server already dropped is already invalid when it says so
   for (const error of ['invalid_token', 'invalid_grant']) {
     const { fetchFn, posted } = revocations(() => json({ error }, 400));
     check(
-      await revokeOAuthToken({ credential: SIGNED_IN, revocationEndpoint: REVOKE, fetchFn }),
+      (await revokeOAuthToken({ credential: SIGNED_IN, revocationEndpoint: REVOKE, fetchFn }))
+        .revocation,
       'already_invalid',
       error,
     );
@@ -1166,7 +1172,7 @@ Deno.test('the revocation endpoint comes from the issuer metadata, or there is n
     [REVOKE]: () => new Response('', { status: 200 }),
   });
   check(
-    await revokeOAuthToken({ credential: SIGNED_IN, fetchFn: withEndpoint.fetchFn }),
+    (await revokeOAuthToken({ credential: SIGNED_IN, fetchFn: withEndpoint.fetchFn })).revocation,
     'revoked',
     'discovered',
   );
@@ -1177,7 +1183,7 @@ Deno.test('the revocation endpoint comes from the issuer metadata, or there is n
   );
   const without = routes({ [AS_URL]: () => json(AS_METADATA) });
   check(
-    await revokeOAuthToken({ credential: SIGNED_IN, fetchFn: without.fetchFn }),
+    (await revokeOAuthToken({ credential: SIGNED_IN, fetchFn: without.fetchFn })).revocation,
     'unsupported',
     'none named',
   );

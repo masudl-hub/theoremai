@@ -20,12 +20,17 @@ import type {
   SealedRequest,
   ToolCredentialSource,
 } from '../auth/credential-source.ts';
-import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
+import { callsOfOAuthError, refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
 import type {
   ApiKeyCredential,
   BearerCredential,
+  FailedRenewal,
+  NoRenewal,
   OAuth2Credential,
+  OAuthCall,
   OAuthTransportOptions,
+  RenewalMaker,
+  RenewedCredential,
   ToolCredential,
 } from '../auth/types.ts';
 import type { ToolAuthConfig } from './types.ts';
@@ -276,22 +281,28 @@ export async function credentialId(credential: ToolCredential): Promise<string> 
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/** A refresh's new credential and the requests it took. */
+interface Refreshed {
+  credential: OAuth2Credential;
+  calls: readonly OAuthCall[];
+}
+
 /**
  * Refreshes in flight, by grant. Calls that find the same expired token share
  * one refresh: with rotating refresh tokens a second request would present a
  * spent token, which a server may treat as theft and revoke the whole grant.
  */
-const refreshesInFlight = new Map<string, Promise<OAuth2Credential>>();
+const refreshesInFlight = new Map<string, Promise<Refreshed>>();
 
 function refreshOnce(
   credential: OAuth2Credential,
   refreshToken: string,
   transport: OAuthTransportOptions,
   clientSecret: string | undefined,
-): Promise<OAuth2Credential> {
+): { refresh: Promise<Refreshed>; madeBy: RenewalMaker } {
   const grant = `${credential.tokenEndpoint}\n${refreshToken}`;
   const inFlight = refreshesInFlight.get(grant);
-  if (inFlight) return inFlight;
+  if (inFlight) return { refresh: inFlight, madeBy: 'another_call' };
   const refresh = refreshOAuthToken({
     refreshToken,
     tokenEndpoint: credential.tokenEndpoint,
@@ -301,27 +312,41 @@ function refreshOnce(
     issuer: credential.issuer,
     ...(clientSecret === undefined ? {} : { clientSecret }),
     ...transport,
-  }).then((result) => result.credential);
+  }).then((result) => ({ credential: result.credential, calls: result.calls }));
   refreshesInFlight.set(grant, refresh);
   const settle = () => refreshesInFlight.delete(grant);
   refresh.then(settle, settle);
-  return refresh;
+  return { refresh, madeBy: 'this_call' };
 }
 
 /** A stored credential made ready to send: an expired OAuth token refreshed and stored, or why it cannot go. */
 export type CredentialReadiness =
-  | { state: 'ready'; credential: ToolCredential; refreshed: boolean }
   | {
-      state: 'unusable';
-      /**
-       * - `no_resource`: an OAuth token that names no resource has nowhere it may go.
-       * - `expired`: an OAuth token past its time, with no refresh token.
-       * - `refresh_failed`: the token server refused or failed the refresh.
-       */
-      reason: 'no_resource' | 'expired' | 'refresh_failed';
-      /** The token server's own words, for `refresh_failed`: untrusted, for the host only. */
-      detail?: string;
-    };
+      state: 'ready';
+      credential: ToolCredential;
+      /** `renewed` when an expired OAuth token was refreshed and stored to get here. */
+      renewal: NoRenewal | RenewedCredential;
+    }
+  | ({ state: 'unusable' } & (
+      | {
+          /**
+           * - `no_resource`: an OAuth token that names no resource has nowhere it may go.
+           * - `expired`: an OAuth token past its time, with no refresh token.
+           */
+          reason: 'no_resource' | 'expired';
+          renewal: NoRenewal;
+        }
+      | {
+          /** `refresh_failed`: the token server refused or failed the refresh. */
+          reason: 'refresh_failed';
+          /** The token server's own words: untrusted, for the host only. */
+          detail: string;
+          /** The requests the refresh sent before it failed. */
+          renewal: FailedRenewal;
+        }
+    ));
+
+const NO_RENEWAL: NoRenewal = { state: 'none' };
 
 /**
  * `credential` ready to send. An OAuth token within 30 seconds of its expiry is refreshed, and the
@@ -333,20 +358,28 @@ export async function readyCredential(
   source: ToolCredentialSource,
   transport: OAuthTransportOptions,
 ): Promise<CredentialReadiness> {
-  if (credential.type !== 'oauth2') return { state: 'ready', credential, refreshed: false };
+  if (credential.type !== 'oauth2') return { state: 'ready', credential, renewal: NO_RENEWAL };
   // invariant: A token goes only to the resource it was issued for; one that names none
   // has nowhere it may go, so the user signs in again.
   if (typeof credential.resource !== 'string' || credential.resource.length === 0) {
-    return { state: 'unusable', reason: 'no_resource' };
+    return { state: 'unusable', reason: 'no_resource', renewal: NO_RENEWAL };
   }
   const isExpired =
     credential.expiresAt !== undefined && credential.expiresAt <= Date.now() + 30000;
-  if (!isExpired) return { state: 'ready', credential, refreshed: false };
-  if (!credential.refreshToken) return { state: 'unusable', reason: 'expired' };
+  if (!isExpired) return { state: 'ready', credential, renewal: NO_RENEWAL };
+  if (!credential.refreshToken) {
+    return { state: 'unusable', reason: 'expired', renewal: NO_RENEWAL };
+  }
   const clientSecret = await source.clientSecret?.(credential.clientId);
-  let refreshed: OAuth2Credential;
+  const { refresh, madeBy } = refreshOnce(
+    credential,
+    credential.refreshToken,
+    transport,
+    clientSecret,
+  );
+  let refreshed: Refreshed;
   try {
-    refreshed = await refreshOnce(credential, credential.refreshToken, transport, clientSecret);
+    refreshed = await refresh;
   } catch (err) {
     // why: a token server's error can repeat what it was sent; none of it leaves this side.
     const sent = [credential.accessToken, credential.refreshToken, clientSecret];
@@ -354,12 +387,21 @@ export async function readyCredential(
       (text, secret) => (secret ? secretOmitter(secret)(text) : text),
       err instanceof Error ? err.message : String(err),
     );
-    return { state: 'unusable', reason: 'refresh_failed', detail };
+    return {
+      state: 'unusable',
+      reason: 'refresh_failed',
+      detail,
+      renewal: { state: 'failed', madeBy, calls: callsOfOAuthError(err) },
+    };
   }
   // why: The host persists the refreshed credential before the call goes on; a rotated refresh
   // token lost to a closed stream cannot be recovered.
-  await source.set(slot, refreshed);
-  return { state: 'ready', credential: refreshed, refreshed: true };
+  await source.set(slot, refreshed.credential);
+  return {
+    state: 'ready',
+    credential: refreshed.credential,
+    renewal: { state: 'renewed', madeBy, calls: refreshed.calls },
+  };
 }
 
 /** Where a sealed slot's credential may go, and where on a request. */
@@ -407,7 +449,7 @@ export function sealedCredentialHost(options: SealedCredentialHostOptions): Seal
       return {
         state: 'ready',
         id: await credentialId(ready.credential),
-        refreshed: ready.refreshed,
+        renewal: ready.renewal,
         resource: ready.credential.type === 'oauth2' ? ready.credential.resource : place.resource,
         ...bound,
       };

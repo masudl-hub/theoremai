@@ -1,4 +1,4 @@
-import type { ToolCredential } from './types.ts';
+import type { FailedRenewal, NoRenewal, RenewedCredential, ToolCredential } from './types.ts';
 
 /**
  * Where a call's tool credentials come from. The kernel reads a slot only when a
@@ -31,28 +31,30 @@ export interface ToolCredentialSource {
  * A slot's credential as a sealed source tells it: whether it can go, never the secret.
  *
  * - `absent`: the person has not signed in.
- * - `ready`: it can go. `id` names it stably (a digest, for keying MCP sessions); `refreshed`
- *   says an OAuth token was refreshed and stored to get here; `resource` is where it may go.
+ * - `ready`: it can go. `id` names it stably (a digest, for keying MCP sessions); `renewal`
+ *   says whether an OAuth token was renewed and stored to get here, and the requests that took;
+ *   `resource` is where it may go.
  * - `unusable`: an OAuth token that names no resource (`no_resource`), is past its time with no
  *   refresh token (`expired`), or whose refresh failed (`refresh_failed`, with the token server's
- *   own words in `detail`, untrusted, for the host only).
+ *   own words in `detail`, untrusted, for the host only, and the requests it sent in `renewal`).
  */
 export type SealedCredential =
   | { state: 'absent' }
   | {
       state: 'ready';
       id: string;
-      refreshed: boolean;
+      renewal: NoRenewal | RenewedCredential;
       resource: string;
       issuer?: string;
     }
-  | {
+  | ({
       state: 'unusable';
-      reason: 'no_resource' | 'expired' | 'refresh_failed';
-      detail?: string;
       issuer?: string;
       resource?: string;
-    };
+    } & (
+      | { reason: 'no_resource' | 'expired'; renewal: NoRenewal }
+      | { reason: 'refresh_failed'; detail: string; renewal: FailedRenewal }
+    ));
 
 /** One request a sealed source sends: plain data, so it can cross to where the credential is. */
 export interface SealedRequest {

@@ -8,6 +8,7 @@
 
 import {
   describeError,
+  errorKind,
   isAbortError,
   isTimeoutError,
   networkError,
@@ -391,7 +392,7 @@ export async function readyCredential(
       state: 'unusable',
       reason: 'refresh_failed',
       detail,
-      renewal: { state: 'failed', madeBy, calls: callsOfOAuthError(err) },
+      renewal: { state: 'failed', madeBy, kind: errorKind(err), calls: callsOfOAuthError(err) },
     };
   }
   // why: The host persists the refreshed credential before the call goes on; a rotated refresh

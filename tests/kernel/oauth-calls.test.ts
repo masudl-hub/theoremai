@@ -260,17 +260,26 @@ Deno.test('prepare reports a renewal made by this call', async () => {
   });
 });
 
-Deno.test('prepare reports a refused or unanswered renewal with its calls', async () => {
+Deno.test('prepare reports a refused, failed or unanswered renewal with its kind and calls', async () => {
   const refused = await hostOver(answering(json({ error: 'invalid_grant' }, 400))).prepare('slot');
   assertEquals(refused.state === 'unusable' ? refused.renewal : refused.state, {
     state: 'failed',
     madeBy: 'this_call',
+    kind: 'auth',
     calls: [answered('POST', TOKEN, 400)],
+  });
+  const busy = await hostOver(answering(json({}, 503))).prepare('slot');
+  assertEquals(busy.state === 'unusable' ? busy.renewal : busy.state, {
+    state: 'failed',
+    madeBy: 'this_call',
+    kind: 'busy',
+    calls: [answered('POST', TOKEN, 503)],
   });
   const silent = await hostOver(answering(new TypeError('down'))).prepare('slot');
   assertEquals(silent.state === 'unusable' ? silent.renewal : silent.state, {
     state: 'failed',
     madeBy: 'this_call',
+    kind: 'network',
     calls: [{ method: 'POST', endpoint: TOKEN, outcome: 'no_answer', reason: 'network' }],
   });
 });

@@ -1,4 +1,5 @@
 import type { ResolveHost } from '../../guardrails/network.ts';
+import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 
 /** RFC 9728. */
@@ -245,5 +246,10 @@ export interface RenewedCredential {
 export interface FailedRenewal {
   state: 'failed';
   madeBy: RenewalMaker;
+  /**
+   * Why it failed, as the refresh error's kind: `auth` when the token server refused the grant
+   * (the person signs in again); any other kind when it failed or never answered.
+   */
+  kind: ErrorKind;
   calls: readonly OAuthCall[];
 }

@@ -490,6 +490,7 @@ Deno.test('a refresh the token server refuses says why without anything it was s
   assertEquals(ready.state === 'unusable' ? ready.renewal : ready.state, {
     state: 'failed',
     madeBy: 'this_call',
+    kind: 'auth',
     calls: [
       {
         method: 'POST',

@@ -19,6 +19,7 @@
     "runtime.ts",
     "browser.ts",
     "people.ts",
+    "conversation.ts",
     "surface.ts",
     "server.ts",
     "vite.mjs",

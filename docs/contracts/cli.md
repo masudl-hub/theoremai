@@ -86,7 +86,8 @@ The CLI loads the setup with `loadSetup`, then its `entry`, which exports
 
 1. Calls `theorem.register` once.
 2. Sends each turn through `theorem.prepare`. The profile stays the one that
-   `--profile` names.
+   `--profile` names. A `prepare` that returns `{ refuse }` stops the command
+   with the refusal's text.
 3. Runs each turn on `theorem.provider`.
 
 The CLI reads no API key. The keys are the ones your `provider` holds. Without

@@ -16,6 +16,7 @@
 import { basename } from 'node:path';
 import { defaultKernelScope } from '@theoremjs/agents';
 import { loadSetup } from '@theoremjs/agents/cli';
+import type { StudioConversations } from '../conversation.ts';
 import type { StudioActingAs, StudioPeople } from '../people.ts';
 import { editedImages, editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
 import { createStudioHandler, type ProjectImages, type ProjectQuestions } from './handler.ts';
@@ -28,6 +29,8 @@ type SetupModule = {
   host?: (request: Request, actingAs: StudioActingAs | undefined) => unknown;
   /** The places and people a run may act as. Read before it is trusted: a setup is not always type-checked. */
   people?: StudioPeople;
+  /** The agents whose chats run on the application's own conversation core. */
+  conversation?: StudioConversations;
   /** What each decision profile asks, by the profile's id. */
   questions?: ProjectQuestions;
   /** The pictures each decision profile sends, by the profile's id. */
@@ -69,6 +72,7 @@ if (import.meta.main) {
     ...(theorem.provider ? { provider: theorem.provider } : {}),
     ...(theorem.prepare ? { prepare: theorem.prepare } : {}),
     ...(theorem.lateResultsDecider ? { lateResultsDecider: theorem.lateResultsDecider } : {}),
+    ...(setup.conversation ? { conversation: setup.conversation } : {}),
     ...(questions ? { questions } : {}),
     ...(images ? { images } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),

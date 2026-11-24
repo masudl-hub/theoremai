@@ -118,7 +118,7 @@ export const theorem: TurnWiring = {
 | `prepare(turn)` | Gives it each text, image and speech turn, and runs the turn it returns: add the system prompt, history, credentials or `onStage` your app adds, and the `execution` and `background` that keep your app's late tool calls. The studio keeps the profile and the context the run was given, and records each call in its own session too. |
 | `lateResultsDecider` | Decides, as your server does, who tells a chat's model that a background call ended. Unset, no chat wakes and no reply reads a late result. |
 
-The studio's chat keeps its own conversation and never writes to your app's stores. `prepare` can change the history it is given.
+Unless the setup exports `conversation` for an agent, the studio's chat keeps its own conversation and never writes to your app's stores. `prepare` can change the history it is given.
 
 The studio loads your entry in the environment you start it in. If the entry reads its keys as it loads, from `Deno.env` or a file an environment variable names, set them on the command that starts the studio, as you do for your app: `OPENAI_API_KEY=… theorem-studio`.
 
@@ -130,10 +130,41 @@ The studio reads only these exports. `entry` is required; the others are optiona
 |---|---|
 | `entry` | The path of your app's entry point, from the setup file: `export const entry = './server/theorem.ts'`. The studio loads its `theorem`, and reads the files it imports as part of the project. |
 | `people`, `host` | Who a run's tools act for (below). |
+| `conversation` | The agents whose chat runs on your app's own conversation (below). |
 | `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. When your app builds a profile's questions for each decision, export the builder your app passes to `createTheoremDecisionHandler` instead, `{ input?, build }`: the run shows a form for `input` above the state, and each answer shows the questions `build` made. The editor shows where the builder is and lists no questions. |
 | `images` | The pictures each decision profile can send, by the profile's id. A decision sends only those its state or questions name: `{ [profileId]: { [reference]: DecisionAsset } }`, where a reference is the name its questions write, such as `'<ghs02>'`. |
 
 A setup file that still exports `default()` or `provider` does not open: the command names the move to the entry.
+
+### Run an agent's chat on your app's conversation
+
+Export `conversation` from the setup file when your app saves an agent's chats itself, and a studio chat must save there too. It takes an agent's profile id, and returns the conversation for that agent or `undefined`:
+
+```ts
+// theorem.studio.setup.ts
+import type { StudioConversations } from '@theoremjs/studio/conversation';
+
+export const conversation: StudioConversations = (profileId) =>
+  profileId === 'support' ? { core: supportCore(), intake: supportIntake, onContinue } : undefined;
+```
+
+| Field | Use |
+|---|---|
+| `core` | Your app's `ConversationCore` from `@theoremjs/web/server`. Each chat call for the agent runs on it: a turn, a steer, a stop, a read, a rewind, an answer to a gate and a follow-up. |
+| `intake` | Saves each message the page sends in your app, as the web handler's `intake`. |
+| `onContinue` | Says who runs the next reply when one ends with items that wait, as the web handler's `onContinue`. Theorem sets no default. |
+
+For that agent:
+
+- The core brings its own `prepare`, provider, keys, stores, inbox and background calls. The studio does not use `theorem.prepare`, `theorem.lateResultsDecider` or its own background calls for it.
+- A reply saves in your app, not in the studio's sealed store.
+- A reply the core refuses, with `{ refuse: { text } }` from `prepare`, shows as the reply and runs no model.
+- The core reads `host` from the setup's `host` export. Wrap each call as your app does for a request.
+- "Continue live" on a replay answers `409`, because a replay cannot go on in your app's conversation. Start a new chat.
+- The page shows no per-run trace for these replies.
+- Draft runs, guardrail probes and key tests do not use the core.
+
+Every other agent keeps the studio's own conversation.
 
 ### Keys a run uses
 
@@ -316,6 +347,7 @@ Live calls on lent keys open a WebSocket to `/api/live/relay`, not `/api/studio`
 | `@theoremjs/studio/server` | `createStudioDraftHandler`, `STUDIO_BASE`, and their types. |
 | `@theoremjs/studio/ui/*` | The screen: `ui/studio-screen.tsx`, `ui/lib/studio-open.ts`, the theme in `ui/built/`, and the stylesheets. |
 | `@theoremjs/studio/vite` | `studioVite`. |
+| `@theoremjs/studio/conversation` | `StudioConversations` and `StudioConversation`, for a setup file. |
 | `@theoremjs/studio/people` | `StudioPeople` and `StudioActingAs`, for a setup file. |
 | `@theoremjs/studio/browser` | Runs a draft in the browser on the builder's keys, and `attachStudioLiveSession` for a live relay. |
 | `@theoremjs/studio/runtime` | `studioScope` and the run functions the handler is built on, for a server of your own. |

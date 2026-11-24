@@ -246,6 +246,18 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
    */
   conversationLeaseMs?: number;
   /**
+   * The app's own conversation core, which runs every reply, read, rewind, stop and steer the page
+   * asks for, in place of the core the handler builds. The page's request reaches it as a
+   * `CoreContext`: the session's id, the request's signal, and `host`. The core brings its own
+   * profile, provider, inbox, stores, notifier and save steps, so none of these is read here:
+   * `prepare`, `onStage`, `inbox`, `beforeSave`, `afterSave`, `compact`, `lateResultsDecider`,
+   * `background`, `replyFeed`, `authorizeToolReplay`, `authorizationUrl`. The handler refuses one
+   * set beside it. `intake` and `onContinue` still run here, and `intake` then needs no `inbox`:
+   * the core's own is the one it saves into. `conversationStore` is still required for a profile
+   * that keeps a conversation, and the handler reads no conversation from it.
+   */
+  core?: ConversationCore;
+  /**
    * Who runs the next reply when a reply ends with items that wait and may be told now. `here`:
    * the handler runs it in the same response. `taken`: your app runs it, by its own call to the
    * conversation core's `followUp`. Unset, the handler lets the chat go, and the page wakes it.
@@ -543,8 +555,36 @@ function callsOf(ctx: HandlerContext, request: Request): CallsContext {
   };
 }
 
+/** The options the app's own `core` brings itself, so the handler refuses them beside it. */
+const CORE_OWNED = [
+  'prepare',
+  'onStage',
+  'inbox',
+  'beforeSave',
+  'afterSave',
+  'compact',
+  'lateResultsDecider',
+  'background',
+  'replyFeed',
+  'authorizeToolReplay',
+  'authorizationUrl',
+] as const;
+
+/** Refuses an option the app's `core` already holds: the handler would never read it. */
+function oneCore(options: Partial<Record<(typeof CORE_OWNED)[number] | 'core', unknown>>): void {
+  if (options.core === undefined) return;
+  const doubled = CORE_OWNED.filter((name) => options[name] !== undefined);
+  if (doubled.length === 0) return;
+  // labels-exempt: builder config error at setup; no user sees it
+  throw new TheoremError(
+    'config',
+    `createTheoremHandler runs on the app's \`core\`, which brings its own ${doubled.map((name) => `\`${name}\``).join(', ')}; do not set ${doubled.length === 1 ? 'it' : 'them'} here`,
+  );
+}
+
 /** The chat's conversation core as `request` runs it. */
 function coreOf(ctx: HandlerContext, chat: ChatContext, request: Request): ConversationCore {
+  if (ctx.options.core) return ctx.options.core;
   const calls = callsOf(ctx, request);
   return ctx.wire({
     ...calls,
@@ -975,9 +1015,10 @@ export function createTheoremHandler<Item extends InboxItem = InboxItem>(
 ): (request: Request) => Promise<Response> {
   const chat = chatOf('createTheoremHandler', options.profile, options.conversationStore);
   oneInbox(options);
-  if (options.intake && !options.inbox) {
+  oneCore(options);
+  if (options.intake && !options.inbox && !options.core) {
     // labels-exempt: builder config error at setup; no user sees it
-    throw new TheoremError('config', 'createTheoremHandler needs `inbox` with `intake`');
+    throw new TheoremError('config', 'createTheoremHandler needs `inbox` or `core` with `intake`');
   }
   const { prepare, inbox, beforeSave, afterSave, compact } = options;
   return serve('createTheoremHandler', chat.profile, options, {

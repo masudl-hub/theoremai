@@ -43,11 +43,13 @@ import {
   readBody,
   startConversation,
   type TheoremConversationStore,
+  type TheoremHandlerOptions,
   type TheoremSessionStore,
   theoremStartRequestSchema,
 } from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
+import type { StudioConversation, StudioConversations } from '../conversation.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { FORWARD_HEADERS, FORWARD_STATUS } from '../forwarded-fetch.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
@@ -158,6 +160,13 @@ export type StudioHandlerOptions = {
   prepare?: TurnWiring['prepare'];
   /** Who tells a chat's model that a background call ended: its entry's `theorem.lateResultsDecider`. */
   lateResultsDecider?: TurnWiring['lateResultsDecider'];
+  /**
+   * The agents whose chats run on the application's own conversation core, as its setup file's
+   * `conversation` names them. An agent it names runs on that core and nothing of the studio's
+   * own: not `prepare`, `lateResultsDecider`, the studio's conversation store or its background
+   * service. Unset, every chat keeps the studio's own conversation.
+   */
+  conversation?: StudioConversations;
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
   questions?: ProjectQuestions;
   /** The pictures each decision profile sends, by the profile's id: the images the application passes when it decides. */
@@ -647,6 +656,29 @@ export function questionsFault(profileId: string, questions: unknown): string | 
 const NO_SOCKET =
   'A live profile runs over a socket, and this server was not given a way to take one (`upgrade`).';
 
+/**
+ * What runs a chat's turns: the application's own conversation when the setup names one for the
+ * agent, which brings its own prepare, provider, stores and background calls, else the studio's
+ * own, on the app's `prepare` and `lateResultsDecider`.
+ */
+function turnWiring(
+  options: StudioHandlerOptions,
+  own: StudioConversation | undefined,
+): Partial<TheoremHandlerOptions> {
+  if (own) {
+    return {
+      core: own.core,
+      ...(own.intake ? { intake: own.intake } : {}),
+      ...(own.onContinue ? { onContinue: own.onContinue } : {}),
+    };
+  }
+  return {
+    ...(options.prepare ? { prepare: options.prepare } : {}),
+    ...(options.lateResultsDecider ? { lateResultsDecider: options.lateResultsDecider } : {}),
+    background: () => STUDIO_BACKGROUND,
+  };
+}
+
 /** Each registered profile's own handler, by id; a profile that cannot be served is a problem. */
 function profileHandlers(
   options: StudioHandlerOptions,
@@ -744,16 +776,15 @@ function profileHandlers(
       }
       // A stateless profile keeps no conversation, so it takes no store.
       const isStateless = profile.providerContinuation?.history === 'stateless';
+      const own = options.conversation?.(profile.id);
       const chat = createTheoremHandler({
         profile: tracedToPage(profile),
         provider: options.provider ?? {},
-        ...(options.prepare ? { prepare: options.prepare } : {}),
-        ...(options.lateResultsDecider ? { lateResultsDecider: options.lateResultsDecider } : {}),
+        ...turnWiring(options, own),
         ...(isStateless ? {} : { conversationStore: chatStore() }),
         ...sessionsOf(profile.id),
         // The studio's page is the builder's own: its picks choose the prompt lines.
         pageStatesTurn: true,
-        background: () => STUDIO_BACKGROUND,
         operationRetentionMs: STUDIO_OPERATION_RETENTION_MS,
         notifier,
         ...shared,
@@ -761,7 +792,11 @@ function profileHandlers(
       served.set(
         profile.id,
         withRunTraces(
-          isStateless ? chat : startsConversations(chat, profile, chatStore(), shared.session),
+          isStateless
+            ? chat
+            : own
+              ? withoutReplayStart(chat)
+              : startsConversations(chat, profile, chatStore(), shared.session),
         ),
       );
     } catch (error) {
@@ -798,6 +833,27 @@ function startsConversations(
     } catch (error) {
       return errorJson(error);
     }
+  };
+}
+
+/**
+ * `serve`, with `<profile>/conversation/start` refused in words. A replay that goes on live opens
+ * its chat in the studio's own store, which the application's conversation core cannot read.
+ */
+function withoutReplayStart(serve: Serve): Serve {
+  return (request) => {
+    if (!new URL(request.url).pathname.endsWith('/conversation/start')) return serve(request);
+    return Promise.resolve(
+      json(
+        409,
+        {
+          error:
+            "This agent's chat runs on your app's own conversation, so a replay cannot go on live in it. Start a new chat to run it.",
+          errorKind: 'request',
+        },
+        {},
+      ),
+    );
   };
 }
 

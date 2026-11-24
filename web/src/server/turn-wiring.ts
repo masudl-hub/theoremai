@@ -10,28 +10,23 @@
 import type {
   LateResultsSource,
   NormalizedTurnRequest,
+  ReplyRefusal,
   StageHandler,
   TurnRequest,
+  TurnWiring,
 } from '@theoremjs/agents';
 import {
   type CredentialSource,
   isSealedSource,
-  type JsonObject,
   type ToolBackgroundService,
   type ToolCredentialSource,
 } from '@theoremjs/agents/kernel';
 import { layeredToolCoordinator } from './tool-operations.ts';
 
-/**
- * The app's refusal of a reply, in place of a turn: its own line is the reply, with no model run.
- * `host` is the app's own values for the line's block.
- */
-export type ReplyRefusal = { refuse: { text: string; host?: JsonObject } };
+export type { ReplyRefusal };
 
 /** The app's `prepare` for a turn the server runs: the turn, or its refusal of the reply. */
-export type AppPrepare = (
-  turn: NormalizedTurnRequest,
-) => TurnRequest | ReplyRefusal | Promise<TurnRequest | ReplyRefusal>;
+export type AppPrepare = NonNullable<TurnWiring['prepare']>;
 
 /** Whether `prepare` refused the reply. */
 export function isRefusal(prepared: TurnRequest | ReplyRefusal): prepared is ReplyRefusal {

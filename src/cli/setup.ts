@@ -51,5 +51,10 @@ export async function preparedRequest(
 ): Promise<TurnRequest> {
   if (!prepare) return req;
   const turn: NormalizedTurnRequest = { ...req, input: req.input ?? {} };
-  return { ...(await prepare(turn)), profile: req.profile };
+  const prepared = await prepare(turn);
+  if ('refuse' in prepared) {
+    // labels-exempt: CLI diagnostic for the builder; no user sees it
+    throw new Error(`The app's prepare refused this turn: ${prepared.refuse.text}`);
+  }
+  return { ...prepared, profile: req.profile };
 }

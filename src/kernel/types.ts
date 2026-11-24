@@ -1614,9 +1614,15 @@ export interface LateResultsDecider {
 }
 
 /**
+ * An app's refusal of a reply, in place of a turn: its own line is the reply, and no model runs.
+ * `host` is the app's own values for the line's block.
+ */
+export type ReplyRefusal = { refuse: { text: string; host?: JsonObject } };
+
+/**
  * How an application runs its turns: the one value its own call sites, its web handler and the
  * studio all use, so they cannot run a turn differently. An app that calls `runTurn` itself
- * writes `runTurn(await wiring.prepare(turn), wiring.provider)`.
+ * writes `runTurn(await wiring.prepare(turn), wiring.provider)` once it has checked for a `ReplyRefusal`.
  */
 export interface TurnWiring {
   /** Registers the application's profiles and tools. Called once, before the first turn. */
@@ -1628,9 +1634,13 @@ export interface TurnWiring {
    * conversation's history, and the application's context as `host`. Set what the application
    * sets per turn, such as `system`, `credentials`, `onStage`, `onEvent`, `onAgentCall`, `path`
    * and `metadata`, and the `execution` and `background` that keep its late tool calls. Text,
-   * image and speech turns run through it.
+   * image and speech turns run through it. It may return a {@linkcode ReplyRefusal} in place of
+   * the turn, which a chat server answers with the app's line and runs no model for. A caller
+   * that runs the turn itself, such as the CLI, checks for one first.
    */
-  prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
+  prepare?: (
+    turn: NormalizedTurnRequest,
+  ) => TurnRequest | ReplyRefusal | Promise<TurnRequest | ReplyRefusal>;
   /**
    * Who tells the model that a background call ended, and when. Theorem runs the replies; this
    * decides. Unset, the model is never told: no page wakes the chat, and no reply reads a late

@@ -1709,7 +1709,7 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
       // labels-exempt: internal diagnostic; the user reads error.not_found
       if (!state.options.notifier)
         throw new TheoremError('not_found', 'listening needs `notifier`');
-      return state.options.notifier.subscribe(at.sessionId, changed);
+      return await state.options.notifier.subscribe(at.sessionId, changed);
     },
     steer: async (at, args) => {
       if (state.options.inbox) {

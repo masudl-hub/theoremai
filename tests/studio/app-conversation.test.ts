@@ -4,7 +4,9 @@ import {
   defineProfile,
   type ProfileDefinition,
   registerProfile,
+  registerTool,
   type TurnModel,
+  z,
 } from '../../mod.ts';
 import { preparedRequest } from '../../src/cli/setup.ts';
 import { createMemoryInbox, type InboxItem } from '../../src/conversation/mod.ts';
@@ -19,12 +21,15 @@ import {
 import {
   type ConversationCore,
   createMemoryConversationStore,
+  createMemoryNotifier,
+  createMemorySessionStore,
   createTheoremConversationCore,
   createTheoremHandler,
   emptyConversation,
   type MessageIntake,
   type TheoremConversationStore,
 } from '../../web/src/server/mod.ts';
+import { underSession } from '../fixtures/core-session.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
@@ -47,6 +52,67 @@ const PROFILE: ProfileDefinition = {
 
 registerFixtureProviders(defaultKernelScope);
 registerProfile(defineProfile(PROFILE));
+
+const JOB = 'studio_notify_job';
+const JOB_PROFILE: ProfileDefinition = {
+  ...PROFILE,
+  id: 'app-conversation-job',
+  tools: { allow: [JOB] },
+};
+/** What the job's body waits on. */
+const job = { until: Promise.resolve(), free: () => {} };
+registerTool({
+  type: 'function',
+  name: JOB,
+  description: 'A slow job.',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  background: 'always',
+  input: z.strictObject({}),
+  output: z.object({ done: z.string() }),
+  handler: async () => {
+    await job.until;
+    return { done: 'late' };
+  },
+});
+registerProfile(defineProfile(JOB_PROFILE));
+
+/** A model that starts the job in its first step, then answers. */
+function jobCaller(): TurnModel {
+  let step = 0;
+  return {
+    complete: () =>
+      (async function* () {
+        await Promise.resolve();
+        step += 1;
+        if (step === 1) {
+          yield { type: 'tool' as const, tool: { name: JOB, callId: 'call_1', arguments: {} } };
+          return;
+        }
+        yield { type: 'text' as const, text: 'Started.' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+}
+
+/** Counts the lines of the page's `/notify` stream until `stop` aborts. */
+function listen(transport: TheoremTransport) {
+  const heard = { count: 0 };
+  const stop = new AbortController();
+  const open = transport.notify?.(() => {
+    heard.count += 1;
+  }, stop.signal);
+  return {
+    heard,
+    close: async () => {
+      stop.abort();
+      await open?.catch(() => {});
+    },
+  };
+}
 
 type Sent = InboxItem<'message'>;
 const itemId = (id: string) => `message:${id}`;
@@ -86,10 +152,13 @@ function waitFor(check: () => boolean): Promise<void> {
 }
 
 /** The studio's page: keeps the session cookie the handler issues. */
-function page(handler: (request: Request) => Promise<Response>): TheoremTransport {
+function page(
+  handler: (request: Request) => Promise<Response>,
+  profileId = PROFILE.id,
+): TheoremTransport {
   let cookie = '';
   return createHttpTransport({
-    endpoint: `${BASE}/profiles/${PROFILE.id}`,
+    endpoint: `${BASE}/profiles/${profileId}`,
     fetch: async (url, init) => {
       const headers = new Headers(init?.headers);
       headers.set('host', HOST);
@@ -340,6 +409,57 @@ Deno.test('with the field, a replay that goes on live is refused in words, and a
   const other = page(studio(left, { conversation: () => undefined }));
   await turn(other, { input: { text: 'hello' } });
   assertEquals(left.count, 1);
+});
+
+Deno.test("with the field, the page hears a reply the app's core saved under its own session after the turn", async () => {
+  const notifier = createMemoryNotifier();
+  const runs = { count: 0 };
+  const core = createTheoremConversationCore({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+    profile: PROFILE,
+    provider: () => fixtureHostOptions(model(runs)),
+    conversationStore: createMemoryConversationStore(),
+    sessionStore: createMemorySessionStore(),
+    notifier,
+  });
+  const transport = page(
+    studio({ count: 0 }, { conversation: () => ({ core: underSession(core, KEEPER) }) }),
+  );
+  const lines = await turn(transport, { input: { text: 'hello' } });
+  const ref = lines.flatMap((line) => (line.type === 'conversation' ? [line.ref] : [])).at(-1);
+  assert(ref, 'the core kept no conversation');
+  const listening = listen(transport);
+  try {
+    await waitFor(() => listening.heard.count === 1);
+    // The app saves a reply away from the page, as a job that ends after its turn does.
+    await notifier.publish(KEEPER);
+    await waitFor(() => listening.heard.count === 2);
+  } finally {
+    await listening.close();
+  }
+});
+
+Deno.test("without the field, the page still hears a call that ends after its turn on the studio's own notifier", async () => {
+  job.until = new Promise<void>((resolve) => {
+    job.free = resolve;
+  });
+  const transport = page(
+    studio({ count: 0 }, { provider: fixtureHostOptions(jobCaller()) }),
+    JOB_PROFILE.id,
+  );
+  try {
+    await turn(transport, { input: { text: 'start the job' } });
+    const listening = listen(transport);
+    try {
+      await waitFor(() => listening.heard.count === 1);
+      job.free();
+      await waitFor(() => listening.heard.count === 2);
+    } finally {
+      await listening.close();
+    }
+  } finally {
+    job.free();
+  }
 });
 
 Deno.test('the handler refuses a `core` beside an option the core brings itself', () => {

@@ -795,10 +795,8 @@ async function follow<Item extends InboxItem>(
   args: { ref: string },
 ): Promise<AsyncGenerator<ReplyLine>> {
   const feed = ctx.options.replyFeed;
-  if (!feed) {
-    // labels-exempt: builder config error; the user reads error.config
-    throw new TheoremError('config', 'following a reply needs `replyFeed`');
-  }
+  // labels-exempt: internal diagnostic; the user reads error.not_found
+  if (!feed) throw new TheoremError('not_found', 'following a reply needs `replyFeed`');
   const host = conversationHost(ctx, at);
   if (!host) throw statelessRefusal('follow');
   const opened = await openConversation(host, args.ref, { kind: 'read' });
@@ -1662,9 +1660,15 @@ export type ConversationCore = {
   /**
    * The lines of the reply that runs on the conversation now, whoever started it: from its first
    * line, then each as it comes, until it ends or `at.signal` aborts. Ends at once when no reply
-   * runs. Throws `config` without `replyFeed`.
+   * runs. Throws `not_found` without `replyFeed`.
    */
   follow(at: CoreContext, args: { ref: string }): Promise<AsyncGenerator<ReplyLine>>;
+  /**
+   * `TheoremNotifier.subscribe` under the session this core publishes under for `at`, so a page
+   * hears a core that keeps its chats under another session than the page's. Throws `not_found`
+   * without `notifier`.
+   */
+  subscribe(at: CoreContext, changed: () => void): Promise<() => void>;
   /**
    * Puts a person's message into the reply that is running, as the one user message the model
    * reads: the reply takes it at its next step, or at its end. `ref` names a chat that keeps a
@@ -1701,6 +1705,12 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
     read: (at, args) => read(state, at, args),
     rewind: (at, args) => rewind(state, at, args),
     follow: (at, args) => follow(state, at, args),
+    subscribe: async (at, changed) => {
+      // labels-exempt: internal diagnostic; the user reads error.not_found
+      if (!state.options.notifier)
+        throw new TheoremError('not_found', 'listening needs `notifier`');
+      return state.options.notifier.subscribe(at.sessionId, changed);
+    },
     steer: async (at, args) => {
       if (state.options.inbox) {
         // labels-exempt: builder config error; the user reads error.config

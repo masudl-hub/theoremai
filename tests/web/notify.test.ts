@@ -14,10 +14,12 @@ import {
   createMemoryConversationStore,
   createMemoryNotifier,
   createMemorySessionStore,
+  createTheoremConversationCore,
   createTheoremHandler,
   type TheoremHandlerOptions,
   type TheoremNotifier,
 } from '../../web/src/server/mod.ts';
+import { underSession } from '../fixtures/core-session.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 import { TEST_OPERATION_RETENTION_MS } from '../fixtures/retention.ts';
@@ -241,6 +243,71 @@ Deno.test('with no notifier the route is refused and the turn runs as before', a
   } finally {
     held.free();
   }
+});
+
+Deno.test("a page on an app's core hears the core's session, not its own", async () => {
+  const notifier = createMemoryNotifier();
+  const conversationStore = createMemoryConversationStore();
+  const handles: ToolBackgroundHandle[] = [];
+  const core = createTheoremConversationCore({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+    profile: PROFILE,
+    provider: () => fixtureHostOptions(caller()),
+    conversationStore,
+    sessionStore: createMemorySessionStore(),
+    background: () => ({ detached: (handle) => handles.push(handle), event: () => {} }),
+    notifier,
+  });
+  const { transport, release } = harness({
+    core: underSession(core, 'the-app'),
+    conversationStore,
+    background: undefined,
+  });
+  try {
+    const ref = await startTurn(transport);
+    assertEquals((await transport.conversation({ conversation: ref })).notify, {});
+    let lines = 0;
+    const stop = new AbortController();
+    const push = transport.notify?.(() => {
+      lines += 1;
+    }, stop.signal);
+    await waitFor(() => lines === 1);
+    await notifier.publish('one-person');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assertEquals(lines, 1, "the page heard its own session, not the core's");
+    release();
+    await handles[0].done;
+    await waitFor(() => lines === 2);
+    await notifier.publish('the-app');
+    await waitFor(() => lines === 3);
+    assertEquals(phases(await transport.conversation({ conversation: ref })), ['complete']);
+    stop.abort();
+    await push?.catch(() => {});
+  } finally {
+    held.free();
+  }
+});
+
+Deno.test("the handler refuses `notifier` and `notifyRetryMs` beside an app's core", () => {
+  const core = createTheoremConversationCore({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+    profile: PROFILE,
+    provider: () => fixtureHostOptions(caller()),
+    conversationStore: createMemoryConversationStore(),
+    notifier: createMemoryNotifier(),
+  });
+  const beside = (more: Partial<TheoremHandlerOptions>) => () =>
+    createTheoremHandler({
+      operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+      profile: PROFILE,
+      provider: () => fixtureHostOptions(caller()),
+      conversationStore: createMemoryConversationStore(),
+      core,
+      ...more,
+    });
+  assertThrows(beside({ notifier: createMemoryNotifier() }), Error, '`notifier`');
+  assertThrows(beside({ notifyRetryMs: 25 }), Error, '`notifyRetryMs`');
+  beside({})();
 });
 
 Deno.test('a push reaches its own session only', async () => {

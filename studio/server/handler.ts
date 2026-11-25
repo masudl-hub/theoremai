@@ -658,8 +658,8 @@ const NO_SOCKET =
 
 /**
  * What runs a chat's turns: the application's own conversation when the setup names one for the
- * agent, which brings its own prepare, provider, stores and background calls, else the studio's
- * own, on the app's `prepare` and `lateResultsDecider`.
+ * agent, which brings its own prepare, provider, stores, notifier and background calls, else the
+ * studio's own, on the app's `prepare` and `lateResultsDecider`.
  */
 function turnWiring(
   options: StudioHandlerOptions,
@@ -676,6 +676,8 @@ function turnWiring(
     ...(options.prepare ? { prepare: options.prepare } : {}),
     ...(options.lateResultsDecider ? { lateResultsDecider: options.lateResultsDecider } : {}),
     background: () => STUDIO_BACKGROUND,
+    // why: A call that ends after its turn redraws the open chat, as it would on the project's page.
+    notifier: createMemoryNotifier(),
   };
 }
 
@@ -699,8 +701,6 @@ function profileHandlers(
     clientEvents: STUDIO_READER,
     ...(host ? { host: (request: Request) => host(request, actingAs(request)) } : {}),
   };
-  // why: A call that ends after its turn redraws the open chat, as it would on the project's page.
-  const notifier = createMemoryNotifier();
   // One store for every chat profile: one key, so any of them opens a ref its session holds.
   let conversationStore: TheoremConversationStore | undefined;
   const chatStore = () =>
@@ -786,7 +786,6 @@ function profileHandlers(
         // The studio's page is the builder's own: its picks choose the prompt lines.
         pageStatesTurn: true,
         operationRetentionMs: STUDIO_OPERATION_RETENTION_MS,
-        notifier,
         ...shared,
       });
       served.set(

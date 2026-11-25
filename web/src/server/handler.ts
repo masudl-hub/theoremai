@@ -14,10 +14,10 @@ import { type PageToolBroker, pageToolResultSchema, sessionPageDispatch } from '
  * - `POST <base>/page-result` → the page's result for a tool the turn ran in the page
  * - `POST <base>/conversation` → the transcript and the paused reply, to draw
  * - `POST <base>/notify`  → NDJSON that stays open: one line now, and one for each `publish` under
- *                            this session: a background call ended, or the app saved a reply.
- *                            Set `notifier` to serve it
+ *                            the chat's session: a background call ended, or the app saved a reply.
+ *                            Set `notifier` or `core` to serve it
  * - `POST <base>/follow`  → NDJSON for the reply that runs on a conversation now, whoever started
- *                            it: its lines from the first, until it ends. Set `replyFeed` to serve it
+ *                            it: its lines from the first, until it ends. Set `replyFeed` or `core`
  * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
  * - `POST <base>/wake`    → NDJSON for a reply to no message: the model takes up the results of
  *                            background calls that ended since it last ran. Empty when none waits
@@ -246,15 +246,16 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
    */
   conversationLeaseMs?: number;
   /**
-   * The app's own conversation core, which runs every reply, read, rewind, stop and steer the page
-   * asks for, in place of the core the handler builds. The page's request reaches it as a
-   * `CoreContext`: the session's id, the request's signal, and `host`. The core brings its own
-   * profile, provider, inbox, stores, notifier and save steps, so none of these is read here:
-   * `prepare`, `onStage`, `inbox`, `beforeSave`, `afterSave`, `compact`, `lateResultsDecider`,
-   * `background`, `replyFeed`, `authorizeToolReplay`, `authorizationUrl`. The handler refuses one
-   * set beside it. `intake` and `onContinue` still run here, and `intake` then needs no `inbox`:
-   * the core's own is the one it saves into. `conversationStore` is still required for a profile
-   * that keeps a conversation, and the handler reads no conversation from it.
+   * The app's own conversation core, which runs every reply, read, rewind, stop, steer, `/notify`
+   * and `/follow` the page asks for, in place of the core the handler builds. The page's request
+   * reaches it as a `CoreContext`: the session's id, the request's signal, and `host`. The core
+   * brings its own profile, provider, inbox, stores, notifier, reply feed and save steps, so none
+   * of these is read here: `prepare`, `onStage`, `inbox`, `beforeSave`, `afterSave`, `compact`,
+   * `lateResultsDecider`, `background`, `notifier`, `replyFeed`, `notifyRetryMs`,
+   * `authorizeToolReplay`, `authorizationUrl`. The handler refuses one set beside it. `intake` and
+   * `onContinue` still run here, and `intake` then needs no `inbox`: the core's own is the one it
+   * saves into. `conversationStore` is still required for a profile that keeps a conversation, and
+   * the handler reads no conversation from it.
    */
   core?: ConversationCore;
   /**
@@ -565,7 +566,9 @@ const CORE_OWNED = [
   'compact',
   'lateResultsDecider',
   'background',
+  'notifier',
   'replyFeed',
+  'notifyRetryMs',
   'authorizeToolReplay',
   'authorizationUrl',
 ] as const;
@@ -812,18 +815,18 @@ const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
  */
 async function notify(
   ctx: HandlerContext,
+  chat: ChatContext,
   request: Request,
   session: Session,
-  notifier: TheoremNotifier,
 ): Promise<Response> {
   await readBody(request, theoremNotifyRequestSchema, ctx.options.maxRequestBytes);
   let send = () => {};
-  const unsubscribe = await notifier.subscribe(session.id, () => send());
+  const at = contextOf(ctx, request, session.id);
+  const unsubscribe = await coreOf(ctx, chat, request).subscribe(at, () => send());
   let open = true;
   const end = () => {
-    if (!open) return;
+    if (open) unsubscribe();
     open = false;
-    unsubscribe();
   };
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -832,9 +835,8 @@ async function notify(
       };
       send();
       const leave = () => {
-        if (!open) return;
+        if (open) controller.close();
         end();
-        controller.close();
       };
       if (request.signal.aborted) leave();
       else request.signal.addEventListener('abort', leave, { once: true });
@@ -995,15 +997,8 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   if (target === 'turn') return turn(ctx, chat, request, session);
   if (target === 'invoke') return invoke(ctx, request, session);
   if (target === 'conversation') return conversation(ctx, chat, request, session);
-  if (target === 'notify') {
-    const { notifier } = ctx.options;
-    if (!notifier || !chat.conversations) return refused(ctx);
-    return notify(ctx, request, session, notifier);
-  }
-  if (target === 'follow') {
-    if (!ctx.options.replyFeed || !chat.conversations) return refused(ctx);
-    return follow(ctx, chat, request, session);
-  }
+  if (target === 'notify') return notify(ctx, chat, request, session);
+  if (target === 'follow') return follow(ctx, chat, request, session);
   if (target === 'rewind') return rewind(ctx, chat, request, session);
   if (target === 'wake') return wake(ctx, chat, request, session);
   if (target === 'stop') return stop(ctx, chat, request, session);

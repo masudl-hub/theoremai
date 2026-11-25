@@ -156,8 +156,9 @@ export const conversation: StudioConversations = (profileId) =>
 
 For that agent:
 
-- The core brings its own `prepare`, provider, keys, stores, inbox and background calls. The studio does not use `theorem.prepare`, `theorem.lateResultsDecider` or its own background calls for it.
+- The core brings its own `prepare`, provider, keys, stores, inbox, notifier and background calls. The studio does not use `theorem.prepare`, `theorem.lateResultsDecider` or its own background calls for it.
 - A reply saves in your app, not in the studio's sealed store.
+- The open chat redraws when your core's notifier publishes under the session your core keeps the chat under, for example after your app saves a reply. With no `notifier` on the core, the chat redraws on its next turn or reload.
 - A reply the core refuses, with `{ refuse: { text } }` from `prepare`, shows as the reply and runs no model.
 - The core reads `host` from the setup's `host` export. Wrap each call as your app does for a request.
 - "Continue live" on a replay answers `409`, because a replay cannot go on in your app's conversation. Start a new chat.

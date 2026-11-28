@@ -2,6 +2,7 @@ import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import {
   defaultKernelScope,
   type ProfileDefinition,
+  publicError,
   TheoremError,
   type TurnModel,
 } from '../../mod.ts';
@@ -932,11 +933,13 @@ Deno.test("a page shows the host's words for a message it refuses, sent or steer
   const { script, free } = gate();
   const labels = { 'reason.not_allowed': 'You cannot use {name}.' };
   let refuse = true;
-  const { transport, runs } = app(
-    script,
-    { profile: { ...PROFILE, labels } },
-    { refuses: () => (refuse ? NOT_ALLOWED() : undefined) },
-  );
+  let refusals = 0;
+  const refuses = () => {
+    if (!refuse) return;
+    refusals += 1;
+    return NOT_ALLOWED();
+  };
+  const { transport, runs } = app(script, { profile: { ...PROFILE, labels } }, { refuses });
   const iface = await transport.describe();
   assert(iface.type === 'text');
   const chat = createChatController({ iface: { ...iface, allowSteering: true }, transport });
@@ -961,5 +964,14 @@ Deno.test("a page shows the host's words for a message it refuses, sent or steer
   assertEquals(chat.getState().failure?.error, 'You cannot use Q3.');
   assertEquals(chat.getState().pendingMessages, []);
   assertEquals(runs.count, 1);
+  assertEquals(refusals, 3, 'the send, the steer, then the steer once more as its own message');
   leave();
+});
+
+Deno.test('a reason label shows a placeholder the refusal gave no value for as written', () => {
+  const refused = new TheoremError('request', 'x', { copy: { key: 'reason.not_allowed' } });
+  assertEquals(
+    publicError(refused, { 'reason.not_allowed': 'You cannot use {name}.' }),
+    'You cannot use {name}.',
+  );
 });

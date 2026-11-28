@@ -41,6 +41,9 @@ const { ChatComposerInput } = await load(`${react}/@astryxdesign/core/dist/Chat/
 const { ChatComposerBar } = await load('../../react/src/ui/ChatComposerBar.tsx');
 const { refToken } = await load('../../react/src/ui/composer-refs.tsx');
 const { act, createElement: h } = React.default ?? React;
+// why: `deno coverage` loses files when deno.json sets a JSX runtime, so the .tsx under test
+// transpiles to the classic one, which reads this global.
+Object.assign(globalThis, { React: React.default ?? React });
 
 const REF = { type: 'ref', kind: 'document', id: 'doc-7' } as const;
 const PARTS: UserPart[] = [{ type: 'text', text: 'Compare ' }, REF, { type: 'text', text: ' now' }];

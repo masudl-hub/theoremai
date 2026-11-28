@@ -1,4 +1,5 @@
 import { attachmentsRefused, TheoremError, type TurnEvent } from '@theoremjs/agents';
+import type { RefText, UserPart } from '@theoremjs/agents/interface';
 import {
   type AttachmentValidationIssue,
   type ComposerProfileInterface,
@@ -76,6 +77,8 @@ type PreparedUserTurn = {
 };
 
 export type StreamInterfaceTurnBaseArgs = {
+  /** Writes the message's refs into its text; the ref's id when absent. */
+  refText?: RefText;
   iface: ComposerProfileInterface;
   transport: TheoremTransport;
   session: InterfaceTurnSession;
@@ -104,6 +107,7 @@ export type StreamInterfaceTurnBaseArgs = {
 };
 
 export type StreamInterfaceTurnArgs = StreamInterfaceTurnBaseArgs & {
+  parts?: UserPart[];
   text: string;
   pendingFiles: readonly File[];
   pendingVoice: readonly File[];
@@ -147,6 +151,7 @@ async function streamPreparedTurn(
     args.session,
     {
       ...(args.prepared.draft.text ? { text: args.prepared.draft.text } : {}),
+      ...(args.prepared.draft.parts ? { parts: args.prepared.draft.parts } : {}),
       ...(args.encodedAttachments?.length ? { attachments: args.encodedAttachments } : {}),
       ...(args.encodedVoice?.length ? { voice: args.encodedVoice } : {}),
     },
@@ -258,6 +263,7 @@ export async function streamInterfaceTurn(args: StreamInterfaceTurnArgs): Promis
         args.text,
         args.pendingFiles,
         args.pendingVoice,
+        { parts: args.parts, refText: args.refText },
       );
       if (!prepared.ok) return prepared;
       return {
@@ -279,7 +285,7 @@ export async function streamInterfaceDraftTurn(
   return await runPreparedTurnStream({
     ...args,
     prepare: () => {
-      const prepared = projectUserTurn(args.iface, args.draft);
+      const prepared = projectUserTurn(args.iface, args.draft, args.refText);
       if (!prepared.ok) return prepared;
       return {
         ok: true,

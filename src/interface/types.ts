@@ -26,6 +26,7 @@ import type {
   TurnStop,
   TurnTokens,
 } from '../kernel/types.ts';
+import type { UserPart } from '../kernel/user-parts.ts';
 import type { ResolvedObservabilityPolicy } from '../observability/types.ts';
 
 /** What a URL detector lets through besides the given URLs, with its defaults applied. */
@@ -215,6 +216,8 @@ export interface TranscriptBlockBase {
 export interface UserTextBlock extends TranscriptBlockBase {
   kind: 'user-text';
   text: string;
+  /** The message's words and refs, when it names the host's objects; `text` is their plain copy. */
+  parts?: UserPart[];
 }
 
 export interface UserAttachmentBlock extends TranscriptBlockBase {
@@ -442,6 +445,8 @@ export interface AttachmentValidationResult {
 /** What the user has composed and not yet sent. */
 export interface UserTurnDraft {
   text?: string;
+  /** The message's words and refs; when given, `text` is written from them. */
+  parts?: UserPart[];
   attachments?: PendingAttachment[];
   voice?: PendingAttachment[];
 }

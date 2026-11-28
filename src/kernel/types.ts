@@ -93,6 +93,7 @@ import type {
   TurnTokenSide,
   TurnTokens,
 } from './turn-events.ts';
+import type { UserPart } from './user-parts.ts';
 
 export type {
   AgentCall,
@@ -1289,6 +1290,11 @@ export interface TurnRepairRequest {
 export interface TurnInput {
   /** The user's message. */
   text?: string;
+  /**
+   * The message's words and refs in order, when the person's message names the host's objects. The
+   * model reads `text`, never these; Theorem's server writes `text` from them.
+   */
+  parts?: UserPart[];
   /**
    * Your id for the user's message, shown to the model on its fence as `<user_data id="…">`: 1 to
    * 32 letters, digits, `.`, `_`, `:` or `-`; any other id is refused.

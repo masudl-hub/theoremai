@@ -1,10 +1,15 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Center } from '@astryxdesign/core/Center';
-import { type ChatComposerInputHandle, ChatLayout } from '@astryxdesign/core/Chat';
+import {
+  type ChatComposerInputHandle,
+  type ChatComposerTrigger,
+  ChatLayout,
+} from '@astryxdesign/core/Chat';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { Text } from '@astryxdesign/core/Text';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
+import type { RefText, UserRef } from '@theoremjs/agents/interface';
 import {
   type ComposerPendingMessage,
   type ComposerProfileInterface,
@@ -35,6 +40,7 @@ import {
   useTheoremChat,
 } from '../hooks/use-theorem-chat.ts';
 import { useTheoremInterface } from '../hooks/use-theorem-interface.ts';
+import type { ComposerInputComponent } from './ChatComposerBar.tsx';
 import { ChatComposerBar, type ComposerLayout } from './ChatComposerBar.tsx';
 import type { ComposerPill, ComposerRowIcons } from './ChatComposerRow.tsx';
 import { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
@@ -184,6 +190,14 @@ export type TheoremChatProps = {
    * `--theorem-composer-*` CSS properties.
    */
   composerIcons?: ComposerRowIcons;
+  /** The composer's text field; Astryx's `ChatComposerInput` when absent. */
+  composerInput?: ComposerInputComponent;
+  /** The composer field's triggers, such as a list opened by a typed character. */
+  composerTriggers?: ChatComposerTrigger[];
+  /** Writes a ref into the message's text; the ref's id when absent. Give the server the same one. */
+  refText?: RefText;
+  /** Draws a ref, as a chip in the composer and in the person's message. */
+  renderRef?: (ref: UserRef) => ReactNode;
 };
 
 /** What a host can do to a mounted {@link TheoremChat}. */
@@ -247,6 +261,14 @@ export type TheoremChatComposerProps = {
   inputRef?: Ref<ChatComposerInputHandle>;
   layout?: ComposerLayout;
   icons?: ComposerRowIcons;
+  /** The text field; Astryx's `ChatComposerInput` when absent. */
+  inputComponent?: ComposerInputComponent;
+  /** The field's triggers. */
+  triggers?: ChatComposerTrigger[];
+  /** Writes a ref into the message's text; give the chat's own (`useTheoremChat`). */
+  refText?: RefText;
+  /** Draws a ref's chip. */
+  renderRef?: (ref: UserRef) => ReactNode;
   /** The app's own pills, in the `row` layout's pill row after the background jobs. */
   pills?: readonly ComposerPill[];
 };
@@ -264,6 +286,10 @@ export function TheoremChatComposer({
   layout,
   icons,
   pills,
+  inputComponent,
+  triggers,
+  refText,
+  renderRef,
 }: TheoremChatComposerProps) {
   return (
     <ChatComposerBar
@@ -284,6 +310,12 @@ export function TheoremChatComposer({
       selectedEffort={chat.session.selectedEffort}
       placeholder={placeholder}
       inputRef={inputRef}
+      inputComponent={inputComponent}
+      triggers={triggers}
+      refText={refText}
+      renderRef={renderRef}
+      draftParts={chat.draftParts}
+      onDraftPartsChange={chat.setDraftParts}
       onDraftTextChange={chat.setDraftText}
       onFilesSelected={(files) => {
         chat.setPendingFiles((prev) => [...prev, ...files]);
@@ -372,6 +404,10 @@ function ChatBody({
   composer: hasComposer = true,
   composerLayout,
   composerIcons,
+  composerInput,
+  composerTriggers,
+  refText,
+  renderRef,
   options,
   onOptionsChange,
   stated,
@@ -396,6 +432,7 @@ function ChatBody({
     context,
     pageTools,
     onTurnEvent,
+    refText,
   });
   const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
   const landing = chat.shownBlocks.length === 0;
@@ -413,6 +450,10 @@ function ChatBody({
       inputRef={inputRef}
       layout={composerLayout}
       icons={composerIcons}
+      inputComponent={composerInput}
+      triggers={composerTriggers}
+      refText={refText}
+      renderRef={renderRef}
     />
   );
 
@@ -438,6 +479,7 @@ function ChatBody({
                 density={density}
                 scrollRef={scrollRef}
                 usage={usage}
+                renderRef={renderRef}
               />
             )}
           </LayoutContent>
@@ -508,8 +550,9 @@ function ChatThread({
   density,
   scrollRef,
   usage,
+  renderRef,
 }: DockedComposer &
-  Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage'> & {
+  Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage' | 'renderRef'> & {
     chat: TheoremChatState;
     iface: ComposerProfileInterface;
     handle: string;
@@ -537,7 +580,13 @@ function ChatThread({
         }
       >
         <ChatColumn maxWidth={maxWidth}>
-          <TheoremChatTranscript chat={chat} iface={iface} handle={handle} usage={usage} />
+          <TheoremChatTranscript
+            chat={chat}
+            iface={iface}
+            handle={handle}
+            usage={usage}
+            renderRef={renderRef}
+          />
         </ChatColumn>
       </ChatLayout>
     </VStack>

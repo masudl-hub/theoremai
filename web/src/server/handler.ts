@@ -117,6 +117,7 @@ import type { AppPrepare } from './turn-wiring.ts';
 
 export { theoremSession, theoremSessionId } from './session-identity.ts';
 
+import type { RefText } from '@theoremjs/agents';
 import { jsonResponse } from './json-response.ts';
 import { createOwnInbox, type OwnInbox } from './own-inbox.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
@@ -183,6 +184,11 @@ export type TheoremHandlerOptions<Item extends InboxItem = InboxItem> = ReplyWir
    * own database.
    */
   conversationStore?: TheoremConversationStore;
+  /**
+   * Writes each ref of a message (`input.parts`) into the message's text, which the model reads and
+   * the transcript keeps. The ref's id when absent.
+   */
+  refText?: RefText;
   /**
    * How long a gate (permission, confirmation, sign-in) waits for its answer, in
    * milliseconds. An answer after that is refused with `session.gate_expired`,
@@ -1008,7 +1014,12 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
 export function createTheoremHandler<Item extends InboxItem = InboxItem>(
   options: TheoremHandlerOptions<Item>,
 ): (request: Request) => Promise<Response> {
-  const chat = chatOf('createTheoremHandler', options.profile, options.conversationStore);
+  const chat = chatOf(
+    'createTheoremHandler',
+    options.profile,
+    options.conversationStore,
+    options.refText,
+  );
   oneInbox(options);
   oneCore(options);
   if (options.intake && !options.inbox && !options.core) {

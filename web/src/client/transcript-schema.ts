@@ -12,6 +12,7 @@ import {
   type TurnEvent,
   type TurnStop,
   turnEventSchema,
+  userPartSchema,
   z,
 } from '@theoremjs/agents';
 import { guardrailEventSchema } from '@theoremjs/agents/guardrails';
@@ -70,7 +71,12 @@ true satisfies Equals<z.infer<typeof turnStop>, TurnStop>;
 
 const blockId = { id: z.string(), host: jsonObjectSchema.optional() };
 const transcriptBlock = z.discriminatedUnion('kind', [
-  z.object({ ...blockId, kind: z.literal('user-text'), text: z.string() }),
+  z.object({
+    ...blockId,
+    kind: z.literal('user-text'),
+    text: z.string(),
+    parts: z.array(userPartSchema).optional(),
+  }),
   z.object({
     ...blockId,
     kind: z.enum(['user-attachment', 'user-voice']),

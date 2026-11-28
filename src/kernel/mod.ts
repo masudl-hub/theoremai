@@ -422,6 +422,15 @@ export {
   turnToolSnapshotSchema,
 } from './turn-events.ts';
 export type * from './types.ts';
+export {
+  messageParts,
+  type RefText,
+  refIdText,
+  textOfParts,
+  type UserPart,
+  type UserRef,
+  userPartSchema,
+} from './user-parts.ts';
 export { base64ToBytes, bytesToBase64 } from './util/base64.ts';
 export type { Equals } from './util/exact-type.ts';
 export { isRecord } from './util/record.ts';

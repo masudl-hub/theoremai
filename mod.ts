@@ -533,6 +533,15 @@ export {
   turnToolSnapshotSchema,
 } from './src/kernel/turn-events.ts';
 export type * from './src/kernel/types.ts';
+export {
+  messageParts,
+  type RefText,
+  refIdText,
+  textOfParts,
+  type UserPart,
+  type UserRef,
+  userPartSchema,
+} from './src/kernel/user-parts.ts';
 export type {
   OtlpAnyValue,
   OtlpKeyValue,

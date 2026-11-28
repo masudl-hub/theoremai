@@ -313,6 +313,7 @@ export const STAGE_APPLY_WARNING_CODES = [
   'inject_invalid_messages',
   'inject_id_invalid',
   'inject_host_invalid',
+  'inject_user_parts_invalid',
   'inject_released_invalid',
   'inject_promote_invalid',
   'deny_invalid',

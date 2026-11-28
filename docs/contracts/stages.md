@@ -131,7 +131,7 @@ interface StageResult {
    * together, in order. `released` and `promote` apply to them all.
    */
   /** `host` is the app's own values for the inject, a JSON object. The kernel carries it and never reads it. */
-  injects?: { id: string; messages: TurnHistoryMessage[]; host?: JsonObject }[];
+  injects?: { id: string; messages: TurnHistoryMessage[]; host?: JsonObject; userParts?: UserPart[] }[];
   /**
    * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
    * reply text the user already has. The rest is a draft: it leaves the turn history and the
@@ -278,9 +278,13 @@ can carry `host`, a JSON object of the host's own values, such as the id of
 the record the message came from. The stage event's `injected` entry carries
 it, and so does each transcript block made from that inject. A `host` that is
 not a JSON object refuses all the injects with an `inject_host_invalid`
-warning. Where
+warning. An entry that is a person's message with refs can carry
+`userParts`, that message's [typed parts](./kernel.md#typed-message-parts).
+The `injected` entry and the person's transcript block carry them, with their
+text redacted as the message is. Parts that are not text and refs refuse all
+the injects with an `inject_user_parts_invalid` warning. Where
 the messages land in the conversation — not when the handler returns — the
-kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages, host? }] }`
+kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages, host?, userParts? }] }`
 naming the injects that landed at that stage, each with the messages it added as the model reads
 them (after the `injected` guardrails), and `released` when a draft
 dropped (see 7). An inject that never lands (a

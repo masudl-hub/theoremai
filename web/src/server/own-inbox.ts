@@ -16,9 +16,13 @@ import {
   type LateResultItem,
   type LateResultsDecider,
   type LateResultsSource,
+  messageParts,
+  type RefText,
   type StageHandler,
   TheoremError,
   type TurnHistoryMessage,
+  textOfParts,
+  type UserPart,
 } from '@theoremjs/agents';
 import {
   createMemoryInbox,
@@ -35,6 +39,8 @@ import type { HoldStop } from './conversation-core.ts';
 /** A message the person sent into a running reply, as the one user message the model reads. */
 export interface PersonMessage extends InboxItem<'person_message'> {
   messages: TurnHistoryMessage[];
+  /** The message's words and refs, when it names the host's objects (`StageInject.userParts`). */
+  userParts?: UserPart[];
 }
 
 /** What Theorem's own inbox holds: ended background calls and the person's messages. */
@@ -50,8 +56,15 @@ function isPersonMessage(item: OwnItem): item is PersonMessage {
  * client's, and a reply names it in `stage.injected` once it lands. A message with no text and no
  * file is refused.
  */
-export function personMessageOf(steer: Pick<TheoremSteerRequest, 'id' | 'input'>): PersonMessage {
-  const { text, attachments, voice } = steer.input;
+export function personMessageOf(
+  steer: Pick<TheoremSteerRequest, 'id' | 'input'>,
+  refText?: RefText,
+): PersonMessage {
+  const { attachments, voice } = steer.input;
+  const userParts = messageParts(steer.input.parts);
+  const text = steer.input.parts
+    ? textOfParts(userParts ?? steer.input.parts, refText)
+    : steer.input.text;
   const messages = appendUserDraftToHistory(
     [],
     { ...(text === undefined ? {} : { text }) },
@@ -59,7 +72,13 @@ export function personMessageOf(steer: Pick<TheoremSteerRequest, 'id' | 'input'>
   );
   // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
   if (!messages.length) throw new TheoremError('request', 'a steer needs text or a file');
-  return { id: steer.id, kind: 'person_message', handovers: [], messages };
+  return {
+    id: steer.id,
+    kind: 'person_message',
+    handovers: [],
+    messages,
+    ...(userParts ? { userParts } : {}),
+  };
 }
 
 /** The person's messages the session inbox keeps in memory, by session and conversation. */
@@ -246,7 +265,10 @@ export function ownReads(run: ReplyRun<OwnItem>): OwnReads {
       const message = taken.find(isPersonMessage);
       if (!message) return undefined;
       handed.add(message.id);
-      return { inject: message.messages, injectId: message.id };
+      const { id, messages, userParts } = message;
+      return userParts
+        ? { injects: [{ id, messages, userParts }] }
+        : { inject: messages, injectId: id };
     },
     mine: (ids) => ids.filter((id) => handed.has(id)),
   };

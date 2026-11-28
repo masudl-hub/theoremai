@@ -1,4 +1,5 @@
 import { labelText, TheoremError, type TurnEvent } from '@theoremjs/agents';
+import type { RefText, UserPart } from '@theoremjs/agents/interface';
 import {
   type AttachmentValidationIssue,
   type ComposerProfileInterface,
@@ -167,10 +168,11 @@ export function buildInvokeRequest(
 export function projectUserTurn(
   iface: ComposerProfileInterface,
   draft: UserTurnDraft,
+  refText?: RefText,
 ):
   | { ok: true; blocks: TranscriptBlock[]; draft: UserTurnDraft }
   | { ok: false; issues: AttachmentValidationIssue[] } {
-  return prepareUserTurn(iface.inputs, draft, iface.guardrails);
+  return prepareUserTurn(iface.inputs, draft, iface.guardrails, refText);
 }
 
 export function prepareComposerTurn(
@@ -178,12 +180,15 @@ export function prepareComposerTurn(
   text: string,
   pendingFiles: readonly File[],
   pendingVoice: readonly File[] = [],
+  message: { parts?: UserPart[]; refText?: RefText } = {},
 ): ReturnType<typeof projectUserTurn> {
-  return projectUserTurn(iface, {
+  const draft: UserTurnDraft = {
     ...(text.trim() ? { text } : {}),
+    ...(message.parts ? { parts: message.parts } : {}),
     ...(pendingFiles.length ? { attachments: filesToPending(pendingFiles) } : {}),
     ...(pendingVoice.length ? { voice: filesToPending(pendingVoice) } : {}),
-  });
+  };
+  return projectUserTurn(iface, draft, message.refText);
 }
 
 export function foldAssistantTurn(

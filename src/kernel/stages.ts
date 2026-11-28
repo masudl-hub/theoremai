@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { boundaryReader, detectEvent } from '../guardrails/detect-at.ts';
 import { throwIfAborted } from '../guardrails/error.ts';
 import { guardrailTurnEvent } from '../guardrails/events.ts';
@@ -18,6 +19,7 @@ import type {
   TurnEventOf,
 } from './turn-events.ts';
 import type { Profile, ToolId, TurnEvent, TurnHistoryMessage } from './types.ts';
+import { type UserPart, userPartSchema } from './user-parts.ts';
 import { isRecord } from './util/record.ts';
 
 export type { AwaitingUserInput, ToolGate };
@@ -141,6 +143,11 @@ export interface StageInject {
    * carries them, and so does each block the transcript makes from it. The model never reads them.
    */
   host?: JsonObject;
+  /**
+   * When this inject is the person's own message: its words and refs, which its `user-text` block
+   * keeps. The words pass the same guardrails as the messages. The model never reads them.
+   */
+  userParts?: UserPart[];
 }
 
 /** What a stage handler returns: what it asks the turn to do. */
@@ -260,6 +267,8 @@ export interface InjectUnit {
   messages: TurnHistoryMessage[];
   /** {@linkcode StageInject.host}. */
   host?: JsonObject;
+  /** {@linkcode StageInject.userParts}. */
+  userParts?: UserPart[];
   /** {@linkcode StageResult.released}: the reply text the user has when this inject lands. */
   released?: number;
   /** {@linkcode StageResult.promote}: the tools the model may call once this inject lands. */
@@ -487,13 +496,32 @@ function namedInjectUnit(
   }
   const messages = coerceHistoryMessages(entry.messages, warnings);
   if (!messages) return undefined;
-  if (entry.host === undefined) return { id, messages };
+  const parts = userPartsOf(entry.userParts, warnings);
+  if (!parts) return undefined;
+  if (entry.host === undefined) return { id, messages, ...parts };
   const host = jsonObjectSchema.safeParse(entry.host);
   if (!host.success) {
     warn(warnings, 'inject_host_invalid', 'injects', 'an injects entry host must be a JSON object'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     return undefined;
   }
-  return { id, messages, host: host.data };
+  return { id, messages, host: host.data, ...parts };
+}
+
+/** An entry's `userParts` as its unit keeps them; a warning and `undefined` when they are not parts. */
+function userPartsOf(
+  value: unknown,
+  warnings: StageApplyWarning[],
+): Pick<InjectUnit, 'userParts'> | undefined {
+  if (value === undefined) return {};
+  const parsed = z.array(userPartSchema).safeParse(value);
+  if (parsed.success) return { userParts: parsed.data };
+  warn(
+    warnings,
+    'inject_user_parts_invalid',
+    'injects',
+    'an injects entry userParts must be text and ref parts', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  return undefined;
 }
 
 /** `injects` as units, the first carrying `released` and `promote`; one unusable entry refuses them all. */
@@ -926,6 +954,7 @@ export function injectedStageEvent(
             id: unit.id,
             messages: unit.messages,
             ...(unit.host === undefined ? {} : { host: unit.host }),
+            ...(unit.userParts === undefined ? {} : { userParts: unit.userParts }),
           },
         ],
   );
@@ -1118,6 +1147,19 @@ export async function* runStage(args: RunStageArgs): AsyncGenerator<TurnEvent, R
 }
 
 /**
+ * The words of `parts` redacted as the message they are written into. Their own reader, so a find
+ * the message already reports is not counted twice.
+ */
+function sanitizeParts(parts: readonly UserPart[], detect: Parameters<typeof boundaryReader>[1]) {
+  const quiet = boundaryReader('injected', detect);
+  return parts.map((part): UserPart => {
+    if (part.type !== 'text') return part;
+    const [read] = sanitizeHistory([{ role: 'user', content: part.text }], quiet);
+    return { type: 'text', text: read?.content ?? '' };
+  });
+}
+
+/**
  * `units` as the profile's guardrails let them into the conversation. What they find is reported
  * once; a block refuses the turn, or with `onBlock: 'drop'` lets none of them in.
  */
@@ -1128,9 +1170,11 @@ export function* sanitizeInjects(
   onBlock: 'refuse' | 'drop' = 'refuse',
 ): Generator<TurnEvent, InjectUnit[]> {
   const reader = boundaryReader('injected', resolveGuardrailPolicy(guardrails).detect);
+  const detect = resolveGuardrailPolicy(guardrails).detect;
   const sanitized = units.map((unit) => ({
     ...unit,
     messages: sanitizeHistory(unit.messages, reader),
+    ...(unit.userParts === undefined ? {} : { userParts: sanitizeParts(unit.userParts, detect) }),
   }));
   const found = reader.found();
   const event = detectEvent('injected', found);

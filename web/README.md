@@ -230,6 +230,30 @@ The methods for the composer depend on the phase:
 | `branch(index)` | Cuts the conversation after transcript block `index`. |
 | `sendText(text, options?)` | Sends a message from your code. `options` can add `files`, `voice`, a `model` and its `effort`. The model becomes the chat's pick, as if chosen in the composer. An `effort` without a `model` applies to the chat's current model. A model the profile does not have is refused by the turn, not replaced by the default. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
 
+### Name your app's objects in a message
+
+Use refs when a message points at something your app holds, such as a saved document, and your server must know which one without reading the words. A message's `parts` are its words and refs in order: `{ type: 'text', text }` and `{ type: 'ref', kind, id }`. `kind` and `id` are your own strings.
+
+```ts
+const chat = createChatController({ transport, iface, refText: (ref) => `[${ref.id}]` });
+
+chat.setDraftText('Compare [doc-7] with the last one');
+chat.setDraftParts([
+  { type: 'text', text: 'Compare ' },
+  { type: 'ref', kind: 'document', id: 'doc-7' },
+  { type: 'text', text: ' with the last one' },
+]);
+await chat.submit();
+```
+
+- Call `setDraftParts` after `setDraftText`: `setDraftText` clears the parts. The React composer does both.
+- `refText` writes a ref into the message's text. Without it, a ref is written as its id. Give `createTheoremHandler` or `createTheoremConversationCore` the same `refText`.
+- The server writes the text from the parts. It does not read the text the page sent.
+- Your `prepare` reads `turn.input.parts`. The page can send any `kind` and `id`, so check that this person may use what they name.
+- The model reads the text, not the parts. Earlier messages reach the model as text.
+- A queued, stashed, steered, or restored message keeps its parts, and so does the saved transcript.
+- With your own `intake`, call `personMessageOf(steer, refText)` to build the message.
+
 ### Messages the host saved
 
 A host with `intake` saves each message before a reply runs. When another reply holds the conversation, the host saves the message and runs nothing. The controller then keeps the message in `pendingMessages`, as kind `steer`, with `saved: { landsAs }`. `landsAs` is the ids a reply names the message by when it reads it.
@@ -283,6 +307,7 @@ const transport = withPageToolDispatch(
 | `provider` | Host options, including the credential vault. A function can return these options per request, for example for tenant-specific credentials. |
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. The handler asks it one time for each run, when the run first reads it. |
+| `refText` | Writes each ref of a message into its text. Default: the ref's id. See [Name your app's objects in a message](#name-your-apps-objects-in-a-message). |
 | `prepare` | Your app's own turn, from the one the handler builds (`TurnWiring.prepare` from `@theoremjs/agents`). Set what your app sets per turn, such as `system`, `credentials`, `onStage`, `onEvent` and `onAgentCall`; read your app data as `turn.host`. The handler keeps its profile and its abort. Your `onStage` runs before the handler's steering, and your `credentials` are read before the session's. An `execution` you return decides each call, and the session still records the same call; a `background` you return takes the place of the `background` option. A call held at a gate runs on, once answered, with the `host`, `onStage`, `credentials`, `execution` and `background` you give for that call's turn; that turn has `answersHeldCall`, and its `onEvent` is not called, because no new turn runs. |
 | `core` | A `ConversationCore` your app built (`createTheoremConversationCore`). The handler runs each chat call on it, `/notify` and `/follow` too, and takes no `prepare`, `inbox`, `onStage`, `beforeSave`, `afterSave`, `compact`, `lateResultsDecider`, `background`, `notifier`, `replyFeed`, `notifyRetryMs`, `authorizeToolReplay` or `authorizationUrl` beside it: the core has them. It does take `intake` and `onContinue`. |
 | `inbox`, `beforeSave`, `afterSave`, `compact` | Your app's own inbox and your steps around each save, as [the conversation core](#run-replies-with-no-page-request) takes them. Each is given the request's context: its `host` is what `host` returned for the request, so `await at.host`. With `inbox`, every reply the page starts runs under a hold of your conversation, and a wake tells the items that wait in it. A steer needs `intake`: it saves the message into your inbox. Without `intake`, the handler refuses the steer with a `config` error. Do not set `inbox` with `lateResultsDecider`. |

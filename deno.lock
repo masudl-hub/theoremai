@@ -1518,6 +1518,7 @@
         "npm:@stryker-mutator/core@10",
         "npm:@types/node@^22.20.5",
         "npm:fallow@3.17.0",
+        "npm:happy-dom@^20.14.6",
         "npm:hyparquet-compressors@1.1.2",
         "npm:hyparquet@1.31.2",
         "npm:intl-messageformat@^11.2.9",

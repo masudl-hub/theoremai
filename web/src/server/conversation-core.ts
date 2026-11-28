@@ -6,6 +6,7 @@
  * @module
  */
 
+import type { RefText } from '@theoremjs/agents';
 import {
   compactHistory,
   defaultKernelScope,
@@ -126,6 +127,8 @@ export type ChatContext = {
   profile: ChatProfile;
   /** Undefined when the profile keeps no conversation (`'stateless'`). */
   conversations?: TheoremConversationStore;
+  /** Writes a message's refs into its text; the ref's id when absent. */
+  refText?: RefText;
 };
 
 /**
@@ -151,6 +154,7 @@ export function chatOf(
   name: string,
   definition: Profile | ProfileDefinition,
   conversations: TheoremConversationStore | undefined,
+  refText?: RefText,
 ): ChatContext {
   const profile = defineProfile(definition as ProfileDefinition);
   if (profile.type === 'decision') {
@@ -178,7 +182,7 @@ export function chatOf(
       },
     });
   }
-  return { profile, ...(conversations ? { conversations } : {}) };
+  return { profile, ...(conversations ? { conversations } : {}), ...(refText ? { refText } : {}) };
 }
 
 /** The profile as the server reads a message against it, its tools as registered now. */
@@ -1261,7 +1265,7 @@ async function messageOpened<Item extends InboxItem>(
   posted: PostedMessage;
   kept?: { host: ConversationHost; opened: OpenedConversation };
 }> {
-  const posted = postedMessage(chatInterface(ctx.chat), args.input, args.context);
+  const posted = postedMessage(chatInterface(ctx.chat), args.input, args.context, ctx.chat.refText);
   const host = conversationHost(ctx, at);
   if (!host) {
     if (args.ref !== undefined) throw statelessRefusal('continue');
@@ -1719,8 +1723,8 @@ export function createConversationCore<Item extends InboxItem = InboxItem>(
           "a steer goes through `intake`: the app's inbox holds the message",
         );
       }
-      postedMessage(chatInterface(state.chat), args.input);
-      const message = personMessageOf(args);
+      postedMessage(chatInterface(state.chat), args.input, undefined, state.chat.refText);
+      const message = personMessageOf(args, state.chat.refText);
       const arrive = async (conversation: string) => {
         if (!state.own.stop.running(ownKey(at.sessionId, conversation))) return false;
         await arrivePersonMessage(

@@ -482,6 +482,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderStateRebuilt`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderLimits`, `providerLimitsSchema` |
 | Re-exported whole | Everything that `@theoremjs/agents/providers` exports. Its contract lists each name. |
+| Message parts | `UserPart`, `UserRef`, `RefText`, `refIdText`, `textOfParts`, `messageParts`, `userPartSchema` |
 
 </details>
 

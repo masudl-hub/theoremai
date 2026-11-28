@@ -38,6 +38,7 @@ export { theoremTheme } from './built/theorem.js';
 export {
   ChatComposerBar,
   type ChatComposerBarProps,
+  type ComposerInputComponent,
   type ComposerLayout,
   EFFORT_ICON,
   generationOptions,
@@ -54,6 +55,7 @@ export {
   RunBar,
   useBytes,
 } from './ConsoleFrame.tsx';
+export { type RefTokenOptions, refToken } from './composer-refs.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 export { useDisclosureMotion } from './disclosure-motion.ts';
 export { EmbeddingSpaceView, type EmbeddingSpaceViewProps } from './EmbeddingSpace.tsx';

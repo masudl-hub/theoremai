@@ -15,6 +15,7 @@
  * @module
  */
 
+import type { RefText } from '@theoremjs/agents';
 import {
   attachmentsRefused,
   type GateReference,
@@ -873,24 +874,28 @@ function pendingOf(blob: EncodedBlob): PendingAttachment {
 /**
  * The person's message as the profile accepts it: refused when its files break the profile's
  * limits. `server` is the host's own context for the run (the handler's `context` option).
+ * `refText` writes the refs of `input.parts` into the message's text.
  */
 export function postedMessage(
   iface: ComposerProfileInterface,
   input: TheoremTurnInput,
   server?: unknown,
+  refText?: RefText,
 ): PostedMessage {
   const prepared = prepareUserTurn(
     iface.inputs,
     {
       ...(input.text !== undefined ? { text: input.text } : {}),
+      ...(input.parts ? { parts: input.parts } : {}),
       ...(input.attachments ? { attachments: input.attachments.map(pendingOf) } : {}),
       ...(input.voice ? { voice: input.voice.map(pendingOf) } : {}),
     },
     iface.guardrails,
+    refText,
   );
   if (!prepared.ok) throw attachmentsRefused(prepared.issues);
-  const { text: _sent, ...rest } = input;
-  const { text } = prepared.draft;
+  const { text: _sent, parts: _parts, ...rest } = input;
+  const { text, parts } = prepared.draft;
   return {
     draft: prepared.draft,
     blocks: prepared.blocks,
@@ -898,7 +903,10 @@ export function postedMessage(
       ...(input.attachments ? { attachments: input.attachments } : {}),
       ...(input.voice ? { voice: input.voice } : {}),
     },
-    input: kernelTurnInput(text === undefined ? rest : { ...rest, text }, server),
+    input: kernelTurnInput(
+      { ...rest, ...(text === undefined ? {} : { text }), ...(parts ? { parts } : {}) },
+      server,
+    ),
   };
 }
 

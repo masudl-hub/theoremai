@@ -4,6 +4,7 @@
 // it leaves the list when a reply reads it.
 
 import type { TurnEvent } from '../kernel/types.ts';
+import { hasRef } from '../kernel/user-parts.ts';
 import type { UserTurnDraft } from './types.ts';
 
 /** Display order: steers, then queues, then stashes. */
@@ -43,6 +44,7 @@ function createPendingId(): string {
 function userDraftHasPayload(draft: UserTurnDraft): boolean {
   return Boolean(
     draft.text?.trim() ||
+      hasRef(draft.parts) ||
       (draft.attachments && draft.attachments.length > 0) ||
       (draft.voice && draft.voice.length > 0),
   );
@@ -78,6 +80,7 @@ function createComposerPendingMessage(
 function cloneUserTurnDraft(draft: UserTurnDraft): UserTurnDraft {
   return {
     ...(draft.text !== undefined ? { text: draft.text } : {}),
+    ...(draft.parts ? { parts: draft.parts.map((part) => ({ ...part })) } : {}),
     ...(draft.attachments ? { attachments: draft.attachments.map((a) => ({ ...a })) } : {}),
     ...(draft.voice ? { voice: draft.voice.map((a) => ({ ...a })) } : {}),
   };

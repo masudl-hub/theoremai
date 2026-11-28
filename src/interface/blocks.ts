@@ -6,6 +6,7 @@ import type {
   TurnEvent,
   TurnEventOf,
 } from '../kernel/types.ts';
+import { messageParts, type UserPart } from '../kernel/user-parts.ts';
 import { partialJsonObject } from '../kernel/util/partial-json.ts';
 import { applyToolDraft, applyToolEvent } from './tool-calls.ts';
 import type {
@@ -177,20 +178,40 @@ function foldCitation(
   });
 }
 
+/** The `user-text` block of one injected message; none when it has no words and no refs. */
+function userTextBlocks(
+  text: string,
+  parts: UserPart[] | undefined,
+  idPrefix: string,
+  host: { host?: InjectedMessages['host'] },
+): TranscriptBlock[] {
+  if (!text && !parts) return [];
+  return [
+    { id: nextBlockId(idPrefix), kind: 'user-text', text, ...(parts ? { parts } : {}), ...host },
+  ];
+}
+
 /**
  * A named inject's user messages as the user's own blocks, where the reply took them in: its
  * text, then a block per file. A message from anyone else (a host's note) is not the user's to show.
  */
 function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptBlock[] {
   const host = inject.host === undefined ? {} : { host: inject.host };
+  let userParts = messageParts(inject.userParts);
   return inject.messages.flatMap((message) => {
     if (message.role !== 'user') return [];
     const parts = message.parts ?? [];
+    // why: The inject's parts are one message's: the first of the user's takes them.
+    const takeParts = () => {
+      const taken = userParts;
+      userParts = undefined;
+      return taken;
+    };
     const text = [message.content ?? '', ...parts.map((part) => ('text' in part ? part.text : ''))]
       .join('')
       .trim();
     return [
-      ...(text ? [{ id: nextBlockId(idPrefix), kind: 'user-text' as const, text, ...host }] : []),
+      ...userTextBlocks(text, takeParts(), idPrefix, host),
       ...parts.flatMap((part): TranscriptBlock[] =>
         'text' in part
           ? []
@@ -214,12 +235,14 @@ function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptB
 /** Turns a user draft into transcript blocks: a `user-text` block for the trimmed text, then one block per attachment and per voice clip. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
-  const text = draft.text?.trim();
-  if (text) {
+  const text = draft.text?.trim() ?? '';
+  const parts = messageParts(draft.parts);
+  if (text || parts) {
     blocks.push({
       id: nextBlockId(idPrefix),
       kind: 'user-text',
       text,
+      ...(parts ? { parts } : {}),
     });
   }
   for (const file of draft.attachments ?? []) {

@@ -70,6 +70,7 @@ export function useTheoremChat(options: UseTheoremChatOptions): TheoremChatState
       state.runningElsewhere?.since ?? liveTurnStart(groups, turnClock, state.streaming),
     backgroundJobs: jobs,
     setDraftText: chat.setDraftText,
+    setDraftParts: chat.setDraftParts,
     setPendingFiles: chat.setPendingFiles,
     setPendingVoice: chat.setPendingVoice,
     setPendingMessages: chat.setPendingMessages,
@@ -109,6 +110,7 @@ export type TheoremChatState = ChatState & {
   /** The tool calls still running in the background, oldest first, until their results land. */
   backgroundJobs: BackgroundJob[];
   setDraftText: ChatController['setDraftText'];
+  setDraftParts: ChatController['setDraftParts'];
   setPendingFiles: ChatController['setPendingFiles'];
   setPendingVoice: ChatController['setPendingVoice'];
   setPendingMessages: ChatController['setPendingMessages'];

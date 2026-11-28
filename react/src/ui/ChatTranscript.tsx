@@ -28,6 +28,7 @@ import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import type { LabelOverrides, ToolFailure } from '@theoremjs/agents';
+import type { UserPart, UserRef } from '@theoremjs/agents/interface';
 import { stopText, type TranscriptBlock } from '@theoremjs/agents/interface';
 import type { AnsweringGate } from '@theoremjs/web/client';
 import { citationsFromBlock, type SourceCitation } from '@theoremjs/web/client';
@@ -35,6 +36,7 @@ import {
   type CSSProperties,
   createContext,
   type FocusEvent,
+  Fragment,
   type PointerEvent,
   type ReactNode,
   useContext,
@@ -83,6 +85,8 @@ import { VoiceNote } from './VoiceNote.tsx';
 type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
 
 export type ChatTranscriptProps = {
+  /** Draws a ref in the person's message; without it the message shows as its plain text. */
+  renderRef?: (ref: UserRef) => ReactNode;
   blocks: readonly TranscriptBlock[];
   /** Assistant display name (profile handle). */
   handle: string;
@@ -418,11 +422,29 @@ function ImageAttachment({
   );
 }
 
+const RenderRef = createContext<ChatTranscriptProps['renderRef']>(undefined);
+
+/** The message's words, with each ref as the host draws it. */
+function userParts(parts: readonly UserPart[], renderRef: (ref: UserRef) => ReactNode) {
+  // why: A saved message's parts never change, so how many came before tells a ref apart.
+  let refs = 0;
+  return parts.map((part) => {
+    if (part.type === 'text') return part.text;
+    refs += 1;
+    return <Fragment key={`ref-${refs}`}>{renderRef(part)}</Fragment>;
+  });
+}
+
 type UserFileBlock = Extract<TranscriptBlock, { kind: 'user-attachment' | 'user-voice' }>;
 
 function UserBlock({ block, metadata }: { block: TranscriptBlock; metadata?: ReactNode }) {
+  const renderRef = useContext(RenderRef);
   if (block.kind === 'user-text')
-    return <ChatMessageBubble metadata={metadata}>{block.text}</ChatMessageBubble>;
+    return (
+      <ChatMessageBubble metadata={metadata}>
+        {renderRef && block.parts ? userParts(block.parts, renderRef) : block.text}
+      </ChatMessageBubble>
+    );
   if (block.kind !== 'user-attachment' && block.kind !== 'user-voice') return null;
   return <UserFile block={block} />;
 }
@@ -1341,15 +1363,17 @@ export function ChatTranscript(props: ChatTranscriptProps) {
   return (
     <TheoremLabelsProvider>
       <ShowUsage.Provider value={props.usage === true}>
-        <ShowToolData.Provider value={props.showToolData !== false}>
-          <ShowToolDurations.Provider value={props.showToolDurations !== false}>
-            <ShowWorkStatus.Provider value={props.showWorkStatus !== false}>
-              <ShowResumedNotice.Provider value={props.showResumedNotice !== false}>
-                <ChatTranscriptBody {...props} />
-              </ShowResumedNotice.Provider>
-            </ShowWorkStatus.Provider>
-          </ShowToolDurations.Provider>
-        </ShowToolData.Provider>
+        <RenderRef.Provider value={props.renderRef}>
+          <ShowToolData.Provider value={props.showToolData !== false}>
+            <ShowToolDurations.Provider value={props.showToolDurations !== false}>
+              <ShowWorkStatus.Provider value={props.showWorkStatus !== false}>
+                <ShowResumedNotice.Provider value={props.showResumedNotice !== false}>
+                  <ChatTranscriptBody {...props} />
+                </ShowResumedNotice.Provider>
+              </ShowWorkStatus.Provider>
+            </ShowToolDurations.Provider>
+          </ShowToolData.Provider>
+        </RenderRef.Provider>
       </ShowUsage.Provider>
     </TheoremLabelsProvider>
   );

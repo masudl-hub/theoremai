@@ -18,22 +18,25 @@ import {
   defaultInterfaceEffort,
   emptyInterfaceTurnSession,
   type GatedToolContext,
+  hasRef,
   type InterfaceTurnSession,
   moveComposerPendingWithinKind,
   orderComposerPendingMessages,
   prepareUserTurn,
   promoteComposerPendingKind,
+  type RefText,
   removeComposerPendingMessage,
   removeLandedSteers,
   saveComposerPendingMessage,
   type TranscriptBlock,
   takeSavedComposerPending,
+  type UserPart,
   type UserTurnDraft,
   userDraftHasPayload,
   userDraftToSteerInject,
 } from '@theoremjs/agents/interface';
 import { composerHasPayload } from './composer-primary.ts';
-import { composerFieldsFromDraft } from './decode-composer-draft.ts';
+import { type ComposerDraftFields, composerFieldsFromDraft } from './decode-composer-draft.ts';
 import { encodeComposerDraft } from './encode-composer-draft.ts';
 import { type ClientFailure, clientFailure, type TurnFailure, turnFailure } from './failure.ts';
 import { followGenerationDefaults } from './generation-selection.ts';
@@ -84,6 +87,11 @@ export type ChatOptions = {
    * once, and does not read it from the host again.
    */
   conversationView?: ConversationView;
+  /**
+   * Writes a message's refs into its text where the page draws it; the ref's id when absent. Give
+   * the composer's chips and the server the same one.
+   */
+  refText?: RefText;
   /** The text the composer starts with. Read once, when the chat is created. */
   initialText?: string;
   /** The files the composer starts with, staged to send. Read once, when the chat is created. */
@@ -143,6 +151,8 @@ export type ChatState = {
   streamBlocks: TranscriptBlock[];
   chatStarted: boolean;
   draftText: string;
+  /** The composer's words and refs, while it holds a ref; `draftText` is their plain copy. */
+  draftParts?: UserPart[];
   pendingFiles: File[];
   pendingVoice: File[];
   /** Steered, queued, and stashed messages. */
@@ -202,6 +212,8 @@ export type ChatController = {
   /** The latest options. `conversation`, `conversationView` and `initialText` are read only at creation. */
   update(options: ChatOptions): void;
   setDraftText(value: ChatUpdate<string>): void;
+  /** The refs of the composer's draft, as the composer reads them after `setDraftText`. */
+  setDraftParts(parts: UserPart[] | undefined): void;
   setPendingFiles(value: ChatUpdate<File[]>): void;
   setPendingVoice(value: ChatUpdate<File[]>): void;
   setPendingMessages(value: ChatUpdate<ComposerPendingMessage[]>): void;
@@ -260,7 +272,7 @@ export type SendTextOptions = {
   effort?: string;
 };
 
-type ComposerFields = { text: string; files: File[]; voice: File[] };
+type ComposerFields = ComposerDraftFields;
 
 /** Where the chat stood when a run began. */
 type RunStart = { blocks: TranscriptBlock[]; streamBlocks: TranscriptBlock[] };
@@ -387,6 +399,7 @@ function steerInput(draft: UserTurnDraft): TheoremSteerRequest['input'] {
   const voice = extractInlineEncodedAttachments(draft.voice);
   return {
     ...(draft.text?.trim() ? { text: draft.text } : {}),
+    ...(draft.parts ? { parts: draft.parts } : {}),
     ...(attachments ? { attachments } : {}),
     ...(voice ? { voice } : {}),
   };
@@ -699,9 +712,17 @@ class Chat implements ChatController {
     // why: Editing the text answers a refusal for its length; a refusal for the files stays until they change.
     this.#set({
       draftText: next,
+      // why: Text set without parts holds no refs; the composer reports its refs right after.
+      draftParts: undefined,
       issues,
       ...(failure?.errorKind === 'input' && issues.length === 0 ? { failure: null } : {}),
     });
+  };
+  /** The refs of the composer's draft, as the composer reads them after `setDraftText`. */
+  setDraftParts = (parts: UserPart[] | undefined): void => {
+    const next = hasRef(parts) ? parts : undefined;
+    if (JSON.stringify(next) === JSON.stringify(this.#state.draftParts)) return;
+    this.#set({ draftParts: next });
   };
   setPendingFiles = (value: ChatUpdate<File[]>): void => this.#apply('pendingFiles', value);
   setPendingVoice = (value: ChatUpdate<File[]>): void => this.#apply('pendingVoice', value);
@@ -711,13 +732,18 @@ class Chat implements ChatController {
     this.#apply('issues', value);
 
   submit = async (): Promise<void> => {
-    const { phase, draftText, pendingFiles, pendingVoice } = this.#state;
+    const { phase, draftText, draftParts, pendingFiles, pendingVoice } = this.#state;
     if (phase !== 'idle') {
       await this.enqueue('queue');
       return;
     }
     this.#set({ issues: [] });
-    await this.#sendFields({ text: draftText, files: [...pendingFiles], voice: [...pendingVoice] });
+    await this.#sendFields({
+      text: draftText,
+      parts: draftParts,
+      files: [...pendingFiles],
+      voice: [...pendingVoice],
+    });
   };
 
   stop = (): void => {
@@ -770,16 +796,23 @@ class Chat implements ChatController {
   }
 
   enqueue = async (kind: 'queue' | 'steer' | 'stash'): Promise<void> => {
-    const { draftText, pendingFiles, pendingVoice } = this.#state;
+    const { draftText, draftParts, pendingFiles, pendingVoice } = this.#state;
     if (!composerHasPayload(draftText, pendingFiles, pendingVoice)) return;
     this.#set({ issues: [] });
     let message: ComposerPendingMessage;
     try {
-      const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
+      const draft = await encodeComposerDraft({
+        text: draftText,
+        parts: draftParts,
+        pendingFiles,
+        pendingVoice,
+      });
       message = createComposerPendingMessage({ kind, draft });
       const { iface } = this.#options;
       const checked =
-        kind !== 'stash' && iface ? prepareUserTurn(iface.inputs, draft, iface.guardrails) : null;
+        kind !== 'stash' && iface
+          ? prepareUserTurn(iface.inputs, draft, iface.guardrails, this.#options.refText)
+          : null;
       if (checked && !checked.ok) {
         // why: A message the profile refuses is never queued or steered; it stays in the composer as typed.
         this.#set({
@@ -1039,8 +1072,11 @@ class Chat implements ChatController {
     );
   }
 
-  #clearedComposer(): Pick<ChatState, 'draftText' | 'pendingFiles' | 'pendingVoice'> {
-    return { draftText: '', pendingFiles: [], pendingVoice: [] };
+  #clearedComposer(): Pick<
+    ChatState,
+    'draftText' | 'draftParts' | 'pendingFiles' | 'pendingVoice'
+  > {
+    return { draftText: '', draftParts: undefined, pendingFiles: [], pendingVoice: [] };
   }
 
   #setDelivery(next: { status: MessageDelivery } | null): void {
@@ -1203,16 +1239,26 @@ class Chat implements ChatController {
 
   /** The composer's draft, when it holds something to send. */
   async #composerDraft(): Promise<UserTurnDraft | undefined> {
-    const { draftText, pendingFiles, pendingVoice } = this.#state;
-    const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
+    const { draftText, draftParts, pendingFiles, pendingVoice } = this.#state;
+    const draft = await encodeComposerDraft({
+      text: draftText,
+      parts: draftParts,
+      pendingFiles,
+      pendingVoice,
+    });
     return userDraftHasPayload(draft) ? draft : undefined;
   }
 
   /** Puts a message back in the composer. What the composer holds now is stashed first, so nothing typed is lost. */
   async #restore(fields: ComposerFields): Promise<void> {
-    const { draftText, pendingFiles, pendingVoice } = this.#state;
+    const { draftText, draftParts, pendingFiles, pendingVoice } = this.#state;
     if (composerHasPayload(draftText, pendingFiles, pendingVoice)) {
-      const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
+      const draft = await encodeComposerDraft({
+        text: draftText,
+        parts: draftParts,
+        pendingFiles,
+        pendingVoice,
+      });
       const stash = createComposerPendingMessage({ kind: 'stash', draft });
       this.#set({
         pendingMessages: orderComposerPendingMessages([...this.#state.pendingMessages, stash]),
@@ -1220,6 +1266,7 @@ class Chat implements ChatController {
     }
     this.#set({
       draftText: fields.text,
+      draftParts: fields.parts,
       pendingFiles: fields.files,
       pendingVoice: fields.voice,
       issues: [],
@@ -1263,6 +1310,8 @@ class Chat implements ChatController {
           transport,
           session: this.#state.session,
           text: fields.text,
+          parts: fields.parts,
+          refText: this.#options.refText,
           pendingFiles: fields.files,
           pendingVoice: fields.voice,
           signal,
@@ -1278,6 +1327,7 @@ class Chat implements ChatController {
           draft: () =>
             encodeComposerDraft({
               text: fields.text,
+              parts: fields.parts,
               pendingFiles: fields.files,
               pendingVoice: fields.voice,
             }),
@@ -1298,6 +1348,7 @@ class Chat implements ChatController {
           transport,
           session: this.#state.session,
           draft,
+          refText: this.#options.refText,
           signal,
           scope,
           view,
@@ -1462,7 +1513,11 @@ class Chat implements ChatController {
     const read: ClientTurnEvent = {
       type: 'stage',
       stage: 'pre_turn',
-      injected: landed.map((m) => ({ id: m.id, messages: userDraftToSteerInject(m.draft) })),
+      injected: landed.map((m) => ({
+        id: m.id,
+        messages: userDraftToSteerInject(m.draft),
+        ...(m.draft.parts ? { userParts: m.draft.parts } : {}),
+      })),
     };
     if (this.#streamed || this.#ownPosted === 0) {
       onLine(read);

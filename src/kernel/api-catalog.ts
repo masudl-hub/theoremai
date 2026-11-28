@@ -50,6 +50,9 @@ export const REQUEST_FIELDS: Record<RequestPath, FieldMeta> = withFieldDocs<Requ
   'runTurn.input.attachments': {
     type: 'Array<TurnBlob | TurnMediaRef>',
   },
+  'runTurn.input.parts': {
+    type: 'UserPart[]',
+  },
   'runTurn.input.voice': {
     type: 'TurnBlob[]',
   },

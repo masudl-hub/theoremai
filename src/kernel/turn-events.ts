@@ -41,6 +41,7 @@ import {
   type TurnStage,
   type TurnStopKind,
 } from './schema.ts';
+import { type UserPart, userPartSchema } from './user-parts.ts';
 import type { Equals } from './util/exact-type.ts';
 
 export type { ErrorCopies, ErrorKind, GuardrailEvent };
@@ -204,6 +205,8 @@ export interface InjectedMessages {
   messages: TurnHistoryMessage[];
   /** The app's own values for this inject ({@linkcode StageInject.host}); its blocks carry them. */
   host?: JsonObject;
+  /** {@linkcode StageInject.userParts}: its `user-text` block keeps them. */
+  userParts?: UserPart[];
 }
 
 /** Why a turn or live utterance ended. */
@@ -1373,6 +1376,7 @@ const TURN_EVENTS = {
           id: z.string().regex(/\S/),
           messages: z.array(turnHistoryMessage),
           host: jsonObjectSchema.optional(),
+          userParts: z.array(userPartSchema).optional(),
         }),
       )
       .min(1)

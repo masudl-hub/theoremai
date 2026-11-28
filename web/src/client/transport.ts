@@ -29,6 +29,8 @@ import {
   throwIfAborted,
   turnEventSchema,
   turnToolSnapshotSchema,
+  type UserPart,
+  userPartSchema,
   z,
 } from '@theoremjs/agents';
 import {
@@ -63,6 +65,11 @@ true satisfies Equals<z.infer<typeof encodedBlob>, EncodedBlob>;
 /** Turn input as sent over the wire (media is base64-encoded). */
 export type TheoremTurnInput = {
   text?: string;
+  /**
+   * The message's words and refs in order, when it names the host's objects. The server writes
+   * `text` from them, so a `text` sent beside them is not read.
+   */
+  parts?: UserPart[];
   attachments?: EncodedBlob[];
   voice?: EncodedBlob[];
   /** The value chosen for each of the profile's `inputs.options`. */
@@ -74,6 +81,7 @@ const theoremTurnInput = z.object({
   options: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
   text: z.string().optional(),
+  parts: z.array(userPartSchema).optional(),
   attachments: z.array(encodedBlob).optional(),
   voice: z.array(encodedBlob).optional(),
 });
@@ -239,16 +247,21 @@ export type TheoremSteerRequest =
       /** The client's id for this steer; the turn's `stage` event names it in `injected` once it lands. */
       id: string;
       /** The message, as a `/turn` posts one. The host makes the user message the model reads. */
-      input: Pick<TheoremTurnInput, 'text' | 'attachments' | 'voice'>;
+      input: Pick<TheoremTurnInput, 'text' | 'parts' | 'attachments' | 'voice'>;
       /** The ref of the conversation the turn replies in, when the page has one. */
       conversation?: string;
     }
   | {
       id: string;
-      input: Pick<TheoremTurnInput, 'text' | 'attachments' | 'voice'>;
+      input: Pick<TheoremTurnInput, 'text' | 'parts' | 'attachments' | 'voice'>;
       conversation: string;
     };
-const steerInput = theoremTurnInput.pick({ text: true, attachments: true, voice: true });
+const steerInput = theoremTurnInput.pick({
+  text: true,
+  parts: true,
+  attachments: true,
+  voice: true,
+});
 const theoremSteerRequest = z.union([
   z.object({
     turnId: clientId,

@@ -30,6 +30,7 @@ export type TheoremConversationCoreOptions<Item extends InboxItem = InboxItem> =
   | 'onStage'
   | 'sessionStore'
   | 'conversationStore'
+  | 'refText'
   | 'credentialStore'
   | 'gateTtlMs'
   | 'operationRetentionMs'
@@ -59,7 +60,7 @@ export function createTheoremConversationCore<Item extends InboxItem = InboxItem
   options: TheoremConversationCoreOptions<Item>,
 ): ConversationCore {
   const name = 'createTheoremConversationCore';
-  const chat = chatOf(name, options.profile, options.conversationStore);
+  const chat = chatOf(name, options.profile, options.conversationStore, options.refText);
   const { provider, wake } = options;
   if (options.lateResultsDecider && !wake) {
     // labels-exempt: builder config error at setup; no user sees it

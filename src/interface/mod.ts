@@ -11,6 +11,16 @@ export type {
   AttachmentValidationParams,
 } from '../kernel/types.ts';
 export {
+  hasRef,
+  messageParts,
+  type RefText,
+  refIdText,
+  textOfParts,
+  type UserPart,
+  type UserRef,
+  userPartSchema,
+} from '../kernel/user-parts.ts';
+export {
   buildUserTurnBlocks,
   foldConversationTurn,
   foldTurnEvents,

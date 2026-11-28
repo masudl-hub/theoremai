@@ -23,6 +23,7 @@ import {
   toolOperationReplySchema,
   turnHistoryMessageSchema,
   turnToolSnapshotSchema,
+  userPartSchema,
   z,
 } from '@theoremjs/agents';
 import type { Handover } from '@theoremjs/agents/conversation';
@@ -156,6 +157,7 @@ const blobSchema = z.strictObject({
 });
 const inputSchema: z.ZodType<TurnInput> = z.strictObject({
   text: z.string().optional(),
+  parts: z.array(userPartSchema).optional(),
   role: z.string().optional(),
   options: z.record(z.string(), z.string()).optional(),
   context: z

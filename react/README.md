@@ -225,6 +225,42 @@ Each part of the look is a CSS custom property. Set it on any element above the 
 
 The words are labels: `@theorem.composer.pill.working_for`, `@theorem.composer.pill.working` (before the start is known), `@theorem.composer.pill.stop`, `@theorem.composer.pill.background`, `@theorem.composer.tray.expand` and `@theorem.composer.tray.collapse`. See [Wording](#wording). For a rule that no property covers, each part has a class: `theorem-composer-row`, `theorem-composer-pills`, `theorem-composer-pill` (with `data-pill="working"`, `"background"` or `"app"`), `theorem-composer-tray` (with `data-open`) and `theorem-composer-surface`.
 
+### Refs and your own input
+
+Use refs when the person picks one of your app's objects in the composer, and your server must receive which one. A ref is `{ kind, id }`, your own strings. It shows as a chip, and the message carries it typed. See [Name your app's objects in a message](https://github.com/theoremjs/theoremai/blob/main/web/README.md#name-your-apps-objects-in-a-message).
+
+```tsx
+import { refToken, TheoremChat } from '@theoremjs/react/ui';
+
+<TheoremChat
+  endpoint="/api/theorem"
+  composerTriggers={[
+    {
+      character: '@',
+      searchSource: documents,
+      onSelect: (item) => refToken({ kind: 'document', id: item.id }),
+    },
+  ]}
+  renderRef={(ref) => <DocumentName id={ref.id} />}
+/>;
+```
+
+| Prop | What it does |
+| --- | --- |
+| `composerTriggers` | The field's triggers, as Astryx's `ChatComposerInput` takes `triggers`. Both layouts pass them on. |
+| `composerInput` | Your own text field. It takes what `ChatComposerInput` takes, and every composer draws it, a call's included. Default: `ChatComposerInput`. |
+| `renderRef` | Draws a ref, as a chip in the composer and in the person's message. Without it, the chip is a badge and the message shows as text. |
+| `refText` | Writes a ref into the message's text. Default: the id. Give the server the same one. |
+
+To put a ref in the field from your own button, hold an `inputRef` and call `inputRef.current.insertToken(refToken({ kind, id }))`. Only a chip that `refToken` made is a ref. Typed text is never read as one.
+
+The draft keeps its refs, so a composer drawn again from a saved draft shows its chips again. This holds for a stashed or queued message that you restore. Your own input must keep the markup of Astryx's tokens (`data-astryx-token`) and its handle.
+
+Limits:
+
+- A call sends a typed line as text. Its refs reach the model as that text.
+- The up-arrow recall and copy and paste give plain text.
+
 ### Tool media
 
 A tool can return media for the model, for the person, or for both. The chat shows media from a tool only when the tool marked it `sent`, unless you pass `media="all"`. Media that a model generated and files that the user attached always show.
@@ -594,7 +630,7 @@ function Dock({ chat, iface }) {
 }
 ```
 
-`TheoremChatComposer` takes `layout`, `icons`, `pills`, `placeholder`, and `inputRef`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, `showToolDurations`, and `showWorkStatus`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
+`TheoremChatComposer` takes `layout`, `icons`, `pills`, `placeholder`, `inputRef`, `inputComponent`, `triggers`, `refText`, and `renderRef`. Pass it the `refText` you gave `useTheoremChat`. `TheoremChatTranscript` takes the props of `ChatTranscript` that the chat does not give: `handle`, `emptyState`, `dividers`, `usage`, `bodyKindPlacement`, `stepLayout`, `showToolDurations`, `showWorkStatus`, and `renderRef`. Its `handle` is the handle of the profile when you leave it out. Put both pieces inside one `TheoremSurface`. It takes what `TheoremChat` takes for the look and the media: `theme`, `mode`, `labels`, `detectCodeLanguage`, `media`, `resolveMedia`, and `mediaViewer`.
 
 Use `pills` to show your own notice in the pill row of the `row` layout, for example "New from your agent" while the chat is closed. Each pill is `{ id, label, icon?, onSelect? }`. It comes after the working pill and the background calls, and looks like them. The icon goes before the words. A click calls `onSelect`. A pill without `onSelect` only shows.
 

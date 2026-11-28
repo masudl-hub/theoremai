@@ -5,6 +5,7 @@ import {
   ChatComposerInput,
   type ChatComposerInputHandle,
   type ChatComposerStatus,
+  type ChatComposerTrigger,
   ChatSendButton,
 } from '@astryxdesign/core/Chat';
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
@@ -37,6 +38,7 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { attachmentIssueText, type LabelOverrides, labelText } from '@theoremjs/agents';
+import type { RefText, UserPart, UserRef } from '@theoremjs/agents/interface';
 import {
   type AttachmentValidationIssue,
   type ComposerMenuAction,
@@ -62,8 +64,9 @@ import {
 } from '@theoremjs/web/client';
 import {
   type ChangeEvent,
+  type ComponentProps,
+  type ComponentType,
   type ReactNode,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -80,6 +83,7 @@ import {
   type ComposerTray,
 } from './ChatComposerRow.tsx';
 import { ComposerControls, ComposerSelector } from './ComposerControls.tsx';
+import { useEditorRefs } from './composer-refs.tsx';
 import { composerDrawerLabel, type LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { VoiceNote } from './VoiceNote.tsx';
@@ -116,6 +120,9 @@ export type OptionChoices = {
  */
 export type ComposerLayout = 'stacked' | 'row';
 
+/** A text field that takes what Astryx's `ChatComposerInput` takes. */
+export type ComposerInputComponent = ComponentType<ComponentProps<typeof ChatComposerInput>>;
+
 export type ChatComposerBarProps = {
   iface: ComposerProfileInterface;
   /** Default `stacked`. */
@@ -141,6 +148,18 @@ export type ChatComposerBarProps = {
   placeholder?: string;
   /** Imperative handle for the editor (focus, insert). */
   inputRef?: React.Ref<ChatComposerInputHandle>;
+  /** The text field; Astryx's `ChatComposerInput` when absent. */
+  inputComponent?: ComposerInputComponent;
+  /** The field's triggers, such as a list opened by a typed character. */
+  triggers?: ChatComposerTrigger[];
+  /** The draft's words and refs, while it holds a ref (`ChatState.draftParts`). */
+  draftParts?: readonly UserPart[];
+  /** Called after `onDraftTextChange` with the refs the field holds. Without it, none are kept. */
+  onDraftPartsChange?: (parts: UserPart[] | undefined) => void;
+  /** Writes a ref into the message's text; the ref's id when absent. */
+  refText?: RefText;
+  /** Draws a ref's chip; a badge of its text when absent. */
+  renderRef?: (ref: UserRef) => ReactNode;
   onDraftTextChange: (text: string) => void;
   onFilesSelected: (files: File[]) => void;
   onAttachmentRemove: (index: number) => void;
@@ -165,7 +184,17 @@ export type ChatComposerBarProps = {
 export type LiveComposerBarProps = Omit<
   Pick<
     ChatComposerBarProps,
-    'draftText' | 'placeholder' | 'inputRef' | 'onDraftTextChange' | 'onSubmit'
+    | 'draftText'
+    | 'placeholder'
+    | 'inputRef'
+    | 'inputComponent'
+    | 'triggers'
+    | 'draftParts'
+    | 'onDraftPartsChange'
+    | 'refText'
+    | 'renderRef'
+    | 'onDraftTextChange'
+    | 'onSubmit'
   >,
   'onSubmit'
 > & {
@@ -775,6 +804,8 @@ function composerTray(
  * menu offers it. `field` wires it up when it stands outside Astryx's composer (the row layout).
  */
 function ComposerTextInput({
+  input: Input = ChatComposerInput,
+  triggers,
   editorRef,
   handleRef,
   menuActions,
@@ -782,6 +813,8 @@ function ComposerTextInput({
   onFiles,
   field,
 }: {
+  input: ComposerInputComponent | undefined;
+  triggers: ChatComposerTrigger[] | undefined;
   editorRef: React.Ref<HTMLDivElement>;
   handleRef: ChatComposerBarProps['inputRef'];
   menuActions: readonly ComposerMenuAction[];
@@ -796,10 +829,11 @@ function ComposerTextInput({
   };
 }) {
   return (
-    <ChatComposerInput
+    <Input
       ref={editorRef}
       handleRef={handleRef}
       onFiles={onFiles}
+      {...(triggers ? { triggers } : {})}
       {...(field
         ? {
             value: field.value,
@@ -842,20 +876,23 @@ export function ChatComposerBar(props: ChatComposerBarProps | LiveComposerBarPro
 
 function LiveComposerBarBody(props: LiveComposerBarProps) {
   const t = useLabels();
-  const editorRef = useRef<ChatComposerInputHandle>(null);
-  const setEditor = useCallback(
-    (node: ChatComposerInputHandle | null) => {
-      editorRef.current = node;
-      const outer = props.inputRef;
-      if (typeof outer === 'function') outer(node);
-      else if (outer) outer.current = node;
-    },
-    [props.inputRef],
-  );
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const Input = props.inputComponent ?? ChatComposerInput;
+  const refs = useEditorRefs({
+    rootRef,
+    inputRef: props.inputRef,
+    drawn: Input,
+    value: props.draftText,
+    parts: props.draftParts,
+    onChange: props.onDraftTextChange,
+    onParts: props.onDraftPartsChange,
+    refText: props.refText,
+    renderRef: props.renderRef,
+  });
   // why: The button used to send only the React draft. Typing lives in the field first, so an
   // empty draft left the button dead. Read the field.
   const submitTyped = () => {
-    const text = (editorRef.current?.getValue() ?? props.draftText).trim();
+    const text = (refs.handle.current?.getValue() ?? props.draftText).trim();
     if (!text || props.isDisabled) return;
     props.onSubmit(text);
     props.onDraftTextChange('');
@@ -864,7 +901,7 @@ function LiveComposerBarBody(props: LiveComposerBarProps) {
     <ChatComposer
       style={NO_FOCUS_RING}
       value={props.draftText}
-      onChange={props.onDraftTextChange}
+      onChange={refs.onChange}
       onSubmit={props.onSubmit}
       isDisabled={props.isDisabled}
       placeholder={
@@ -873,7 +910,13 @@ function LiveComposerBarBody(props: LiveComposerBarProps) {
           handle: props.handle ?? props.iface?.identity.handle ?? '',
         })
       }
-      input={<ChatComposerInput handleRef={setEditor} />}
+      input={refs.provide(
+        <Input
+          ref={rootRef}
+          handleRef={refs.handleRef}
+          {...(props.triggers ? { triggers: props.triggers } : {})}
+        />,
+      )}
       sendButton={<ChatSendButton isDisabled={props.isDisabled} onSend={submitTyped} />}
     />
   );
@@ -928,8 +971,21 @@ function useComposerParts(props: ChatComposerBarProps) {
     selectedText: useEditorSelection(editorRef),
     canStash: actions.menuActions.includes('stash'),
   });
+  const refs = useEditorRefs({
+    rootRef: editorRef,
+    inputRef: props.inputRef,
+    drawn: `${props.layout}`,
+    value: props.draftText,
+    parts: props.draftParts,
+    onChange: props.onDraftTextChange,
+    onParts: props.onDraftPartsChange,
+    refText: props.refText,
+    renderRef: props.renderRef,
+  });
   const runPrimary = () => {
     if (actions.primaryDisabled) return;
+    // invariant: What is sent holds the refs the field holds now.
+    refs.report();
     if (actions.primary === 'stop') props.onStop();
     else props.onSubmit();
   };
@@ -938,30 +994,35 @@ function useComposerParts(props: ChatComposerBarProps) {
   return {
     ...actions,
     runPrimary,
+    onDraftTextChange: refs.onChange,
     editorRef,
     placeholder,
     // why: A profile that takes no text has no text field (false, not null: null gets Astryx's default one).
-    input: inputs.text && (
-      <ComposerTextInput
-        editorRef={editorRef}
-        handleRef={props.inputRef}
-        menuActions={actions.menuActions}
-        onMenuAction={props.onMenuAction}
-        // why: A pasted or dropped file goes through the same staging and limits as the attach button.
-        onFiles={inputs.attachments ? stageFiles : undefined}
-        // why: The row draws its own surface, outside Astryx's ChatComposer, so the field takes its value here.
-        field={
-          props.layout === 'row'
-            ? {
-                value: props.draftText,
-                onChange: props.onDraftTextChange,
-                onSubmit: runPrimary,
-                placeholder,
-              }
-            : undefined
-        }
-      />
-    ),
+    input:
+      inputs.text &&
+      refs.provide(
+        <ComposerTextInput
+          input={props.inputComponent}
+          triggers={props.triggers}
+          editorRef={editorRef}
+          handleRef={refs.handleRef}
+          menuActions={actions.menuActions}
+          onMenuAction={props.onMenuAction}
+          // why: A pasted or dropped file goes through the same staging and limits as the attach button.
+          onFiles={inputs.attachments ? stageFiles : undefined}
+          // why: The row draws its own surface, outside Astryx's ChatComposer, so the field takes its value here.
+          field={
+            props.layout === 'row'
+              ? {
+                  value: props.draftText,
+                  onChange: refs.onChange,
+                  onSubmit: runPrimary,
+                  placeholder,
+                }
+              : undefined
+          }
+        />,
+      ),
     tray: composerTray(t, props, stagedFiles, () => voice.discardRecordingOrVoice()),
     attach: inputs.attachments ? (
       <AttachFilesButton
@@ -1058,7 +1119,7 @@ function StackedComposerBar({
       // focus-outline token for this subtree. The editor still shows its caret.
       style={NO_FOCUS_RING}
       value={props.draftText}
-      onChange={props.onDraftTextChange}
+      onChange={parts.onDraftTextChange}
       onSubmit={parts.runPrimary}
       onStop={props.onStop}
       isStopShown={isStopShown}

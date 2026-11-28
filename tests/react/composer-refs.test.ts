@@ -172,7 +172,7 @@ function caretInChip(chip: Element): void {
   const range = document.createRange();
   range.setStart(text, 1);
   range.collapse(true);
-  const selection = window.getSelection();
+  const selection = document.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
 }

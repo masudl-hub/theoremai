@@ -98,6 +98,7 @@ import {
   IconShieldSearch,
   IconSquareRoundedNumber0,
   IconSquareRoundedNumber2,
+  IconTextSize,
   IconTool,
   IconTrash,
   IconUser,
@@ -6643,6 +6644,7 @@ function ToolSpecEditor({
 const LABEL_AREA_ICONS: Record<LabelAreaPrefix, IconType> = {
   error: IconAlertTriangle,
   attachments: IconPaperclip,
+  text: IconTextSize,
   voice: IconMicrophone,
   session: IconHourglass,
   stop: IconPlayerStop,
@@ -6650,6 +6652,7 @@ const LABEL_AREA_ICONS: Record<LabelAreaPrefix, IconType> = {
   'detect.blocked': IconShieldOff,
   thought: IconBulb,
   live: IconHeadset,
+  request: IconBan,
   quota: IconGauge,
   tool: IconTool,
   repair: IconBandage,

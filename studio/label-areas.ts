@@ -74,6 +74,12 @@ export const LABEL_AREAS = [
     audience: 'visitor',
   },
   {
+    prefix: 'request',
+    title: 'Refusals',
+    note: 'When your app refuses a request.',
+    audience: 'visitor',
+  },
+  {
     prefix: 'quota',
     title: 'Quota',
     note: 'When the daily limit is reached.',

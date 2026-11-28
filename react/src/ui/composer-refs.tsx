@@ -130,19 +130,23 @@ function chipAround(editor: Element, node: Node): Element | null {
   return chip && editor.contains(chip) ? chip : null;
 }
 
-/** Moves each end of the selection that sits inside a chip to just after that chip. */
-function leaveChips(editor: Element | null): void {
-  const selection = editor?.ownerDocument.defaultView?.getSelection();
-  if (!editor || !selection || selection.rangeCount === 0) return;
-  const range = selection.getRangeAt(0);
+/** Moves each end of `range` that sits inside a chip to just after it; true when one moved. */
+function movedOutOfChips(editor: Element, range: Range): boolean {
   const start = chipAround(editor, range.startContainer);
   const end = chipAround(editor, range.endContainer);
-  if (!start && !end) return;
-  const moved = range.cloneRange();
-  if (start) moved.setStartAfter(start);
-  if (end) moved.setEndAfter(end);
+  if (start) range.setStartAfter(start);
+  if (end) range.setEndAfter(end);
+  return Boolean(start || end);
+}
+
+/** Takes the editor's selection out of any chip. */
+function leaveChips(editor: Element | null): void {
+  const selection = editor?.ownerDocument.defaultView?.getSelection();
+  if (!editor || !selection?.rangeCount) return;
+  const range = selection.getRangeAt(0).cloneRange();
+  if (!movedOutOfChips(editor, range)) return;
   selection.removeAllRanges();
-  selection.addRange(moved);
+  selection.addRange(range);
 }
 
 /** The input's handle, whose inserts never land inside a chip. */

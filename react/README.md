@@ -252,7 +252,7 @@ import { refToken, TheoremChat } from '@theoremjs/react/ui';
 | `renderRef` | Draws a ref, as a chip in the composer and in the person's message. Without it, the chip is a badge and the message shows as text. |
 | `refText` | Writes a ref into the message's text. Default: the id. Give the server the same one. |
 
-To put a ref in the field from your own button, hold an `inputRef` and call `inputRef.current.insertToken(refToken({ kind, id }))`. Only a chip that `refToken` made is a ref. Typed text is never read as one.
+To put a ref in the field from your own button, hold an `inputRef` and call `inputRef.current.insertToken(refToken({ kind, id }))`. Only a chip that `refToken` made is a ref. Typed text is never read as one. A click on a chip can leave the caret inside it. `insertToken` and `insertText` on your `inputRef` then insert just after that chip, never inside it.
 
 The draft keeps its refs, so a composer drawn again from a saved draft shows its chips again. This holds for a stashed or queued message that you restore. Your own input must keep the markup of Astryx's tokens (`data-astryx-token`) and its handle.
 

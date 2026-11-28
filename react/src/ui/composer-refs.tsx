@@ -124,6 +124,47 @@ function editorIn(root: HTMLElement | null): HTMLElement | null {
   return root.matches(selector) ? root : root.querySelector<HTMLElement>(selector);
 }
 
+function chipAround(editor: Element, node: Node): Element | null {
+  const element = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  const chip = element?.closest(TOKEN);
+  return chip && editor.contains(chip) ? chip : null;
+}
+
+/** Moves each end of the selection that sits inside a chip to just after that chip. */
+function leaveChips(editor: Element | null): void {
+  const selection = editor?.ownerDocument.defaultView?.getSelection();
+  if (!editor || !selection || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  const start = chipAround(editor, range.startContainer);
+  const end = chipAround(editor, range.endContainer);
+  if (!start && !end) return;
+  const moved = range.cloneRange();
+  if (start) moved.setStartAfter(start);
+  if (end) moved.setEndAfter(end);
+  selection.removeAllRanges();
+  selection.addRange(moved);
+}
+
+/** The input's handle, whose inserts never land inside a chip. */
+function outsideChips(
+  input: ChatComposerInputHandle,
+  editor: () => Element | null,
+): ChatComposerInputHandle {
+  return {
+    insertToken: (token) => {
+      leaveChips(editor());
+      return input.insertToken(token);
+    },
+    insertText: (text) => {
+      leaveChips(editor());
+      input.insertText(text);
+    },
+    expandToken: (id) => input.expandToken(id),
+    focus: () => input.focus(),
+    getValue: () => input.getValue(),
+  };
+}
+
 export type EditorRefsArgs = RefTokenOptions & {
   /** The input's root element. */
   rootRef: RefObject<HTMLElement | null>;
@@ -150,7 +191,9 @@ export function useEditorRefs(args: EditorRefsArgs) {
 
   const { inputRef } = args;
   const handleRef = useCallback(
-    (node: ChatComposerInputHandle | null) => {
+    (input: ChatComposerInputHandle | null) => {
+      // why: An insert with the caret in a chip, as after a click on it, would nest a chip in it.
+      const node = input && outsideChips(input, () => editorIn(latest.current.rootRef.current));
       handle.current = node;
       if (typeof inputRef === 'function') inputRef(node);
       else if (inputRef) inputRef.current = node;

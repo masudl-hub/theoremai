@@ -94,6 +94,7 @@ async function bar(
     draft,
     inputRef,
     chips: () => host.querySelectorAll('[data-astryx-token]').length,
+    tokens: () => [...host.querySelectorAll('[data-astryx-token]')],
     words: () => host.querySelector('[contenteditable]')?.textContent,
     close: async () => {
       await act(() => root.unmount());
@@ -161,5 +162,44 @@ Deno.test("the live composer draws the input it is given, and keeps a ref's chip
   );
   assert(seen.length > 0);
   assertEquals(drawn.chips(), 1);
+  await drawn.close();
+});
+
+/** Puts the caret in the middle of what a chip shows, as a click on it does. */
+function caretInChip(chip: Element): void {
+  let text: Node = chip;
+  while (text.firstChild) text = text.firstChild;
+  const range = document.createRange();
+  range.setStart(text, 1);
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+Deno.test('an insert with the caret in a chip lands after it, not inside it', async () => {
+  const drawn = await bar();
+  await act(() => {
+    drawn.inputRef.current?.insertToken(refToken(REF));
+  });
+  const other = { type: 'ref', kind: 'document', id: 'doc-9' } as const;
+  for (const insert of [
+    () => drawn.inputRef.current?.insertToken(refToken(other)),
+    () => drawn.inputRef.current?.insertText('here'),
+  ]) {
+    const [first] = drawn.tokens();
+    await act(() => caretInChip(first));
+    await act(() => {
+      insert();
+    });
+    assertEquals(first.textContent, 'doc-7');
+    assertEquals(first.querySelector('[data-astryx-token]'), null);
+  }
+  const [first, second] = drawn.tokens();
+  assertEquals(second.parentNode, first.parentNode);
+  assertEquals(
+    drawn.draft.parts?.filter((part) => part.type === 'ref'),
+    [REF, other],
+  );
   await drawn.close();
 });

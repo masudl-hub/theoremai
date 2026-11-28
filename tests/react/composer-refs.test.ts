@@ -23,6 +23,9 @@ for (const key of [
   'ResizeObserver',
   'NodeFilter',
   'DocumentFragment',
+  'Event',
+  'KeyboardEvent',
+  'InputEvent',
 ]) {
   const value = key === 'window' ? win : (win as unknown as Record<string, unknown>)[key];
   const bound = /^(get|request|cancel)/.test(key)
@@ -204,5 +207,158 @@ Deno.test('an insert with the caret in a chip lands after it, not inside it', as
     drawn.draft.parts?.filter((part) => part.type === 'ref'),
     [REF, other],
   );
+  await drawn.close();
+});
+
+const OTHER = { type: 'ref', kind: 'document', id: 'doc-9' } as const;
+
+function field(): HTMLElement {
+  return [...document.querySelectorAll<HTMLElement>('[contenteditable="true"]')].at(
+    -1,
+  ) as HTMLElement;
+}
+
+function select(from: Node, start: number, to: Node, end: number): void {
+  const range = document.createRange();
+  range.setStart(from, start);
+  range.setEnd(to, end);
+  const selection = document.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+const caretAt = (offset: number) => select(field(), offset, field(), offset);
+
+function press(key: string): void {
+  for (const type of ['keydown', 'keyup']) {
+    field().dispatchEvent(new KeyboardEvent(type, { key, bubbles: true, cancelable: true }));
+  }
+}
+
+function clipboard() {
+  const data = new Map<string, string>();
+  return {
+    data,
+    setData: (type: string, value: string) => data.set(type, value),
+    getData: (type: string) => data.get(type) ?? '',
+    files: [],
+    types: [],
+  };
+}
+
+function clip(type: string, clipboardData: ReturnType<typeof clipboard>): void {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+  field().dispatchEvent(event);
+}
+
+async function compare(drawn: Awaited<ReturnType<typeof bar>>, ref: typeof REF | typeof OTHER) {
+  await act(() => {
+    drawn.inputRef.current?.insertText('Compare ');
+  });
+  await act(() => {
+    drawn.inputRef.current?.insertToken(refToken(ref));
+  });
+}
+
+const refsOf = (parts: UserPart[] | undefined) => parts?.filter((part) => part.type === 'ref');
+
+for (const layout of ['row', 'stacked']) {
+  Deno.test(`↑ recall in the ${layout} composer brings back the chips, ↓ the draft's`, async () => {
+    const drawn = await bar({ layout });
+    await compare(drawn, REF);
+    await act(() => press('Enter'));
+    assertEquals(drawn.chips(), 0);
+    await act(() => {
+      drawn.inputRef.current?.insertText('and ');
+    });
+    await act(() => {
+      drawn.inputRef.current?.insertToken(refToken(OTHER));
+    });
+    await act(() => caretAt(0));
+    await act(() => press('ArrowUp'));
+    assertEquals(drawn.chips(), 1);
+    assertEquals(refsOf(drawn.draft.parts), [REF]);
+    await act(() => press('ArrowDown'));
+    assertEquals(drawn.chips(), 1);
+    assertEquals(refsOf(drawn.draft.parts), [OTHER]);
+    await drawn.close();
+  });
+
+  Deno.test(`copy, cut and paste in the ${layout} composer keep the chips`, async () => {
+    const drawn = await bar({ layout });
+    await compare(drawn, REF);
+    const data = clipboard();
+    await act(() => select(field(), 0, field(), field().childNodes.length));
+    await act(() => clip('copy', data));
+    assertEquals(data.getData('text/plain').trim(), 'Compare doc-7');
+    await act(() => caretAt(field().childNodes.length));
+    await act(() => clip('paste', data));
+    assertEquals(drawn.chips(), 2);
+    assertEquals(refsOf(drawn.draft.parts), [REF, REF]);
+    await act(() => select(field(), 0, field(), field().childNodes.length));
+    await act(() => clip('cut', data));
+    assertEquals(drawn.chips(), 0);
+    assertEquals(drawn.draft.parts, undefined);
+    await act(() => clip('paste', data));
+    assertEquals(refsOf(drawn.draft.parts), [REF, REF]);
+    await drawn.close();
+  });
+}
+
+Deno.test('a paste from outside stays plain text, whatever it claims', async () => {
+  const drawn = await bar();
+  const data = clipboard();
+  data.setData('text/plain', 'doc-7');
+  data.setData('application/x-theorem-parts', 'a-key-no-copy-made');
+  await act(() => clip('paste', data));
+  assertEquals(drawn.chips(), 0);
+  assertEquals(drawn.words(), 'doc-7');
+  assertEquals(drawn.draft.parts, undefined);
+  await drawn.close();
+});
+
+Deno.test('typing or pasting with the caret in a chip lands after it', async () => {
+  const drawn = await bar();
+  await act(() => {
+    drawn.inputRef.current?.insertToken(refToken(REF));
+  });
+  const [chip] = drawn.tokens();
+  await act(() => caretInChip(chip));
+  await act(() => {
+    field().dispatchEvent(
+      new InputEvent('beforeinput', {
+        inputType: 'insertText',
+        data: 'x',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  const data = clipboard();
+  data.setData('text/plain', 'pasted');
+  await act(() => caretInChip(chip));
+  await act(() => clip('paste', data));
+  assertEquals(chip.textContent, 'doc-7');
+  assert(drawn.words()?.includes('x'));
+  assert(drawn.words()?.includes('pasted'));
+  assertEquals(refsOf(drawn.draft.parts), [REF]);
+  await act(() => caretInChip(chip));
+  await act(() => press('a'));
+  assert(!chip.contains(document.getSelection()?.anchorNode ?? null));
+  await drawn.close();
+});
+
+Deno.test('↑ steps back through sent messages, each with its chips', async () => {
+  const drawn = await bar();
+  await compare(drawn, REF);
+  await act(() => press('Enter'));
+  await compare(drawn, OTHER);
+  await act(() => press('Enter'));
+  await act(() => caretAt(0));
+  await act(() => press('ArrowUp'));
+  assertEquals(refsOf(drawn.draft.parts), [OTHER]);
+  await act(() => press('ArrowUp'));
+  assertEquals(refsOf(drawn.draft.parts), [REF]);
   await drawn.close();
 });

@@ -252,14 +252,22 @@ import { refToken, TheoremChat } from '@theoremjs/react/ui';
 | `renderRef` | Draws a ref, as a chip in the composer and in the person's message. Without it, the chip is a badge and the message shows as text. |
 | `refText` | Writes a ref into the message's text. Default: the id. Give the server the same one. |
 
-To put a ref in the field from your own button, hold an `inputRef` and call `inputRef.current.insertToken(refToken({ kind, id }))`. Only a chip that `refToken` made is a ref. Typed text is never read as one. A click on a chip can leave the caret inside it. `insertToken` and `insertText` on your `inputRef` then insert just after that chip, never inside it.
+To put a ref in the field from your own button, hold an `inputRef` and call `inputRef.current.insertToken(refToken({ kind, id }))`. Only a chip that `refToken` made is a ref. Typed text is never read as one. A click on a chip can leave the caret inside it. Typing, pasting, and `insertToken` and `insertText` on your `inputRef` then land just after that chip, never inside it.
 
-The draft keeps its refs, so a composer drawn again from a saved draft shows its chips again. This holds for a stashed or queued message that you restore. Your own input must keep the markup of Astryx's tokens (`data-astryx-token`) and its handle.
+The draft keeps its refs, so a composer drawn again from a saved draft shows its chips again. This holds for a stashed or queued message that you restore.
+
+Chips also stay in these two cases:
+
+- The up arrow brings back a sent message with its chips. The down arrow brings back your draft with its chips.
+- Text that you copy or cut in a composer, and paste in a composer on the same page, keeps its chips. A paste from anywhere else is plain text.
+
+Your own input must keep the markup of Astryx's tokens (`data-astryx-token`) and its handle.
 
 Limits:
 
 - A call sends a typed line as text. Its refs reach the model as that text.
-- The up-arrow recall and copy and paste give plain text.
+- The up arrow brings back the messages that the field itself keeps: those you send with Enter. If two have the same words, both show the later one's refs.
+- A paste in another tab or another app is plain text.
 
 ### Tool media
 

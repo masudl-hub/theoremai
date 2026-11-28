@@ -2,6 +2,7 @@ import { Badge } from '@astryxdesign/core/Badge';
 import type { ChatComposerInputHandle, ChatComposerToken } from '@astryxdesign/core/Chat';
 import {
   hasRef,
+  messageParts,
   type RefText,
   refIdText,
   textOfParts,
@@ -71,38 +72,46 @@ function addWords(parts: UserPart[], text: string): void {
   else if (text) parts.push({ type: 'text', text });
 }
 
-function readElement(element: Element, parts: UserPart[]): void {
+function readElement(element: Element, parts: UserPart[], range: Range | undefined): void {
   if (element.matches(TOKEN)) {
     const ref = tokenRefs.get(element);
     if (ref) parts.push(ref);
     else addWords(parts, element.getAttribute('data-astryx-token-value') ?? '');
   } else if (element.tagName === 'BR') addWords(parts, '\n');
-  else readInto(element, parts);
+  else readInto(element, parts, range);
 }
 
-function readInto(node: Node, parts: UserPart[]): void {
+/** The text of `node`, cut to what `range` selects of it. */
+function textIn(node: Node, range: Range | undefined): string {
+  const text = node.textContent ?? '';
+  const from = range?.startContainer === node ? range.startOffset : 0;
+  const to = range?.endContainer === node ? range.endOffset : text.length;
+  return text.slice(from, to);
+}
+
+/** Reads `node` into `parts`; with a `range`, only what it selects. */
+function readInto(node: Node, parts: UserPart[], range?: Range): void {
   for (const child of node.childNodes) {
-    if (child.nodeType === 3) addWords(parts, child.textContent ?? '');
-    else if (child.nodeType === 1) readElement(child as Element, parts);
+    if (range && !range.intersectsNode(child)) continue;
+    if (child.nodeType === 3) addWords(parts, textIn(child, range));
+    else if (child.nodeType === 1) readElement(child as Element, parts, range);
   }
 }
 
 /** The editor's words and refs, as the input's own value reads them; undefined with no ref. */
-function readEditorParts(editor: Element): UserPart[] | undefined {
+function readEditorParts(editor: Element, range?: Range): UserPart[] | undefined {
   const parts: UserPart[] = [];
-  readInto(editor, parts);
+  readInto(editor, parts, range);
   return hasRef(parts) ? parts : undefined;
 }
 
-/** Fills an empty editor with `parts` through the input's handle, each ref a chip again. */
-function writeEditorParts(
-  editor: HTMLElement,
+/** Puts `parts` in at the caret through the input's handle, each ref a chip again. */
+function insertParts(
+  editor: Element,
   handle: ChatComposerInputHandle,
   parts: readonly UserPart[],
   options: RefTokenOptions,
 ): void {
-  const focused = editor.ownerDocument.activeElement === editor;
-  editor.textContent = '';
   for (const part of parts) {
     if (part.type === 'text') {
       handle.insertText(part.text);
@@ -112,9 +121,21 @@ function writeEditorParts(
     const token = id && editor.querySelector(`[data-astryx-token-id="${id}"]`);
     if (!token) continue;
     tokenRefs.set(token, part);
-    // why: The input adds a space after each token; the draft's own words already hold theirs.
+    // why: The input adds a space after each token; the parts' own words already hold theirs.
     token.nextSibling?.remove();
   }
+}
+
+/** Fills an empty editor with `parts`, leaving focus where it was. */
+function writeEditorParts(
+  editor: HTMLElement,
+  handle: ChatComposerInputHandle,
+  parts: readonly UserPart[],
+  options: RefTokenOptions,
+): void {
+  const focused = editor.ownerDocument.activeElement === editor;
+  editor.textContent = '';
+  insertParts(editor, handle, parts, options);
   if (!focused) editor.blur();
 }
 
@@ -169,6 +190,177 @@ function outsideChips(
   };
 }
 
+/** The editor's selection, when it has one. */
+function selectionIn(editor: Element): Range | undefined {
+  const selection = editor.ownerDocument.defaultView?.getSelection();
+  if (!selection?.rangeCount) return undefined;
+  const range = selection.getRangeAt(0);
+  return editor.contains(range.commonAncestorContainer) ? range : undefined;
+}
+
+function selectAll(editor: Element): void {
+  const selection = editor.ownerDocument.defaultView?.getSelection();
+  const range = editor.ownerDocument.createRange();
+  range.selectNodeContents(editor);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+// invariant: The clipboard carries only a key; the refs stay in memory, so a paste can make no ref
+// that was not copied from a composer on this page.
+const CLIP = 'application/x-theorem-parts';
+let clipped: { key: string; parts: UserPart[] } | undefined;
+
+/** What the editor has selected, as a range holding any chip it touches whole. */
+function wholeChips(editor: Element): Range | undefined {
+  const selected = selectionIn(editor);
+  if (!selected || selected.collapsed) return undefined;
+  const range = selected.cloneRange();
+  const start = chipAround(editor, range.startContainer);
+  const end = chipAround(editor, range.endContainer);
+  if (start) range.setStartBefore(start);
+  if (end) range.setEndAfter(end);
+  return range;
+}
+
+/** Copies a selection that holds a chip; any other is left to the browser. */
+function copyChips(editor: HTMLElement, event: ClipboardEvent, refText: RefText | undefined): void {
+  const range = wholeChips(editor);
+  const parts = range && readEditorParts(editor, range);
+  if (!range || !parts || !event.clipboardData) return;
+  clipped = { key: crypto.randomUUID(), parts };
+  event.clipboardData.setData('text/plain', textOfParts(parts, refText));
+  event.clipboardData.setData(CLIP, clipped.key);
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.type !== 'cut' || editor.getAttribute('contenteditable') === 'false') return;
+  range.deleteContents();
+  editor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/** The parts a paste brings from a composer; undefined for anything from elsewhere. */
+function pastedParts(event: ClipboardEvent): UserPart[] | undefined {
+  const key = event.clipboardData?.getData(CLIP);
+  return key && key === clipped?.key ? clipped.parts : undefined;
+}
+
+type ComposerEvents = {
+  editor: () => HTMLElement | null;
+  handle: () => ChatComposerInputHandle | null;
+  options: () => RefTokenOptions;
+  /** Reads the field into the draft. */
+  read: () => void;
+  /** A key was pressed in the field. */
+  key: (key: string, shift: boolean) => void;
+  /** The key came up: what it changes next is not its doing. */
+  released: () => void;
+};
+
+/** Pastes a composer's copy as chips; an outside paste goes on to the input, past any chip. */
+function pasteChips(editor: HTMLElement, event: ClipboardEvent, field: ComposerEvents): void {
+  leaveChips(editor);
+  const parts = pastedParts(event);
+  const handle = field.handle();
+  if (!parts || !handle) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (editor.getAttribute('contenteditable') === 'false') return;
+  insertParts(editor, handle, parts, field.options());
+  field.read();
+}
+
+/** Typing with the caret in a chip goes after it, never inside. */
+function typePastChips(editor: HTMLElement, event: InputEvent, field: ComposerEvents): void {
+  if (event.isComposing || !event.inputType.startsWith('insert')) return;
+  const at = selectionIn(editor)?.startContainer;
+  if (!at || !chipAround(editor, at)) return;
+  if (event.inputType !== 'insertText' || !event.data) {
+    leaveChips(editor);
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  field.handle()?.insertText(event.data);
+}
+
+/**
+ * Moves the caret out of a chip before a key writes: a chip takes no input, so the browser would
+ * drop the character.
+ */
+function keyPastChips(editor: HTMLElement, event: KeyboardEvent): void {
+  const writes = event.key.length === 1 || event.key === 'Process' || event.key === 'Unidentified';
+  if (writes && !event.ctrlKey && !event.metaKey) leaveChips(editor);
+}
+
+/**
+ * Hears the field's own events before the input does. On the document, so a field drawn again
+ * needs no new listeners.
+ */
+function listenToField(field: ComposerEvents): () => void {
+  const heard: [string, (editor: HTMLElement, event: Event) => void][] = [
+    ['copy', (editor, e) => copyChips(editor, e as ClipboardEvent, field.options().refText)],
+    ['cut', (editor, e) => copyChips(editor, e as ClipboardEvent, field.options().refText)],
+    ['paste', (editor, e) => pasteChips(editor, e as ClipboardEvent, field)],
+    ['beforeinput', (editor, e) => typePastChips(editor, e as InputEvent, field)],
+    [
+      'keydown',
+      (editor, e) => {
+        const event = e as KeyboardEvent;
+        keyPastChips(editor, event);
+        field.key(event.key, event.shiftKey);
+      },
+    ],
+    ['keyup', () => field.released()],
+  ];
+  const page = document;
+  const added = heard.map(([type, act]) => {
+    const listener = (event: Event) => {
+      const editor = field.editor();
+      if (editor && event.composedPath().includes(editor)) act(editor, event);
+    };
+    page.addEventListener(type, listener, true);
+    return () => page.removeEventListener(type, listener, true);
+  });
+  return () => {
+    for (const remove of added) remove();
+  };
+}
+
+/**
+ * The refs of messages sent from the field, by their words: the input's ↑ history keeps words
+ * alone. Two sent with the same words give back the later one's refs.
+ */
+function useRecall(editor: () => HTMLElement | null, words: () => string) {
+  const kept = useRef(new Map<string, UserPart[]>());
+  const recalling = useRef(false);
+  const reselect = useRef(false);
+  return useRef({
+    key(key: string, shift: boolean) {
+      recalling.current = key === 'ArrowUp' || key === 'ArrowDown';
+      const sends = key === 'Enter' && !shift;
+      const field = editor();
+      if (!field || !(sends || recalling.current)) return;
+      const parts = messageParts(readEditorParts(field));
+      if (parts) kept.current.set(words().trim(), parts);
+      else if (sends) kept.current.delete(words().trim());
+    },
+    released() {
+      recalling.current = false;
+    },
+    /** The refs of `text`, when an arrow key has just brought it back. */
+    recalled(text: string): UserPart[] | undefined {
+      const parts = recalling.current ? kept.current.get(text.trim()) : undefined;
+      reselect.current = Boolean(parts);
+      return parts;
+    },
+    /** Selects a recalled message again, so the next ↑ steps on as the input's own recall does. */
+    written(field: Element) {
+      if (reselect.current) selectAll(field);
+      reselect.current = false;
+    },
+  }).current;
+}
+
 export type EditorRefsArgs = RefTokenOptions & {
   /** The input's root element. */
   rootRef: RefObject<HTMLElement | null>;
@@ -193,28 +385,48 @@ export function useEditorRefs(args: EditorRefsArgs) {
   const writing = useRef(false);
   const drawnAs = useRef(args.drawn);
 
+  const editor = useCallback(() => editorIn(latest.current.rootRef.current), []);
   const { inputRef } = args;
   const handleRef = useCallback(
     (input: ChatComposerInputHandle | null) => {
       // why: An insert with the caret in a chip, as after a click on it, would nest a chip in it.
-      const node = input && outsideChips(input, () => editorIn(latest.current.rootRef.current));
+      const node = input && outsideChips(input, editor);
       handle.current = node;
       if (typeof inputRef === 'function') inputRef(node);
       else if (inputRef) inputRef.current = node;
     },
-    [inputRef],
+    [inputRef, editor],
   );
   const report = useCallback(() => {
-    const editor = editorIn(latest.current.rootRef.current);
-    if (editor && !writing.current) latest.current.onParts?.(readEditorParts(editor));
-  }, []);
+    const field = editor();
+    if (field && !writing.current) latest.current.onParts?.(readEditorParts(field));
+  }, [editor]);
+  const recall = useRecall(editor, () => handle.current?.getValue() ?? '');
   const onChange = useCallback(
     (text: string) => {
       if (writing.current) return;
       latest.current.onChange(text);
-      report();
+      const parts = recall.recalled(text);
+      if (parts) latest.current.onParts?.(parts);
+      else report();
     },
-    [report],
+    [report, recall],
+  );
+  useEffect(
+    () =>
+      listenToField({
+        editor,
+        handle: () => handle.current,
+        options: () => latest.current,
+        read: () => {
+          const text = handle.current?.getValue();
+          if (text !== undefined && text !== latest.current.value) latest.current.onChange(text);
+          report();
+        },
+        key: recall.key,
+        released: recall.released,
+      }),
+    [editor, report, recall],
   );
 
   const { value, parts, drawn } = args;
@@ -236,7 +448,8 @@ export function useEditorRefs(args: EditorRefsArgs) {
     const written = handle.current.getValue();
     if (written !== value) latest.current.onChange(written);
     report();
-  }, [value, parts, drawn, report]);
+    recall.written(editor);
+  }, [value, parts, drawn, report, recall]);
 
   return {
     handleRef,

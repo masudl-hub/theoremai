@@ -17,6 +17,7 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { sanitizeInjects } from '../../src/kernel/stages.ts';
 import { toolOperationOutcomeSchema } from '../../src/kernel/tools/operation.ts';
+import type { InjectedMessages } from '../../src/kernel/turn-events.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
 import {
   type ChatLineSink,
@@ -29,6 +30,7 @@ import {
   createMemoryConversationStore,
   createTheoremHandler,
   personMessageOf,
+  type TheoremHandlerOptions,
 } from '../../web/src/server/mod.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
@@ -319,7 +321,8 @@ registerTool({
 
 let duringTool = (): Promise<unknown> => Promise.resolve();
 
-Deno.test('a steer with refs that lands after a tool leaves the reply running', async () => {
+/** A reply that calls the lookup tool once, on a handler the test drives as a page would. */
+function lookupApp(more: Partial<TheoremHandlerOptions> = {}) {
   let calls = 0;
   const model: TurnModel = {
     complete: () =>
@@ -350,6 +353,7 @@ Deno.test('a steer with refs that lands after a tool leaves the reply running', 
       guardrails: { detect: 'ignore' },
     },
     provider: () => fixtureHostOptions(model),
+    ...more,
   });
   let cookie = '';
   const transport = createHttpTransport({
@@ -362,16 +366,43 @@ Deno.test('a steer with refs that lands after a tool leaves the reply running', 
       return response;
     },
   });
+  const injected: InjectedMessages[] = [];
+  const run = async () => {
+    let stop = '';
+    await transport.turn({ turnId: 'turn-1', input: { text: 'look' } }, (event) => {
+      if (event.type === 'stage') injected.push(...(event.injected ?? []));
+      if (event.type === 'done') stop = event.stop.kind;
+    });
+    return stop;
+  };
+  return { transport, injected, run };
+}
+
+Deno.test('a steer with refs that lands after a tool leaves the reply running', async () => {
+  const { transport, injected, run } = lookupApp();
   duringTool = () =>
     transport.steer({ turnId: 'turn-1', id: 'steer-1', input: { text: '', parts: PARTS } });
-  const landed: unknown[] = [];
-  let stop = '';
-  await transport.turn({ turnId: 'turn-1', input: { text: 'look' } }, (event) => {
-    if (event.type === 'stage') landed.push(...(event.injected ?? []).map((one) => one.userParts));
-    if (event.type === 'done') stop = event.stop.kind;
+  assertEquals(await run(), 'completed');
+  assertEquals(
+    injected.map((one) => one.userParts),
+    [PARTS],
+  );
+});
+
+Deno.test("a stage's inject with host values lands after a tool", async () => {
+  const host = { from: 'stage' };
+  const { injected, run } = lookupApp({
+    onStage: ({ stage }) =>
+      stage === 'post_tool'
+        ? { injects: [{ id: 'note-1', messages: [{ role: 'user', content: 'noted' }], host }] }
+        : undefined,
   });
-  assertEquals(landed, [PARTS]);
-  assertEquals(stop, 'completed');
+  duringTool = () => Promise.resolve();
+  assertEquals(await run(), 'completed');
+  assertEquals(
+    injected.map((one) => one.host),
+    [host],
+  );
 });
 
 Deno.test('a saved tool outcome keeps what an inject carries', () => {

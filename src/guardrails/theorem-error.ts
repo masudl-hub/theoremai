@@ -57,7 +57,10 @@ export type ErrorKind = (typeof ERROR_KINDS)[number];
 
 /** Options for a `TheoremError`: the cause and, optionally, wording for the user. */
 export interface TheoremErrorOptions extends ErrorOptions {
-  /** User wording more specific than the kind's: one line, or one per problem found. */
+  /**
+   * User wording more specific than the kind's: one line, or one per problem found. Your app's own
+   * refusal names a `reason.<name>` key and gives its words in `labels`.
+   */
   copy?: ErrorCopies;
   /** The file types the provider said it cannot read, as it named them. */
   refusedMedia?: readonly string[];

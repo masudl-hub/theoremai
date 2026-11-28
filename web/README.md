@@ -668,6 +668,18 @@ The save that `intake` calls in this example is your function. In one write, it 
 
 The handler checks the message before it calls `intake`, with the core's `checkMessage`. A message with no `id`, with content the profile does not take, or to a conversation the session cannot read is refused, and `intake` is not called.
 
+To refuse a message yourself, throw from `intake`. Name the reason, and give its words in the profile's `labels`:
+
+```ts
+throw new TheoremError('request', 'ref names a document this person cannot use', {
+  copy: { key: 'reason.not_allowed', params: { name: 'Q3' } },
+});
+
+labels: { 'reason.not_allowed': 'You cannot use {name}.' }
+```
+
+The page reads those words, on `/turn` and on `/steer`. A reason with no words reads as `request.refused`. The second argument of `TheoremError` is for your logs; the person never reads it.
+
 On `/turn`, the stream opens with a `conversation` line that has `posted` and `landsAs`. With `opened`, the reply follows on the same stream. With `saved`, the stream ends there.
 
 On `/steer`, the handler does not put the message into the running turn. The reply that holds the conversation reads the message from your inbox: in the same reply when your `prepare` takes it with `run.take`, or in a follow-up. The response is `{ ok: true, saved: { conversation, landsAs } }`. When the steer's save took the conversation, no reply was running. The handler then asks `onContinue`. For `'taken'`, your app runs the reply with `followUp`. Otherwise the handler lets the conversation go, and the page's wake runs the reply. Your `policy` must tell the message to a reply at `opening: 'wake'`.

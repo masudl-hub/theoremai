@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import type { Equals } from '../kernel/util/exact-type.ts';
 import { BOUNDARIES, type Boundary } from './boundaries.ts';
-import { LABEL_KEYS, type LabelKey } from './labels.ts';
+import { LABEL_KEYS, type LabelKey, type ReasonKey } from './labels.ts';
 import { ERROR_KINDS, type ErrorKind } from './theorem-error.ts';
 import {
   GUARDRAIL_ACTIONS,
@@ -25,11 +25,11 @@ export const errorKindSchema: z.ZodType<ErrorKind> = errorKind;
 
 /** Wording for the user more specific than its kind's: a label key and its parameters. */
 export interface ErrorCopy {
-  key: LabelKey;
+  key: LabelKey | ReasonKey;
   params?: Record<string, string | number>;
 }
 const errorCopy = z.object({
-  key: z.enum(LABEL_KEYS),
+  key: z.union([z.enum(LABEL_KEYS), z.templateLiteral(['reason.', z.string().min(1)])]),
   params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
 });
 true satisfies Equals<z.infer<typeof errorCopy>, ErrorCopy>;

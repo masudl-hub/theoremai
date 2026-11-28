@@ -7,6 +7,17 @@ import { ERROR_KINDS, type ErrorKind, TheoremError } from './theorem-error.ts';
 /** Values that fill a label template's `{param}` placeholders. */
 export type LabelParams = Record<string, string | number>;
 
+/**
+ * A reason your app names when it refuses a request, such as `reason.not_allowed`. Give its words
+ * under the same key in `labels`; a reason with none reads as `request.refused`.
+ */
+export type ReasonKey = `reason.${string}`;
+
+/** True for a key of the `reason.<name>` form. */
+export function isReasonKey(key: string): key is ReasonKey {
+  return key.startsWith('reason.') && key.length > 'reason.'.length;
+}
+
 /** Keys are stable API. */
 export const LABEL_KEYS = [
   'provider.decision_failed',
@@ -79,6 +90,7 @@ export const LABEL_KEYS = [
   'attachments.limits_unconfigured',
   'quota.exhausted',
   'quota.busy',
+  'request.refused',
   'error.config',
   'error.request',
   'error.conflict',
@@ -334,7 +346,7 @@ export const HOST_LABEL_KEYS: readonly LabelKey[] = LABEL_KEYS.filter(
 export type ClientLabelKey = (typeof CLIENT_LABEL_KEYS)[number];
 
 /** Host-supplied replacement templates, `{param}` placeholders included. */
-export type LabelOverrides = Partial<Record<LabelKey, string>>;
+export type LabelOverrides = Partial<Record<LabelKey | ReasonKey, string>>;
 
 type LabelDefault = string | ((params: LabelParams) => string);
 
@@ -492,6 +504,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
       ? "You've reached today's limit of 1 message."
       : `You've reached today's limit of ${String(params.perDay)} messages.`,
   'quota.busy': 'Sorry, your last message is still being answered. Please wait for it to finish.',
+  'request.refused': "Sorry, that couldn't be accepted.",
   'error.config': 'Sorry, something went wrong.',
   'error.request': 'Sorry, something went wrong.',
   'error.conflict': 'Sorry, something else is still in progress. Please try again shortly.',
@@ -812,6 +825,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
   'quota.busy':
     'Shown to the user who sends a message while their last one is still being answered (`quotaBusy`).',
+  'request.refused':
+    'Shown to the user when your app refuses a request with a `reason.<name>` key that has no words in `labels`.',
   ...ERROR_LABEL_NOTES,
   'repair.default_guidance':
     "Sent to the model when a validator rejects its output and the host gives no guidance of its own; also the Repair guidance setting's default.",
@@ -1157,7 +1172,7 @@ export function labelPlaceholders(key: LabelKey): readonly string[] {
   return LABEL_PLACEHOLDERS[key] ?? [];
 }
 
-const overrides = new Map<LabelKey, string>();
+const overrides = new Map<LabelKey | ReasonKey, string>();
 
 function isLabelKey(key: string): key is LabelKey {
   return (LABEL_KEYS as readonly string[]).includes(key);
@@ -1166,6 +1181,8 @@ function isLabelKey(key: string): key is LabelKey {
 /** `owner` names where the overrides came from in the error. */
 export function validateLabelOverrides(entries: LabelOverrides, owner: string): void {
   for (const [key, template] of Object.entries(entries)) {
+    // why: A reason's placeholders are whatever your own refusal passes.
+    if (isReasonKey(key)) continue;
     if (!isLabelKey(key)) {
       throw new TheoremError('config', `${owner}: unknown labels key '${key}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
@@ -1202,7 +1219,7 @@ export function validateLabelOverrides(entries: LabelOverrides, owner: string): 
 export function overrideLabels(entries: LabelOverrides): void {
   validateLabelOverrides(entries, 'overrideLabels');
   for (const [key, template] of Object.entries(entries)) {
-    if (template !== undefined) overrides.set(key as LabelKey, template);
+    if (template !== undefined) overrides.set(key as LabelKey | ReasonKey, template);
   }
 }
 
@@ -1224,7 +1241,7 @@ function substitute(template: string, params: LabelParams): string {
 
 /** The wording for a key, with a profile's override applied and the params filled in. */
 export function labelText(
-  key: LabelKey,
+  key: LabelKey | ReasonKey,
   params: LabelParams = {},
   profileLabels?: LabelOverrides,
 ): string {
@@ -1232,6 +1249,7 @@ export function labelText(
   if (overridden !== undefined) {
     return substitute(overridden, params);
   }
+  if (isReasonKey(key)) return labelText('request.refused', {}, profileLabels);
   return labelDefault(key, params);
 }
 

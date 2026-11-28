@@ -73,7 +73,7 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
       }),
       decision: z.object({ contract: id }),
       observability: z.record(z.string(), z.unknown()).optional(),
-      labels: z.record(z.string(), z.unknown()).optional(),
+      labels: z.record(z.string(), z.string()).optional(),
     }),
     questions: z
       .record(name, question)

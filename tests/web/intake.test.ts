@@ -7,6 +7,7 @@ import {
 } from '../../mod.ts';
 import { createMemoryInbox, type InboxItem } from '../../src/conversation/mod.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
+import { clientFailure } from '../../web/src/client/failure.ts';
 import {
   type ChatLine,
   createHttpTransport,
@@ -890,3 +891,34 @@ Deno.test("a page's send now stops the reply that runs elsewhere, then sends the
   assertEquals(made.runs.count, 1);
   leave();
 });
+
+const NOT_ALLOWED = () =>
+  new TheoremError('request', 'ref names an unusable document', {
+    copy: { key: 'reason.not_allowed', params: { name: 'Q3' } },
+  });
+
+for (const [titled, labels, words] of [
+  [
+    'the label the host gives its reason',
+    { 'reason.not_allowed': 'You cannot use {name}.' },
+    'You cannot use Q3.',
+  ],
+  ["the host's words for any refusal", { 'request.refused': 'Not that one.' }, 'Not that one.'],
+  ["Theorem's words when the reason has none", {}, "Sorry, that couldn't be accepted."],
+] as const) {
+  Deno.test(`a message the host refuses, sent or steered, reads as ${titled}`, async () => {
+    const { transport, run, runs } = app(
+      {},
+      { profile: { ...PROFILE, labels }, intake: () => Promise.reject(NOT_ALLOWED()) },
+    );
+    for (const send of [
+      () => run((onLine) => transport.turn({ id: 'm1', input: { text: 'hello' } }, onLine)),
+      () => transport.steer({ turnId: 't', id: 'm2', input: { text: 'x' } }),
+    ]) {
+      const refused = await assertRejects(send, TheoremStreamError);
+      assertEquals(clientFailure(refused).error, words);
+      assertEquals(refused.kind, 'request');
+    }
+    assertEquals(runs.count, 0);
+  });
+}

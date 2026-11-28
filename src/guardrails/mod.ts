@@ -122,7 +122,7 @@ export {
   patternListProblem,
 } from './host-patterns.ts';
 export { injectionSpans } from './injection.ts';
-export type { ClientLabelKey, LabelKey, LabelOverrides, LabelParams } from './labels.ts';
+export type { ClientLabelKey, LabelKey, LabelOverrides, LabelParams, ReasonKey } from './labels.ts';
 export {
   CLIENT_LABEL_KEYS,
   HOST_LABEL_KEYS,

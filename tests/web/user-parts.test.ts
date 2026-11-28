@@ -384,7 +384,10 @@ Deno.test('a saved tool outcome keeps what an inject carries', () => {
     },
   ];
   const saved = toolOperationOutcomeSchema.parse({
-    event: { type: 'tool', tool: { name: 'lookup', callId: 'call-1', phase: 'complete' } },
+    event: {
+      type: 'tool',
+      tool: { name: 'lookup', callId: 'call-1', phase: 'complete', at: 1, output: {} },
+    },
     effects: 'completed',
     replay: { pendingInject },
   });

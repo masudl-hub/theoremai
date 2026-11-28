@@ -10,6 +10,7 @@ import {
   toolOutputPartRecord,
   turnHistoryMessageSchema,
 } from '../turn-events.ts';
+import { userPartSchema } from '../user-parts.ts';
 import type { ModelToolResult, PageAnswer, ToolFailure } from './types.ts';
 
 export type TerminalToolEvent = TurnEventOf<'tool'> & {
@@ -202,6 +203,8 @@ export const toolOperationOutcomeSchema: z.ZodType<ToolOperationOutcome> = z.str
         z.strictObject({
           id: z.string().optional(),
           messages: z.array(turnHistoryMessageSchema),
+          host: jsonObjectSchema.optional(),
+          userParts: z.array(userPartSchema).optional(),
           released: z.number().int().nonnegative().optional(),
           promote: z.array(z.string().min(1)).optional(),
         }),

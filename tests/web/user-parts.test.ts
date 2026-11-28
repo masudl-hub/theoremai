@@ -1,5 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
-import type { TurnHistoryMessage, TurnInput } from '../../mod.ts';
+import { z } from 'zod';
+import type { TurnHistoryMessage, TurnInput, TurnModel } from '../../mod.ts';
+import { registerTool } from '../../mod.ts';
 import { resolveDetect } from '../../src/guardrails/detectors.ts';
 import {
   type ComposerProfileInterface,
@@ -14,6 +16,7 @@ import {
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { sanitizeInjects } from '../../src/kernel/stages.ts';
+import { toolOperationOutcomeSchema } from '../../src/kernel/tools/operation.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
 import {
   type ChatLineSink,
@@ -295,4 +298,95 @@ Deno.test('a steer landing mid-turn has its userParts redacted too', () => {
   let step = lines.next();
   while (!step.done) step = lines.next();
   assert(!JSON.stringify(step.value).includes(TAKEN));
+});
+
+registerTool({
+  type: 'function',
+  name: 'user_parts_lookup',
+  description: 'Look one up',
+  category: 'test',
+  access: 'read-only',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({}),
+  output: z.object({ found: z.boolean() }),
+  handler: async () => {
+    await duringTool();
+    return { found: true };
+  },
+});
+
+let duringTool = (): Promise<unknown> => Promise.resolve();
+
+Deno.test('a steer with refs that lands after a tool leaves the reply running', async () => {
+  let calls = 0;
+  const model: TurnModel = {
+    complete: () =>
+      (async function* () {
+        calls += 1;
+        if (calls === 1) {
+          yield {
+            type: 'tool' as const,
+            tool: { name: 'user_parts_lookup', arguments: {}, callId: 'call-1' },
+          };
+          yield { type: 'done' as const, stop: { kind: 'tool' as const } };
+          return;
+        }
+        yield { type: 'text' as const, text: 'ok' };
+        yield { type: 'done' as const, stop: { kind: 'completed' as const } };
+      })(),
+  };
+  const handler = createTheoremHandler({
+    operationRetentionMs: TEST_OPERATION_RETENTION_MS,
+    conversationStore: createMemoryConversationStore(),
+    profile: {
+      type: 'text',
+      id: 'user-parts-steer',
+      identity: { handle: 'helper', system: 'You reply.' },
+      models: { stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' } },
+      tools: { allow: ['user_parts_lookup'] },
+      inputs: { text: true },
+      guardrails: { detect: 'ignore' },
+    },
+    provider: () => fixtureHostOptions(model),
+  });
+  let cookie = '';
+  const transport = createHttpTransport({
+    endpoint: 'http://host.test/api/theorem',
+    fetch: async (url, init) => {
+      const headers = new Headers(init?.headers);
+      if (cookie) headers.set('cookie', cookie);
+      const response = await handler(new Request(url, { ...init, headers }));
+      cookie = response.headers.get('set-cookie')?.split(';')[0] ?? cookie;
+      return response;
+    },
+  });
+  duringTool = () =>
+    transport.steer({ turnId: 'turn-1', id: 'steer-1', input: { text: '', parts: PARTS } });
+  const landed: unknown[] = [];
+  let stop = '';
+  await transport.turn({ turnId: 'turn-1', input: { text: 'look' } }, (event) => {
+    if (event.type === 'stage') landed.push(...(event.injected ?? []).map((one) => one.userParts));
+    if (event.type === 'done') stop = event.stop.kind;
+  });
+  assertEquals(landed, [PARTS]);
+  assertEquals(stop, 'completed');
+});
+
+Deno.test('a saved tool outcome keeps what an inject carries', () => {
+  const pendingInject = [
+    {
+      id: 's',
+      messages: [{ role: 'user' as const, content: TEXT }],
+      host: { from: 'ask' },
+      userParts: PARTS,
+    },
+  ];
+  const saved = toolOperationOutcomeSchema.parse({
+    event: { type: 'tool', tool: { name: 'lookup', callId: 'call-1', phase: 'complete' } },
+    effects: 'completed',
+    replay: { pendingInject },
+  });
+  assertEquals(saved.replay.pendingInject, pendingInject);
 });

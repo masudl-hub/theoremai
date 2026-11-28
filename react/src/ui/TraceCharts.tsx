@@ -63,9 +63,6 @@ const TOKEN_FILL: Readonly<Record<(typeof TOKEN_KEYS)[number], TraceFill>> = {
   output: 'shade1',
 };
 
-const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
-const percent = new Intl.NumberFormat(undefined, { style: 'percent' });
-
 function numberAt(node: TraceNode, key: string): number | undefined {
   const value = node.span.attributes[key];
   return typeof value === 'number' ? value : undefined;
@@ -142,8 +139,8 @@ function ShareBar({
 }
 
 /** A share as a legend reads it; a sliver too thin to round up still says it is there. */
-function shareText(share: number): string {
-  return share > 0 && share < 0.01 ? `<${percent.format(0.01)}` : percent.format(share);
+function shareText(share: number, percent: (share: number) => string): string {
+  return share > 0 && share < 0.01 ? `<${percent(0.01)}` : percent(share);
 }
 
 function sumOf(split: TraceTimeSplit): number {
@@ -159,7 +156,7 @@ function SplitLegend({ split, total }: { split: TraceTimeSplit; total: number })
       items={SPLIT_KEYS.filter((key) => split[key] > 0).map((key) => ({
         fill: SPLIT_FILL[key],
         label: t(`@theorem.panel.trace.time.${key}`),
-        value: [format.duration(split[key]), shareText(split[key] / total)].join(
+        value: [format.duration(split[key]), shareText(split[key] / total, format.percent)].join(
           t('@theorem.panel.trace.separator'),
         ),
       }))}
@@ -182,7 +179,7 @@ function TimeCard({ split }: { split: TraceTimeSplit }) {
       note={
         split.model > 0
           ? t('@theorem.panel.trace.charts.modelShare', {
-              share: percent.format(split.model / total),
+              share: format.percent(split.model / total),
             })
           : undefined
       }
@@ -314,7 +311,7 @@ function TokensCard({ title, rows }: { title: string; rows: readonly TokenRow[] 
       value={format.number(total)}
       {...(sums.cached > 0 && {
         note: t('@theorem.panel.trace.charts.cachedShare', {
-          share: percent.format(sums.cached / input),
+          share: format.percent(sums.cached / input),
         }),
       })}
     >
@@ -328,7 +325,7 @@ function TokensCard({ title, rows }: { title: string; rows: readonly TokenRow[] 
         items={TOKEN_KEYS.filter((key) => sums[key] > 0).map((key) => ({
           fill: TOKEN_FILL[key],
           label: t(`@theorem.panel.trace.charts.${labels[key]}`),
-          value: compact.format(sums[key]),
+          value: format.compact(sums[key]),
         }))}
       />
     </ChartCard>
@@ -460,7 +457,7 @@ function TurnTimeCard({ rows, isCalls }: { rows: readonly TurnTimeRow[]; isCalls
       note={
         sums.model > 0
           ? t('@theorem.panel.trace.charts.modelShare', {
-              share: percent.format(sums.model / total),
+              share: format.percent(sums.model / total),
             })
           : undefined
       }

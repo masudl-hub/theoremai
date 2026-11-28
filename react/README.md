@@ -702,6 +702,22 @@ Use `labels` to replace any message, for each locale:
   - a key is not in `@theorem.*` or `@astryx.*`
 - Labels are shown as text. They are never shown as HTML.
 
+Two messages word names that come from your code or your data. Use ICU `select` to replace some of them:
+
+```tsx
+labels={{
+  en: {
+    '@theorem.tool.name': '{tool, select, search_web {web search} other {{words}}}',
+    '@theorem.data.field': '{field, select, due_at {Deadline} other {{words}}}',
+  },
+}}
+```
+
+- `@theorem.tool.name` words a tool where it has no activity label. `{words}` is the name in words.
+- `@theorem.data.field` words a key of a value that has no schema `title`.
+- In a `select` case, write `_` for each character of the name that is not a letter, a digit, or `_`. A tool named `search-web` is the case `search_web`.
+- The sign-in card says why it asks with `@theorem.gate.auth.detail`. It does not show the challenge's `message`, which is for your logs.
+
 ## More documentation
 
 - [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md): the requests and events between the browser and the server, and the checks on each side.

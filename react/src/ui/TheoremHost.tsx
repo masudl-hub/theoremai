@@ -41,7 +41,13 @@ import {
   ResponseColumn,
   RunBar,
 } from './ConsoleFrame.tsx';
-import { type LabelText, liveDuration, type TheoremLabels, workDuration } from './labels.ts';
+import {
+  type LabelText,
+  liveDuration,
+  type TheoremLabels,
+  toolNameLabel,
+  workDuration,
+} from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { IconMcp } from './mcp-icon.tsx';
 import type { MediaViewer } from './media-viewer.tsx';
@@ -177,7 +183,9 @@ function callActivity(
   label: string;
   duration: string | null;
 } {
-  const label = call.call ? toolCallLabel(call.call) : call.name;
+  const label = call.call
+    ? toolCallLabel(call.call, (name) => toolNameLabel(t, name))
+    : toolNameLabel(t, call.name, call.name);
   const duration = call.isRunning
     ? liveDuration(t, now - call.startedAt)
     : call.elapsedMs == null

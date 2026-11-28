@@ -15,6 +15,7 @@ import type { ToolDecisionAction } from '@theoremjs/web/client';
 import { humanize, isOAuthComplete } from '@theoremjs/web/client';
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { approvalHeading } from './approval-heading.ts';
+import { toolNameLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 
 export type ToolDecision = ToolDecisionAction;
@@ -155,7 +156,9 @@ function AuthChallengeDetails({ challenge }: { challenge: AuthChallenge }) {
   const t = useLabels();
   return (
     <>
-      <Text color="secondary">{challenge.message}</Text>
+      <Text color="secondary">
+        {t('@theorem.gate.auth.detail', { service: challenge.service })}
+      </Text>
       {challenge.resource ? (
         <Text type="supporting" color="secondary">
           {t('@theorem.gate.auth.resource', { resource: challenge.resource })}
@@ -220,7 +223,9 @@ function AuthChallengeBody({
 
   return (
     <GateCard
-      heading={t('@theorem.gate.auth.title', { tool: humanize(toolName).toLowerCase() })}
+      heading={t('@theorem.gate.auth.title', {
+        tool: toolNameLabel(t, toolName, humanize(toolName).toLowerCase()),
+      })}
       tag={
         <Text type="supporting" textWrap="nowrap">
           {t(`@theorem.gate.tag.${authType}`)}

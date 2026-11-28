@@ -406,15 +406,27 @@ export function assistantTurnTiming(args: {
   return startedAt === undefined ? { key, live } : { key, live, startedAt };
 }
 
-export function toolCallLabel(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): string {
+export function toolCallLabel(
+  tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool'],
+  nameOf: (name: string) => string = humanize,
+): string {
+  return activityOf(tool) ?? nameOf(tool.name);
+}
+
+function activityOf(tool: Extract<TranscriptBlock, { kind: 'tool' }>['tool']): string | undefined {
   const phase = tool.state?.phase;
-  if (phase === 'cancel') return humanize(tool.name);
+  if (phase === 'cancel') return undefined;
   const settled = phase === 'complete' || phase === 'error';
-  return (settled ? tool.activityPast : tool.activity) ?? humanize(tool.name);
+  return settled ? tool.activityPast : tool.activity;
 }
 
 /** A tool call still running in the background, as the composer's pill row shows it. */
-export type BackgroundJob = { callId: string; label: string };
+export type BackgroundJob = {
+  callId: string;
+  label: string;
+  /** The tool's name, when no activity label words the call, so `label` is that name in words. */
+  unlabelledTool?: string;
+};
 
 /**
  * The calls still running in the background, oldest first: each tool call whose last phase is
@@ -430,7 +442,11 @@ export function backgroundJobs(blocks: readonly TranscriptBlock[]): BackgroundJo
     if (block.kind !== 'tool' || block.tool.state?.phase !== 'background') continue;
     const { operationId } = block.tool;
     if (operationId && landed.has(operationId)) continue;
-    jobs.push({ callId: block.tool.callId, label: toolCallLabel(block.tool) });
+    jobs.push({
+      callId: block.tool.callId,
+      label: toolCallLabel(block.tool),
+      ...(activityOf(block.tool) === undefined ? { unlabelledTool: block.tool.name } : {}),
+    });
   }
   return jobs;
 }

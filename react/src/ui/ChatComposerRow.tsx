@@ -21,7 +21,7 @@ import {
 } from 'react';
 import type { BackgroundJob } from '../client/transcript-groups.ts';
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
-import { liveDuration } from './labels.ts';
+import { liveDuration, toolNameLabel } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 
 /**
@@ -225,7 +225,11 @@ function PillRow(
         className="theorem-composer-pill"
         data-pill="background"
         style={PILL}
-        label={job.label}
+        label={
+          job.unlabelledTool === undefined
+            ? job.label
+            : toolNameLabel(t, job.unlabelledTool, job.label)
+        }
         description={t('@theorem.composer.pill.background')}
         icon={
           props.icons?.backgroundJob ?? (

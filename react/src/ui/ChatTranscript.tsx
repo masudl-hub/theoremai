@@ -64,7 +64,13 @@ import {
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
 import { type TurnClock, useTurnClock } from '../hooks/use-turn-clock.ts';
 import { useDisclosureMotion } from './disclosure-motion.ts';
-import { type LabelText, usageLine, workDuration, workStatusLabel } from './labels.ts';
+import {
+  type LabelText,
+  toolNameLabel,
+  usageLine,
+  workDuration,
+  workStatusLabel,
+} from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { useMarkdownPlugins } from './markdown-plugins.tsx';
 import { type MediaViewerItem, useMediaViewer } from './media-viewer.tsx';
@@ -957,7 +963,7 @@ function toolCallItem(
   tool: ToolBlock['tool'],
   shows: ToolRowShows,
 ): ChatToolCallItem {
-  const base = { key: id, name: toolCallLabel(tool) };
+  const base = { key: id, name: toolCallLabel(tool, (name) => toolNameLabel(t, name)) };
   const { state } = tool;
   switch (state?.phase) {
     case 'error':

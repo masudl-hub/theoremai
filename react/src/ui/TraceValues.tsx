@@ -57,6 +57,10 @@ export function attributeSections(
 export interface TraceFormat {
   t: LabelText;
   number(value: number): string;
+  /** A count shortened, as `1.2K`. */
+  compact(value: number): string;
+  /** A share of one as a percentage. */
+  percent(share: number): string;
   usd(value: number): string;
   duration(ms: number): string;
   list(items: readonly string[]): string;
@@ -75,9 +79,16 @@ export function useTraceFormat(): TraceFormat {
       maximumFractionDigits: 6,
     });
     const list = new Intl.ListFormat(locale, { type: 'conjunction' });
+    const compact = new Intl.NumberFormat(locale, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    });
+    const percent = new Intl.NumberFormat(locale, { style: 'percent' });
     return {
       t,
       number: (value) => number.format(value),
+      compact: (value) => compact.format(value),
+      percent: (share) => percent.format(share),
       usd: (value) => usd.format(value),
       duration: (ms) => workDuration(t, ms),
       list: (items) => list.format(items),

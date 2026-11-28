@@ -14,11 +14,12 @@ import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconPlus, IconX } from '@tabler/icons-react';
 import type { DecisionJson } from '@theoremjs/agents';
-import { humanize, isPlain } from '@theoremjs/web/client';
+import { isPlain } from '@theoremjs/web/client';
 import { createContext, useContext, useId, useState } from 'react';
 import { type DecisionImages, IMAGE_ACCEPT, imageSrc } from '../client/decision-images.ts';
 import { blankLike, isWordList, tableColumns } from '../client/state-fields.ts';
 import { useImageReader } from './DecisionImages.tsx';
+import { fieldNameLabel } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { useMediaViewer } from './media-viewer.tsx';
 import { useKeyedRows } from './row-keys.ts';
@@ -210,12 +211,13 @@ export function RemoveRow({ index, onRemove }: { index: number; onRemove: () => 
 }
 
 function ObjectFields({ value, onChange }: Edit<{ [key: string]: DecisionJson }>) {
+  const t = useLabels();
   return (
     <VStack gap={3}>
       {Object.entries(value).map(([key, entry]) => (
         <Field
           key={key}
-          label={humanize(key)}
+          label={fieldNameLabel(t, key)}
           value={entry}
           onChange={(next) => onChange({ ...value, [key]: next })}
         />
@@ -266,7 +268,7 @@ function ListField({ value, onChange, label }: Edit<DecisionJson[]> & { label: s
         <div style={grid} aria-hidden>
           {columns.map((column) => (
             <Text key={column.key} type="supporting" color="secondary" maxLines={1}>
-              {humanize(column.key)}
+              {fieldNameLabel(t, column.key)}
             </Text>
           ))}
           <span style={{ width: 28 }} />
@@ -278,7 +280,7 @@ function ListField({ value, onChange, label }: Edit<DecisionJson[]> & { label: s
               {columns.map((column) => (
                 <PlainField
                   key={column.key}
-                  label={`${humanize(column.key)} ${String(index + 1)}`}
+                  label={`${fieldNameLabel(t, column.key)} ${String(index + 1)}`}
                   isLabelHidden
                   value={row[column.key] ?? null}
                   onChange={(next) =>

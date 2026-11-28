@@ -426,6 +426,23 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.gate.tag.bearer': { defaultMessage: 'bearer', description: 'Credential type tag.' },
   '@theorem.gate.tag.api_key': { defaultMessage: 'api_key', description: 'Credential type tag.' },
   '@theorem.gate.tag.oauth2': { defaultMessage: 'oauth2', description: 'Credential type tag.' },
+  '@theorem.tool.name': {
+    defaultMessage: '{words}',
+    description:
+      "A tool's name where no activity label of its own says it. {tool} is the tool's name with each character other than a letter, digit, or _ written as _, for `select`; {words} is that name in words.",
+    params: ['tool', 'words'],
+  },
+  '@theorem.data.field': {
+    defaultMessage: '{words}',
+    description:
+      'A field of a value drawn from its keys, with no schema title. {field} is the key with each character other than a letter, digit, or _ written as _, for `select`; {words} is the key in words.',
+    params: ['field', 'words'],
+  },
+  '@theorem.gate.auth.detail': {
+    defaultMessage: 'This needs your {service} account.',
+    description: 'Why the credential card asks. {service} is the service the tool signs in to.',
+    params: ['service'],
+  },
   '@theorem.gate.auth.title': {
     defaultMessage: 'Sign in to use {tool}',
     description: "Credential card heading. {tool} is the tool's name in words.",
@@ -1482,6 +1499,21 @@ export type TheoremLabelOverrides = { readonly [K in TheoremLabelKey]?: string }
 /** Replacements by locale (`en`, `en-GB`, `de`, …), as Astryx's `overrides`. */
 export type TheoremLabels = { readonly [locale: string]: TheoremLabelOverrides | undefined };
 
+// why: An ICU `select` case cannot hold punctuation such as `-` or `.`.
+function selectorOf(name: string): string {
+  return name.replace(/[^\p{L}\p{N}_]/gu, '_');
+}
+
+/** A tool's name as the person reads it: `@theorem.tool.name`, else `words`. */
+export function toolNameLabel(t: LabelText, tool: string, words = humanize(tool)): string {
+  return t('@theorem.tool.name', { tool: selectorOf(tool), words });
+}
+
+/** A data key as a field's name: `@theorem.data.field`, else the key in words. */
+export function fieldNameLabel(t: LabelText, field: string): string {
+  return t('@theorem.data.field', { field: selectorOf(field), words: humanize(field) });
+}
+
 /** A single kind is just its word ("queued"); a mix spells out each count ("2 queued · 1 attached"). */
 export function composerDrawerLabel(t: LabelText, summary: ComposerDrawerSummary): string {
   const [only] = summary.parts;
@@ -1576,7 +1608,9 @@ export function liveStateLabel(
   if (state === 'calling_tool') {
     return (
       tool?.activity ??
-      t('@theorem.live.state.calling_tool', { tool: humanize(tool?.name ?? '').toLowerCase() })
+      t('@theorem.live.state.calling_tool', {
+        tool: toolNameLabel(t, tool?.name ?? '', humanize(tool?.name ?? '').toLowerCase()),
+      })
     );
   }
   return t(`@theorem.live.state.${state}`);

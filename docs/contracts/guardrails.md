@@ -700,7 +700,8 @@ not `error.network`, which names the model provider.
 An app words its own refusal, such as one from a save of a person's message, with a reason key.
 Throw `new TheoremError('request', detail, { copy: { key: 'reason.<name>', params } })` and give the
 words in `labels` under the same key. The `{name}` placeholders of a reason are the `params` the
-throw passes. A reason with no words reads as the `request.refused` label.
+throw passes, and a placeholder the throw gives no value for shows as written. A reason with no words
+reads as the `request.refused` label.
 
 Producers emit `toErrorEvent(err)` — a `ProducedError`, `{ type: 'error',
 errorKind, errorCopy?, errorInternal, refusedMedia? }` with the raw detail always set and no

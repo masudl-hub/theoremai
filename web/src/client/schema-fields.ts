@@ -6,7 +6,9 @@
  * @module
  */
 
-import { humanize, isRow } from './shaped-data.ts';
+import { humanize, isRow, type KeyNamer } from './shaped-data.ts';
+
+const asWorded: KeyNamer = (_, words) => words;
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -131,7 +133,7 @@ function titleOf(prop: JsonSchema): string | undefined {
 const isDistinct = (values: readonly unknown[]) => new Set(values).size === values.length;
 
 /** Shapes told apart by a property each holds a different constant in. */
-function taggedBranches(options: JsonSchema[]): SchemaBranch[] | undefined {
+function taggedBranches(options: JsonSchema[], nameOf: KeyNamer): SchemaBranch[] | undefined {
   const shapes = options.map((option) => option.properties as Record<string, unknown>);
   for (const key of Object.keys(shapes[0] ?? {})) {
     const tags = shapes.map((shape) => constOf(shape[key]));
@@ -144,7 +146,7 @@ function taggedBranches(options: JsonSchema[]): SchemaBranch[] | undefined {
         ? { required: option.required.filter((name) => name !== key) }
         : {};
       return {
-        label: titleOf(option) ?? humanize(String(is)),
+        label: titleOf(option) ?? nameOf(String(is), humanize(String(is))),
         key,
         is,
         body: { ...option, properties: rest, ...required },
@@ -156,25 +158,25 @@ function taggedBranches(options: JsonSchema[]): SchemaBranch[] | undefined {
 }
 
 /** Shapes that each hold one key of their own: the key says which. */
-function keyedBranches(options: JsonSchema[]): SchemaBranch[] | undefined {
+function keyedBranches(options: JsonSchema[], nameOf: KeyNamer): SchemaBranch[] | undefined {
   const branches = options.map((option): SchemaBranch | undefined => {
     const entries = Object.entries(option.properties as Record<string, unknown>);
     const [entry] = entries;
     if (entries.length !== 1 || !entry || !isRow(entry[1])) return undefined;
     const [key, body] = entry;
-    return { label: titleOf(option) ?? humanize(key), key, body };
+    return { label: titleOf(option) ?? nameOf(key, humanize(key)), key, body };
   });
   if (!branches.every((branch) => branch !== undefined)) return undefined;
   return isDistinct(branches.map((branch) => branch.key)) ? branches : undefined;
 }
 
 /** The shapes of a field of several objects, when its value shows which one it is in. */
-function branchesOf(prop: JsonSchema): SchemaBranch[] | undefined {
+function branchesOf(prop: JsonSchema, nameOf = asWorded): SchemaBranch[] | undefined {
   const options = optionsOf(prop);
   if (!options || options.length < 2 || !options.every((option) => isRow(option.properties))) {
     return undefined;
   }
-  return taggedBranches(options) ?? keyedBranches(options);
+  return taggedBranches(options, nameOf) ?? keyedBranches(options, nameOf);
 }
 
 /** The shape `value` is in, if it is in one. */
@@ -203,13 +205,15 @@ export function inBranch(branch: SchemaBranch, body: unknown): Record<string, un
 }
 
 /** A shape's body as a field of its own, labelled as the shape. */
-export function branchField(branch: SchemaBranch): SchemaField {
+export function branchField(branch: SchemaBranch, nameOf = asWorded): SchemaField {
   return {
     key: branch.key,
     label: branch.label,
     isRequired: true,
     control:
-      branch.is === undefined ? schemaControl(branch.body) : { kind: 'group', schema: branch.body },
+      branch.is === undefined
+        ? schemaControl(branch.body, nameOf)
+        : { kind: 'group', schema: branch.body },
   };
 }
 
@@ -264,11 +268,11 @@ function listControl(prop: JsonSchema): SchemaControl {
 }
 
 /** The input a field's schema asks for. */
-export function schemaControl(field: JsonSchema): SchemaControl {
+export function schemaControl(field: JsonSchema, nameOf = asWorded): SchemaControl {
   const prop = withoutNull(field).schema;
   const options = enumOf(prop);
   if (options) return { kind: 'choice', options, isMenu: options.length > MAX_SEGMENTS };
-  const branches = branchesOf(prop);
+  const branches = branchesOf(prop, nameOf);
   if (branches) return { kind: 'branches', branches, isMenu: branches.length > MAX_SEGMENTS };
   switch (kindOf(prop)) {
     case 'boolean':
@@ -297,7 +301,7 @@ function requiredOf(schema: JsonSchema): Set<string> {
 }
 
 /** An object schema's fields in the order it declares them, each with its input. */
-export function schemaFields(schema: JsonSchema): SchemaField[] {
+export function schemaFields(schema: JsonSchema, nameOf = asWorded): SchemaField[] {
   const props = isRow(schema.properties) ? schema.properties : {};
   const required = requiredOf(schema);
   return Object.entries(props).flatMap(([key, prop]) => {
@@ -305,13 +309,14 @@ export function schemaFields(schema: JsonSchema): SchemaField[] {
     return [
       {
         key,
-        label: typeof prop.title === 'string' && prop.title ? prop.title : humanize(key),
+        label:
+          typeof prop.title === 'string' && prop.title ? prop.title : nameOf(key, humanize(key)),
         ...(typeof prop.description === 'string' && prop.description
           ? { description: prop.description }
           : {}),
         isRequired: required.has(key),
         ...(withoutNull(prop).isNullable ? { isNullable: true as const } : {}),
-        control: schemaControl(prop),
+        control: schemaControl(prop, nameOf),
       },
     ];
   });
@@ -385,30 +390,37 @@ export function withField(
 }
 
 /** The labels of required fields the request is still missing, nested ones by their path. */
-export function missingFields(schema: JsonSchema, value: unknown, prefix = ''): string[] {
-  const branches = branchesOf(schema);
+export function missingFields(
+  schema: JsonSchema,
+  value: unknown,
+  prefix = '',
+  nameOf = asWorded,
+): string[] {
+  const branches = branchesOf(schema, nameOf);
   if (branches) {
     const branch = chosenBranch(branches, value);
     if (!branch) return [];
     // why: A keyed shape's one key is the field a top-level request lacks when it is empty.
     const label = prefix || (branch.is === undefined ? branch.label : '');
-    return missingIn(branchField(branch), branchValue(branch, value), label);
+    return missingIn(branchField(branch, nameOf), branchValue(branch, value), label, nameOf);
   }
   if (!isRow(value)) return [];
-  return schemaFields(schema).flatMap((field) =>
-    missingIn(field, value[field.key], prefix ? `${prefix} › ${field.label}` : field.label),
+  return schemaFields(schema, nameOf).flatMap((field) =>
+    missingIn(field, value[field.key], prefix ? `${prefix} › ${field.label}` : field.label, nameOf),
   );
 }
 
 /** What `entry`, the value of `field`, still lacks: the field itself, or what its shape needs. */
-function missingIn(field: SchemaField, entry: unknown, label: string): string[] {
+function missingIn(field: SchemaField, entry: unknown, label: string, nameOf: KeyNamer): string[] {
   if (entry === null && field.isNullable) return [];
   if (entry === undefined || entry === null || entry === '') return field.isRequired ? [label] : [];
   const { control } = field;
-  if (control.kind === 'group') return missingFields(control.schema, entry, label);
+  if (control.kind === 'group') return missingFields(control.schema, entry, label, nameOf);
   if (control.kind === 'branches') {
     const branch = chosenBranch(control.branches, entry);
-    return branch ? missingIn(branchField(branch), branchValue(branch, entry), label) : [label];
+    return branch
+      ? missingIn(branchField(branch, nameOf), branchValue(branch, entry), label, nameOf)
+      : [label];
   }
   return [];
 }

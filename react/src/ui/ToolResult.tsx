@@ -16,6 +16,7 @@ import { lazy, Suspense, useMemo, useState } from 'react';
 import { Arrive } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
 import { ReferencedMedia } from './ChatTranscript.tsx';
+import { keyNamer } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { PageMediaViewer } from './media-viewer.tsx';
 import { keyedByContent } from './row-keys.ts';
@@ -125,7 +126,7 @@ function ResultLead({
  */
 export function ToolResult({ output, parts }: { output: unknown; parts?: readonly ResultMedia[] }) {
   const t = useLabels();
-  const layout = useMemo(() => layoutResult(output), [output]);
+  const layout = useMemo(() => layoutResult(output, keyNamer(t)), [output, t]);
   // why: A figure's card is its reading: the fields below don't repeat it.
   const ledKeys = useMemo(() => layout.figures.map((figure) => figure.key), [layout]);
   return (

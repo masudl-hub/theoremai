@@ -155,6 +155,11 @@ export function humanize(key: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** Words a data key for the person; `words` is the key as Theorem would say it. */
+export type KeyNamer = (key: string, words: string) => string;
+
+const asWorded: KeyNamer = (_, words) => words;
+
 /** A unit worth printing: a symbol or abbreviation, not a format name like `iso8601` or `wmo code`. */
 export function printableUnit(unit: unknown): string | undefined {
   if (typeof unit !== 'string' || unit === '' || /\s/.test(unit) || unit === 'iso8601')
@@ -185,17 +190,21 @@ const SUFFIX_UNITS: Record<string, string> = {
 };
 
 /** The unit a key's suffix names, and the key without it: `distance_m` → Distance, m. */
-function suffixUnit(key: string): { label: string; unit: string } | undefined {
+function suffixUnit(key: string, nameOf: KeyNamer): { label: string; unit: string } | undefined {
   const match = /^(.+?)[_-]([a-z]+)$/i.exec(key);
   const unit = match ? SUFFIX_UNITS[(match[2] ?? '').toLowerCase()] : undefined;
-  return match?.[1] && unit ? { label: humanize(match[1]), unit } : undefined;
+  return match?.[1] && unit ? { label: nameOf(key, humanize(match[1])), unit } : undefined;
 }
 
 /** A column's label and unit: from its `<key>_units` entry, else its key's suffix. */
-export function fieldLabel(key: string, units?: Row): { label: string; unit?: string } {
+export function fieldLabel(
+  key: string,
+  units?: Row,
+  nameOf = asWorded,
+): { label: string; unit?: string } {
   const listed = printableUnit(units?.[key]);
-  if (listed) return { label: humanize(key), unit: listed };
-  return suffixUnit(key) ?? { label: humanize(key) };
+  if (listed) return { label: nameOf(key, humanize(key)), unit: listed };
+  return suffixUnit(key, nameOf) ?? { label: nameOf(key, humanize(key)) };
 }
 
 /** A field's label and the unit its value reads with. A unit only reads onto a number: `country_code` stays "Country code". */
@@ -203,9 +212,10 @@ export function fieldReading(
   key: string,
   value: unknown,
   units?: Row,
+  nameOf = asWorded,
 ): { label: string; unit?: string } {
-  if (typeof value !== 'number') return { label: humanize(key) };
-  return fieldLabel(key, units);
+  if (typeof value !== 'number') return { label: nameOf(key, humanize(key)) };
+  return fieldLabel(key, units, nameOf);
 }
 
 /** The `<key>_units` object beside `key`, if there is one. */
@@ -413,7 +423,7 @@ function isInline(value: unknown): boolean {
 /** A nested field, through any chain of one-key wrappers: `{ data: { items: [] } }` → "Data › Items". */
 export type Section = { key: string; title: string; value: unknown; units?: Row };
 
-function section(row: Row, key: string): Section {
+function section(row: Row, key: string, nameOf: KeyNamer): Section {
   const path = [key];
   let inner = unpacked(row[key]);
   let units = unitsOf(row, key);
@@ -426,14 +436,20 @@ function section(row: Row, key: string): Section {
     units = unitsOf(inner, only[0]);
     inner = unpacked(only[1]);
   }
-  return { key, title: path.map(humanize).join(' › '), value: inner, units };
+  const title = path.map((part) => nameOf(part, humanize(part))).join(' › ');
+  return { key, title, value: inner, units };
 }
 
 /** An object's fields split: plain ones for the field list, nested ones as sections. */
-export function splitFields(row: Row): { plain: [string, unknown][]; sections: Section[] } {
+export function splitFields(
+  row: Row,
+  nameOf = asWorded,
+): { plain: [string, unknown][]; sections: Section[] } {
   const entries = shownEntries(row);
   return {
     plain: entries.filter(([, value]) => isInline(value)),
-    sections: entries.filter(([, value]) => !isInline(value)).map(([key]) => section(row, key)),
+    sections: entries
+      .filter(([, value]) => !isInline(value))
+      .map(([key]) => section(row, key, nameOf)),
   };
 }

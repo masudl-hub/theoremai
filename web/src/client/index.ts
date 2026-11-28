@@ -157,6 +157,7 @@ export {
   isProse,
   isRow,
   json,
+  type KeyNamer,
   type ListRow,
   layoutChars,
   MAX_ROWS,

@@ -38,6 +38,7 @@ import {
 } from '@theoremjs/web/client';
 import { Component, type CSSProperties, type ReactNode, useMemo, useState } from 'react';
 import { Arrive, useArrive } from './arrive.tsx';
+import { keyNamer } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { useMarkdownPlugins } from './markdown-plugins.tsx';
 import { type MediaViewerItem, useMediaViewer } from './media-viewer.tsx';
@@ -163,8 +164,9 @@ function DataTable({
   rows: readonly Row[];
   units?: Row;
 }) {
+  const nameOf = keyNamer(useLabels());
   const tableColumns: TableColumn<TableRow>[] = columns.map((key, index) => {
-    const { label, unit } = fieldLabel(key, units);
+    const { label, unit } = fieldLabel(key, units, nameOf);
     return {
       key: `c${String(index)}`,
       header: unit ? `${label} (${unit})` : label,
@@ -188,11 +190,12 @@ function DataTable({
 
 /** A list row's extra fields and tags, at its end. */
 function ListRowEnd({ row }: { row: ListRow }) {
+  const nameOf = keyNamer(useLabels());
   if (row.tags.length + row.extras.length === 0) return undefined;
   return (
     <HStack gap={2} vAlign="center">
       {row.extras.map(([key, value]) => {
-        const { label, unit } = fieldReading(key, value);
+        const { label, unit } = fieldReading(key, value, undefined, nameOf);
         return (
           <Text key={key} type="supporting" color="secondary">
             {label} <Plain value={value} unit={unit} />
@@ -349,11 +352,12 @@ function ArrivingFieldSection({ shown, depth }: { shown: Section; depth: number 
 }
 
 function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row }) {
-  const { plain, sections } = splitFields(row);
+  const nameOf = keyNamer(useLabels());
+  const { plain, sections } = splitFields(row, nameOf);
   const fields = plain.length > 0 && (
     <MetadataList label={{ position: 'start', width: '40%' }}>
       {plain.map(([key, value]) => {
-        const { label, unit } = fieldReading(key, value, units);
+        const { label, unit } = fieldReading(key, value, units, nameOf);
         return (
           <MetadataListItem key={key} label={label}>
             {Array.isArray(unpacked(value)) ? (

@@ -92,11 +92,14 @@ function app(
     marks = 'marks told',
     stop,
     elsewhere,
+    refuses,
   }: {
     marks?: 'marks told' | 'never marks told';
     stop?: HoldStop;
     /** The reply the app's records say runs elsewhere, as its store's read returns it. */
     elsewhere?: { running?: RunningReply };
+    /** What the app refuses a message with, when it does. */
+    refuses?: () => TheoremError | undefined;
   } = {},
 ) {
   const runs = { count: 0 };
@@ -136,6 +139,8 @@ function app(
       ...(stop ? { stop } : {}),
     }),
     intake: async (at, sent): Promise<MessageIntake> => {
+      const refusal = refuses?.();
+      if (refusal) throw refusal;
       intakes.push(sent.id);
       if (ref === undefined) {
         const made = await store.write(at.sessionId, null, null, emptyConversation());
@@ -922,3 +927,39 @@ for (const [titled, labels, words] of [
     assertEquals(runs.count, 0);
   });
 }
+
+Deno.test("a page shows the host's words for a message it refuses, sent or steered mid-reply", async () => {
+  const { script, free } = gate();
+  const labels = { 'reason.not_allowed': 'You cannot use {name}.' };
+  let refuse = true;
+  const { transport, runs } = app(
+    script,
+    { profile: { ...PROFILE, labels } },
+    { refuses: () => (refuse ? NOT_ALLOWED() : undefined) },
+  );
+  const iface = await transport.describe();
+  assert(iface.type === 'text');
+  const chat = createChatController({ iface: { ...iface, allowSteering: true }, transport });
+  const leave = chat.subscribe(() => {});
+  chat.setDraftText('first');
+  await chat.submit();
+  assertEquals(chat.getState().failure?.error, 'You cannot use Q3.');
+  assertEquals(chat.getState().draftText, 'first', 'the refused message stays to edit');
+
+  refuse = false;
+  chat.setDraftText('second');
+  const sent = chat.submit();
+  await waitFor(() => runs.count === 1);
+  refuse = true;
+  chat.setDraftText('third');
+  await chat.enqueue('steer');
+  assertEquals(chat.getState().failure?.error, 'You cannot use Q3.');
+  free();
+  await sent;
+  // The refused steer is sent once the reply ends, refused again, and returned to the composer.
+  await waitFor(() => chat.getState().draftText === 'third');
+  assertEquals(chat.getState().failure?.error, 'You cannot use Q3.');
+  assertEquals(chat.getState().pendingMessages, []);
+  assertEquals(runs.count, 1);
+  leave();
+});

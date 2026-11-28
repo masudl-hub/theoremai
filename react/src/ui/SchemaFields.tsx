@@ -32,6 +32,7 @@ import {
   withField,
 } from '@theoremjs/web/client';
 import { type CSSProperties, type ReactNode, useState } from 'react';
+import { keyNamer } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { useKeyedRows } from './row-keys.ts';
 import { AddRow, Group, Labelled, RemoveRow, type Edit as StateEdit } from './StateFields.tsx';
@@ -272,6 +273,7 @@ function BranchFields({
   value,
   onChange,
 }: Edit & { label: string; branches: SchemaBranch[]; isMenu: boolean }) {
+  const nameOf = keyNamer(useLabels());
   const chosen = chosenBranch(branches, value);
   const pick = (next: string) => {
     const branch = branches.find((each) => each.label === next);
@@ -287,7 +289,7 @@ function BranchFields({
     />
   );
   if (!chosen) return picker;
-  const body = branchField(chosen);
+  const body = branchField(chosen, nameOf);
   const edit = (next: unknown) => onChange(inBranch(chosen, next));
   const current = branchValue(chosen, value);
   return (
@@ -485,9 +487,10 @@ function ObjectFields({
   value,
   onChange,
 }: Edit<Record<string, unknown>> & { schema: JsonSchema }) {
+  const nameOf = keyNamer(useLabels());
   return (
     <Grid columns={{ minWidth: SHORT_FIELD_PX, repeat: 'fill' }} gap={3}>
-      {schemaFields(schema).map((field) => (
+      {schemaFields(schema, nameOf).map((field) => (
         // why: Short fields start level: label, then input, then what the field is for.
         <div
           key={field.key}
@@ -519,7 +522,7 @@ export function SchemaFields({
   onChange,
 }: StateEdit<Record<string, unknown>> & { schema: JsonSchema }) {
   const t = useLabels();
-  const control = schemaControl(schema);
+  const control = schemaControl(schema, keyNamer(t));
   if (control.kind === 'branches') {
     return (
       <BranchFields

@@ -42,6 +42,7 @@ import {
   RunBar,
 } from './ConsoleFrame.tsx';
 import {
+  keyNamer,
   type LabelText,
   liveDuration,
   type TheoremLabels,
@@ -135,7 +136,7 @@ function checkRequest(t: LabelText, tool: HostToolView, text: string): RequestCh
     return { ok: false, note: t('@theorem.decision.invalid_json') };
   }
   if (!isRow(input)) return { ok: false, note: t('@theorem.decision.invalid_json') };
-  const missing = missingFields(tool.inputSchema, input);
+  const missing = missingFields(tool.inputSchema, input, '', keyNamer(t));
   if (missing.length > 0)
     return { ok: false, note: t('@theorem.host.missing', { fields: missing.join(', ') }), input };
   return { ok: true, input };

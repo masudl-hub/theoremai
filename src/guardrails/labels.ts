@@ -14,7 +14,7 @@ export type LabelParams = Record<string, string | number>;
 export type ReasonKey = `reason.${string}`;
 
 /** True for a key of the `reason.<name>` form. */
-export function isReasonKey(key: string): key is ReasonKey {
+function isReasonKey(key: string): key is ReasonKey {
   return key.startsWith('reason.') && key.length > 'reason.'.length;
 }
 

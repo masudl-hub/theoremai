@@ -28,7 +28,7 @@ import {
 } from './ConsoleFrame.tsx';
 import { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 import { ImageDrop } from './DecisionImages.tsx';
-import type { LabelText } from './labels.ts';
+import { keyNamer, type LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { SchemaFields } from './SchemaFields.tsx';
@@ -131,7 +131,8 @@ function useBuildInput(schema: JsonSchema | undefined) {
   const [input, setInput] = useState<Record<string, unknown>>(() =>
     schema ? sampleFromSchema(schema) : {},
   );
-  const missing = schema ? missingFields(schema, input) : [];
+  const t = useLabels();
+  const missing = schema ? missingFields(schema, input, '', keyNamer(t)) : [];
   return { schema, input, setInput, missing };
 }
 

@@ -1509,9 +1509,14 @@ export function toolNameLabel(t: LabelText, tool: string, words = humanize(tool)
   return t('@theorem.tool.name', { tool: selectorOf(tool), words });
 }
 
-/** A data key as a field's name: `@theorem.data.field`, else the key in words. */
-export function fieldNameLabel(t: LabelText, field: string): string {
-  return t('@theorem.data.field', { field: selectorOf(field), words: humanize(field) });
+/** Names the data keys the client words, through `@theorem.data.field`. */
+export function keyNamer(t: LabelText): (key: string, words: string) => string {
+  return (key, words) => fieldNameLabel(t, key, words);
+}
+
+/** A data key as a field's name: `@theorem.data.field`, else `words`. */
+export function fieldNameLabel(t: LabelText, field: string, words = humanize(field)): string {
+  return t('@theorem.data.field', { field: selectorOf(field), words });
 }
 
 /** A single kind is just its word ("queued"); a mix spells out each count ("2 queued · 1 attached"). */

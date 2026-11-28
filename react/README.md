@@ -714,7 +714,7 @@ labels={{
 ```
 
 - `@theorem.tool.name` words a tool where it has no activity label. `{words}` is the name in words.
-- `@theorem.data.field` words a key of a value that has no schema `title`.
+- `@theorem.data.field` words a key of a value that has no schema `title`: in tool results, data views, request forms, and the list of missing fields.
 - In a `select` case, write `_` for each character of the name that is not a letter, a digit, or `_`. A tool named `search-web` is the case `search_web`.
 - The sign-in card says why it asks with `@theorem.gate.auth.detail`. It does not show the challenge's `message`, which is for your logs.
 

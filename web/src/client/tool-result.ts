@@ -19,6 +19,7 @@ import {
   ISO_DATE,
   isPlain,
   isRow,
+  type KeyNamer,
   printableUnit,
   type Row,
   shownEntries,
@@ -83,26 +84,29 @@ function isMeasure(key: string): boolean {
 }
 
 /** A code-like key (`USD`, `EUR`) keeps its case; others read as words. */
-function keyLabel(key: string): string {
-  return /^[A-Z][A-Z0-9]{1,5}$/.test(key) ? key : humanize(key);
+const CODE_KEY = /^[A-Z][A-Z0-9]{1,5}$/;
+
+function keyLabel(key: string, nameOf: KeyNamer): string {
+  return nameOf(key, CODE_KEY.test(key) ? key : humanize(key));
 }
 
 /** A field's reading, unless its units say it's a code (`wmo code`, `iso8601`, a flag with no unit). */
 function measured(
   key: string,
   units: Row | undefined,
+  nameOf: KeyNamer,
 ): { label: string; unit?: string } | undefined {
   if (!isMeasure(key)) return undefined;
   if (units && key in units && printableUnit(units[key]) === undefined) return undefined;
-  const { label, unit } = fieldLabel(key, units);
-  return { label: keyLabel(key) === key ? key : label, unit };
+  const { label, unit } = fieldLabel(key, units, nameOf);
+  return { label: CODE_KEY.test(key) ? keyLabel(key, nameOf) : label, unit };
 }
 
-function figuresOf(row: Row, units: Row | undefined): ResultFigure[] {
+function figuresOf(row: Row, units: Row | undefined, nameOf: KeyNamer): ResultFigure[] {
   const figures: ResultFigure[] = [];
   for (const [key, value] of shownEntries(row)) {
     if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-    const reading = measured(key, units);
+    const reading = measured(key, units, nameOf);
     if (reading) figures.push({ key, value, ...reading });
   }
   // why: Numbers with a unit say more at a glance: they lead.
@@ -117,17 +121,17 @@ function figuresOf(row: Row, units: Row | undefined): ResultFigure[] {
  * value's own top-level numbers. Beside a nested reading, top-level numbers
  * are usually the request echoed back.
  */
-function leadFigures(value: unknown): ResultFigure[] {
+function leadFigures(value: unknown, nameOf: KeyNamer): ResultFigure[] {
   if (!isRow(value)) return [];
   for (const [key, entry] of shownEntries(value)) {
     const inner = unpacked(entry);
     if (!isRow(inner) || columnStore(inner)) continue;
     const plain = Object.values(inner);
     if (plain.length === 0 || !plain.every(isPlain)) continue;
-    const figures = figuresOf(inner, unitsOf(value, key));
+    const figures = figuresOf(inner, unitsOf(value, key), nameOf);
     if (figures.length > 0) return figures;
   }
-  return figuresOf(value, undefined);
+  return figuresOf(value, undefined, nameOf);
 }
 
 function distinct(rows: readonly Row[], key: string): number {
@@ -135,7 +139,12 @@ function distinct(rows: readonly Row[], key: string): number {
 }
 
 /** Fields every row holds as a number, that measure something and vary. */
-function numericSeries(rows: readonly Row[], skip: string, units: Row | undefined): ResultSeries[] {
+function numericSeries(
+  rows: readonly Row[],
+  skip: string,
+  units: Row | undefined,
+  nameOf: KeyNamer,
+): ResultSeries[] {
   const keys = [...new Set(rows.flatMap((row) => Object.keys(row)))].filter(
     (key) =>
       key !== skip &&
@@ -143,7 +152,7 @@ function numericSeries(rows: readonly Row[], skip: string, units: Row | undefine
       distinct(rows, key) > 1,
   );
   return keys.flatMap((key) => {
-    const reading = measured(key, units);
+    const reading = measured(key, units, nameOf);
     return reading ? [{ key, ...reading }] : [];
   });
 }
@@ -186,9 +195,10 @@ function timeCharts(
   rows: Row[],
   x: string,
   units: Row | undefined,
+  nameOf: KeyNamer,
 ): ResultChart[] {
   const byUnit = new Map<string, ResultSeries[]>();
-  for (const series of numericSeries(rows, x, units)) {
+  for (const series of numericSeries(rows, x, units, nameOf)) {
     const group = byUnit.get(series.unit ?? '') ?? [];
     group.push(series);
     byUnit.set(series.unit ?? '', group);
@@ -237,10 +247,11 @@ function categoryCharts(
   title: string,
   rows: Row[],
   units: Row | undefined,
+  nameOf: KeyNamer,
 ): ResultChart[] {
   const label = labelKey(rows);
   if (!label) return [];
-  return numericSeries(rows, label, units)
+  return numericSeries(rows, label, units, nameOf)
     .sort((a, b) => distinct(rows, b.key) - distinct(rows, a.key))
     .map((series) => ({
       kind: 'category',
@@ -260,10 +271,13 @@ function rowsCharts(
   title: string,
   rows: Row[],
   units: Row | undefined,
+  nameOf: KeyNamer,
 ): ResultChart[] {
   if (rows.length < MIN_POINTS) return [];
   const x = dateKey(rows);
-  return x ? timeCharts(path, title, rows, x, units) : categoryCharts(path, title, rows, units);
+  return x
+    ? timeCharts(path, title, rows, x, units, nameOf)
+    : categoryCharts(path, title, rows, units, nameOf);
 }
 
 /** Charts anywhere in the value, to MAX_SEARCH_DEPTH: lists of rows, column stores, and objects of numbers. */
@@ -273,19 +287,23 @@ function chartsIn(
   title: string,
   units: Row | undefined,
   depth: number,
+  nameOf: KeyNamer,
 ): ResultChart[] {
   if (depth > MAX_SEARCH_DEPTH) return [];
   if (Array.isArray(value)) {
     const rows = value.map(unpacked);
-    return rows.every(isRow) ? rowsCharts(path, title, rows, units) : [];
+    return rows.every(isRow) ? rowsCharts(path, title, rows, units, nameOf) : [];
   }
   if (!isRow(value)) return [];
   const store = columnStore(value);
-  if (store) return rowsCharts(path, title, storeRows(value, store), units);
+  if (store) return rowsCharts(path, title, storeRows(value, store), units, nameOf);
   const entries = shownEntries(value);
   const numbers = entries.filter(([key, entry]) => typeof entry === 'number' && isMeasure(key));
   if (depth > 0 && numbers.length >= MIN_POINTS && numbers.length === entries.length) {
-    const rows = numbers.map(([key, entry]) => ({ label: keyLabel(key), value: entry as number }));
+    const rows = numbers.map(([key, entry]) => ({
+      label: keyLabel(key, nameOf),
+      value: entry as number,
+    }));
     return [
       {
         kind: 'category',
@@ -300,19 +318,23 @@ function chartsIn(
     chartsIn(
       unpacked(entry),
       path ? `${path}.${key}` : key,
-      depth === 0 ? humanize(key) : `${title} › ${humanize(key)}`,
+      depth === 0 ? nameOf(key, humanize(key)) : `${title} › ${nameOf(key, humanize(key))}`,
       unitsOf(value, key),
       depth + 1,
+      nameOf,
     ),
   );
 }
 
 /** What a tool's output leads with. Empty when nothing stands out: the data alone reads best. */
-export function layoutResult(output: unknown): ResultLayout {
+export function layoutResult(
+  output: unknown,
+  nameOf: KeyNamer = (_, words) => words,
+): ResultLayout {
   const value = unpacked(output);
   return {
-    figures: leadFigures(value),
-    charts: chartsIn(value, '', '', undefined, 0).slice(0, MAX_CHARTS),
+    figures: leadFigures(value, nameOf),
+    charts: chartsIn(value, '', '', undefined, 0, nameOf).slice(0, MAX_CHARTS),
   };
 }
 

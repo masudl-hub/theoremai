@@ -362,3 +362,27 @@ Deno.test('↑ steps back through sent messages, each with its chips', async () 
   assertEquals(refsOf(drawn.draft.parts), [REF]);
   await drawn.close();
 });
+
+for (const [starts, ref] of [
+  ['words', false],
+  ['a ref', true],
+] as const) {
+  Deno.test(`a paste that starts with ${starts} replaces what is selected`, async () => {
+    const drawn = await bar();
+    if (ref) {
+      await act(() => {
+        drawn.inputRef.current?.insertToken(refToken(REF));
+      });
+    } else await compare(drawn, REF);
+    const data = clipboard();
+    const all = () => select(field(), 0, field(), field().childNodes.length);
+    await act(all);
+    await act(() => clip('copy', data));
+    await act(all);
+    await act(() => clip('paste', data));
+    assertEquals(drawn.chips(), 1);
+    assertEquals(refsOf(drawn.draft.parts), [REF]);
+    assertEquals(drawn.words()?.trim(), ref ? 'doc-7' : 'Compare doc-7');
+    await drawn.close();
+  });
+}

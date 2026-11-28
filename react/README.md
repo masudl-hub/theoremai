@@ -266,7 +266,7 @@ Your own input must keep the markup of Astryx's tokens (`data-astryx-token`) and
 Limits:
 
 - A call sends a typed line as text. Its refs reach the model as that text.
-- The up arrow brings back the messages that the field itself keeps: those you send with Enter. If two have the same words, both show the later one's refs.
+- The up arrow brings back the messages that the field itself keeps: those you send with Enter. It matches them by their words: if two have the same words, both come back with the later one's refs.
 - A paste in another tab or another app is plain text.
 
 ### Tool media

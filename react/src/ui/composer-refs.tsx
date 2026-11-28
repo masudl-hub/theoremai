@@ -228,7 +228,8 @@ function copyChips(editor: HTMLElement, event: ClipboardEvent, refText: RefText 
   const range = wholeChips(editor);
   const parts = range && readEditorParts(editor, range);
   if (!range || !parts || !event.clipboardData) return;
-  clipped = { key: crypto.randomUUID(), parts };
+  // why: Not `randomUUID`, which a page served over plain HTTP lacks.
+  clipped = { key: `${Date.now()}-${Math.random()}`, parts };
   event.clipboardData.setData('text/plain', textOfParts(parts, refText));
   event.clipboardData.setData(CLIP, clipped.key);
   event.preventDefault();
@@ -312,7 +313,7 @@ function listenToField(field: ComposerEvents): () => void {
     ],
     ['keyup', () => field.released()],
   ];
-  const page = document;
+  const page = field.editor()?.ownerDocument ?? document;
   const added = heard.map(([type, act]) => {
     const listener = (event: Event) => {
       const editor = field.editor();
